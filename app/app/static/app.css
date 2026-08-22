@@ -109,3 +109,65 @@
 #upload-submit.skkkk-action-btn {
   min-height: 2.5rem;
 }
+
+.project-list-item {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
+.project-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.project-list-title {
+  color: var(--bs-body-color);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.project-list-title:hover {
+  color: var(--bs-primary);
+}
+
+.project-desc-chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: #6c757d;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.project-desc-chevron:hover {
+  color: var(--bs-body-color);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.project-desc-chevron:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+
+.project-desc-chevron-icon {
+  display: block;
+  transition: transform 0.15s ease;
+}
+
+.project-desc-chevron[aria-expanded="true"] .project-desc-chevron-icon {
+  transform: rotate(180deg);
+}
+
+.project-desc-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

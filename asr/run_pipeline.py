@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.app.services.docker_runtime import ensure_asr_containers
 from app.app.services.ffmpeg_tools import resolve_ffmpeg_tool
 from app.app.services.media_cleanup import maybe_discard_video_source
 
@@ -102,6 +103,9 @@ def ffprobe_duration(path: Path) -> float:
 
 
 def extract_wav(src: Path, dst: Path, sample_rate: int) -> None:
+    if src.resolve() == dst.resolve():
+        log(f"audio_prep skip: source already {dst.name}")
+        return
     ffmpeg = resolve_ffmpeg_tool("ffmpeg")
     dst.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -177,11 +181,7 @@ def wait_http(url: str, timeout: int = 180, *, label: str = "") -> None:
 def _restart_asr_containers() -> None:
     """Перезапуск контейнеров: сброс зависшей транскрипции Whisper и чистый GPU."""
     log("перезапуск ASR-контейнеров (whisper, gigaam, tone)")
-    subprocess.run(
-        ["docker", "restart", "skkkk-whisper", "skkkk-gigaam", "skkkk-tone"],
-        check=False,
-        timeout=180,
-    )
+    ensure_asr_containers(restart=True)
     # Whisper грузит large-v3 ~30–60 с; /health надёжнее /v1/models при cold start.
     wait_http(f"{WHISPER}/health", timeout=300, label="whisper")
     wait_http(f"{GIGAAM}/health", timeout=300, label="gigaam")

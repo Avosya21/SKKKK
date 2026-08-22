@@ -62,3 +62,21 @@ def try_resume_transcript(settings: Settings, artifact: Artifact) -> str | None:
 def artifact_has_asr_workspace(settings: Settings, artifact: Artifact) -> bool:
     ws = artifact_root(settings, artifact.project_id, artifact.artifact_id)
     return (ws / "asr" / "pipeline_checklist.json").is_file()
+
+
+def should_continue_asr(settings: Settings, artifact: Artifact) -> bool:
+    """Продолжить прерванный ASR (audio_prep уже ok, merge ещё нет)."""
+    ws = artifact_root(settings, artifact.project_id, artifact.artifact_id)
+    checklist = ws / "asr" / "pipeline_checklist.json"
+    if not checklist.is_file():
+        return False
+    try:
+        data = json.loads(checklist.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    steps = data.get("steps") or {}
+    if steps.get("audio_prep", {}).get("status") != "ok":
+        return False
+    if _merge_step_ok(checklist):
+        return False
+    return True

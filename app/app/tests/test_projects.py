@@ -108,3 +108,14 @@ def test_project_name_with_path_chars_is_sanitized(client, manager_token):
 def test_list_projects_visible_to_all_roles(client, admin_token, user_token):
     assert client.get("/projects", headers={"Authorization": f"Bearer {admin_token}"}).status_code == 200
     assert client.get("/projects", headers={"Authorization": f"Bearer {user_token}"}).status_code == 200
+
+
+def test_list_projects_returns_description(client, manager_token):
+    client.post(
+        "/projects",
+        json={"name": "WithDesc", "description": "Кратко о проекте"},
+        headers={"Authorization": f"Bearer {manager_token}"},
+    )
+    rows = client.get("/projects", headers={"Authorization": f"Bearer {manager_token}"}).json()
+    match = next(p for p in rows if p["name"] == "WithDesc")
+    assert match["description"] == "Кратко о проекте"

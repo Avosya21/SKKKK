@@ -39,7 +39,9 @@ DEFAULT_WAV = ROOT / "asr/work/input_16k.wav"
 
 
 def wait_gigaam() -> None:
-    subprocess.run(["docker", "start", "skkkk-gigaam"], check=False)
+    from app.app.services.docker_runtime import ensure_container
+
+    ensure_container("skkkk-gigaam")
     deadline = time.time() + 180
     while time.time() < deadline:
         try:

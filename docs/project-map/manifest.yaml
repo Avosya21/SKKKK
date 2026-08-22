@@ -52,6 +52,18 @@ nodes:
     title: Audio ASR subprocess orchestration, view, match, summary
     tags: [pipeline, audio]
 
+  - id: svc_docker_runtime
+    kind: service
+    path: app/app/services/docker_runtime.py
+    title: Auto-start Docker Desktop and ASR containers before audio jobs
+    tags: [pipeline, docker, asr]
+
+  - id: svc_ollama_runtime
+    kind: service
+    path: app/app/services/ollama_runtime.py
+    title: Auto-start Ollama before embeddings and indexing
+    tags: [pipeline, ollama, index]
+
   - id: svc_pipeline_knowledge
     kind: service
     path: app/app/services/pipeline_knowledge.py
@@ -370,6 +382,7 @@ edges:
   - {from: svc_pipeline_audio, to: asr_run_pipeline, relation: subprocess}
   - {from: svc_pipeline_audio, to: svc_media_cleanup, relation: discard_video_after_asr}
   - {from: asr_run_pipeline, to: svc_media_cleanup, relation: discard_video_after_audio_prep}
+  - {from: asr_run_pipeline, to: svc_docker_runtime, relation: ensure_asr_containers}
   - {from: asr_run_pipeline, to: docker_whisper, relation: http}
   - {from: asr_run_pipeline, to: docker_tone, relation: http}
   - {from: asr_run_pipeline, to: docker_gigaam, relation: http}
@@ -383,8 +396,11 @@ edges:
   - {from: asr_build_transcript_view, to: file_speakers_json, relation: writes}
   - {from: asr_build_transcript_view, to: file_match_json, relation: reads}
   - {from: svc_pipeline_audio, to: asr_match_speakers, relation: subprocess}
+  - {from: asr_match_speakers, to: svc_docker_runtime, relation: ensure_container}
   - {from: asr_match_speakers, to: docker_gigaam, relation: docker_exec_embed}
   - {from: svc_pipeline_audio, to: asr_voice_audit, relation: subprocess}
+  - {from: svc_indexing, to: svc_ollama_runtime, relation: ensure_ollama}
+  - {from: svc_ollama_runtime, to: svc_indexing, relation: before_embed}
   - {from: svc_pipeline_knowledge, to: svc_entities, relation: calls}
   - {from: svc_entities, to: svc_llm, relation: calls}
   - {from: svc_entities, to: prompt_entities, relation: reads}

@@ -20,7 +20,9 @@ GIGAAM = "http://127.0.0.1:18102"
 
 
 def main() -> int:
-    subprocess.run(["docker", "start", "skkkk-gigaam"], check=False)
+    from app.app.services.docker_runtime import ensure_container
+
+    ensure_container("skkkk-gigaam")
     deadline = time.time() + 180
     while time.time() < deadline:
         try:

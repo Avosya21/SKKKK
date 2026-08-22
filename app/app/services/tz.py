@@ -20,6 +20,26 @@ logger = logging.getLogger("skkkk.tz")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "rebuild_tz.md"
 MAP_CHUNK_CHARS = 6000
+_ART_ID_IN_PARENS = re.compile(r"\((art_\d{4}-\d{2}-\d{2}_\d{6}_[a-f0-9]+)\)", re.IGNORECASE)
+
+
+def _artifact_filename_map(db: Session, project_id: int) -> dict[str, str]:
+    rows = db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all()
+    return {a.artifact_id: a.original_filename for a in rows}
+
+
+def _humanize_artifact_refs(text: str, id_to_name: dict[str, str]) -> str:
+    """Заменить (art_…) на (имя файла) в готовой выжимке."""
+
+    def repl(match: re.Match[str]) -> str:
+        name = id_to_name.get(match.group(1))
+        return f"({name})" if name else match.group(0)
+
+    return _ART_ID_IN_PARENS.sub(repl, text)
+
+
+def _source_label(art: Artifact, detail: str) -> str:
+    return f"{art.original_filename} ({detail})"
 
 
 def tz_paths(settings: Settings, project_id: int) -> tuple[Path, Path]:
@@ -128,13 +148,13 @@ def _collect_project_material(db: Session, settings: Settings, project_id: int) 
             for c in chunks:
                 prefix = f"[{c.speaker}] " if c.speaker else ""
                 lines.append(f"{prefix}{c.text.strip()}")
-            label = (
-                f"{art.artifact_id} — {art.original_filename} "
-                f"(индекс, {len(chunks)} чанков, вес {art.priority_weight})"
+            label = _source_label(
+                art,
+                f"индекс, {len(chunks)} чанков, вес {art.priority_weight}",
             )
             parts.append((label, "\n\n".join(lines)))
         elif art.transcription_text and art.transcription_text.strip():
-            label = f"{art.artifact_id} — {art.original_filename} (текст, без индекса, вес {art.priority_weight})"
+            label = _source_label(art, f"текст, без индекса, вес {art.priority_weight}")
             parts.append((label, art.transcription_text.strip()))
 
         if art.file_type == "audio":
@@ -142,7 +162,7 @@ def _collect_project_material(db: Session, settings: Settings, project_id: int) 
             if summary_path.is_file():
                 summary = summary_path.read_text(encoding="utf-8").strip()
                 if summary:
-                    parts.append((f"{art.artifact_id} — выжимка созвона", summary))
+                    parts.append((_source_label(art, "выжимка созвона"), summary))
 
     entities = db.scalars(
         select(Entity)
@@ -259,6 +279,7 @@ def rebuild_tz(db: Session, settings: Settings, project_id: int, *, manual: bool
     from app.app.services.plain_text import clean_summary_output
 
     body = clean_summary_output(body)
+    body = _humanize_artifact_refs(body, _artifact_filename_map(db, project_id))
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     if current.is_file() and prev.strip():
         archive = versions / f"current_tz_{stamp}.md"

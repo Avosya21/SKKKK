@@ -38,11 +38,60 @@ async function loadProjects() {
     return;
   }
   for (const p of rows) {
-    const a = document.createElement('a');
-    a.className = 'list-group-item list-group-item-action';
-    a.href = `/projects/${p.id}`;
-    a.textContent = p.name;
-    list.appendChild(a);
+    const item = document.createElement('div');
+    item.className = 'list-group-item project-list-item';
+
+    const desc = (p.description || '').trim();
+    const title = document.createElement('a');
+    title.className = 'project-list-title text-decoration-none fw-semibold';
+    title.href = `/projects/${p.id}`;
+    title.textContent = p.name;
+
+    if (desc) {
+      const collapseId = `project-desc-${p.id}`;
+      const header = document.createElement('div');
+      header.className = 'project-list-header';
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'project-desc-chevron';
+      toggle.setAttribute('data-bs-toggle', 'collapse');
+      toggle.setAttribute('data-bs-target', `#${collapseId}`);
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-controls', collapseId);
+      toggle.setAttribute('aria-label', 'Показать описание');
+      toggle.innerHTML =
+        '<svg class="project-desc-chevron-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<path fill="currentColor" d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/>' +
+        '</svg>';
+
+      header.appendChild(title);
+      header.appendChild(toggle);
+      item.appendChild(header);
+
+      const panel = document.createElement('div');
+      panel.id = collapseId;
+      panel.className = 'collapse mt-2';
+      const descText = document.createElement('p');
+      descText.className = 'text-muted small mb-0 project-desc-text';
+      descText.textContent = desc;
+      panel.appendChild(descText);
+
+      panel.addEventListener('show.bs.collapse', () => {
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-label', 'Скрыть описание');
+      });
+      panel.addEventListener('hide.bs.collapse', () => {
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-label', 'Показать описание');
+      });
+
+      item.appendChild(panel);
+    } else {
+      item.appendChild(title);
+    }
+
+    list.appendChild(item);
   }
 }
 document.getElementById('btn-new-project').onclick = () => modal.show();

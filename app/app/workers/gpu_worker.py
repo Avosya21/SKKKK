@@ -19,8 +19,14 @@ def _wait_dependencies(settings, timeout_sec: int = 300) -> None:
     import httpx
 
     from app.app.llm_settings import uses_local_gemma
+    from app.app.services.ollama_runtime import ensure_ollama
 
     need_lm = uses_local_gemma(settings.llm_provider)
+    try:
+        ensure_ollama(settings, timeout=min(timeout_sec, 120))
+    except RuntimeError as exc:
+        logger.warning("Ollama auto-start failed: %s", exc)
+
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         ok_lm = True if not need_lm else False

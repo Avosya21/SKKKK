@@ -122,6 +122,7 @@ flowchart TB
 upload → job queued
   → preprocessing (FFmpeg 16kHz WAV)
   → asr_running: run_pipeline.py
+      ├── ensure Docker Desktop + ASR-контейнеры (автозапуск)
       ├── parallel: Whisper + T-one + GigaAM (3 Docker)
       ├── sortformer diarization
       ├── merge_ensemble.py (окна 120–180с, LLM склейка)
@@ -133,7 +134,7 @@ upload → job queued
   → voice_turn_audit.py (опционально правит текст)
   → transcript_ready → finalize → parsed/*_final.txt
   → knowledge pipeline (worker):
-      entities (LLM) → index (Ollama) → call_summary (LLM) → graph → done
+      entities (LLM) → index (Ollama, автозапуск) → call_summary (LLM) → graph → done
 ```
 
 ### 4.2. Документы / изображения
@@ -190,6 +191,7 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | **Создать** | `POST /projects` | FastAPI | admin, manager | Проект + `data/projects/{id}/` tree |
 | **Отмена** | — | UI | — | Закрыть модалку |
 | Клик по проекту | — | navigate | любая | `/projects/{id}` |
+| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый текст `description` под названием (если задан при создании) |
 | Авто-загрузка | `GET /projects` | FastAPI | auth | Список активных проектов |
 
 ### 5.4. Страница проекта — `/projects/{id}` (`project.html`)
@@ -432,6 +434,7 @@ data/projects/{project_id}/
 | `normalize.py` / `image_extract.py` / `tesseract_tools.py` | document text |
 | `ffmpeg_tools.py` | audio prep |
 | `ollama_client.py` | bge-m3 embeddings |
+| `ollama_runtime.py` | автозапуск Ollama перед embed/index |
 | `notify.py` | Telegram stub |
 | `plain_text.py` | clean LLM outputs |
 

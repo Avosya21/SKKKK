@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.app.config import Settings
+from app.app.services.ollama_runtime import ensure_ollama
 
 logger = logging.getLogger("skkkk.ollama")
 EMBED_DIM = 1024
@@ -14,6 +15,7 @@ EMBED_DIM = 1024
 def embed_texts(settings: Settings, texts: list[str], *, timeout: float = 120) -> list[list[float]]:
     if not texts:
         return []
+    ensure_ollama(settings)
     url = f"{settings.ollama_base_url.rstrip('/')}/api/embed"
     body: dict[str, Any] = {
         "model": settings.ollama_embed_model,
@@ -34,6 +36,7 @@ def embed_texts(settings: Settings, texts: list[str], *, timeout: float = 120) -
 
 
 def ollama_tags(settings: Settings, timeout: float = 5) -> list[str]:
+    ensure_ollama(settings, timeout=max(timeout, 30))
     url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
     with httpx.Client(timeout=timeout) as client:
         r = client.get(url)

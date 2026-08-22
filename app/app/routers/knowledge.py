@@ -306,9 +306,13 @@ def get_tz(
     if not current.is_file():
         return {"content": "", "path": str(current)}
     from app.app.services.plain_text import clean_summary_output
+    from app.app.services.tz import _artifact_filename_map, _humanize_artifact_refs
 
+    raw = current.read_text(encoding="utf-8")
+    body = clean_summary_output(raw)
+    body = _humanize_artifact_refs(body, _artifact_filename_map(db, project_id))
     return {
-        "content": clean_summary_output(current.read_text(encoding="utf-8")),
+        "content": body,
         "path": str(current),
     }
 

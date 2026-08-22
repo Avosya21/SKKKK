@@ -17,6 +17,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import AsrRun
 from app.app.services.artifact_audio import finalize_audio_outputs
 from app.app.services.media_cleanup import maybe_discard_video_source, reconcile_artifact_source_path
+from app.app.services.pipeline_resume import should_continue_asr
 from app.app.services.notify import send_telegram
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_audio_path, artifact_audio_url, ensure_artifact_workspace
@@ -228,6 +229,9 @@ def process_audio_artifact(db: Session, settings: Settings, artifact: Artifact) 
         set_status(db, artifact, st)
 
     cmd = [sys.executable, str(ROOT / "asr" / "run_pipeline.py"), "--source", str(src)]
+    if should_continue_asr(settings, artifact):
+        cmd.append("--continue")
+        log_event(logger, "asr.continue", artifact=artifact.artifact_id)
     log_event(
         logger,
         "asr.start",
