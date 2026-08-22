@@ -1,0 +1,13 @@
+---
+description: Соглашения Python для app/
+globs: app/**/*.py
+alwaysApply: false
+---
+
+# Python
+
+- Асинхронные роутеры FastAPI; блокирующие ASR/LLM не вызывать из request-handler — только enqueue в `jobs`.
+- Пути: `pathlib.Path`, без смешения `/` и `\` вручную.
+- Промпты не хардкодить в длинных строках сервиса — читать из `docs/prompts/`.
+- Статусы артефакта — только из списка в `docs/PLAN.md`.
+- Ошибку одного ASR логировать явно (whisper|tone|gigaam); не глотать exception пустым `except`.

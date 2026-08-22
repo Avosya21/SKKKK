@@ -1,0 +1,40 @@
+---
+description: Карта проекта SKKKK — читать и обновлять вместе с кодом
+alwaysApply: true
+---
+
+# Карта проекта
+
+Перед нетривиальной работой читай **`docs/PROJECT-MAP.md`** — §5 полная карта UI-кнопок; §7/§8 модули и пайплайны.
+
+Семантический поиск по карте (как NotebookLM по репозиторию):
+
+```powershell
+py scripts/search_project_map.py "ваш вопрос"
+```
+
+Граф зависимостей (машиночитаемый): **`docs/project-map/manifest.yaml`**.
+
+## Когда обновлять карту
+
+Обновляй **вместе с кодом**, не откладывая:
+
+- новый модуль, роутер, скрипт, промпт, статус артефакта, Docker-сервис;
+- новая кнопка UI / API endpoint;
+- изменение конвейера (ASR → merge → knowledge).
+
+Минимум: правка **`docs/PROJECT-MAP.md`** (§7/§8/§5) + node/edge в **`manifest.yaml`**.
+
+После архитектурных изменений:
+
+```powershell
+py scripts/index_project_map.py
+```
+
+## Приоритет источников
+
+1. `docs/PROJECT-MAP.md` + `manifest.yaml`
+2. `docs/PLAN.md`, `docs/DECISIONS.md`, текущий `docs/stages/STAGE-*.md`
+3. Код и `py scripts/search_project_map.py`
+
+Не дублируй карту в других местах — одна точка истины.

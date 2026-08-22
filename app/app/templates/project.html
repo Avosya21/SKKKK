@@ -1,0 +1,1490 @@
+{% extends "base.html" %}
+{% block nav_project %}
+<span class="navbar-divider" aria-hidden="true"></span>
+<span class="navbar-brand navbar-project mb-0 py-1">#{{ project_id }} — «{{ project_name }}»</span>
+{% endblock %}
+{% block nav_actions %}
+<a class="btn btn-sm btn-outline-light navbar-back" href="/">к проектам</a>
+{% endblock %}
+{% block content %}
+<p class="text-muted mb-3 mb-md-4 project-page-lead">Здесь собраны загрузка артефактов, общая выжимка проекта, отчеты по файлам и чат по материалам проекта.</p>
+
+<style>
+  .project-kpis {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.25rem;
+    flex: 0 0 auto;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .project-kpi {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.28rem;
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    background: #f8f9fa;
+    white-space: nowrap;
+    line-height: 1.2;
+  }
+  .project-kpi .value {
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+  .project-kpi .label {
+    font-size: 0.7rem;
+    color: #6c757d;
+  }
+  @media (max-width: 575.98px) {
+    .project-kpi {
+      padding: 0.12rem 0.35rem;
+      gap: 0.2rem;
+    }
+    .project-kpi .value { font-size: 0.85rem; }
+    .project-kpi .label { font-size: 0.65rem; }
+  }
+  #tz-content {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  #tz-content h3 { font-size: 1.05rem; }
+  #tz-content h4 { font-size: 0.95rem; }
+  #tz-content h5 { font-size: 0.9rem; }
+  #tz-content table { font-size: 0.85rem; }
+  #tz-content h3, #tz-content h4, #tz-content h5,
+  #chat-log h3, #chat-log h4, #chat-log h5 {
+    line-height: 1.3;
+  }
+  #tz-content table, #chat-log table {
+    background: #fff;
+  }
+  .chat-message {
+    border-left: 4px solid transparent;
+  }
+  .chat-message-user {
+    border-left-color: #0d6efd;
+  }
+  .chat-message-ai {
+    border-left-color: #198754;
+  }
+  .insights-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .insights-card > .card-body,
+  .insights-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .chat-card .card-body,
+  .chat-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #chat-log {
+    flex: 1 1 auto;
+    min-height: 8rem;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border: none;
+    margin-bottom: 0.75rem;
+    line-height: 1.55;
+    font-size: 0.8125rem;
+  }
+  #chat-log h3 { font-size: 0.95rem; }
+  #chat-log h4 { font-size: 0.875rem; }
+  #chat-log h5 { font-size: 0.8125rem; }
+  #chat-log table { font-size: 0.75rem; }
+  #chat-log code { font-size: 0.75rem; }
+  .chat-card .card-header {
+    font-size: 0.9rem;
+  }
+  .chat-composer {
+    display: flex;
+    flex: 0 0 auto;
+    margin-top: auto;
+    align-items: flex-end;
+    gap: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+    background: #fff;
+  }
+  .chat-composer:focus-within {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+  }
+  .mcp-access-card .card-header .mcp-toggle-btn {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    flex: 1 1 auto;
+  }
+  .mcp-access-card .card-header .mcp-toggle-btn:hover {
+    color: #0d6efd;
+  }
+  .mcp-access-card .mcp-toggle-hint {
+    font-weight: normal;
+    color: #6c757d;
+  }
+  #mcp-config {
+    font-size: 0.78rem;
+    max-height: 12rem;
+    overflow: auto;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin: 0;
+  }
+  .mcp-token-row td code {
+    font-size: 0.8rem;
+  }
+  #chat-question {
+    resize: none;
+    overflow: hidden;
+    min-height: 24px;
+    max-height: 220px;
+    line-height: 1.45;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 0;
+    box-shadow: none;
+    outline: none;
+    padding: 0;
+    background: transparent;
+    flex: 1 1 auto;
+  }
+  #chat-question:focus {
+    border: 0;
+    box-shadow: none;
+    outline: none;
+  }
+  #chat-send {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .artifact-card .file-name {
+    word-break: break-word;
+  }
+  #pipeline-live {
+    border: 1px solid #cfe2ff;
+    background: #f8fbff;
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .pipeline-live-item {
+    border-bottom: 1px solid #e3eefb;
+  }
+  .pipeline-live-item:last-child {
+    border-bottom: 0;
+  }
+  .pipeline-live-summary {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    padding: 0.35rem 0;
+    user-select: none;
+  }
+  .pipeline-live-summary::-webkit-details-marker {
+    display: none;
+  }
+  .pipeline-live-summary .pip-toggle {
+    flex: 0 0 auto;
+    width: 0.85rem;
+    color: #6c757d;
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+  }
+  .pipeline-live-item[open] .pip-toggle {
+    transform: rotate(90deg);
+  }
+  .pipeline-live-summary .pipeline-file {
+    font-weight: 600;
+    flex: 0 1 auto;
+    max-width: 42%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0;
+  }
+  .pipeline-live-summary .pipeline-current {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: #0d6efd;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0;
+  }
+  .pipeline-live-body {
+    padding: 0 0 0.5rem 1.1rem;
+  }
+  .pipeline-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+  .pipeline-steps li {
+    display: flex;
+    gap: 0.45rem;
+    align-items: baseline;
+  }
+  .pipeline-steps .pip-icon {
+    width: 1rem;
+    flex: 0 0 auto;
+    text-align: center;
+    font-weight: 700;
+  }
+  .pipeline-steps .pip-ok { color: #198754; }
+  .pipeline-steps .pip-running { color: #0d6efd; }
+  .pipeline-steps .pip-pending { color: #adb5bd; }
+  .pipeline-steps .pip-fail { color: #dc3545; }
+  .pipeline-steps .pip-warn { color: #fd7e14; }
+  .pipeline-steps .pip-detail {
+    color: #6c757d;
+    font-size: 0.75rem;
+  }
+  #artifacts-table {
+    --bs-table-bg: transparent;
+    margin-bottom: 0;
+  }
+  #artifacts-table thead th {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6c757d;
+    background: transparent;
+    border-bottom: 1px solid #e9ecef;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+  #artifacts-table tbody td {
+    vertical-align: middle;
+    border-bottom-color: #f1f3f5;
+  }
+  #artifacts-table th.col-download,
+  #artifacts-table td.col-download {
+    width: 5.25rem;
+    min-width: 5.25rem;
+    max-width: 5.25rem;
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+  #artifacts-table .artifact-download {
+    width: 4.5rem;
+    min-width: 4.5rem;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+    justify-content: center;
+  }
+  #artifacts-table .artifact-download-placeholder {
+    display: inline-block;
+    width: 4.5rem;
+    text-align: center;
+  }
+  @media (min-width: 992px) {
+    .project-insights-row {
+      align-items: stretch;
+    }
+    .project-insights-row .insights-card {
+      height: min(70vh, 720px);
+      max-height: min(70vh, 720px);
+      position: sticky;
+      top: 0.75rem;
+    }
+    #tz-content,
+    #chat-log {
+      min-height: 0;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .project-page-lead {
+      font-size: 0.9rem;
+    }
+    #tz-content {
+      min-height: 10rem;
+      max-height: 50vh;
+    }
+    #chat-log {
+      min-height: 10rem;
+      max-height: 40vh;
+    }
+    .chat-panel-mobile-lift {
+      position: relative;
+      z-index: 2;
+    }
+  }
+
+  .download-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    z-index: 10000;
+    max-width: min(520px, calc(100vw - 2rem));
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: #0d6efd;
+    color: #fff;
+    box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.2);
+  }
+
+  .download-banner.is-done {
+    background: #198754;
+  }
+
+  .download-banner.is-error {
+    background: #dc3545;
+  }
+
+  .download-banner .progress {
+    height: 0.35rem;
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .download-banner .progress-bar {
+    background: #fff;
+  }
+</style>
+
+<!-- Индикатор скачивания -->
+<div id="download-banner" class="download-banner d-none" role="status" aria-live="polite" aria-atomic="true">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <div id="download-banner-spinner" class="spinner-border spinner-border-sm text-light" role="status">
+      <span class="visually-hidden">Скачивание</span>
+    </div>
+    <div id="download-banner-text" class="small fw-semibold flex-grow-1">Скачивание…</div>
+  </div>
+  <div id="download-banner-progress-wrap" class="progress" aria-hidden="true">
+    <div id="download-banner-progress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+  </div>
+</div>
+
+<!-- Тост «готово» -->
+<div id="toast-anchor" class="position-fixed p-3" style="z-index:9999; top:0; right:0; left:0;">
+  <div id="done-toast" class="toast align-items-center text-bg-success border-0 mx-auto ms-md-auto me-md-0" role="alert" aria-live="assertive">
+    <div class="d-flex">
+      <div class="toast-body" id="done-toast-body">Файл обработан</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Форма загрузки -->
+<form id="upload-form" class="card card-body mb-3 mb-md-4 shadow-sm">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+      <h2 class="h5 mb-1">Добавить материалы</h2>
+      <div class="text-muted small">Загрузите созвон, документ, заметку или скриншот для обработки и включения в общую базу проекта.</div>
+    </div>
+    <div id="upload-hint" class="text-muted small d-none d-md-block">После завершения обработки выжимка проекта обновится автоматически.</div>
+  </div>
+  <div class="row g-2 align-items-end">
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="upload-source-type">Тип</label>
+      <select class="form-select" name="source_type" id="upload-source-type">
+        <option value="call">Созвон (аудио/видео)</option>
+        <option value="document">Документ</option>
+        <option value="note">Заметка</option>
+        <option value="screenshot">Скриншот</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-5">
+      <label class="form-label" for="upload-files">Файлы</label>
+      <input class="form-control" type="file" name="files" id="upload-files" multiple required>
+    </div>
+    <div class="col-12 col-md-3">
+      <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="upload-submit" data-idle-label="Загрузить">Загрузить</button>
+    </div>
+  </div>
+  <div id="upload-progress-wrap" class="mt-3 d-none" aria-live="polite">
+    <div class="d-flex justify-content-between small mb-1">
+      <span id="upload-progress-label">Загрузка…</span>
+      <span id="upload-progress-pct">0%</span>
+    </div>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="upload-progressbar" style="height: 0.75rem;">
+      <div class="progress-bar" id="upload-progress-bar" style="width: 0%"></div>
+    </div>
+    <div id="upload-progress-detail" class="text-muted small mt-1"></div>
+  </div>
+</form>
+
+<div class="card shadow-sm mb-3 mb-md-4">
+  <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+    <div class="me-sm-auto min-w-0">
+      <strong>Артефакты проекта</strong>
+      <div class="small text-muted" id="artifacts-status" hidden aria-live="polite"></div>
+    </div>
+    <div class="project-kpis" id="project-kpis" aria-label="Сводка по артефактам">
+      <div class="project-kpi">
+        <span class="label">Готово</span>
+        <span class="value" id="kpi-done">0</span>
+      </div>
+      <div class="project-kpi">
+        <span class="label">Док.</span>
+        <span class="value" id="kpi-docs">0</span>
+      </div>
+      <div class="project-kpi">
+        <span class="label">Созвоны</span>
+        <span class="value" id="kpi-calls">0</span>
+      </div>
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="pipeline-live" class="d-none" aria-live="polite" aria-atomic="true"></div>
+    <div class="table-responsive d-none d-md-block">
+      <table class="table table-sm table-hover mb-0" id="artifacts-table">
+        <thead>
+          <tr>
+            <th>Файл</th>
+            <th class="col-download">Скачать</th>
+            <th>Тип</th>
+            <th>Статус</th>
+            <th>Ошибка</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="artifacts-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
+    <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 align-items-stretch project-insights-row">
+  <div class="col-lg-7 order-2 order-lg-1 d-flex">
+    <div class="card shadow-sm h-100 w-100 insights-card">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <strong>Итоговая выжимка по проекту</strong>
+        <button id="tz-refresh" class="btn btn-sm btn-outline-secondary skkkk-action-btn" data-idle-label="Пересобрать">Пересобрать</button>
+      </div>
+      <div class="card-body d-flex flex-column insights-panel">
+        <div id="tz-status" class="text-muted small mb-2 flex-shrink-0" aria-live="polite">Загрузка...</div>
+        <div id="tz-content" style="line-height:1.6;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5 order-1 order-lg-2 d-flex">
+    <div class="card shadow-sm h-100 w-100 insights-card chat-card chat-panel-mobile-lift">
+      <div class="card-header">
+        <strong>Чат с ИИ по проекту</strong>
+      </div>
+      <div class="card-body d-flex flex-column chat-panel insights-panel">
+        <div class="text-muted small mb-2 flex-shrink-0">Используйте чат для вопросов по решениям, ограничениям, участникам и требованиям проекта.</div>
+        <div id="chat-status" class="text-muted small mb-2 d-none flex-shrink-0" aria-live="polite"></div>
+        <div id="chat-log" class="rounded p-2" aria-live="polite"></div>
+        <div class="chat-composer">
+          <textarea id="chat-question" rows="1"
+                    placeholder="Задайте вопрос по материалам проекта"
+                    aria-label="Вопрос по материалам проекта"
+                    enterkeyhint="send"
+                    autocomplete="off"></textarea>
+          <button id="chat-send" class="btn btn-primary btn-sm skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4 mcp-access-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="mcp-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#mcp-access-panel"
+            aria-expanded="false"
+            aria-controls="mcp-access-panel">
+      <strong>Удалённый доступ (MCP)</strong>
+      <span id="mcp-toggle-hint" class="small mcp-toggle-hint">(развернуть)</span>
+    </button>
+    <span class="badge text-bg-secondary flex-shrink-0">только чтение</span>
+  </div>
+  <div id="mcp-access-panel" class="collapse">
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Подключите Cursor или другой MCP-клиент к знаниям этого проекта: артефакты, выжимка, поиск, сущности, граф, заметки.
+      Доступ по ключу — без пароля портала. URL ниже — для подключения из интернета.
+    </p>
+    <div id="mcp-status" class="text-muted small mb-2" aria-live="polite"></div>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <label class="form-label small fw-semibold mb-1">URL сервера</label>
+        <div class="input-group input-group-sm mb-2">
+          <input id="mcp-url" class="form-control font-monospace" readonly aria-label="MCP URL">
+          <button type="button" class="btn btn-outline-secondary" id="mcp-copy-url" data-idle-label="Копировать">Копировать</button>
+        </div>
+        <label class="form-label small fw-semibold mb-1">Пример для Cursor (<code>.cursor/mcp.json</code>)</label>
+        <pre id="mcp-config" aria-label="Пример конфигурации MCP"></pre>
+        <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="mcp-copy-config" data-idle-label="Копировать JSON">Копировать JSON</button>
+      </div>
+      <div class="col-lg-6">
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+          <label class="form-label small fw-semibold mb-0">Ключи доступа</label>
+          <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="mcp-create-token" data-idle-label="Создать ключ">Создать ключ</button>
+        </div>
+        <p class="text-muted small mb-2">Создавать ключи могут admin и manager. Токен показывается один раз.</p>
+        <div id="mcp-new-token" class="alert alert-warning d-none small py-2" role="alert">
+          <strong>Новый ключ:</strong>
+          <code id="mcp-new-token-value" class="user-select-all d-block mt-1 text-break"></code>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0 mcp-token-row">
+            <thead>
+              <tr>
+                <th>Метка</th>
+                <th>Ключ</th>
+                <th>Статус</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="mcp-tokens-body">
+              <tr><td colspan="4" class="text-muted small">Загрузка…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+if (!SKKKK.requireAuth()) throw new Error('auth');
+const projectId = {{ project_id }};
+const TERMINAL = new Set(['done', 'error']);
+const STATUS_LABEL = {
+  uploaded:           'В очереди',
+  preprocessing:      'Подготовка',
+  asr_running:        'ASR',
+  asr_completed:      'После ASR',
+  text_extracted:     'Текст',
+  transcript_ready:   'Стенограмма',
+  entities_extracted: 'Сущности',
+  indexed:            'Индекс',
+  graph_seeded:       'Граф',
+  done:               'Готово',
+  error:              'Ошибка',
+};
+const STATUS_BADGE = {
+  uploaded:           'secondary',
+  preprocessing:      'secondary',
+  asr_running:        'primary',
+  asr_completed:      'primary',
+  text_extracted:     'info',
+  transcript_ready:   'info',
+  entities_extracted: 'info',
+  indexed:            'info',
+  graph_seeded:       'info',
+  done:               'success',
+  error:              'danger',
+};
+
+let _prev = {};       // artifact_id → status (предыдущее)
+const pipelineExpanded = new Set(); // artifact_id с развёрнутым чеклистом
+/** artifact_id пока идёт скачивание — переживает refresh таблицы */
+const _artifactDownloading = new Set();
+const toastEl   = document.getElementById('done-toast');
+const toastBody = document.getElementById('done-toast-body');
+const bsToast   = new bootstrap.Toast(toastEl, { delay: 6000 });
+const downloadBanner = document.getElementById('download-banner');
+const downloadBannerText = document.getElementById('download-banner-text');
+const downloadBannerSpinner = document.getElementById('download-banner-spinner');
+const downloadBannerProgressWrap = document.getElementById('download-banner-progress-wrap');
+const downloadBannerProgress = document.getElementById('download-banner-progress');
+let downloadBannerHideTimer = null;
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} ГБ`;
+}
+
+function showDownloadBanner(filename) {
+  if (!downloadBanner) return;
+  if (downloadBannerHideTimer) clearTimeout(downloadBannerHideTimer);
+  downloadBanner.classList.remove('d-none', 'is-done', 'is-error');
+  downloadBannerSpinner.classList.remove('d-none');
+  downloadBannerText.textContent = `Скачивание: ${filename}`;
+  downloadBannerProgress.style.width = '0%';
+  downloadBannerProgressWrap.classList.remove('d-none');
+  downloadBannerProgress.classList.add('progress-bar-animated', 'progress-bar-striped');
+}
+
+function updateDownloadBannerProgress({ percent, received, total }) {
+  if (!downloadBannerProgress) return;
+  if (percent != null && total > 0) {
+    downloadBannerProgress.style.width = `${percent}%`;
+    downloadBannerText.textContent = `Скачивание: ${percent}% (${fmtBytes(received)} / ${fmtBytes(total)})`;
+  } else if (received > 0) {
+    downloadBannerProgress.style.width = '100%';
+    downloadBannerText.textContent = `Скачивание… получено ${fmtBytes(received)}`;
+  }
+}
+
+function finishDownloadBanner({ ok, filename, bytes, error }) {
+  if (!downloadBanner) return;
+  downloadBannerProgress.classList.remove('progress-bar-animated', 'progress-bar-striped');
+  if (ok) {
+    downloadBanner.classList.add('is-done');
+    downloadBannerSpinner.classList.add('d-none');
+    downloadBannerProgress.style.width = '100%';
+    downloadBannerText.textContent = `Сохранено: ${filename} (${fmtBytes(bytes)})`;
+  } else {
+    downloadBanner.classList.add('is-error');
+    downloadBannerSpinner.classList.add('d-none');
+    downloadBannerProgressWrap.classList.add('d-none');
+    downloadBannerText.textContent = error || 'Ошибка скачивания';
+  }
+  downloadBannerHideTimer = setTimeout(() => {
+    downloadBanner.classList.add('d-none');
+    downloadBanner.classList.remove('is-done', 'is-error');
+  }, ok ? 4000 : 6000);
+}
+
+function hideDownloadBanner() {
+  if (!downloadBanner) return;
+  if (downloadBannerHideTimer) clearTimeout(downloadBannerHideTimer);
+  downloadBanner.classList.add('d-none');
+  downloadBanner.classList.remove('is-done', 'is-error');
+}
+
+const tzStatus = document.getElementById('tz-status');
+const tzContent = document.getElementById('tz-content');
+const chatLog = document.getElementById('chat-log');
+const chatQuestion = document.getElementById('chat-question');
+const chatSend = document.getElementById('chat-send');
+const chatStatus = document.getElementById('chat-status');
+let chatPollTimer = null;
+
+function chatPendingHtml() {
+  return '<strong>ИИ:</strong><div class="text-muted d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом...</span></div>';
+}
+
+function isChatPending(messages) {
+  return (messages || []).some((m) => m.role === 'assistant' && m.waiting);
+}
+
+function setChatBusy(busy, label) {
+  SKKKK.setButtonBusy(chatSend, busy, { label: busy ? 'Думаю…' : undefined });
+  chatQuestion.disabled = busy;
+  chatQuestion.placeholder = busy ? 'ИИ готовит ответ…' : 'Задайте вопрос по материалам проекта';
+  if (!chatStatus) return;
+  if (busy) {
+    chatStatus.classList.remove('d-none');
+    chatStatus.textContent = label || 'ИИ готовит ответ… подождите';
+  } else {
+    chatStatus.classList.add('d-none');
+    chatStatus.textContent = '';
+  }
+}
+
+function renderChatHistoryMessage(msg) {
+  if (msg.role === 'user') {
+    appendChat('q', `<strong>Вы:</strong><div>${escapeHtml(msg.content || '')}</div>`);
+    return;
+  }
+  if (msg.waiting) {
+    appendChat('a', chatPendingHtml());
+    return;
+  }
+  const isClarification = msg.meta && msg.meta.kind === 'clarification';
+  appendChat(
+    'a',
+    `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(msg.content || '')}</div>${renderChatSources(msg.sources)}`,
+    isClarification ? 'border-warning-subtle bg-warning-subtle' : ''
+  );
+}
+
+async function reloadChatLog() {
+  const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
+  if (!r.ok) return null;
+  const data = await r.json();
+  chatLog.innerHTML = '';
+  (data.messages || []).forEach(renderChatHistoryMessage);
+  return data.messages || [];
+}
+
+function startChatPoll() {
+  if (chatPollTimer) return;
+  setChatBusy(true);
+  chatPollTimer = setInterval(async () => {
+    const messages = await reloadChatLog();
+    if (!isChatPending(messages)) {
+      clearInterval(chatPollTimer);
+      chatPollTimer = null;
+      setChatBusy(false);
+    }
+  }, 3000);
+}
+
+async function syncChatUi() {
+  try {
+    const messages = await reloadChatLog();
+    const pending = isChatPending(messages);
+    setChatBusy(pending);
+    return pending;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function loadChatHistory() {
+  try {
+    const messages = await reloadChatLog();
+    if (isChatPending(messages)) startChatPoll();
+  } catch (err) {
+    console.warn('chat history', err);
+  }
+}
+
+async function askProjectChat() {
+  const question = chatQuestion.value.trim();
+  if (!question) return;
+  if (await syncChatUi()) {
+    startChatPoll();
+    return;
+  }
+  await SKKKK.guardButton(chatSend, async () => {
+    chatQuestion.value = '';
+    appendChat('q', `<strong>Вы:</strong><div>${escapeHtml(question)}</div>`);
+    appendChat('a', chatPendingHtml());
+    const pending = chatLog.lastElementChild;
+    setChatBusy(true);
+    try {
+      const r = await SKKKK.api('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, question }),
+      });
+      if (r.status === 409) {
+        const payload = await r.json().catch(() => ({}));
+        pending.remove();
+        await syncChatUi();
+        startChatPoll();
+        if (chatStatus) chatStatus.textContent = payload.detail || 'ИИ уже готовит ответ…';
+        return;
+      }
+      if (!r.ok) throw new Error('chat failed');
+      const data = await r.json();
+      pending.innerHTML =
+        `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(data.answer || 'Пустой ответ')}</div>` +
+        renderChatSources(data.sources);
+      setChatBusy(false);
+    } catch (err) {
+      pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
+      setChatBusy(false);
+      await syncChatUi();
+    }
+  }, { label: 'Отправка…' });
+}
+const artifactsStatus = document.getElementById('artifacts-status');
+const pipelineLive = document.getElementById('pipeline-live');
+const artifactsEmpty = document.getElementById('artifacts-empty');
+const kpiDone = document.getElementById('kpi-done');
+const kpiDocs = document.getElementById('kpi-docs');
+const kpiCalls = document.getElementById('kpi-calls');
+
+function escapeHtml(text) {
+  return (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+function inlineMarkdown(text) {
+  let safe = escapeHtml(SKKKK.cleanSummaryOutput(text || ''));
+  safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
+  return safe;
+}
+
+function renderMarkdown(text) {
+  const lines = (text || '').replace(/\r/g, '').split('\n');
+  const html = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      html.push('<hr>');
+      i += 1;
+      continue;
+    }
+
+    if (/^###\s+/.test(trimmed)) {
+      html.push(`<h5 class="mt-3">${inlineMarkdown(trimmed.replace(/^###\s+/, ''))}</h5>`);
+      i += 1;
+      continue;
+    }
+    if (/^##\s+/.test(trimmed)) {
+      html.push(`<h4 class="mt-4">${inlineMarkdown(trimmed.replace(/^##\s+/, ''))}</h4>`);
+      i += 1;
+      continue;
+    }
+    if (/^#\s+/.test(trimmed)) {
+      html.push(`<h3 class="mt-4">${inlineMarkdown(trimmed.replace(/^#\s+/, ''))}</h3>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^\|\s*.+\s*\|$/.test(trimmed)) {
+      const tableLines = [];
+      while (i < lines.length && /^\|\s*.+\s*\|$/.test(lines[i].trim())) {
+        tableLines.push(lines[i].trim());
+        i += 1;
+      }
+      const rows = tableLines
+        .filter((row, idx) => !(idx === 1 && /^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?$/.test(row)))
+        .map(row => row.replace(/^\||\|$/g, '').split('|').map(cell => inlineMarkdown(cell.trim())));
+      if (rows.length) {
+        const header = rows[0].map(cell => `<th>${cell}</th>`).join('');
+        const body = rows.slice(1).map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+        html.push(
+          `<div class="table-responsive"><table class="table table-sm table-bordered">` +
+          `<thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`
+        );
+      }
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(`<li>${inlineMarkdown(lines[i].trim().replace(/^[-*]\s+/, ''))}</li>`);
+        i += 1;
+      }
+      html.push(`<ul>${items.join('')}</ul>`);
+      continue;
+    }
+
+    const parts = [trimmed];
+    i += 1;
+    while (i < lines.length) {
+      const next = lines[i].trim();
+      if (!next || /^#{1,3}\s+/.test(next) || /^[-*]\s+/.test(next) || /^\|\s*.+\s*\|$/.test(next) || /^---+$/.test(next)) {
+        break;
+      }
+      parts.push(next);
+      i += 1;
+    }
+    html.push(`<p>${inlineMarkdown(parts.join(' '))}</p>`);
+  }
+
+  return html.join('') || '<p>Итоговая выжимка проекта пока не сформирована.</p>';
+}
+
+function autoGrowField(el, maxPx = 220) {
+  el.style.height = 'auto';
+  const next = Math.min(el.scrollHeight, maxPx);
+  el.style.height = `${next}px`;
+  el.style.overflowY = el.scrollHeight > maxPx ? 'auto' : 'hidden';
+}
+
+function autoGrowFields(root = document) {
+  root.querySelectorAll('textarea[data-rename-src], textarea.auto-grow, #chat-question').forEach((el) => {
+    autoGrowField(el, el.id === 'chat-question' ? 220 : 160);
+    if (el.dataset.autogrowBound) return;
+    el.dataset.autogrowBound = '1';
+    el.addEventListener('input', () => autoGrowField(el, el.id === 'chat-question' ? 220 : 160));
+  });
+}
+
+function reportLink(a, extraClass = '') {
+  const href = escapeAttr(a.transcript_html_url || '');
+  const name = escapeHtml(a.original_filename);
+  const label = a.file_type === 'audio' ? 'Стенограмма' : 'Отчёт';
+  const cls = ['transcript-link', extraClass].filter(Boolean).join(' ');
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer"
+             class="${cls}"
+             title="Открыть ${label} в новой вкладке">${name}</a>`;
+}
+
+async function loadTz() {
+  tzStatus.textContent = 'Загрузка...';
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    const data = await r.json();
+    const content = (data.content || '').trim();
+    tzContent.innerHTML = renderMarkdown(content);
+    tzStatus.textContent = content ? 'Актуальная версия загружена' : 'Пока пусто';
+  } catch (err) {
+    tzStatus.textContent = 'Не удалось загрузить выжимку проекта';
+    tzContent.innerHTML = '';
+  }
+}
+
+const tzRefreshBtn = document.getElementById('tz-refresh');
+let tzTaskPollTimer = null;
+
+function findTzTask(tasks) {
+  return (tasks || []).find((t) => t.task_type === 'tz_rebuild' && t.status === 'running');
+}
+
+async function syncTzTaskUi() {
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/tasks/active`);
+    if (!r.ok) return false;
+    const data = await r.json();
+    const tzTask = findTzTask(data.tasks);
+    if (tzTask) {
+      tzStatus.textContent = `${tzTask.label}… подождите, это может занять несколько минут`;
+      SKKKK.setButtonBusy(tzRefreshBtn, true, { label: 'Пересборка…' });
+      return true;
+    }
+    SKKKK.setButtonBusy(tzRefreshBtn, false);
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+function startTzTaskPoll() {
+  if (tzTaskPollTimer) return;
+  tzTaskPollTimer = setInterval(async () => {
+    const busy = await syncTzTaskUi();
+    if (!busy) {
+      clearInterval(tzTaskPollTimer);
+      tzTaskPollTimer = null;
+      await loadTz();
+    }
+  }, 3000);
+}
+
+async function rebuildTz() {
+  if (await syncTzTaskUi()) {
+    startTzTaskPoll();
+    return;
+  }
+  await SKKKK.guardButton(tzRefreshBtn, async () => {
+    tzStatus.textContent = 'Пересборка итоговой выжимки...';
+    const r = await SKKKK.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
+    if (r.status === 409) {
+      const payload = await r.json().catch(() => ({}));
+      tzStatus.textContent = payload.detail || 'Пересборка уже выполняется…';
+      await syncTzTaskUi();
+      startTzTaskPoll();
+      return;
+    }
+    if (!r.ok) throw new Error('rebuild failed');
+    await loadTz();
+  }, { label: 'Пересборка…' });
+}
+
+function appendChat(kind, html, extraClass) {
+  const wrap = document.createElement('div');
+  wrap.className = `mb-2 p-2 border rounded chat-message ${kind === 'q' ? 'bg-white chat-message-user' : 'bg-body chat-message-ai'}${extraClass ? ` ${extraClass}` : ''}`;
+  wrap.innerHTML = html;
+  chatLog.appendChild(wrap);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function renderChatSources(sources) {
+  const names = (sources || []).map(s => s.filename).filter(Boolean);
+  if (!names.length) return '';
+  return `<div class="small text-muted mt-2">Источники: ${escapeHtml(names.join(', '))}</div>`;
+}
+
+document.getElementById('tz-refresh').onclick = rebuildTz;
+chatSend.onclick = askProjectChat;
+autoGrowFields();
+chatQuestion.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    askProjectChat();
+  }
+});
+
+// --- обновление таблицы ---
+function statusBadge(status) {
+  const color = STATUS_BADGE[status] || 'secondary';
+  const label = STATUS_LABEL[status] || status;
+  return `<span class="badge bg-${color}">${label}</span>`;
+}
+
+function stepIcon(status) {
+  if (status === 'ok') return '✓';
+  if (status === 'running') return '●';
+  if (status === 'fail') return '✗';
+  if (status === 'warn') return '!';
+  return '○';
+}
+
+function stepClass(status) {
+  return `pip-${status || 'pending'}`;
+}
+
+function renderProgressSteps(progress) {
+  if (!progress || !progress.steps || !progress.steps.length) return '';
+  return `<ul class="pipeline-steps">${progress.steps.map((s) => {
+    const detail = s.detail ? `<span class="pip-detail"> — ${escapeHtml(s.detail)}</span>` : '';
+    return `<li><span class="pip-icon ${stepClass(s.status)}" aria-hidden="true">${stepIcon(s.status)}</span>` +
+      `<span>${escapeHtml(s.label)}${detail}</span></li>`;
+  }).join('')}</ul>`;
+}
+
+
+function renderCollapsibleProgress(a, { summaryClass = 'pipeline-live-summary', bodyClass = 'pipeline-live-body' } = {}) {
+  if (!a.progress) return '';
+  const open = pipelineExpanded.has(a.artifact_id) ? ' open' : '';
+  const label = escapeHtml(a.progress.current_label || a.status);
+  const fname = escapeHtml(a.original_filename);
+  return `<details class="pipeline-live-item"${open} data-artifact="${escapeAttr(a.artifact_id)}">` +
+    `<summary class="${summaryClass}">` +
+    `<span class="pip-toggle" aria-hidden="true">▸</span>` +
+    `<span class="pipeline-file">${fname}</span>` +
+    `<span class="pipeline-current">${label}</span>` +
+    `</summary>` +
+    `<div class="${bodyClass}">${renderProgressSteps(a.progress)}</div>` +
+    `</details>`;
+}
+
+function bindPipelineToggle(root) {
+  if (!root) return;
+  root.querySelectorAll('details.pipeline-live-item[data-artifact]').forEach((el) => {
+    if (el.dataset.bound) return;
+    el.dataset.bound = '1';
+    el.addEventListener('toggle', () => {
+      const id = el.dataset.artifact;
+      if (el.open) pipelineExpanded.add(id);
+      else pipelineExpanded.delete(id);
+    });
+  });
+}
+
+function updatePipelineLivePanel(arts) {
+  if (!pipelineLive) return;
+  const active = arts.filter((a) => a.progress && !TERMINAL.has(a.status));
+  if (!active.length) {
+    pipelineLive.classList.add('d-none');
+    pipelineLive.innerHTML = '';
+    if (artifactsStatus && !artifactsStatus.dataset.busy) {
+      artifactsStatus.hidden = true;
+      artifactsStatus.textContent = '';
+    }
+    return;
+  }
+  pipelineLive.classList.remove('d-none');
+  pipelineLive.innerHTML = active.map((a) => renderCollapsibleProgress(a)).join('');
+  bindPipelineToggle(pipelineLive);
+  if (artifactsStatus) {
+    artifactsStatus.hidden = true;
+    artifactsStatus.textContent = '';
+  }
+}
+
+function downloadCell(a) {
+  if (!a.download_available) {
+    return '<span class="artifact-download-placeholder text-muted small" title="Файл появится после обработки">—</span>';
+  }
+  const label = a.file_type === 'audio' ? 'MP3' : 'Файл';
+  const fname = a.download_filename || a.original_filename;
+  const busy = _artifactDownloading.has(a.artifact_id);
+  const disabled = busy ? ' disabled' : '';
+  const busyAttr = busy ? ' aria-busy="true"' : '';
+  const inner = busy
+    ? '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>'
+    : label;
+  return `<button type="button" class="btn btn-sm btn-outline-secondary artifact-download d-inline-flex align-items-center"${disabled}${busyAttr} ` +
+    `data-artifact-id="${escapeHtml(a.artifact_id)}" ` +
+    `data-idle-label="${escapeHtml(label)}" ` +
+    `data-download-name="${escapeHtml(fname)}" ` +
+    `aria-label="Скачать ${label.toLowerCase()}: ${escapeHtml(a.original_filename)}">${inner}</button>`;
+}
+
+function setDownloadButtonsBusy(artifactId, busy) {
+  document.querySelectorAll(`.artifact-download[data-artifact-id="${CSS.escape(artifactId)}"]`).forEach((btn) => {
+    const idle = btn.dataset.idleLabel || 'Скачать';
+    btn.disabled = busy;
+    if (busy) {
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+      btn.setAttribute('aria-busy', 'true');
+      btn.setAttribute('aria-label', `Скачивание: ${btn.dataset.downloadName || idle}`);
+    } else {
+      btn.textContent = idle;
+      btn.removeAttribute('aria-busy');
+      btn.setAttribute('aria-label', `Скачать ${idle.toLowerCase()}: ${btn.dataset.downloadName || idle}`);
+    }
+  });
+}
+
+function bindDownloadButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.artifact-download').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.artifactId;
+      const fname = btn.dataset.downloadName || btn.dataset.idleLabel || 'файл';
+      if (!id || _artifactDownloading.has(id)) return;
+      _artifactDownloading.add(id);
+      setDownloadButtonsBusy(id, true);
+      showDownloadBanner(fname);
+      try {
+        await SKKKK.downloadArtifact(id, {
+          onProgress: updateDownloadBannerProgress,
+          onComplete: (result) => finishDownloadBanner({
+            ok: true,
+            filename: result.filename,
+            bytes: result.bytes,
+          }),
+        });
+      } catch (err) {
+        finishDownloadBanner({ ok: false, error: `Не удалось скачать: ${err.message || err}` });
+        toastBody.textContent = `Не удалось скачать: ${err.message || err}`;
+        bsToast.show();
+      } finally {
+        _artifactDownloading.delete(id);
+        setDownloadButtonsBusy(id, false);
+      }
+    });
+  });
+}
+
+function buildRow(a) {
+  const hasReport = a.transcript_html_url && a.status === 'done';
+  const nameCell = hasReport ? reportLink(a) : escapeHtml(a.original_filename);
+  const err = a.error_message
+    ? `<span class="text-danger small">${escapeHtml(a.error_message)}</span>`
+    : '<span class="text-muted">—</span>';
+  return `<td>${nameCell}</td>
+          <td class="col-download">${downloadCell(a)}</td>
+          <td class="text-muted">${escapeHtml(a.source_type)}</td>
+          <td>${statusBadge(a.status)}</td>
+          <td>${err}</td>`;
+}
+
+function buildCard(a) {
+  const hasReport = a.transcript_html_url && a.status === 'done';
+  const title = hasReport
+    ? reportLink(a, 'file-name fw-semibold')
+    : `<div class="file-name fw-semibold">${escapeHtml(a.original_filename)}</div>`;
+  const err = a.error_message
+    ? `<div class="text-danger small mt-2">${escapeHtml(a.error_message)}</div>`
+    : '';
+  return `<div class="border rounded p-3 bg-white artifact-card">
+    ${title}
+    <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
+      ${downloadCell(a)}
+      <span class="text-muted">${escapeHtml(a.source_type)}</span>
+      ${statusBadge(a.status)}
+    </div>
+    ${err}
+  </div>`;
+}
+
+async function refreshArtifacts() {
+  const r = await SKKKK.api(`/projects/${projectId}/artifacts`);
+  const arts = await r.json();
+  const tbody = document.querySelector('#artifacts-table tbody');
+  const cards = document.getElementById('artifacts-cards');
+  tbody.innerHTML = '';
+  cards.innerHTML = '';
+  artifactsEmpty.classList.toggle('d-none', arts.length > 0);
+
+  const total = arts.length;
+  const doneCount = arts.filter(a => a.status === 'done').length;
+  const docCount = arts.filter(a => a.file_type !== 'audio').length;
+  const callCount = arts.filter(a => a.file_type === 'audio').length;
+  kpiDone.textContent = `${doneCount}/${total}`;
+  kpiDocs.textContent = docCount;
+  kpiCalls.textContent = callCount;
+  updatePipelineLivePanel(arts);
+  if (artifactsStatus && !artifactsStatus.dataset.busy && !arts.some((a) => a.progress && !TERMINAL.has(a.status))) {
+    artifactsStatus.textContent = '';
+    artifactsStatus.hidden = true;
+  }
+
+  for (const a of arts) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = buildRow(a);
+    tbody.appendChild(tr);
+
+    const card = document.createElement('div');
+    card.innerHTML = buildCard(a);
+    cards.appendChild(card.firstElementChild);
+
+    const prev = _prev[a.artifact_id];
+    if (a.status === 'done' && prev && prev !== 'done') {
+      toastBody.textContent = `✅ ${a.original_filename} — обработан`;
+      bsToast.show();
+      loadTz();
+    }
+    _prev[a.artifact_id] = a.status;
+  }
+
+  bindDownloadButtons(tbody);
+  bindDownloadButtons(cards);
+}
+
+function keepChatVisibleOnKeyboard() {
+  const composer = document.querySelector('.chat-composer');
+  if (!composer || !window.visualViewport) return;
+  const sync = () => {
+    const vv = window.visualViewport;
+    const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb-overlap', `${overlap}px`);
+    if (document.activeElement === chatQuestion && overlap > 0) {
+      composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  };
+  window.visualViewport.addEventListener('resize', sync);
+  window.visualViewport.addEventListener('scroll', sync);
+  chatQuestion.addEventListener('focus', () => setTimeout(sync, 50));
+}
+
+// --- загрузка (chunked / resume) ---
+document.getElementById('upload-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const files = fd.getAll('files').filter((f) => f && f.size !== undefined);
+  if (!files.length) return;
+
+  const sourceType = fd.get('source_type') || 'document';
+  const wrap = document.getElementById('upload-progress-wrap');
+  const bar = document.getElementById('upload-progress-bar');
+  const pctEl = document.getElementById('upload-progress-pct');
+  const label = document.getElementById('upload-progress-label');
+  const detail = document.getElementById('upload-progress-detail');
+  const barWrap = document.getElementById('upload-progressbar');
+
+  await SKKKK.guardSubmit(form, async () => {
+    wrap.classList.remove('d-none');
+    artifactsStatus.dataset.busy = '1';
+    artifactsStatus.hidden = false;
+    artifactsStatus.textContent = 'Идёт загрузка файлов…';
+
+    const fmt = (n) => {
+      if (n < 1024) return `${n} Б`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+      if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+      return `${(n / (1024 * 1024 * 1024)).toFixed(2)} ГБ`;
+    };
+
+    try {
+      const arts = await SKKKK.uploadFilesResumable(projectId, files, sourceType, {
+        onProgress: (p) => {
+          const pct = p.percent || 0;
+          bar.style.width = `${pct}%`;
+          pctEl.textContent = `${pct}%`;
+          barWrap.setAttribute('aria-valuenow', String(pct));
+          const name = p.file ? p.file.name : '';
+          if (p.phase === 'retry') {
+            label.textContent = `Повтор чанка (${p.attempt})…`;
+            detail.textContent = name + (p.error ? `: ${p.error}` : '');
+          } else if (p.phase === 'complete' || p.phase === 'done') {
+            label.textContent = 'Сборка на сервере…';
+            detail.textContent = name;
+          } else {
+            label.textContent = `Загрузка ${p.fileIndex + 1} из ${p.filesTotal}`;
+            detail.textContent = `${name} — ${fmt(p.sentBytes)} / ${fmt(p.totalBytes)}`;
+          }
+        },
+      });
+      const dups = arts.filter((a) => a.duplicate).length;
+      label.textContent = 'Готово';
+      detail.textContent = dups
+        ? `Принято: ${arts.length}, из них дублей: ${dups}`
+        : `Принято файлов: ${arts.length}`;
+      artifactsStatus.dataset.busy = '1';
+      artifactsStatus.hidden = false;
+      artifactsStatus.textContent = 'Файлы загружены, ожидаю обновление статусов…';
+      form.reset();
+      refreshArtifacts();
+      setTimeout(() => {
+        delete artifactsStatus.dataset.busy;
+        if (artifactsStatus.textContent.startsWith('Файлы загружены')) {
+          artifactsStatus.textContent = '';
+          artifactsStatus.hidden = true;
+        }
+      }, 4000);
+    } catch (err) {
+      label.textContent = 'Ошибка загрузки';
+      detail.textContent = String(err.message || err);
+      artifactsStatus.dataset.busy = '1';
+      artifactsStatus.hidden = false;
+      artifactsStatus.textContent = 'Загрузка прервалась — можно повторить; уже залитые чанки сохранятся.';
+    }
+  }, { busyText: 'Загрузка…' });
+};
+
+refreshArtifacts();
+loadTz();
+loadChatHistory();
+syncTzTaskUi().then((busy) => { if (busy) startTzTaskPoll(); });
+keepChatVisibleOnKeyboard();
+setInterval(refreshArtifacts, 3000);
+
+const mcpStatus = document.getElementById('mcp-status');
+const mcpUrlInput = document.getElementById('mcp-url');
+const mcpConfigPre = document.getElementById('mcp-config');
+const mcpTokensBody = document.getElementById('mcp-tokens-body');
+const mcpNewTokenBox = document.getElementById('mcp-new-token');
+const mcpNewTokenValue = document.getElementById('mcp-new-token-value');
+let mcpInfo = null;
+
+function mcpCursorConfig(url, tokenPlaceholder) {
+  return {
+    mcpServers: {
+      [`skkkk-project-${projectId}`]: {
+        url,
+        headers: { Authorization: `Bearer ${tokenPlaceholder}` },
+      },
+    },
+  };
+}
+
+async function loadMcpPanel() {
+  if (!mcpStatus) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/mcp/info`);
+    if (!r.ok) throw new Error('mcp info failed');
+    mcpInfo = await r.json();
+    mcpUrlInput.value = mcpInfo.mcp_url || '';
+    mcpConfigPre.textContent = JSON.stringify(
+      mcpCursorConfig(mcpInfo.mcp_url, '<ваш MCP-токен>'),
+      null,
+      2,
+    );
+    mcpStatus.textContent = mcpInfo.uses_public_url
+      ? `${mcpInfo.tools_count} инструментов · публичный URL (${mcpInfo.public_base_url})`
+      : `${mcpInfo.tools_count} инструментов · только чтение`;
+    await loadMcpTokens();
+  } catch (err) {
+    mcpStatus.textContent = 'Не удалось загрузить настройки MCP';
+  }
+}
+
+async function loadMcpTokens() {
+  if (!mcpTokensBody) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`);
+    if (r.status === 403) {
+      mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Список ключей доступен admin/manager</td></tr>';
+      document.getElementById('mcp-create-token')?.classList.add('d-none');
+      return;
+    }
+    if (!r.ok) throw new Error('tokens failed');
+    const rows = (await r.json()).tokens || [];
+    if (!rows.length) {
+      mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Ключей пока нет</td></tr>';
+      return;
+    }
+    mcpTokensBody.innerHTML = rows.map((t) => `
+      <tr>
+        <td>${escapeHtml(t.label)}</td>
+        <td><code>${escapeHtml(t.token_prefix)}</code></td>
+        <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}</td>
+        <td class="text-end">${t.is_active ? `<button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button>` : ''}</td>
+      </tr>`).join('');
+    mcpTokensBody.querySelectorAll('.mcp-revoke').forEach((btn) => {
+      btn.addEventListener('click', () => revokeMcpToken(Number(btn.dataset.id)));
+    });
+  } catch (err) {
+    mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Не удалось загрузить ключи</td></tr>';
+  }
+}
+
+async function revokeMcpToken(tokenId) {
+  if (!confirm('Отозвать этот MCP-ключ?')) return;
+  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}`, { method: 'DELETE' });
+  if (!r.ok && r.status !== 204) {
+    alert('Не удалось отозвать ключ');
+    return;
+  }
+  await loadMcpTokens();
+}
+
+document.getElementById('mcp-copy-url')?.addEventListener('click', async () => {
+  if (!mcpUrlInput?.value) return;
+  await navigator.clipboard.writeText(mcpUrlInput.value);
+  mcpStatus.textContent = 'URL скопирован';
+});
+
+document.getElementById('mcp-copy-config')?.addEventListener('click', async () => {
+  if (!mcpConfigPre?.textContent) return;
+  await navigator.clipboard.writeText(mcpConfigPre.textContent);
+  mcpStatus.textContent = 'JSON конфигурации скопирован';
+});
+
+document.getElementById('mcp-create-token')?.addEventListener('click', async () => {
+  const btn = document.getElementById('mcp-create-token');
+  const label = prompt('Метка ключа (например Cursor на ноутбуке):', 'Cursor') || 'Cursor';
+  await SKKKK.guardButton(btn, async () => {
+    const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    });
+    if (!r.ok) throw new Error('create token failed');
+    const data = await r.json();
+    mcpNewTokenValue.textContent = data.token;
+    mcpNewTokenBox.classList.remove('d-none');
+    mcpConfigPre.textContent = JSON.stringify(
+      mcpCursorConfig(mcpInfo?.mcp_url || mcpUrlInput.value, data.token),
+      null,
+      2,
+    );
+    await loadMcpTokens();
+  }, { label: 'Создание…' });
+});
+
+loadMcpPanel();
+
+const mcpAccessPanel = document.getElementById('mcp-access-panel');
+const mcpToggleHint = document.getElementById('mcp-toggle-hint');
+if (mcpAccessPanel && mcpToggleHint) {
+  mcpAccessPanel.addEventListener('show.bs.collapse', () => {
+    mcpToggleHint.textContent = '(свернуть)';
+  });
+  mcpAccessPanel.addEventListener('hide.bs.collapse', () => {
+    mcpToggleHint.textContent = '(развернуть)';
+  });
+}
+</script>
+{% endblock %}

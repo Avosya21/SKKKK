@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+  <h1 class="h3 mb-0">Проекты</h1>
+  <button class="btn btn-success" id="btn-new-project">Новый проект</button>
+</div>
+<div id="projects-list" class="list-group"></div>
+<div class="modal fade" id="newProjectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="new-project-form">
+      <div class="modal-header"><h5 class="modal-title">Новый проект</h5></div>
+      <div class="modal-body">
+        <input class="form-control mb-2" name="name" placeholder="Название" required>
+        <textarea class="form-control" name="description" placeholder="Описание"></textarea>
+        <div class="alert alert-danger d-none mt-2" id="project-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="project-cancel">Отмена</button>
+        <button type="submit" class="btn btn-primary skkkk-action-btn" id="project-submit" data-idle-label="Создать">Создать</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+if (!SKKKK.requireAuth()) throw new Error('auth');
+const modal = new bootstrap.Modal(document.getElementById('newProjectModal'));
+async function loadProjects() {
+  const r = await SKKKK.api('/projects');
+  if (!r.ok) return;
+  const list = document.getElementById('projects-list');
+  list.innerHTML = '';
+  const rows = await r.json();
+  if (!Array.isArray(rows) || !rows.length) {
+    list.innerHTML = '<p class="text-muted">Пока нет проектов — создайте первый.</p>';
+    return;
+  }
+  for (const p of rows) {
+    const a = document.createElement('a');
+    a.className = 'list-group-item list-group-item-action';
+    a.href = `/projects/${p.id}`;
+    a.textContent = p.name;
+    list.appendChild(a);
+  }
+}
+document.getElementById('btn-new-project').onclick = () => modal.show();
+document.getElementById('new-project-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const err = document.getElementById('project-error');
+  err.classList.add('d-none');
+
+  await SKKKK.guardSubmit(form, async () => {
+    const r = await SKKKK.api('/projects', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.fromEntries(fd.entries())),
+    });
+    if (!r.ok) {
+      err.textContent = r.status === 403 ? 'Недостаточно прав' : 'Ошибка создания';
+      err.classList.remove('d-none');
+      return;
+    }
+    modal.hide();
+    form.reset();
+    await loadProjects();
+  }, { busyText: 'Создаю…' });
+};
+loadProjects();
+</script>
+{% endblock %}

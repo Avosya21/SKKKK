@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h4 mb-3">Вход</h1>
+        <form id="login-form">
+          <div class="mb-3">
+            <label class="form-label" for="login-name">Имя</label>
+            <input class="form-control" id="login-name" name="name" required autocomplete="username" enterkeyhint="next">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="login-telegram">Telegram ID</label>
+            <input class="form-control" id="login-telegram" name="telegram_id" required autocomplete="nickname" enterkeyhint="next">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="login-password">Пароль роли</label>
+            <input class="form-control" id="login-password" type="password" name="password" required autocomplete="current-password" enterkeyhint="go">
+          </div>
+          <div class="alert alert-danger d-none" id="login-error"></div>
+          <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="login-submit" data-idle-label="Войти">Войти</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const body = Object.fromEntries(fd.entries());
+  const err = document.getElementById('login-error');
+  err.classList.add('d-none');
+
+  await SKKKK.guardSubmit(form, async () => {
+    const r = await fetch('/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let detail = '';
+      try {
+        const payload = await r.json();
+        detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail);
+      } catch (ex) {
+        detail = await r.text();
+      }
+      err.textContent = `Вход не выполнен (${r.status}): ${detail || 'нет деталей'}`;
+      err.classList.remove('d-none');
+      return;
+    }
+    const data = await r.json();
+    SKKKK.setSession(data);
+    location.href = '/';
+  }, { busyText: 'Вхожу…' });
+});
+</script>
+{% endblock %}

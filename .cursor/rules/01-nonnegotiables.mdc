@@ -1,0 +1,14 @@
+---
+description: Неотменяемые решения — три ASR, LLM (Gemma или Cursor), Ollama
+alwaysApply: true
+---
+
+# Инварианты
+
+- Аудио всегда идёт через **три параллельных ASR** (Whisper, T-one, GigaAM), затем склейка **LLM**. Нельзя заменить ансамбль одной моделью «для MVP».
+- Параллелизм ASR — **три процесса/контейнера**, не три потока.
+- Склейка стенограммы — **по окнам 120–180 с** по границам тишины.
+- LLM — **`lmstudio`** (Gemma + LM Studio, JIT выключен) **или** **`cursor`** (Cursor SDK + API key). Переключатель при старте, `LLM_PROVIDER` в `.env`.
+- В режиме **lmstudio**: перед ASR выгружать Gemma; после ASR — загружать снова. ASR и Gemma не сосуществуют на GPU.
+- В режиме **cursor**: Gemma в VRAM не загружается; LLM-задачи (включая vision) — через Cursor API.
+- Очередь: таблица `jobs` + один GPU-воркер. Без Celery и без watchdog на папку.

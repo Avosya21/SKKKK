@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4 mb-3">Граф проекта {{ project_id }}</h1>
+<div id="cy" class="border bg-white rounded" style="width:100%;height:min(70vh, 600px);"></div>
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script>
+(async () => {
+  if (!SKKKK.requireAuth()) return;
+  const r = await SKKKK.api('/projects/{{ project_id }}/graph/data');
+  const data = await r.json();
+  cytoscape({
+    container: document.getElementById('cy'),
+    elements: [
+      ...data.nodes.map(n => ({ data: { id: n.id, label: n.label } })),
+      ...data.edges.map(e => ({ data: { id: e.id, source: e.source, target: e.target, label: e.type } }))
+    ],
+    style: [
+      { selector: 'node', style: { 'label': 'data(label)', 'background-color': '#4e79a7' } },
+      { selector: 'edge', style: { 'label': 'data(label)', 'curve-style': 'bezier', 'target-arrow-shape': 'triangle' } }
+    ],
+    layout: { name: 'cose', animate: false }
+  });
+})();
+</script>
+{% endblock %}

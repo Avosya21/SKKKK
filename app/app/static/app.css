@@ -1,0 +1,111 @@
+/* Shared responsive tweaks for Primary Analytics portal */
+
+.navbar-skkkk .navbar-brand {
+  margin-right: 0;
+}
+
+.navbar-skkkk .navbar-brand-row {
+  min-width: 0;
+  align-items: center;
+}
+
+.navbar-skkkk .navbar-divider {
+  flex: 0 0 1px;
+  width: 1px;
+  font-size: var(--bs-navbar-brand-font-size, 1.25rem);
+  height: 1em;
+  margin: 0 0.65rem;
+  background: rgba(255, 255, 255, 0.32);
+  align-self: center;
+}
+
+.navbar-skkkk .navbar-project {
+  margin-left: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(52vw, 24rem);
+}
+
+.navbar-skkkk .navbar-back {
+  --bs-btn-padding-y: 0.2rem;
+  --bs-btn-padding-x: 0.55rem;
+  --bs-btn-font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.navbar-skkkk #nav-user {
+  max-width: min(100%, 16rem);
+  overflow-wrap: anywhere;
+  text-align: end;
+  font-size: 0.875rem;
+  line-height: 1.3;
+}
+
+#toast-anchor {
+  pointer-events: none;
+}
+
+#toast-anchor .toast {
+  pointer-events: auto;
+}
+
+@media (max-width: 767.98px) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  main.container {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  /* Finger-friendly controls */
+  .btn-sm {
+    min-height: 44px;
+    padding: 0.5rem 0.9rem;
+    font-size: 1rem;
+  }
+
+  .btn,
+  .form-control,
+  .form-select {
+    min-height: 44px;
+  }
+
+  .chat-composer #chat-send {
+    min-height: 44px;
+    min-width: 5.5rem;
+  }
+
+  #done-toast {
+    margin-top: env(safe-area-inset-top, 0.5rem);
+  }
+}
+
+@media (min-width: 768px) {
+  #toast-anchor {
+    left: auto !important;
+    right: 0;
+  }
+}
+
+.skkkk-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+#chat-send.skkkk-action-btn {
+  min-width: 5.5rem;
+}
+
+#tz-refresh.skkkk-action-btn {
+  min-width: 6.5rem;
+}
+
+#upload-submit.skkkk-action-btn {
+  min-height: 2.5rem;
+}

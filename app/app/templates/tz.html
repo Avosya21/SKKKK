@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4 mb-3">Техническое задание — проект {{ project_id }}</h1>
+<pre id="tz" class="border rounded bg-white p-3" style="white-space:pre-wrap;"></pre>
+<div id="tz-status" class="text-muted small mb-2" aria-live="polite"></div>
+<button id="rebuild" class="btn btn-primary mt-3 skkkk-action-btn" data-idle-label="Пересобрать ТЗ">Пересобрать ТЗ</button>
+<script>
+(async () => {
+  if (!SKKKK.requireAuth()) return;
+  const projectId = {{ project_id }};
+  const rebuildBtn = document.getElementById('rebuild');
+  const tzStatus = document.getElementById('tz-status');
+  let pollTimer = null;
+
+  const load = async () => {
+    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    document.getElementById('tz').textContent = SKKKK.plainifyLlmMarkup(
+      (await r.json()).content || '(пусто)',
+    );
+  };
+
+  async function syncTaskUi() {
+    const r = await SKKKK.api(`/projects/${projectId}/tasks/active`);
+    if (!r.ok) return false;
+    const task = (await r.json()).tasks.find((t) => t.task_type === 'tz_rebuild' && t.status === 'running');
+    if (!task) {
+      SKKKK.setButtonBusy(rebuildBtn, false);
+      tzStatus.textContent = '';
+      return false;
+    }
+    tzStatus.textContent = `${task.label}… подождите`;
+    SKKKK.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
+    return true;
+  }
+
+  function startPoll() {
+    if (pollTimer) return;
+    pollTimer = setInterval(async () => {
+      const busy = await syncTaskUi();
+      if (!busy) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        await load();
+      }
+    }, 3000);
+  }
+
+  rebuildBtn.onclick = async () => {
+    if (await syncTaskUi()) {
+      startPoll();
+      return;
+    }
+    await SKKKK.guardButton(rebuildBtn, async () => {
+      const r = await SKKKK.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
+      if (r.status === 409) {
+        const payload = await r.json().catch(() => ({}));
+        tzStatus.textContent = payload.detail || 'Пересборка уже выполняется…';
+        await syncTaskUi();
+        startPoll();
+        return;
+      }
+      if (!r.ok) throw new Error('rebuild failed');
+      await load();
+    }, { label: 'Пересборка…' });
+  };
+
+  await load();
+  if (await syncTaskUi()) startPoll();
+})();
+</script>
+{% endblock %}

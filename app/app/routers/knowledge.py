@@ -1,0 +1,384 @@
+from __future__ import annotations
+
+import logging
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.app.config import Settings, get_settings
+from app.app.db import get_db
+from app.app.dependencies import get_current_user, require_role
+from app.app.models.artifact import Artifact
+from app.app.models.entity import Entity, Link, NoteRef, Resolution, UserNote
+from app.app.models.project import Project
+from app.app.models.user import User
+from app.app.services.chat import answer_chat, chat_is_pending, list_chat_messages
+from app.app.services.project_tasks import TaskAlreadyRunning
+from app.app.services.graph import build_graph_payload
+from app.app.services.storage import project_notes_dir
+from app.app.services.project_tasks import (
+    TASK_TZ_REBUILD,
+    TaskAlreadyRunning,
+    cleanup_stale_tasks,
+    list_active_tasks,
+    track_project_task,
+)
+from app.app.services.tz import rebuild_tz, tz_paths
+
+logger = logging.getLogger("skkkk.api.knowledge")
+router = APIRouter(tags=["knowledge"])
+
+
+class ChatRequest(BaseModel):
+    project_id: int
+    question: str = Field(min_length=1, max_length=4000)
+
+
+class NoteCreate(BaseModel):
+    text: str = Field(min_length=1)
+    refs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LinkCreate(BaseModel):
+    project_id: int
+    source_entity_id: int
+    target_entity_id: int
+    link_type: str
+    description: str = Field(min_length=1)
+
+
+class ResolveConflict(BaseModel):
+    winning_entity_id: int
+    reason: str = Field(min_length=1)
+
+
+class EntityReview(BaseModel):
+    action: str  # accept | reject | edit
+    value_json: str | None = None
+
+
+@router.get("/projects/{project_id}/search")
+def semantic_search(
+    project_id: int,
+    q: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(get_current_user)],
+    limit: int = 10,
+):
+    from app.app.db import get_engine
+    from app.app.services.ollama_client import embed_texts
+    from app.app.services.retrieval import enrich_and_rerank_hits
+    from app.app.services.vector_index import init_vector_store, search_vectors
+
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if settings.dry_run:
+        return {"query": q, "results": []}
+    init_vector_store(get_engine())
+    vec = embed_texts(settings, [q])[0]
+    hits = search_vectors(db, vec, project_id=project_id, limit=max(limit * 2, 10))
+    hits = enrich_and_rerank_hits(db, hits, limit=limit)
+    threshold = project.settings().get("search_min_score", settings.search_min_score)
+    return {"query": q, "results": [h for h in hits if h["score"] >= threshold]}
+
+
+@router.get("/projects/{project_id}/graph/data")
+def project_graph(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return build_graph_payload(db, project_id)
+
+
+@router.get("/projects/{project_id}/artifacts/{artifact_db_id}/entities")
+def list_entities(
+    project_id: int,
+    artifact_db_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    art = db.get(Artifact, artifact_db_id)
+    if not art or art.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    rows = db.scalars(select(Entity).where(Entity.artifact_id == art.id)).all()
+    return [
+        {
+            "id": e.id,
+            "entity_type": e.entity_type,
+            "value_json": e.value_json,
+            "needs_review": e.needs_review,
+            "is_active": e.is_active,
+        }
+        for e in rows
+    ]
+
+
+@router.post("/entities/{entity_id}/review")
+def review_entity(
+    entity_id: int,
+    body: EntityReview,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    ent = db.get(Entity, entity_id)
+    if not ent:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    if body.action == "accept":
+        ent.needs_review = False
+    elif body.action == "reject":
+        ent.is_active = False
+        ent.needs_review = False
+    elif body.action == "edit" and body.value_json:
+        ent.value_json = body.value_json
+        ent.needs_review = False
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/projects/{project_id}/notes")
+def create_note(
+    project_id: int,
+    body: NoteCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    notes_dir = project_notes_dir(settings, project_id)
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    from datetime import datetime
+
+    fname = f"user_note_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{user.name[:20]}.txt"
+    fpath = notes_dir / fname
+    fpath.write_text(body.text, encoding="utf-8")
+    note = UserNote(project_id=project_id, user_id=user.id, text=body.text, file_path=str(fpath))
+    db.add(note)
+    db.flush()
+    for ref in body.refs:
+        db.add(
+            NoteRef(
+                note_id=note.id,
+                target_kind=str(ref.get("kind", "entity")),
+                target_id=int(ref["id"]),
+            )
+        )
+    db.commit()
+    return {"id": note.id, "file_path": str(fpath)}
+
+
+@router.post("/links")
+def create_link(
+    body: LinkCreate,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    link = Link(
+        project_id=body.project_id,
+        source_entity_id=body.source_entity_id,
+        target_entity_id=body.target_entity_id,
+        link_type=body.link_type,
+        is_automatic=False,
+        created_by=user.id,
+        description=body.description,
+    )
+    db.add(link)
+    db.commit()
+    return {"id": link.id}
+
+
+@router.get("/projects/{project_id}/conflicts")
+def list_conflicts(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _admin: Annotated[User, Depends(require_role("admin"))],
+):
+    links = db.scalars(
+        select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT")
+    ).all()
+    out = []
+    for lnk in links:
+        if db.scalar(select(Resolution.id).where(Resolution.link_id == lnk.id)):
+            continue
+        src = db.get(Entity, lnk.source_entity_id)
+        tgt = db.get(Entity, lnk.target_entity_id)
+        out.append(
+            {
+                "link_id": lnk.id,
+                "source": {"id": src.id, "type": src.entity_type, "value": src.value_json} if src else None,
+                "target": {"id": tgt.id, "type": tgt.entity_type, "value": tgt.value_json} if tgt else None,
+                "score": lnk.similarity_score,
+            }
+        )
+    return out
+
+
+@router.post("/conflicts/{link_id}/resolve")
+def resolve_conflict(
+    link_id: int,
+    body: ResolveConflict,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(require_role("admin"))],
+):
+    link = db.get(Link, link_id)
+    if not link or link.link_type != "POTENTIAL_CONFLICT":
+        raise HTTPException(status_code=404, detail="Conflict not found")
+    losing = (
+        link.target_entity_id
+        if body.winning_entity_id == link.source_entity_id
+        else link.source_entity_id
+    )
+    loser = db.get(Entity, losing)
+    if loser:
+        loser.is_active = False
+    db.add(
+        Resolution(
+            link_id=link.id,
+            winning_entity_id=body.winning_entity_id,
+            losing_entity_id=losing,
+            reason=body.reason,
+            resolved_by=admin.id,
+            status="resolved",
+        )
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/projects/{project_id}/tasks/active")
+def project_active_tasks(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"tasks": list_active_tasks(db, project_id=project_id)}
+
+
+@router.post("/projects/{project_id}/rebuild-tz")
+def rebuild_tz_endpoint(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    admin: Annotated[User, Depends(require_role("admin"))],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        with track_project_task(
+            db,
+            task_type=TASK_TZ_REBUILD,
+            project_id=project_id,
+            user_id=admin.id,
+        ):
+            path = rebuild_tz(db, settings, project_id, manual=True)
+    except TaskAlreadyRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"path": str(path)}
+
+
+@router.get("/projects/{project_id}/tz/content")
+def get_tz(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    current, _ = tz_paths(settings, project_id)
+    if not current.is_file():
+        return {"content": "", "path": str(current)}
+    from app.app.services.plain_text import clean_summary_output
+
+    return {
+        "content": clean_summary_output(current.read_text(encoding="utf-8")),
+        "path": str(current),
+    }
+
+
+@router.get("/projects/{project_id}/tz/versions")
+def tz_versions(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    from app.app.models.entity import Changelog
+
+    rows = db.scalars(
+        select(Changelog).where(Changelog.project_id == project_id).order_by(Changelog.id.desc())
+    ).all()
+    _, versions_dir = tz_paths(settings, project_id)
+    files = sorted(versions_dir.glob("current_tz_*.md"), reverse=True)
+    return {
+        "changelog": [
+            {
+                "id": r.id,
+                "version": r.version_label,
+                "summary": r.summary_of_changes,
+                "tz_path": r.tz_path,
+            }
+            for r in rows
+        ],
+        "files": [f.name for f in files],
+    }
+
+
+@router.get("/projects/{project_id}/chat/history")
+def chat_history(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"messages": list_chat_messages(db, project_id=project_id, user_id=user.id)}
+
+
+@router.get("/projects/{project_id}/chat/status")
+def chat_status(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    pending = chat_is_pending(db, project_id=project_id, user_id=user.id)
+    return {"pending": pending, "label": "ИИ готовит ответ…" if pending else ""}
+
+
+@router.post("/chat")
+def chat_endpoint(
+    body: ChatRequest,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, body.project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if chat_is_pending(db, project_id=body.project_id, user_id=user.id):
+        raise HTTPException(status_code=409, detail="ИИ уже готовит ответ на предыдущий вопрос")
+    try:
+        return answer_chat(db, settings, body.project_id, user.id, body.question)
+    except TaskAlreadyRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

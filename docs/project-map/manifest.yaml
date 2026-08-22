@@ -1,0 +1,430 @@
+# SKKKK project map manifest — nodes & dependency edges for agents and vector index.
+# Update together with docs/PROJECT-MAP.md when adding modules or pipelines.
+version: 1
+updated: "2026-08-22"
+
+nodes:
+  - id: fastapi_main
+    kind: process
+    path: app/app/main.py
+    title: FastAPI server + static + lifespan
+    tags: [runtime, api]
+
+  - id: gpu_worker
+    kind: process
+    path: app/app/workers/gpu_worker.py
+    title: Jobs queue worker (one GPU job at a time)
+    tags: [runtime, worker]
+
+  - id: router_pages
+    kind: router
+    path: app/app/routers/pages.py
+    title: HTML pages and artifact reports
+    tags: [api, ui]
+
+  - id: router_upload
+    kind: router
+    path: app/app/routers/upload.py
+    title: Resumable upload and artifact list
+    tags: [api, upload]
+
+  - id: router_knowledge
+    kind: router
+    path: app/app/routers/knowledge.py
+    title: Search, graph, TZ, chat, conflicts
+    tags: [api, knowledge]
+
+  - id: router_speakers
+    kind: router
+    path: app/app/routers/speaker_profiles.py
+    title: Speaker enroll/merge/recalculate/summary/reindex API
+    tags: [api, speakers]
+
+  - id: svc_llm
+    kind: service
+    path: app/app/services/llm.py
+    title: Unified LLM adapter (lmstudio | cursor)
+    tags: [llm]
+
+  - id: svc_pipeline_audio
+    kind: service
+    path: app/app/services/pipeline_audio.py
+    title: Audio ASR subprocess orchestration, view, match, summary
+    tags: [pipeline, audio]
+
+  - id: svc_pipeline_knowledge
+    kind: service
+    path: app/app/services/pipeline_knowledge.py
+    title: Entities, index, summary, graph, done
+    tags: [pipeline, knowledge]
+
+  - id: svc_speaker_profiles
+    kind: service
+    path: app/app/services/speaker_profiles.py
+    title: Speaker DB, recalculate, rebuild summary, reindex
+    tags: [speakers]
+
+  - id: svc_indexing
+    kind: service
+    path: app/app/services/indexing.py
+    title: Chunk artifact text and store in sqlite-vec
+    tags: [index, ollama]
+
+  - id: svc_vector_index
+    kind: service
+    path: app/app/services/vector_index.py
+    title: sqlite-vec storage for artifact chunks
+    tags: [index, sqlite]
+
+  - id: svc_entities
+    kind: service
+    path: app/app/services/entities.py
+    title: LLM entity extraction and persist JSON
+    tags: [knowledge, llm]
+
+  - id: svc_graph
+    kind: service
+    path: app/app/services/graph.py
+    title: Seed knowledge graph and detect conflicts
+    tags: [knowledge, graph]
+
+  - id: svc_tz
+    kind: service
+    path: app/app/services/tz.py
+    title: Rebuild project TZ via map/reduce over all indexed chunks
+    tags: [knowledge, llm, index]
+
+  - id: svc_chat
+    kind: service
+    path: app/app/services/chat.py
+    title: RAG chat; priority rerank, chat_guidance, clarification questions
+    tags: [knowledge, llm]
+
+  - id: svc_retrieval
+    kind: service
+    path: app/app/services/retrieval.py
+    title: Vector hit rerank by artifact priority_weight
+    tags: [knowledge, search]
+
+  - id: model_chat_guidance
+    kind: model
+    path: app/app/models/chat_guidance.py
+    title: User steering hints from chat (no graph mutation)
+    tags: [knowledge, db, chat]
+
+  - id: model_chat_message
+    kind: model
+    path: app/app/models/chat_message.py
+    title: Per-user chat history (project_id + user_id)
+    tags: [knowledge, db]
+
+  - id: model_project_task
+    kind: model
+    path: app/app/models/project_task.py
+    title: Running long API tasks (TZ rebuild, summary, reindex, speakers)
+    tags: [db, ui]
+
+  - id: svc_project_tasks
+    kind: service
+    path: app/app/services/project_tasks.py
+    title: Task lock, active list, stale cleanup; duplicate POST → 409
+    tags: [api, ui]
+
+  - id: model_project_mcp_token
+    kind: model
+    path: app/app/models/project_mcp_token.py
+    title: Per-project MCP API keys (read-only remote access)
+    tags: [api, mcp, db]
+
+  - id: svc_project_mcp
+    kind: service
+    path: app/app/mcp/project_protocol.py
+    title: MCP JSON-RPC tools over project knowledge (read-only)
+    tags: [api, mcp, knowledge]
+
+  - id: router_project_mcp
+    kind: router
+    path: app/app/routers/project_mcp.py
+    title: MCP tokens CRUD + POST /mcp/projects/{id}
+    tags: [api, mcp]
+
+  - id: svc_artifact_audio
+    kind: service
+    path: app/app/services/artifact_audio.py
+    title: Finalize outputs, sync reports, rebuild transcript HTML
+    tags: [audio, reports]
+
+  - id: svc_media_cleanup
+    kind: service
+    path: app/app/services/media_cleanup.py
+    title: Discard video source after verified WAV extraction
+    tags: [audio, storage]
+
+  - id: asr_run_pipeline
+    kind: script
+    path: asr/run_pipeline.py
+    title: Main ASR pipeline entry (worker invokes)
+    tags: [asr, pipeline]
+
+  - id: asr_merge_ensemble
+    kind: script
+    path: asr/merge_ensemble.py
+    title: Window merge via LLM (Whisper+Tone+GigaAM → plain)
+    tags: [asr, merge, llm]
+
+  - id: asr_merge_guard
+    kind: module
+    path: asr/merge_guard.py
+    title: Per-window merge audit and recovery
+    tags: [asr, merge, quality]
+
+  - id: asr_transcript_integrity
+    kind: module
+    path: asr/transcript_integrity.py
+    title: Global plain audit/repair and view integrity
+    tags: [asr, merge, quality]
+
+  - id: asr_build_transcript_view
+    kind: script
+    path: asr/build_transcript_view.py
+    title: Build canonical UI turns, HTML, speakers.json
+    tags: [asr, view]
+
+  - id: asr_match_speakers
+    kind: script
+    path: asr/match_sortformer_speakers.py
+    title: Voice embedding match Sortformer → speaker profiles
+    tags: [asr, speakers, gigaam]
+
+  - id: asr_summarize_call
+    kind: script
+    path: asr/summarize_call.py
+    title: Map/reduce call summary from speakers.json
+    tags: [asr, summary, llm]
+
+  - id: asr_voice_audit
+    kind: script
+    path: asr/voice_turn_audit.py
+    title: Voice/text consistency audit
+    tags: [asr, speakers, quality]
+
+  - id: asr_llm_client
+    kind: module
+    path: asr/llm_client.py
+    title: LLM client for ASR subprocess scripts
+    tags: [llm, asr]
+
+  - id: docker_whisper
+    kind: external
+    path: asr/docker-compose.yml
+    title: skkkk-whisper container :18101
+    tags: [asr, docker, gpu]
+
+  - id: docker_gigaam
+    kind: external
+    path: asr/docker-compose.yml
+    title: skkkk-gigaam container :18102 (ASR + voice embed)
+    tags: [asr, docker, gpu]
+
+  - id: docker_tone
+    kind: external
+    path: asr/docker-compose.yml
+    title: skkkk-tone container :18103
+    tags: [asr, docker, gpu]
+
+  - id: prompt_merge
+    kind: prompt
+    path: docs/prompts/merge_transcript.md
+    title: LLM merge window prompt
+    tags: [prompt, merge]
+
+  - id: prompt_summary
+    kind: prompt
+    path: docs/prompts/call_summary.md
+    title: Call summary map/reduce prompts
+    tags: [prompt, summary]
+
+  - id: prompt_entities
+    kind: prompt
+    path: docs/prompts/extract_entities.md
+    title: Entity extraction prompt
+    tags: [prompt, knowledge]
+
+  - id: prompt_rebuild_tz
+    kind: prompt
+    path: docs/prompts/rebuild_tz.md
+    title: Project TZ map/reduce prompts
+    tags: [prompt, summary, knowledge]
+
+  - id: file_merged_windows
+    kind: artifact_file
+    path: "{artifact}/asr/docker_merged_windows.json"
+    title: LLM-merged text per silence window
+    tags: [data, merge]
+
+  - id: file_speakers_json
+    kind: artifact_file
+    path: "{artifact}/asr/docker_gigaam_speakers.json"
+    title: Canonical turns for UI and summary
+    tags: [data, view, speakers]
+
+  - id: file_match_json
+    kind: artifact_file
+    path: "{artifact}/reports/sortformer_speaker_match.json"
+    title: Sortformer label → profile match
+    tags: [data, speakers]
+
+  - id: file_entities_json
+    kind: artifact_file
+    path: "{project}/structured/{artifact}_entities.json"
+    title: Extracted decisions/tasks/facts
+    tags: [data, knowledge]
+
+  - id: script_index_map
+    kind: script
+    path: scripts/index_project_map.py
+    title: Build vector index of project map
+    tags: [meta, index]
+
+  - id: script_search_map
+    kind: script
+    path: scripts/search_project_map.py
+    title: Semantic search project map
+    tags: [meta, search]
+
+  - id: ui_project_page
+    kind: ui_page
+    path: app/app/templates/project.html
+    title: Project page — upload, artifacts, equal-height TZ+chat panels, collapsible MCP
+    tags: [ui, project, layout, mcp]
+
+  - id: ui_project_insights_layout
+    kind: ui_pattern
+    path: app/app/templates/project.html#project-insights-row
+    title: "Макет project.html: строка project-insights-row — TZ и чат одной высоты min(70vh,720px), sticky top 0.75rem; #tz-content и #chat-log скроллятся внутри; chat-composer внизу"
+    tags: [ui, layout, project, chat, tz]
+
+  - id: ui_mcp_collapsible
+    kind: ui_pattern
+    path: app/app/templates/project.html#mcp-access-panel
+    title: "Сворачиваемый блок Удалённый доступ MCP: Bootstrap collapse #mcp-access-panel, по умолчанию сложен, подсказка #mcp-toggle-hint (развернуть/свернуть)"
+    tags: [ui, mcp, project, collapse]
+
+  - id: ui_index_page
+    kind: ui_page
+    path: app/app/templates/index.html
+    title: Projects list and create project modal
+    tags: [ui, projects]
+
+  - id: ui_transcript_report
+    kind: ui_page
+    path: asr/transcript_view.py
+    title: Transcript HTML — summary block, speaker tools, reindex
+    tags: [ui, transcript]
+
+  - id: ui_speaker_match_report
+    kind: ui_page
+    path: asr/build_speaker_match_view.py
+    title: Speaker match HTML — enroll, merge, recalculate
+    tags: [ui, speakers]
+
+  - id: ui_btn_rebuild_tz
+    kind: ui_action
+    path: app/app/templates/project.html#tz-refresh
+    title: "Пересобрать — итоговая выжимка по проекту"
+    tags: [ui, tz, llm]
+
+  - id: ui_btn_rebuild_call_summary
+    kind: ui_action
+    path: asr/transcript_view.py#rebuild-summary
+    title: "Пересобрать выжимку — один созвон"
+    tags: [ui, summary, llm]
+
+  - id: ui_btn_recalculate_speakers
+    kind: ui_action
+    path: asr/transcript_view.py#recalc
+    title: "Пересчитать / Обновить и пересчитать — match спикеров"
+    tags: [ui, speakers, gigaam]
+
+  - id: ui_btn_reindex
+    kind: ui_action
+    path: asr/transcript_view.py#reindex
+    title: "Обновить и переиндексировать — chunks sqlite-vec"
+    tags: [ui, index, ollama]
+
+  - id: ui_btn_upload
+    kind: ui_action
+    path: app/app/templates/project.html#upload-submit
+    title: Загрузить — resumable upload + GPU job
+    tags: [ui, upload, worker]
+
+  - id: ui_btn_chat
+    kind: ui_action
+    path: app/app/templates/project.html#chat-send
+    title: Спросить — RAG chat по проекту
+    tags: [ui, chat, llm]
+
+edges:
+  - {from: gpu_worker, to: svc_pipeline_audio, relation: invokes}
+  - {from: gpu_worker, to: svc_pipeline_knowledge, relation: invokes_after_transcript}
+  - {from: svc_pipeline_audio, to: asr_run_pipeline, relation: subprocess}
+  - {from: svc_pipeline_audio, to: svc_media_cleanup, relation: discard_video_after_asr}
+  - {from: asr_run_pipeline, to: svc_media_cleanup, relation: discard_video_after_audio_prep}
+  - {from: asr_run_pipeline, to: docker_whisper, relation: http}
+  - {from: asr_run_pipeline, to: docker_tone, relation: http}
+  - {from: asr_run_pipeline, to: docker_gigaam, relation: http}
+  - {from: asr_run_pipeline, to: asr_merge_ensemble, relation: subprocess}
+  - {from: asr_merge_ensemble, to: asr_merge_guard, relation: imports}
+  - {from: asr_merge_ensemble, to: asr_transcript_integrity, relation: imports}
+  - {from: asr_merge_ensemble, to: asr_llm_client, relation: imports}
+  - {from: asr_merge_ensemble, to: prompt_merge, relation: reads}
+  - {from: asr_merge_ensemble, to: file_merged_windows, relation: writes}
+  - {from: svc_pipeline_audio, to: asr_build_transcript_view, relation: subprocess}
+  - {from: asr_build_transcript_view, to: file_speakers_json, relation: writes}
+  - {from: asr_build_transcript_view, to: file_match_json, relation: reads}
+  - {from: svc_pipeline_audio, to: asr_match_speakers, relation: subprocess}
+  - {from: asr_match_speakers, to: docker_gigaam, relation: docker_exec_embed}
+  - {from: svc_pipeline_audio, to: asr_voice_audit, relation: subprocess}
+  - {from: svc_pipeline_knowledge, to: svc_entities, relation: calls}
+  - {from: svc_entities, to: svc_llm, relation: calls}
+  - {from: svc_entities, to: prompt_entities, relation: reads}
+  - {from: svc_pipeline_knowledge, to: svc_indexing, relation: calls}
+  - {from: svc_indexing, to: svc_vector_index, relation: stores}
+  - {from: svc_pipeline_knowledge, to: asr_summarize_call, relation: subprocess_via_run_call_summary}
+  - {from: asr_summarize_call, to: file_speakers_json, relation: reads}
+  - {from: asr_summarize_call, to: prompt_summary, relation: reads}
+  - {from: asr_summarize_call, to: asr_llm_client, relation: imports}
+  - {from: router_speakers, to: svc_speaker_profiles, relation: api}
+  - {from: svc_speaker_profiles, to: asr_match_speakers, relation: recalculate}
+  - {from: svc_speaker_profiles, to: asr_summarize_call, relation: rebuild_summary}
+  - {from: fastapi_main, to: router_speakers, relation: mounts}
+  - {from: fastapi_main, to: router_knowledge, relation: mounts}
+  - {from: router_knowledge, to: svc_chat, relation: api}
+  - {from: svc_chat, to: model_chat_message, relation: persists}
+  - {from: svc_chat, to: model_chat_guidance, relation: persists}
+  - {from: svc_chat, to: svc_retrieval, relation: rerank_hits}
+  - {from: router_knowledge, to: svc_retrieval, relation: search_rerank}
+  - {from: router_knowledge, to: svc_tz, relation: api}
+  - {from: router_knowledge, to: svc_project_tasks, relation: tasks_active_and_lock}
+  - {from: router_speakers, to: svc_project_tasks, relation: tasks_active_and_lock}
+  - {from: svc_project_tasks, to: model_project_task, relation: persists}
+  - {from: fastapi_main, to: svc_project_tasks, relation: cleanup_stale_on_start}
+  - {from: svc_tz, to: svc_vector_index, relation: reads_all_project_chunks}
+  - {from: svc_tz, to: svc_llm, relation: map_reduce}
+  - {from: svc_tz, to: prompt_rebuild_tz, relation: reads}
+  - {from: ui_btn_rebuild_tz, to: svc_project_tasks, relation: lock_then_POST_rebuild-tz}
+  - {from: ui_btn_rebuild_call_summary, to: svc_project_tasks, relation: lock_then_POST_rebuild-summary}
+  - {from: ui_btn_recalculate_speakers, to: svc_project_tasks, relation: lock_then_POST_speaker-recalculate}
+  - {from: ui_btn_reindex, to: svc_project_tasks, relation: lock_then_POST_reindex}
+  - {from: ui_btn_upload, to: gpu_worker, relation: queues_job_after_complete}
+  - {from: ui_btn_chat, to: svc_chat, relation: POST_chat}
+  - {from: ui_transcript_report, to: router_speakers, relation: embeds_actions}
+  - {from: ui_speaker_match_report, to: router_speakers, relation: embeds_actions}
+  - {from: ui_project_page, to: ui_btn_rebuild_tz, relation: contains}
+  - {from: ui_project_page, to: ui_btn_upload, relation: contains}
+  - {from: ui_project_page, to: ui_project_insights_layout, relation: contains}
+  - {from: ui_project_page, to: ui_mcp_collapsible, relation: contains}
+  - {from: fastapi_main, to: router_project_mcp, relation: mounts}
+  - {from: router_project_mcp, to: svc_project_mcp, relation: mcp_jsonrpc}
+  - {from: router_project_mcp, to: model_project_mcp_token, relation: token_auth}
+  - {from: ui_project_page, to: router_project_mcp, relation: mcp_panel}

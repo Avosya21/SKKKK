@@ -1,0 +1,6 @@
+hf_cache
+.git
+__pycache__
+*.pyc
+копия.yaml
+*.md
