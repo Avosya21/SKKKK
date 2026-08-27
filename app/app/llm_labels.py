@@ -21,28 +21,15 @@ def llm_runtime_label(provider: str | None) -> str:
 
 def asr_step_labels(provider: str | None) -> dict[str, str]:
     name = llm_short_name(provider)
-    if uses_local_gemma(provider):
-        return {
-            "audio_prep": "Подготовка аудио (FFmpeg)",
-            "gemma_unload": "Выгрузка Gemma, освобождение GPU",
-            "asr_containers": "Старт Docker: Whisper + GigaAM + T-one",
-            "asr_run": "Три ASR параллельно (Whisper, T-one, GigaAM)",
-            "asr_stop": "Остановка ASR-контейнеров, освобождение VRAM",
-            "sortformer": "Sortformer: диаризация спикеров",
-            "gemma_load": "Загрузка Gemma в LM Studio",
-            "merge": "Склейка Gemma по окнам",
-            "view_build": "Сборка HTML стенограммы",
-        }
     return {
-        "audio_prep": "Подготовка аудио (FFmpeg)",
-        "gemma_unload": "Выгрузка LM Studio, GPU для ASR",
-        "asr_containers": "Старт Docker: Whisper + GigaAM + T-one",
-        "asr_run": "Три ASR параллельно (Whisper, T-one, GigaAM)",
-        "asr_stop": "Остановка ASR-контейнеров, освобождение VRAM",
-        "sortformer": "Sortformer: диаризация спикеров",
-        "gemma_load": "LLM в облаке (Cursor), загрузка не нужна",
-        "merge": f"Склейка {name} по окнам",
-        "view_build": "Сборка HTML стенограммы",
+        "audio_prep": "Подготовка WAV 16 кГц",
+        "lab_onnx": "Parakeet + Sortformer (ONNX)",
+        "lab_sense": f"Спорные спикеры ({name})",
+        "lab_giga": "GigaAM — второй слух",
+        "lab_reconcile": "Сверка lab vs GigaAM",
+        "lab_proof": f"Вычитка текста ({name})",
+        "lab_voice": "WeSpeaker — голоса",
+        "speakers_confirm": "Подтверждение спикеров",
     }
 
 

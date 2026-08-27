@@ -96,18 +96,7 @@ def ensure_artifact_asr_inputs(
         seed_merged_from_final(final_txt, asr_out, _ffprobe_duration(wav))
         merged_ok = True
 
-    if not merged_ok:
-        fallback = root / "asr" / "out"
-        for name in (
-            "docker_merged_windows.json",
-            "docker_merged_plain.txt",
-            "call_summary.md",
-            "docker_whisper.json",
-            "sortformer_segments.json",
-        ):
-            src = fallback / name
-            if src.is_file() and not (asr_out / name).is_file():
-                shutil.copy2(src, asr_out / name)
+    # Не копировать из глобального asr/out — там stale от других job'ов (см. docker_stage.py).
 
     if summary.is_file() and not (asr_out / "call_summary.md").is_file():
         shutil.copy2(summary, asr_out / "call_summary.md")

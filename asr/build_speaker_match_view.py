@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -12,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASR = ROOT / "asr"
 sys.path.insert(0, str(ASR))
 
-from speakers import format_clock, talk_time  # noqa: E402
-from speaker_registry import Segment  # noqa: E402
+from speakers import format_clock  # noqa: E402
 
 STATUS_BADGE = {
     "confirmed": ("bg-success", "подтверждён"),
@@ -60,23 +60,15 @@ ICON_MERGE = (
 )
 
 
-def _normalize_label(name: str) -> str:
-    """Убрать хвост «(100%)» из подписи сегмента."""
-    import re
-
-    return re.sub(r"\s*\(\d+%\)\s*$", "", name.strip())
-
-
 def _resolve_color_key(diar: str, matches: dict, merge_map: dict) -> str:
-    canon = merge_map.get(diar, diar)
-    m = matches.get(diar) or matches.get(canon) or {}
+    m = matches.get(diar) or matches.get(merge_map.get(diar, diar), {}) or {}
     pid = m.get("profile_id")
     if pid:
         return f"p{pid}"
     pname = (m.get("profile_name") or "").strip()
     if pname:
         return f"n:{pname}"
-    return f"d:{canon}"
+    return f"d:{diar}"
 
 
 def _build_palette(keys: list[str]) -> dict[str, str]:
@@ -91,88 +83,32 @@ def _build_palette(keys: list[str]) -> dict[str, str]:
     return {k: COLORS[i % len(COLORS)] for i, k in enumerate(uniq)}
 
 
-def _color_map(speakers: list[str]) -> dict[str, str]:
-    return {sp: COLORS[i % len(COLORS)] for i, sp in enumerate(speakers)}
-
-
-def _diar_key(seg: dict) -> str:
-    return str(seg.get("diar_label") or seg.get("speaker") or "")
-
-
 def _badge(status: str) -> str:
     css, label = STATUS_BADGE.get(status, ("bg-secondary", status))
     return f'<span class="badge {css}">{html.escape(label)}</span>'
 
 
-def _canonical_labels(matches: dict, merge_map: dict, raw_segments: list[dict]) -> list[str]:
-    if matches:
-        return sorted({merge_map.get(k, k) for k in matches})
-    return sorted({_diar_key(s) for s in raw_segments})
-
-
-def _segments_for_view(payload: dict) -> list[dict]:
-    merged = payload.get("segments_merged") or []
-    if not merged:
-        return payload.get("segments_labeled") or []
-    display_names = payload.get("display_names") or {}
-    matches = payload.get("matches") or {}
-    merge_map = payload.get("merge_map") or {}
-    rows: list[dict] = []
-    for s in merged:
-        raw = str(s.get("speaker") or "")
-        canon = str(merge_map.get(raw, raw))
-        m = matches.get(canon) or matches.get(raw) or {}
-        if m.get("status") == "confirmed" and m.get("profile_name"):
-            label = _normalize_label(str(m["profile_name"]))
-        else:
-            raw_label = display_names.get(canon) or display_names.get(raw) or m.get("profile_name") or raw
-            label = _normalize_label(str(raw_label))
-        rows.append(
+def _speaker_card_groups(matches: dict, merge_map: dict) -> list[dict]:
+    """Одна карточка на каждый Sortformer ID — не скрывать voice-merge alias."""
+    groups: list[dict] = []
+    for sp in sorted(matches.keys()):
+        m = matches.get(sp) or {}
+        canon = merge_map.get(sp, sp)
+        groups.append(
             {
-                "start": s["start"],
-                "end": s["end"],
-                "speaker": label,
-                "diar_label": canon,
-                "color_key": _resolve_color_key(canon, matches, merge_map),
+                "primary": sp,
+                "labels": [sp],
+                "match": m,
+                "profile_id": m.get("profile_id"),
+                "voice_merge_target": canon if canon != sp else None,
             }
         )
-    return rows
-
-
-def _ensure_color_keys(segments: list[dict], matches: dict, merge_map: dict) -> list[dict]:
-    out: list[dict] = []
-    for s in segments:
-        row = dict(s)
-        if not row.get("color_key"):
-            diar = str(row.get("diar_label") or _diar_key(row))
-            row["color_key"] = _resolve_color_key(diar, matches, merge_map)
-        out.append(row)
-    return out
-
-
-def _speaker_card_groups(matches: dict, merge_map: dict) -> list[dict]:
-    groups: list[dict] = []
-    used: set[str] = set()
-    by_profile: dict[int, list[str]] = {}
-    for sp in sorted(matches.keys()):
-        canon = merge_map.get(sp, sp)
-        m = matches.get(sp) or matches.get(canon) or {}
-        pid = m.get("profile_id")
-        if pid and m.get("status") in ("confirmed", "merged_duplicate"):
-            by_profile.setdefault(pid, []).append(sp)
-    for pid in sorted(by_profile, key=lambda p: min(by_profile[p])):
-        labels = sorted(set(by_profile[pid]))
-        primary = labels[0]
-        groups.append({"primary": primary, "labels": labels, "match": matches.get(primary, {}), "profile_id": pid})
-        used.update(labels)
-    for sp in sorted({merge_map.get(k, k) for k in matches}):
-        if sp not in used:
-            groups.append({"primary": sp, "labels": [sp], "match": matches.get(sp, {}), "profile_id": None})
     return groups
 
 
 def _initials(name: str, fallback: str) -> str:
-    parts = [p for p in name.replace("_", " ").split() if p]
+    cleaned = re.sub(r"[()\[\]«»\"'`]", " ", name.replace("_", " "))
+    parts = [p for p in cleaned.split() if p]
     if not parts:
         return fallback[:2].upper()
     if len(parts) == 1:
@@ -206,11 +142,15 @@ def _speaker_cards(
         labels = group["labels"]
         m = group["match"]
         pid = group.get("profile_id")
+        voice_merge_target = group.get("voice_merge_target")
         ck = f"p{pid}" if pid else _resolve_color_key(sp, matches, merge_map)
         color = palette.get(ck, TOKENS["muted_fg"])
         st = m.get("status") or "new"
         pname = (m.get("profile_name") or "").strip()
+        if not pname and st == "new":
+            pname = (m.get("suggested_profile_name") or "").strip()
         score = m.get("score")
+        sug_score = m.get("suggested_score")
         cs, ce = m.get("clip_start"), m.get("clip_end")
         inp_id = f"name-{sp.replace('_', '-')}"
         headline = html.escape(pname) if pname else html.escape(sp)
@@ -222,10 +162,20 @@ def _speaker_cards(
             if len(labels) > 1
             else f'<p class="speaker-id mb-2 font-monospace">{labels_txt}</p>'
         )
+        if voice_merge_target:
+            merge_note += (
+                f'<p class="small text-muted mb-2">Голос похож на '
+                f"<strong>{html.escape(voice_merge_target)}</strong> (авто, можно разделить)</p>"
+            )
         score_txt = (
             f'<p class="small text-muted mb-2">Совпадение: <strong>{int(score * 100)}%</strong></p>'
             if score is not None and st != "confirmed"
-            else ""
+            else (
+                f'<p class="small text-muted mb-2">Похож на <strong>{html.escape(pname)}</strong> '
+                f"({int(sug_score * 100)}%)</p>"
+                if sug_score is not None and st == "new" and pname
+                else ""
+            )
         )
         confirmed_icon = f'<span class="speaker-check" aria-hidden="true">{ICON_CHECK}</span>' if st == "confirmed" else ""
         merge_opts = _merge_target_options(sp, labels, groups)
@@ -278,51 +228,22 @@ def _speaker_cards(
     return "".join(parts)
 
 
-def _stat_metrics(stats: list[dict], display_to_color: dict[str, str]) -> str:
-    cards: list[str] = []
-    for r in stats:
-        color = display_to_color.get(r["speaker"], TOKENS["muted_fg"])
-        pct = int(round(r["share"] * 100))
-        name = html.escape(r["speaker"])
-        secs = format_clock(r["seconds"])
-        cards.append(
-            f'<div class="col-6 col-md-4">'
-            f'<div class="metric-card h-100" style="--metric-color:{color}">'
-            f'<div class="metric-dot" aria-hidden="true"></div>'
-            f'<div class="metric-label text-truncate" title="{name}">{name}</div>'
-            f'<div class="metric-value font-monospace">{secs}</div>'
-            f'<div class="metric-share">{pct}%</div>'
-            f"</div></div>"
-        )
-    return "".join(cards)
-
-
-def _timeline_legend(stats: list[dict], display_to_color: dict[str, str]) -> str:
-    chips: list[str] = []
-    for r in stats:
-        color = display_to_color.get(r["speaker"], TOKENS["muted_fg"])
-        name = html.escape(r["speaker"])
-        chips.append(
-            f'<span class="tl-chip"><span class="tl-chip-dot" style="background:{color}"></span>{name}</span>'
-        )
-    return "".join(chips)
-
-
-def _time_axis(duration: float) -> str:
-    if duration <= 0:
-        return ""
-    marks = [0.0, duration * 0.25, duration * 0.5, duration * 0.75, duration]
-    return "".join(
-        f'<span class="tl-axis-mark" style="left:{100.0 * t / duration:.1f}%">'
-        f"{format_clock(t)}</span>"
-        for t in marks
-    )
-
-
 def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dict]) -> str:
     matches = payload.get("matches") or {}
     merge_map = payload.get("merge_map") or {}
-    raw_segments = _ensure_color_keys(_segments_for_view(payload), matches, merge_map)
+    is_lab = payload.get("source") == "lab"
+    voices_title = "Голоса встречи" if is_lab else "Голоса Sortformer"
+    recalc_label = "Пересчитать подсказки" if is_lab else "Обновить и пересчитать"
+    recalc_hint = (
+        "неотмеченные ↔ база голосов; «Запомнить» не сбрасывается"
+        if is_lab
+        else "~20 с · Docker WeSpeaker"
+    )
+    workflow_3 = (
+        "«Пересчитать подсказки» — только чтобы обновить совпадения с базой, жать не обязательно"
+        if is_lab
+        else "Когда все подписаны — «Обновить и пересчитать»"
+    )
     card_groups = _speaker_card_groups(matches, merge_map)
 
     color_keys: list[str] = []
@@ -332,65 +253,20 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
             color_keys.append(f"p{pid}")
         else:
             color_keys.append(_resolve_color_key(g["primary"], matches, merge_map))
-    for s in raw_segments:
-        color_keys.append(s.get("color_key", ""))
     palette = _build_palette(color_keys)
-
-    turns = [Segment(float(s["start"]), float(s["end"]), str(s.get("speaker") or "")) for s in raw_segments]
-    seg_color_keys = [s.get("color_key", "") for s in raw_segments]
-
-    stats = talk_time(turns)
-    duration = max((t.end for t in turns), default=1.0)
-    display_to_color: dict[str, str] = {}
-    for s in raw_segments:
-        display_to_color[str(s.get("speaker") or "")] = palette.get(s.get("color_key", ""), TOKENS["muted_fg"])
-    stat_rows = "".join(
-        f"<tr><td><span class='sp-dot' style='background:{display_to_color.get(r['speaker'], TOKENS['muted_fg'])}'></span>"
-        f"{html.escape(r['speaker'])}</td>"
-        f"<td class='text-end font-monospace'>{format_clock(r['seconds'])}</td>"
-        f"<td class='text-end'>{int(round(r['share'] * 100))}%</td></tr>"
-        for r in stats
-    )
-    stat_metrics = _stat_metrics(stats, display_to_color)
-    tl_legend = _timeline_legend(stats, display_to_color)
-    time_axis = _time_axis(duration)
-    timeline = []
-    for i, turn in enumerate(turns):
-        left = 100.0 * turn.start / duration
-        width = max(0.12, 100.0 * (turn.end - turn.start) / duration)
-        ck = seg_color_keys[i] if i < len(seg_color_keys) else ""
-        color = palette.get(ck, "#94a3b8")
-        timeline.append(
-            f"<div class='tl-bar' style='left:{left:.3f}%;width:{width:.3f}%;background:{color}' "
-            f"title='{html.escape(turn.speaker)}'></div>"
-        )
-
-    seg_items = []
-    for i, turn in enumerate(turns):
-        ck = seg_color_keys[i] if i < len(seg_color_keys) else ""
-        color = palette.get(ck, TOKENS["muted_fg"])
-        seg_items.append(
-            f"<button type='button' class='list-group-item list-group-item-action seg py-2 px-3' "
-            f"data-i='{i}' data-start='{turn.start:.3f}' data-end='{turn.end:.3f}' "
-            f"aria-label='Перейти к {html.escape(turn.speaker)} {format_clock(turn.start)}'>"
-            f"<div class='d-flex w-100 justify-content-between align-items-center gap-3'>"
-            f"<span class='seg-speaker fw-semibold' style='--seg-color:{color}'>"
-            f'<span class="seg-dot" aria-hidden="true"></span>{html.escape(turn.speaker)}</span>'
-            f"<span class='small text-muted font-monospace text-nowrap'>"
-            f"{format_clock(turn.start)}–{format_clock(turn.end)}</span>"
-            f"</div></button>"
-        )
 
     prof_rows = "".join(
         f"<tr><td class='fw-medium'>{html.escape(p['display_name'])}</td>"
         f"<td><span class='badge rounded-pill profile-scope'>{html.escape(p['scope'])}</span></td>"
-        f"<td class='text-muted font-monospace small'>{p['id']}</td></tr>"
+        f"<td class='text-muted font-monospace small text-end'>{p['id']}</td></tr>"
         for p in profiles
     ) or "<tr><td colspan='3' class='text-muted fst-italic py-4 text-center'>Пока пусто</td></tr>"
 
     confirmed_n = len({g["profile_id"] for g in card_groups if g.get("profile_id")})
     total_n = len(card_groups)
     progress_pct = int(round(100 * confirmed_n / total_n)) if total_n else 0
+    project_id = payload.get("project_id") or ""
+    project_href = f"/projects/{html.escape(str(project_id), quote=True)}" if project_id != "" else "/"
 
     public_payload = {
         "artifact_id": payload.get("artifact_id"),
@@ -555,96 +431,6 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
       right: .75rem;
       color: #6B9080;
     }}
-    .metric-card {{
-      --metric-color: var(--color-muted-fg);
-      background: var(--color-muted);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius);
-      padding: .85rem 1rem;
-      position: relative;
-      overflow: hidden;
-    }}
-    .metric-card::before {{
-      content: "";
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 3px;
-      background: var(--metric-color);
-    }}
-    .metric-dot {{
-      width: .5rem; height: .5rem;
-      border-radius: 50%;
-      background: var(--metric-color);
-      display: inline-block;
-      margin-right: .35rem;
-    }}
-    .metric-label {{ font-size: .8125rem; font-weight: 600; margin-bottom: .15rem; }}
-    .metric-value {{ font-size: 1.1rem; font-weight: 600; }}
-    .metric-share {{ font-size: .75rem; color: var(--color-muted-fg); }}
-    .tl-legend {{ display: flex; flex-wrap: wrap; gap: .5rem .75rem; margin-bottom: .75rem; }}
-    .tl-chip {{
-      font-size: .8125rem;
-      color: var(--color-muted-fg);
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
-    }}
-    .tl-chip-dot {{
-      width: .55rem; height: .55rem;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }}
-    .tl-wrap {{ position: relative; margin-bottom: .35rem; }}
-    .tl-track {{
-      position: relative;
-      height: 2.75rem;
-      background: var(--color-muted);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }}
-    .tl-bar {{
-      position: absolute; top: 0; bottom: 0;
-      min-width: 1px;
-      opacity: .88;
-      transition: opacity var(--transition);
-    }}
-    .tl-bar:hover {{ opacity: 1; }}
-    .tl-axis {{
-      position: relative;
-      height: 1.25rem;
-      font-size: .6875rem;
-      color: var(--color-muted-fg);
-      font-family: ui-monospace, monospace;
-    }}
-    .tl-axis-mark {{
-      position: absolute;
-      transform: translateX(-50%);
-      white-space: nowrap;
-    }}
-    .seg-list {{
-      max-height: min(52vh, 560px);
-      overflow-y: auto;
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius);
-    }}
-    .seg {{
-      cursor: pointer;
-      border-color: var(--color-border) !important;
-      transition: background var(--transition);
-    }}
-    .seg:hover {{ background: var(--color-muted) !important; }}
-    .seg.active {{
-      background: color-mix(in srgb, var(--color-accent) 10%, white) !important;
-      border-left: 3px solid var(--color-accent) !important;
-    }}
-    .seg-speaker {{ color: var(--seg-color); display: inline-flex; align-items: center; gap: .4rem; }}
-    .seg-dot {{
-      width: .45rem; height: .45rem;
-      border-radius: 50%;
-      background: var(--seg-color);
-      flex-shrink: 0;
-    }}
     .workflow-step {{
       display: flex;
       gap: .75rem;
@@ -671,9 +457,22 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
       font-weight: 500;
       font-size: .7rem;
     }}
+    .profile-pool {{
+      max-height: min(52vh, 28rem);
+      overflow: auto;
+      overscroll-behavior: contain;
+    }}
+    .profile-pool table {{ margin-bottom: 0; }}
+    .profile-pool thead th {{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--color-bg);
+      box-shadow: 0 1px 0 var(--color-border);
+    }}
     .sidebar-sticky {{ position: sticky; top: 1rem; }}
-    .play-clip, .seg, .enroll, .merge-btn, #recalc, .nav-pill-link {{ cursor: pointer; }}
-    .play-clip:focus-visible, .seg:focus-visible, .enroll:focus-visible, .merge-btn:focus-visible, #recalc:focus-visible, .nav-pill-link:focus-visible {{
+    .play-clip, .enroll, .merge-btn, #recalc, .nav-pill-link {{ cursor: pointer; }}
+    .play-clip:focus-visible, .enroll:focus-visible, .merge-btn:focus-visible, #recalc:focus-visible, .nav-pill-link:focus-visible {{
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }}
@@ -703,8 +502,7 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
         <p class="text-uppercase small fw-semibold mb-2" style="color:var(--color-primary);letter-spacing:.06em">Диаризация и база голосов</p>
         <h1 class="page-title h3 mb-2">{html.escape(title)}</h1>
         <p class="mb-0" style="color:var(--color-muted-fg);max-width:42rem">
-          Sortformer определяет спикеров, WeSpeaker сопоставляет с базой проекта.
-          Подпишите голоса — таймлайн и сегменты покажут имена.
+          Подпишите голоса встречи и сверьте с общей базой.
         </p>
       </div>
       <div class="col-lg-4">
@@ -728,62 +526,27 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
         <div class="panel-header" id="audio-heading">Аудио и пересчёт</div>
         <div class="panel-body">
           <nav class="mb-4 d-flex flex-wrap gap-2" aria-label="Связанные отчёты">
-            <a class="nav-pill-link" href="report-sortformer">Sortformer</a>
-            <a class="nav-pill-link" href="report-diar-raw">Сырая диаризация</a>
-            <a class="nav-pill-link" href="report">PyAnnote</a>
-            <a class="nav-pill-link" href="report">← Стенограмма</a>
+            <a class="nav-pill-link" href="{project_href}">← Проект</a>
+            <a class="nav-pill-link" href="report">Стенограмма</a>
           </nav>
           <audio id="player" class="w-100 mb-4" controls preload="metadata" playsinline
             src="{html.escape(audio_url, quote=True)}">Ваш браузер не поддерживает аудио.</audio>
           <div class="d-flex flex-wrap align-items-center gap-3">
             <button id="recalc" type="button" class="btn btn-accent d-inline-flex align-items-center gap-2">
-              {ICON_REFRESH}<span>Обновить и пересчитать</span>
+              {ICON_REFRESH}<span>{html.escape(recalc_label)}</span>
             </button>
-            <span class="small" style="color:var(--color-muted-fg)">~20 с · Docker WeSpeaker</span>
+            <span class="small" style="color:var(--color-muted-fg)">{html.escape(recalc_hint)}</span>
           </div>
         </div>
       </section>
 
       <section class="panel" aria-labelledby="speakers-heading">
         <div class="panel-header d-flex justify-content-between align-items-center" id="speakers-heading">
-          <span>Голоса Sortformer</span>
+          <span>{html.escape(voices_title)}</span>
           <span class="badge rounded-pill text-bg-light border fw-normal">{total_n} ID</span>
         </div>
         <div class="panel-body">
           <div class="row g-3">{_speaker_cards(card_groups, palette, matches, merge_map)}</div>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="timeline-heading">
-        <div class="panel-header p-0 border-0">
-          <ul class="nav nav-tabs border-0 px-3 pt-2" role="tablist">
-            <li class="nav-item"><button class="nav-link active fw-medium" data-bs-toggle="tab"
-              data-bs-target="#tab-timeline" type="button" role="tab">Таймлайн</button></li>
-            <li class="nav-item"><button class="nav-link fw-medium" data-bs-toggle="tab"
-              data-bs-target="#tab-segs" type="button" role="tab">Сегменты ({len(seg_items)})</button></li>
-          </ul>
-        </div>
-        <div class="panel-body tab-content pt-3">
-          <div class="tab-pane fade show active" id="tab-timeline" role="tabpanel">
-            <div class="tl-legend" aria-hidden="false">{tl_legend}</div>
-            <div class="tl-wrap">
-              <div class="tl-track" role="img" aria-label="Распределение голосов по времени">{''.join(timeline)}</div>
-              <div class="tl-axis">{time_axis}</div>
-            </div>
-            <div class="row g-2 g-md-3 mt-3">{stat_metrics}</div>
-            <details class="mt-3">
-              <summary class="small" style="color:var(--color-muted-fg);cursor:pointer">Таблица времени</summary>
-              <div class="table-responsive mt-2">
-                <table class="table table-sm table-hover align-middle mb-0">
-                  <thead><tr><th>Голос</th><th class="text-end">Время</th><th class="text-end">Доля</th></tr></thead>
-                  <tbody>{stat_rows}</tbody>
-                </table>
-              </div>
-            </details>
-          </div>
-          <div class="tab-pane fade" id="tab-segs" role="tabpanel">
-            <div class="list-group list-group-flush seg-list">{''.join(seg_items)}</div>
-          </div>
         </div>
       </section>
     </div>
@@ -795,18 +558,18 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
           <div>
             <div class="workflow-step"><span class="workflow-num">1</span><span>Прослушайте эталонный клип каждого спикера</span></div>
             <div class="workflow-step"><span class="workflow-num">2</span><span>Введите имя и нажмите «Запомнить»</span></div>
-            <div class="workflow-step"><span class="workflow-num">3</span><span>Когда все подписаны — «Обновить и пересчитать»</span></div>
+            <div class="workflow-step"><span class="workflow-num">3</span><span>{html.escape(workflow_3)}</span></div>
           </div>
         </section>
 
         <section class="panel" aria-labelledby="db-heading">
           <div class="panel-header d-flex justify-content-between align-items-center" id="db-heading">
-            <span>База проекта</span>
+            <span>База голосов</span>
             <span class="badge rounded-pill text-bg-light border">{len(profiles)}</span>
           </div>
-          <div class="table-responsive">
+          <div class="profile-pool" tabindex="0" role="region" aria-labelledby="db-heading">
             <table class="table table-sm table-hover mb-0 align-middle">
-              <thead><tr><th>Имя</th><th scope="col">scope</th><th class="text-end">id</th></tr></thead>
+              <thead><tr><th scope="col">Имя</th><th scope="col">scope</th><th class="text-end" scope="col">id</th></tr></thead>
               <tbody>{prof_rows}</tbody>
             </table>
           </div>
@@ -853,14 +616,6 @@ function seek(sec) {{
 }}
 
 document.querySelectorAll(".play-clip").forEach(btn => btn.addEventListener("click", () => seek(Number(btn.dataset.start))));
-document.querySelectorAll(".seg").forEach(el => el.addEventListener("click", () => seek(Number(el.dataset.start))));
-player.addEventListener("timeupdate", () => {{
-  const t = player.currentTime;
-  document.querySelectorAll(".seg").forEach(el => {{
-    const a = Number(el.dataset.start), b = Number(el.dataset.end);
-    el.classList.toggle("active", t >= a && t < b);
-  }});
-}});
 
 document.querySelectorAll(".speaker-card .enroll").forEach(btn => {{
   btn.addEventListener("click", async () => {{

@@ -104,6 +104,15 @@ def run_call_summary(settings: Settings, artifact: Artifact) -> bool:
             error=tail[-500:],
         )
         return False
+    from app.app.services.artifact_lab import latest_run_id  # noqa: PLC0415
+
+    if latest_run_id(settings, artifact):
+        from app.app.services.pipeline_lab import republish_named_transcript  # noqa: PLC0415
+
+        try:
+            republish_named_transcript(settings, artifact)
+        except FileNotFoundError as exc:
+            logger.warning("lab view after summary skipped for %s: %s", artifact.artifact_id, exc)
     sync_transcript_view_reports(settings, artifact)
     log_event(
         logger,

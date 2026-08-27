@@ -20,11 +20,26 @@
 cd C:\1C_NEW_SKKKK
 venv\Scripts\activate
 
-pytest app -m "not gpu and not slow" -q     # обычный цикл разработки
-pytest app -m gpu -q                        # перед закрытием этапа с моделями
-pytest app -m slow -q                       # перед этапом 9
+pytest app -m "not gpu and not slow" -q     # обычный цикл: параллельно (pytest-xdist, -n auto)
+pytest app -m gpu -n 0 -q                   # GPU — без параллелизма (одна видеокарта)
+pytest app -m slow -n 0 -q                  # длинные тесты — последовательно
 pytest app -q                               # приёмка целиком
+pytest app -n 0 -q                          # весь suite последовательно (отладка)
 ```
+
+### Ускорение (Trail of Bits / PyPI Warehouse)
+
+| Приём | Где | Зачем |
+|---|---|---|
+| **pytest-xdist** `-n auto` | `pytest.ini` → `addopts` | параллельный прогон на всех ядрах |
+| **testpaths** | `pytest.ini` | быстрый collection, без лишних каталогов |
+| **Фиксированные bcrypt-хеши** | `app/app/tests/conftest.py` | не считать salt при каждом старте pytest |
+| **loadscope** | `pytest.ini` | тесты одного модуля — на одном worker |
+| **COVERAGE_CORE=sysmon** | env (Python 3.12+) | быстрее coverage.py при `pytest --cov` |
+
+Изоляция БД уже совместима с xdist: каждый тест получает свой `tmp_path` и SQLite-файл.
+
+При coverage с xdist понадобится `sitecustomize.py` + `coverage process_startup()` — см. [документацию coverage](https://coverage.readthedocs.io/en/latest/subprocess.html).
 
 ## Структура
 

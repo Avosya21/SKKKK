@@ -1,6 +1,24 @@
 """Регрессии на счётчик автопересборки ТЗ и на порог выдачи поиска."""
 
+from contextlib import contextmanager
+
 from app.app.config import Settings, get_settings
+
+
+@contextmanager
+def _noop_task_tracker(*_args, **_kwargs):
+    yield None
+
+
+def _patch_tz_task_guards(monkeypatch):
+    monkeypatch.setattr(
+        "app.app.services.project_tasks.get_running_task",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "app.app.services.project_tasks.track_project_task",
+        _noop_task_tracker,
+    )
 
 
 def test_search_threshold_is_lower_than_graph_threshold():
@@ -51,6 +69,7 @@ def test_rebuild_fires_on_every_nth_done_artifact(monkeypatch):
             return self._count
 
     monkeypatch.setattr(tz_mod, "rebuild_tz", lambda db, s, pid, **kw: calls.append(pid))
+    _patch_tz_task_guards(monkeypatch)
     settings = Settings(secret_key="x" * 16, tz_rebuild_every_n=3)
     artifact = type("ArtifactStub", (), {"file_type": "audio", "project_id": 7, "artifact_id": "art_audio"})()
 
@@ -74,6 +93,7 @@ def test_rebuild_always_runs_for_documents(monkeypatch):
         "rebuild_tz",
         lambda db, s, pid, **kw: calls.append((pid, kw.get("summary", ""))),
     )
+    _patch_tz_task_guards(monkeypatch)
     settings = Settings(secret_key="x" * 16, tz_rebuild_every_n=3)
     artifact = type("ArtifactStub", (), {"file_type": "docx", "project_id": 11, "artifact_id": "art_doc"})()
 

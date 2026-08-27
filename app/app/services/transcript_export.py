@@ -101,9 +101,35 @@ def _add_inline_runs(paragraph, text: str) -> None:
 
 
 def _markdown_to_docx(doc: Document, summary_md: str) -> None:
-    for raw_line in summary_md.strip().splitlines():
-        line = raw_line.strip()
+    from transcript_view import _looks_md_table_row, parse_md_table
+
+    lines = summary_md.strip().splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         if not line:
+            i += 1
+            continue
+        if _looks_md_table_row(line):
+            table_lines = [line]
+            i += 1
+            while i < len(lines) and _looks_md_table_row(lines[i].strip()):
+                table_lines.append(lines[i].strip())
+                i += 1
+            parsed = parse_md_table(table_lines)
+            if parsed is None:
+                for row in table_lines:
+                    p = doc.add_paragraph()
+                    _add_inline_runs(p, row)
+                continue
+            header, body = parsed
+            table = doc.add_table(rows=1 + len(body), cols=len(header))
+            table.style = "Table Grid"
+            for col, cell in enumerate(header):
+                _add_inline_runs(table.rows[0].cells[col].paragraphs[0], cell)
+            for r_i, row in enumerate(body, start=1):
+                for col, cell in enumerate(row):
+                    _add_inline_runs(table.rows[r_i].cells[col].paragraphs[0], cell)
             continue
         if line.startswith("### "):
             doc.add_heading(line[4:].strip(), level=3)
@@ -117,6 +143,7 @@ def _markdown_to_docx(doc: Document, summary_md: str) -> None:
         else:
             p = doc.add_paragraph()
             _add_inline_runs(p, line)
+        i += 1
 
 
 def build_summary_docx_bytes(summary_md: str, artifact: Artifact) -> bytes:

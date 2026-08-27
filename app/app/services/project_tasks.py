@@ -12,6 +12,7 @@ from app.app.models.project_task import ProjectTask
 TASK_TZ_REBUILD = "tz_rebuild"
 TASK_CALL_SUMMARY = "call_summary_rebuild"
 TASK_ARTIFACT_REINDEX = "artifact_reindex"
+TASK_ENTITIES_REEXTRACT = "entities_reextract"
 TASK_SPEAKER_RECALC = "speaker_recalculate"
 TASK_SPEAKER_ENROLL = "speaker_enroll"
 TASK_CHAT_ANSWER = "chat_answer"
@@ -20,6 +21,7 @@ TASK_LABELS: dict[str, str] = {
     TASK_TZ_REBUILD: "Пересборка выжимки проекта",
     TASK_CALL_SUMMARY: "Пересборка выжимки созвона",
     TASK_ARTIFACT_REINDEX: "Переиндексация материалов",
+    TASK_ENTITIES_REEXTRACT: "Переизвлечение задач и сроков",
     TASK_SPEAKER_RECALC: "Пересчёт спикеров",
     TASK_SPEAKER_ENROLL: "Сохранение профиля спикера",
     TASK_CHAT_ANSWER: "Ответ ИИ в чате",
@@ -31,6 +33,7 @@ STALE_MINUTES: dict[str, int] = {
     TASK_TZ_REBUILD: 120,
     TASK_CALL_SUMMARY: 45,
     TASK_ARTIFACT_REINDEX: 30,
+    TASK_ENTITIES_REEXTRACT: 45,
     TASK_SPEAKER_RECALC: 30,
     TASK_SPEAKER_ENROLL: 20,
     TASK_CHAT_ANSWER: 30,

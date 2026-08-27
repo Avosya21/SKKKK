@@ -165,6 +165,8 @@ def cursor_chat_raw(
     timeout: float = 600,
     image_data_url: str | None = None,
 ) -> str:
+    import time
+
     from cursor_sdk import Agent, CursorAgentError
 
     if not settings.cursor_api_key.strip():
@@ -172,28 +174,54 @@ def cursor_chat_raw(
 
     message = _cursor_user_message(system=system, user=user, image_data_url=image_data_url)
     options = _cursor_agent_options(settings)
-    try:
-        result = Agent.prompt(message, options)
-    except CursorAgentError as exc:
-        raise RuntimeError(f"Cursor API: {exc.message}") from exc
+    last_error: Exception | None = None
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            result = Agent.prompt(message, options)
+        except CursorAgentError as exc:
+            last_error = RuntimeError(f"Cursor API: {exc.message}")
+            logger.warning(
+                "cursor.chat attempt %s/%s CursorAgentError: %s",
+                attempt,
+                attempts,
+                exc.message,
+            )
+            if attempt < attempts:
+                time.sleep(5 * attempt)
+                continue
+            raise last_error from exc
 
-    if result.status == "error":
-        raise RuntimeError(f"Cursor run failed: {result.id}")
+        text = (result.result or "").strip()
+        if result.status != "error" and text:
+            logger.info(
+                "cursor.chat ok run=%s model=%s duration_ms=%s chars=%s vision=%s attempt=%s",
+                result.id,
+                settings.cursor_model,
+                result.duration_ms,
+                len(text),
+                bool(image_data_url),
+                attempt,
+            )
+            if timeout and result.duration_ms and result.duration_ms > timeout * 1000:
+                logger.warning("cursor.chat exceeded timeout budget (%ss)", timeout)
+            return text
 
-    text = (result.result or "").strip()
-    if not text:
-        raise RuntimeError("Cursor API returned empty result")
-    logger.info(
-        "cursor.chat ok run=%s model=%s duration_ms=%s chars=%s vision=%s",
-        result.id,
-        settings.cursor_model,
-        result.duration_ms,
-        len(text),
-        bool(image_data_url),
-    )
-    if timeout and result.duration_ms and result.duration_ms > timeout * 1000:
-        logger.warning("cursor.chat exceeded timeout budget (%ss)", timeout)
-    return text
+        detail = text or f"status={result.status} duration_ms={result.duration_ms}"
+        last_error = RuntimeError(f"Cursor run failed ({result.id}): {detail[:500]}")
+        logger.warning(
+            "cursor.chat attempt %s/%s failed run=%s status=%s",
+            attempt,
+            attempts,
+            result.id,
+            result.status,
+        )
+        if attempt < attempts:
+            time.sleep(5 * attempt)
+            continue
+        raise last_error
+
+    raise last_error or RuntimeError("Cursor API returned empty result")
 
 
 def chat_from_env(

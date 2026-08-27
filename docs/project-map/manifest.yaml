@@ -1,7 +1,7 @@
 # SKKKK project map manifest — nodes & dependency edges for agents and vector index.
 # Update together with docs/PROJECT-MAP.md when adding modules or pipelines.
 version: 1
-updated: "2026-08-22"
+updated: "2026-08-27"
 
 nodes:
   - id: fastapi_main
@@ -31,13 +31,13 @@ nodes:
   - id: router_knowledge
     kind: router
     path: app/app/routers/knowledge.py
-    title: Search, graph, TZ, chat, conflicts
+    title: Search, graph, TZ, chat, deadlines, entity reextract
     tags: [api, knowledge]
 
   - id: router_speakers
     kind: router
     path: app/app/routers/speaker_profiles.py
-    title: Speaker enroll/merge/recalculate/summary/reindex API
+    title: Speaker enroll/merge, lab enroll/merge, recalculate/summary/reindex API
     tags: [api, speakers]
 
   - id: svc_llm
@@ -46,11 +46,11 @@ nodes:
     title: Unified LLM adapter (lmstudio | cursor)
     tags: [llm]
 
-  - id: svc_pipeline_audio
+  - id: svc_pipeline_lab
     kind: service
-    path: app/app/services/pipeline_audio.py
-    title: Audio ASR subprocess orchestration, view, match, summary
-    tags: [pipeline, audio]
+    path: app/app/services/pipeline_lab.py
+    title: Lab ASR orchestrator — dual hearing; resume run only if WAV hash matches
+    tags: [pipeline, audio, lab]
 
   - id: svc_docker_runtime
     kind: service
@@ -91,7 +91,7 @@ nodes:
   - id: svc_entities
     kind: service
     path: app/app/services/entities.py
-    title: LLM entity extraction and persist JSON
+    title: LLM entity extraction, persist JSON, reextract from lab _final.txt
     tags: [knowledge, llm]
 
   - id: svc_graph
@@ -103,7 +103,7 @@ nodes:
   - id: svc_tz
     kind: service
     path: app/app/services/tz.py
-    title: Rebuild project TZ via map/reduce over all indexed chunks
+    title: Rebuild project TZ via map/reduce; audio from lab _final.txt
     tags: [knowledge, llm, index]
 
   - id: svc_chat
@@ -163,7 +163,7 @@ nodes:
   - id: svc_artifact_audio
     kind: service
     path: app/app/services/artifact_audio.py
-    title: Finalize outputs, sync reports, rebuild transcript HTML
+    title: Finalize outputs, sync reports; atomic WAV extract + lock
     tags: [audio, reports]
 
   - id: svc_media_cleanup
@@ -172,11 +172,17 @@ nodes:
     title: Discard video source after verified WAV extraction
     tags: [audio, storage]
 
+  - id: asr_docker_stage
+    kind: module
+    path: asr/docker_stage.py
+    title: Stage artifact WAV into asr/work for Docker ASR mounts
+    tags: [asr, docker, tone]
+
   - id: asr_run_pipeline
     kind: script
     path: asr/run_pipeline.py
-    title: Main ASR pipeline entry (worker invokes)
-    tags: [asr, pipeline]
+    title: Legacy triple ASR pipeline (worker no longer invokes)
+    tags: [asr, pipeline, legacy]
 
   - id: asr_merge_ensemble
     kind: script
@@ -199,7 +205,7 @@ nodes:
   - id: asr_build_transcript_view
     kind: script
     path: asr/build_transcript_view.py
-    title: Build canonical UI turns, HTML, speakers.json
+    title: Legacy UI turns/HTML; lab uses write_prod_view instead
     tags: [asr, view]
 
   - id: asr_match_speakers
@@ -268,6 +274,18 @@ nodes:
     title: Project TZ map/reduce prompts
     tags: [prompt, summary, knowledge]
 
+  - id: prompt_lab_sense
+    kind: prompt
+    path: docs/prompts/lab_sense_speakers.md
+    title: Лаборатория этап 2 — смысловая разноска спорных слов
+    tags: [prompt, lab, overlay]
+
+  - id: prompt_lab_proof
+    kind: prompt
+    path: docs/prompts/lab_proof_text.md
+    title: Лаборатория этап 3в — выбор между вариантом lab и giga
+    tags: [prompt, lab, overlay, asr]
+
   - id: file_merged_windows
     kind: artifact_file
     path: "{artifact}/asr/docker_merged_windows.json"
@@ -304,10 +322,16 @@ nodes:
     title: Semantic search project map
     tags: [meta, search]
 
+  - id: script_inspect_index
+    kind: script
+    path: scripts/inspect_project_index.py
+    title: Audit project sqlite-vec chunks vs lab _final.txt
+    tags: [index, audit]
+
   - id: ui_project_page
     kind: ui_page
     path: app/app/templates/project.html
-    title: Project page — upload, artifacts, equal-height TZ+chat panels, collapsible MCP
+    title: Project page — upload, artifacts, TZ+chat, collapsible deadlines and MCP
     tags: [ui, project, layout, mcp]
 
   - id: ui_project_insights_layout
@@ -321,6 +345,30 @@ nodes:
     path: app/app/templates/project.html#mcp-access-panel
     title: "Сворачиваемый блок Удалённый доступ MCP: Bootstrap collapse #mcp-access-panel, по умолчанию сложен, подсказка #mcp-toggle-hint (развернуть/свернуть)"
     tags: [ui, mcp, project, collapse]
+
+  - id: ui_deadlines_collapsible
+    kind: ui_pattern
+    path: app/app/templates/project.html#deadlines-panel
+    title: "Сворачиваемый блок Дедлайны: collapse #deadlines-panel, список + FullCalendar, GET /projects/{id}/deadlines"
+    tags: [ui, project, collapse, deadlines, tasks]
+
+  - id: api_project_deadlines
+    kind: api_route
+    path: app/app/routers/knowledge.py
+    title: GET /projects/{project_id}/deadlines — задачи и сроки из entities task
+    tags: [api, project, deadlines, entities]
+
+  - id: api_project_reextract
+    kind: api_route
+    path: app/app/routers/knowledge.py
+    title: POST /projects/{project_id}/reextract-entities — LLM сущности с lab _final.txt, без reindex
+    tags: [api, project, deadlines, entities]
+
+  - id: svc_project_deadlines
+    kind: service
+    path: app/app/services/project_deadlines.py
+    title: Агрегация task-сущностей проекта, парсинг сроков, дедупликация
+    tags: [service, deadlines, entities]
 
   - id: ui_index_page
     kind: ui_page
@@ -337,8 +385,14 @@ nodes:
   - id: ui_speaker_match_report
     kind: ui_page
     path: asr/build_speaker_match_view.py
-    title: Speaker match HTML — enroll, merge, recalculate
+    title: Speaker match HTML — voice cards + scrollable pool, no timeline
     tags: [ui, speakers]
+
+  - id: svc_pipeline_voice_gate
+    kind: service
+    path: app/app/services/pipeline_voice_gate.py
+    title: Voice gate (legacy) — replaced by pipeline_lab speakers_pending
+    tags: [pipeline, speakers, asr, legacy]
 
   - id: ui_btn_rebuild_tz
     kind: ui_action
@@ -355,7 +409,7 @@ nodes:
   - id: ui_btn_recalculate_speakers
     kind: ui_action
     path: asr/transcript_view.py#recalc
-    title: "Пересчитать / Обновить и пересчитать — match спикеров"
+    title: "Пересчитать подсказки — lab speaker_N cosine; legacy Sortformer"
     tags: [ui, speakers, gigaam]
 
   - id: ui_btn_reindex
@@ -376,14 +430,269 @@ nodes:
     title: Спросить — RAG chat по проекту
     tags: [ui, chat, llm]
 
+  - id: ui_btn_confirm_speakers
+    kind: ui_action
+    path: app/app/templates/project.html#speaker-confirm-btn
+    title: "Подтвердить спикеров — speakers_confirmed + job phase=knowledge"
+    tags: [ui, speakers, knowledge]
+
+  - id: ui_btn_enroll
+    kind: ui_action
+    path: asr/transcript_view.py#sp-enroll
+    title: "Запомнить / Сохранить — enroll + write_prod_view"
+    tags: [ui, speakers]
+
+  - id: ui_btn_merge
+    kind: ui_action
+    path: asr/transcript_view.py#sp-merge
+    title: "Слить / Объединить — merge_map + write_prod_view"
+    tags: [ui, speakers]
+
+  - id: fn_write_prod_view
+    kind: function
+    path: app/app/services/pipeline_lab.py#write_prod_view
+    title: Proof + match names → docker_gigaam_speakers.json + transcript.html
+    tags: [lab, transcript, publish]
+
+  - id: lab_paths
+    kind: module
+    path: asr/lab/paths.py
+    title: Каталоги лабораторного прогона; resolve() без выхода наружу
+    tags: [lab, isolation]
+
+  - id: lab_run
+    kind: module
+    path: asr/lab/run.py
+    title: Контракт стадии — sha256, stage.json, отпечаток, MissingInput
+    tags: [lab, contract, hashing]
+
+  - id: lab_pipeline_mod
+    kind: module
+    path: asr/lab/pipeline.py
+    title: Порядок стадий лаборатории и LabOptions
+    tags: [lab, orchestration]
+
+  - id: lab_sortformer
+    kind: module
+    path: asr/lab/sortformer.py
+    title: Streaming Sortformer 4spk v2.1 на ONNX — матрица вероятностей T×4
+    tags: [lab, diarization, onnx]
+
+  - id: lab_words
+    kind: module
+    path: asr/lab/words.py
+    title: Слова из токенов SentencePiece (onnx-asr даёт время только на токен)
+    tags: [lab, asr]
+
+  - id: lab_stage_audio
+    kind: module
+    path: asr/lab/stages/s01_audio.py
+    title: 01_audio — рабочая копия исходника 16 кГц, без денойза
+    tags: [lab, audio]
+
+  - id: lab_stage_asr
+    kind: module
+    path: asr/lab/stages/s02_asr.py
+    title: 02_asr — Parakeet-TDT 0.6B v3 через onnx-asr по всему файлу
+    tags: [lab, asr, onnx]
+
+  - id: lab_stage_diar
+    kind: module
+    path: asr/lab/stages/s03_diar.py
+    title: 03_diar — Sortformer, свои пороги; сверка с исходником опциональна
+    tags: [lab, diarization]
+
+  - id: lab_stage_paint
+    kind: module
+    path: asr/lab/stages/s04_paint.py
+    title: 04_paint — покраска слов; assigned / contested / unassigned
+    tags: [lab, speakers]
+
+  - id: lab_stage_voice
+    kind: module
+    path: asr/lab/stages/s05_voice.py
+    title: 05_voice — WeSpeaker в skkkk-gigaam, speaker_profiles только на чтение; этап 4 её не перезапускает
+    tags: [lab, speakers, docker]
+
+  - id: lab_stage_transcript
+    kind: module
+    path: asr/lab/stages/s06_transcript.py
+    title: 06_transcript — реплики из слов, без LLM
+    tags: [lab, transcript]
+
+  - id: lab_stage_verify
+    kind: module
+    path: asr/lab/stages/s07_verify.py
+    title: 07_verify — второй проход через Silero VAD, слова в тишине
+    tags: [lab, verification, vad]
+
+  - id: lab_cli
+    kind: script
+    path: asr/lab_pipeline.py
+    title: CLI лаборатории — новый прогон, --only, --from, --force
+    tags: [lab, cli]
+
+  - id: lab_sense
+    kind: script
+    path: asr/lab_sense.py
+    title: Этап 2 лаборатории — смысловая разноска Cursor в sense/
+    tags: [lab, llm, overlay]
+
+  - id: lab_hint
+    kind: script
+    path: asr/lab_hint.py
+    title: Имена с боя как подписи; нарезка GigaAM не копируется
+    tags: [lab, overlay, speakers]
+
+  - id: lab_giga_mod
+    kind: module
+    path: asr/lab/giga.py
+    title: Разбор ответа GigaAM — реплики, спикеры, перекрытия as-is
+    tags: [lab, asr, gigaam]
+
+  - id: lab_giga
+    kind: script
+    path: asr/lab_giga.py
+    title: Этап 3a — свой прогон GigaAM на аудио прогона, всё в giga/
+    tags: [lab, asr, gigaam, docker]
+
+  - id: lab_reconcile_mod
+    kind: module
+    path: asr/lab/reconcile.py
+    title: Сверка с GigaAM — карта спикеров, чистота реплик, приговоры по спорным
+    tags: [lab, speakers, verification]
+
+  - id: lab_reconcile
+    kind: script
+    path: asr/lab_reconcile.py
+    title: Этап 3b — приговоры по спорным кускам в reconcile/
+    tags: [lab, speakers, verification]
+
+  - id: lab_proof_mod
+    kind: module
+    path: asr/lab/proof.py
+    title: Пословные расхождения lab/giga и сборка итоговых реплик
+    tags: [lab, asr, text]
+
+  - id: lab_proof
+    kind: script
+    path: asr/lab_proof.py
+    title: Этап 3в — вычитка текста через Cursor, итоговая стенограмма в proof/
+    tags: [lab, llm, text]
+
+  - id: lab_voice_mod
+    kind: module
+    path: asr/lab/voice.py
+    title: Клипы из слов paint+sense и вызов WeSpeaker; match.json прогона
+    tags: [lab, speakers, docker]
+
+  - id: lab_voice
+    kind: script
+    path: asr/lab_voice.py
+    title: Этап 4 — слепки WeSpeaker в voice/, в БД не пишет
+    tags: [lab, speakers, docker]
+
+  - id: lab_freeze
+    kind: doc
+    path: asr/lab/FREEZE.md
+    title: Снимок лаборатории — этапы 1 (01–07), 2 (Cursor), 3 (GigaAM)
+    tags: [lab, freeze]
+
+  - id: lab_view
+    kind: script
+    path: asr/build_lab_view.py
+    title: "Страница прогона report.html: итоговая стенограмма в вёрстке прода"
+    tags: [lab, ui]
+
+  - id: lab_speaker_registry
+    kind: module
+    path: asr/speaker_registry.py
+    title: cosine и unpack_embedding — переиспользуются лабораторией на чтение
+    tags: [lab, speakers]
+
+  - id: svc_artifact_lab
+    kind: service
+    path: app/app/services/artifact_lab.py
+    title: Прогоны лаборатории для веба; без fallback на чужой прогон
+    tags: [lab, api]
+
+  - id: ui_page_lab
+    kind: page
+    path: /artifacts/{id}/report-lab
+    title: Лаборатория — стадии, оверлеи, карточки Запомнить/Слить
+    tags: [ui, lab]
+
 edges:
-  - {from: gpu_worker, to: svc_pipeline_audio, relation: invokes}
+  - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
+  - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
+  - {from: svc_artifact_lab, to: lab_view, relation: imports}
+  - {from: ui_page_lab, to: svc_artifact_lab, relation: renders}
+  - {from: lab_cli, to: lab_pipeline_mod, relation: imports}
+  - {from: lab_sense, to: lab_paths, relation: overlay_only}
+  - {from: lab_sense, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_sense, to: svc_llm, relation: cursor_chat}
+  - {from: lab_sense, to: prompt_lab_sense, relation: uses_prompt}
+  - {from: lab_hint, to: lab_paths, relation: overlay_only}
+  - {from: lab_hint, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_hint, to: lab_sense, relation: reads_overlay}
+  - {from: lab_giga, to: lab_giga_mod, relation: imports}
+  - {from: lab_giga, to: lab_stage_audio, relation: reads_clean_16k}
+  - {from: lab_giga, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_reconcile, to: lab_reconcile_mod, relation: imports}
+  - {from: lab_reconcile, to: lab_giga, relation: reads_giga_run}
+  - {from: lab_reconcile, to: lab_sense, relation: reads_overlay}
+  - {from: lab_reconcile, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_proof, to: lab_proof_mod, relation: imports}
+  - {from: lab_proof, to: lab_giga, relation: reads_giga_run}
+  - {from: lab_proof, to: svc_llm, relation: cursor_chat}
+  - {from: lab_proof, to: prompt_lab_proof, relation: uses_prompt}
+  - {from: lab_proof, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_voice, to: lab_voice_mod, relation: imports}
+  - {from: lab_voice, to: lab_stage_paint, relation: reads_words}
+  - {from: lab_voice, to: lab_sense, relation: overlay_speakers}
+  - {from: lab_voice, to: docker_gigaam, relation: docker_exec_embed}
+  - {from: lab_voice, to: lab_speaker_registry, relation: cosine_only}
+  - {from: lab_voice, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_view, to: lab_voice, relation: renders_enroll_cards}
+  - {from: router_speakers, to: svc_speaker_profiles, relation: lab_enroll_merge}
+  - {from: svc_speaker_profiles, to: lab_voice, relation: reads_voice_match}
+  - {from: ui_page_lab, to: router_speakers, relation: enroll_merge_buttons}
+  - {from: lab_view, to: lab_proof, relation: renders_stage_three}
+  - {from: lab_pipeline_mod, to: lab_stage_audio, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_asr, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_diar, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_paint, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_voice, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_transcript, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_verify, relation: runs_stage}
+  - {from: lab_run, to: lab_paths, relation: imports}
+  - {from: lab_stage_asr, to: lab_words, relation: imports}
+  - {from: lab_stage_diar, to: lab_sortformer, relation: imports}
+  - {from: lab_stage_voice, to: lab_voice_mod, relation: imports}
+  - {from: lab_stage_voice, to: asr_docker_stage, relation: stage_gigaam_input}
+  - {from: lab_stage_voice, to: docker_gigaam, relation: docker_exec_embed}
+  - {from: lab_stage_voice, to: lab_speaker_registry, relation: cosine_only}
+  - {from: lab_view, to: lab_run, relation: reads_stage_json}
+  - {from: gpu_worker, to: svc_pipeline_lab, relation: invokes}
+  - {from: gpu_worker, to: svc_pipeline_audio, relation: legacy_resume_only}
   - {from: gpu_worker, to: svc_pipeline_knowledge, relation: invokes_after_transcript}
+  - {from: svc_pipeline_lab, to: svc_artifact_audio, relation: prepare_wav}
+  - {from: svc_pipeline_lab, to: lab_cli, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_sense, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_giga, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_proof, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_voice, relation: subprocess}
+  - {from: svc_pipeline_lab, to: file_speakers_json, relation: publishes}
+  - {from: svc_pipeline_lab, to: file_match_json, relation: publishes}
+  - {from: svc_speaker_profiles, to: svc_pipeline_lab, relation: names_into_prod_view}
+  - {from: svc_artifact_audio, to: svc_pipeline_lab, relation: lab_republish_named}
+  - {from: asr_summarize_call, to: asr_build_transcript_view, relation: legacy_view_only}
   - {from: svc_pipeline_audio, to: asr_run_pipeline, relation: subprocess}
   - {from: svc_pipeline_audio, to: svc_media_cleanup, relation: discard_video_after_asr}
   - {from: asr_run_pipeline, to: svc_media_cleanup, relation: discard_video_after_audio_prep}
   - {from: asr_run_pipeline, to: svc_docker_runtime, relation: ensure_asr_containers}
   - {from: asr_run_pipeline, to: docker_whisper, relation: http}
+  - {from: asr_run_pipeline, to: asr_docker_stage, relation: stage_tone_input}
   - {from: asr_run_pipeline, to: docker_tone, relation: http}
   - {from: asr_run_pipeline, to: docker_gigaam, relation: http}
   - {from: asr_run_pipeline, to: asr_merge_ensemble, relation: subprocess}
@@ -393,6 +702,7 @@ edges:
   - {from: asr_merge_ensemble, to: prompt_merge, relation: reads}
   - {from: asr_merge_ensemble, to: file_merged_windows, relation: writes}
   - {from: svc_pipeline_audio, to: asr_build_transcript_view, relation: subprocess}
+  - {from: asr_build_transcript_view, to: asr_transcript_integrity, relation: imports}
   - {from: asr_build_transcript_view, to: file_speakers_json, relation: writes}
   - {from: asr_build_transcript_view, to: file_match_json, relation: reads}
   - {from: svc_pipeline_audio, to: asr_match_speakers, relation: subprocess}
@@ -406,12 +716,14 @@ edges:
   - {from: svc_entities, to: prompt_entities, relation: reads}
   - {from: svc_pipeline_knowledge, to: svc_indexing, relation: calls}
   - {from: svc_indexing, to: svc_vector_index, relation: stores}
+  - {from: script_inspect_index, to: svc_indexing, relation: audits}
   - {from: svc_pipeline_knowledge, to: asr_summarize_call, relation: subprocess_via_run_call_summary}
   - {from: asr_summarize_call, to: file_speakers_json, relation: reads}
   - {from: asr_summarize_call, to: prompt_summary, relation: reads}
   - {from: asr_summarize_call, to: asr_llm_client, relation: imports}
   - {from: router_speakers, to: svc_speaker_profiles, relation: api}
-  - {from: svc_speaker_profiles, to: asr_match_speakers, relation: recalculate}
+  - {from: svc_speaker_profiles, to: asr_match_speakers, relation: legacy_recalculate_only}
+  - {from: svc_speaker_profiles, to: svc_pipeline_lab, relation: lab_cosine_recalculate}
   - {from: svc_speaker_profiles, to: asr_summarize_call, relation: rebuild_summary}
   - {from: fastapi_main, to: router_speakers, relation: mounts}
   - {from: fastapi_main, to: router_knowledge, relation: mounts}
@@ -421,11 +733,18 @@ edges:
   - {from: svc_chat, to: svc_retrieval, relation: rerank_hits}
   - {from: router_knowledge, to: svc_retrieval, relation: search_rerank}
   - {from: router_knowledge, to: svc_tz, relation: api}
+  - {from: router_knowledge, to: svc_project_deadlines, relation: GET_deadlines}
+  - {from: router_knowledge, to: svc_entities, relation: POST_reextract}
+  - {from: api_project_deadlines, to: svc_project_deadlines, relation: calls}
+  - {from: api_project_reextract, to: svc_entities, relation: calls}
+  - {from: api_project_reextract, to: svc_project_tasks, relation: lock}
+  - {from: ui_deadlines_collapsible, to: api_project_deadlines, relation: GET}
+  - {from: ui_deadlines_collapsible, to: api_project_reextract, relation: POST}
   - {from: router_knowledge, to: svc_project_tasks, relation: tasks_active_and_lock}
   - {from: router_speakers, to: svc_project_tasks, relation: tasks_active_and_lock}
   - {from: svc_project_tasks, to: model_project_task, relation: persists}
   - {from: fastapi_main, to: svc_project_tasks, relation: cleanup_stale_on_start}
-  - {from: svc_tz, to: svc_vector_index, relation: reads_all_project_chunks}
+  - {from: svc_tz, to: svc_vector_index, relation: reads_document_chunks}
   - {from: svc_tz, to: svc_llm, relation: map_reduce}
   - {from: svc_tz, to: prompt_rebuild_tz, relation: reads}
   - {from: ui_btn_rebuild_tz, to: svc_project_tasks, relation: lock_then_POST_rebuild-tz}
@@ -434,12 +753,29 @@ edges:
   - {from: ui_btn_reindex, to: svc_project_tasks, relation: lock_then_POST_reindex}
   - {from: ui_btn_upload, to: gpu_worker, relation: queues_job_after_complete}
   - {from: ui_btn_chat, to: svc_chat, relation: POST_chat}
+  - {from: ui_btn_confirm_speakers, to: svc_speaker_profiles, relation: POST_speakers-confirm}
+  - {from: ui_btn_confirm_speakers, to: gpu_worker, relation: queues_phase_knowledge}
+  - {from: ui_btn_enroll, to: svc_speaker_profiles, relation: POST_speaker-enroll}
+  - {from: ui_btn_enroll, to: fn_write_prod_view, relation: names_into_html}
+  - {from: ui_btn_merge, to: svc_speaker_profiles, relation: POST_speaker-merge}
+  - {from: ui_btn_merge, to: fn_write_prod_view, relation: names_into_html}
+  - {from: ui_btn_rebuild_call_summary, to: fn_write_prod_view, relation: republish_after_summary}
+  - {from: svc_pipeline_lab, to: fn_write_prod_view, relation: publishes}
+  - {from: ui_project_page, to: ui_btn_confirm_speakers, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_enroll, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_merge, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_recalculate_speakers, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_rebuild_call_summary, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_reindex, relation: contains}
   - {from: ui_transcript_report, to: router_speakers, relation: embeds_actions}
   - {from: ui_speaker_match_report, to: router_speakers, relation: embeds_actions}
+  - {from: ui_project_page, to: ui_speaker_match_report, relation: match_link}
+  - {from: gpu_worker, to: svc_pipeline_lab, relation: lab_before_speakers_pending}
   - {from: ui_project_page, to: ui_btn_rebuild_tz, relation: contains}
   - {from: ui_project_page, to: ui_btn_upload, relation: contains}
   - {from: ui_project_page, to: ui_project_insights_layout, relation: contains}
   - {from: ui_project_page, to: ui_mcp_collapsible, relation: contains}
+  - {from: ui_project_page, to: ui_deadlines_collapsible, relation: contains}
   - {from: fastapi_main, to: router_project_mcp, relation: mounts}
   - {from: router_project_mcp, to: svc_project_mcp, relation: mcp_jsonrpc}
   - {from: router_project_mcp, to: model_project_mcp_token, relation: token_auth}

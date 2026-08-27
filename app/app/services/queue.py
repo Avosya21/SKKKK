@@ -23,7 +23,7 @@ def claim_next_job(db: Session, max_attempts: int) -> Job | None:
     job = db.scalar(
         select(Job)
         .where(Job.status == "queued", Job.attempts < max_attempts)
-        .order_by(Job.created_at)
+        .order_by(Job.created_at, Job.id)
         .limit(1)
     )
     if not job:
@@ -52,15 +52,19 @@ def finish_job(db: Session, job: Job, *, ok: bool, error: str | None = None) -> 
     db.commit()
 
 
-def enqueue_knowledge_retry(db: Session, artifact_id: int) -> Job:
-    """Queue knowledge-only retry when ASR/transcript artifacts already exist."""
+def enqueue_process_artifact(db: Session, artifact_id: int, *, phase: str = "asr") -> Job:
     job = Job(
         artifact_id=artifact_id,
         kind="process_artifact",
         status="queued",
-        phase="knowledge",
+        phase=phase,
     )
     db.add(job)
     db.commit()
     db.refresh(job)
     return job
+
+
+def enqueue_knowledge_retry(db: Session, artifact_id: int) -> Job:
+    """Queue knowledge-only retry when ASR/transcript artifacts already exist."""
+    return enqueue_process_artifact(db, artifact_id, phase="knowledge")

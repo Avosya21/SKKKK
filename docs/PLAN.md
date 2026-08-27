@@ -20,7 +20,7 @@
 Пользователь загружает в проект артефакты (аудио созвонов, PDF/DOCX, заметки, скриншоты). Система:
 
 1. Сохраняет оригинал неизменным.
-2. Для аудио **параллельно** гоняет три ASR (Whisper, T-one, GigaAM), затем собирает финальную стенограмму через **LLM** (локальная Gemma или Cursor API — см. §3.1 и §6).
+2. Для аудио гоняет **двойной слух** (Parakeet-TDT + сверка GigaAM) и Sortformer по спикерам, затем **LLM** подписывает спорное и собирает выжимку (локальная Gemma или Cursor API — см. §3.1 и §6).
 3. Для документов и картинок извлекает и нормализует текст.
 4. Достаёт сущности (решения, задачи, факты), кладёт эмбеддинги через Ollama `bge-m3`, сеет граф знаний.
 5. Даёт заметки и ручные связи, разрешает противоречия, пересобирает актуальное ТЗ, отвечает в чате со ссылками на источники, пишет в Telegram когда готово.
@@ -65,8 +65,8 @@
 | LLM | **Два режима** (переключатель при старте, `LLM_PROVIDER` в `.env`): **lmstudio** — Gemma `google/gemma-4-31b-qat`, LM Studio `http://127.0.0.1:1234/v1`; **cursor** — Cursor SDK + `CURSOR_API_KEY` | Локально — приватность и GPU-фазы; облако — без VRAM под Gemma |
 | Web | FastAPI + Uvicorn на `http://127.0.0.1:1111` | Порт 8000 занят MCP 1С |
 | Эмбеддинги | Ollama `bge-m3`, API `http://127.0.0.1:11434`, **CPU** | Не занимает VRAM |
-| ASR | Whisper + T-one + GigaAM v3 e2e ([GigaAMGUI](https://github.com/dubr1k/GigaAMGUI)) | Три контейнера, затем склейка LLM |
-| Аудио | FFmpeg + VAD | 16 кГц для Whisper/GigaAM, 8 кГц для T-one |
+| ASR | Parakeet-TDT v3 + GigaAM v3 (сверка) + Sortformer 4spk | Двойной слух, не ансамбль Whisper/T-one |
+| Аудио | FFmpeg 16 кГц моно | Без обязательной нарезки 8 кГц под T-one |
 | Документы | pymupdf / python-docx / Tesseract (rus+eng) | |
 | Векторы (старт) | sqlite-vec, 1024 dim | Qdrant — этап после стабильного поиска |
 | Граф (старт) | таблицы `entities` + `links` | Neo4j — этап после живого UI графа |
@@ -77,7 +77,7 @@
 
 ### 3.1. Выбор LLM-провайдера
 
-Один и тот же конвейер (склейка ASR, нормализация, сущности, ТЗ, чат, vision для картинок) идёт через **единый адаптер** `app/app/services/llm.py`. Провайдер задаётся в `.env` и выбирается при запуске.
+Один и тот же конвейер (sense/proof, нормализация, сущности, ТЗ, чат, vision для картинок) идёт через **единый адаптер** `app/app/services/llm.py`. Провайдер задаётся в `.env` и выбирается при запуске.
 
 | `LLM_PROVIDER` | Движок | GPU под LLM | Когда удобно |
 |---|---|---|---|
@@ -94,7 +94,7 @@ python -m app.app.main all --use-saved-llm    # взять из .env (служб
 
 **Переменные `.env`:** `LLM_PROVIDER`, `CURSOR_API_KEY`, `CURSOR_MODEL`, `CURSOR_RUNTIME` (`local` | `cloud`), `CURSOR_CLOUD_REPO` (для cloud). Шаблон — `.env.example`.
 
-**Не меняется при любом провайдере:** три ASR, Ollama `bge-m3`, sqlite-vec, граф, очередь `jobs`.
+**Не меняется при любом провайдере:** Ollama `bge-m3`, sqlite-vec, граф, очередь `jobs`. Канон ASR — двойной слух, не тройной ансамбль.
 
 ---
 
@@ -198,9 +198,9 @@ UI графа читает `entities` + `links` (+ артефакты и зам�
 Две взаимоисключающие фазы на GPU:
 
 ```
-[фаза ASR]  LM Studio UNLOAD → три ASR в VRAM (~5–8 ГБ) → три текста на диск
-            → выгрузить ASR из процесса
-[фаза LLM]  LM Studio LOAD gemma-4-31b-qat → склейка / нормализация / сущности / ТЗ / чат / vision
+[фаза ASR]  LM Studio UNLOAD → Parakeet+Sortformer (venvs\lab) → GigaAM в Docker
+            → выгрузить процессы
+[фаза LLM]  LM Studio LOAD gemma-4-31b-qat → sense/proof / нормализация / сущности / ТЗ / чат / vision
 [фаза EMBED] Ollama bge-m3 на CPU в любой момент; GPU не трогает
 ```
 
@@ -209,18 +209,18 @@ UI графа читает `entities` + `links` (+ артефакты и зам�
 Gemma в VRAM **не загружается**. Шаги `gemma_load` / `gemma_unload` в ASR-пайплайне пропускаются.
 
 ```
-[фаза ASR]  три ASR в VRAM (~5–8 ГБ) → три текста на диск → выгрузить ASR
-[фаза LLM]  запросы в Cursor API (склейка, сущности, чат, vision — без локальной Gemma)
+[фаза ASR]  Parakeet+Sortformer ONNX → GigaAM Docker (последовательно, один воркер)
+[фаза LLM]  запросы в Cursor API (sense, proof, сущности, чат, vision — без локальной Gemma)
 [фаза EMBED] Ollama bge-m3 на CPU — как выше
 ```
 
 ### Общие правила
 
 1. В режиме **lmstudio** в VRAM одновременно **не** живут Gemma и ASR. В режиме **cursor** Gemma в VRAM нет.
-2. Три ASR **всегда вместе**, тремя параллельными **процессами** (не потоками), на одном и том же очищенном аудио с разным ресемплом. Отдельные процессы нужны потому, что CTranslate2 и PyTorch тянут несовместимые сборки CUDA/cuDNN в одно адресное пространство, а выход процесса — единственный надёжный способ вернуть VRAM на Windows.
+2. Двойной слух **последовательно** на одном GPU-воркере: сначала ONNX Parakeet+Sortformer (`venvs\lab`), затем GigaAM в Docker для сверки. Whisper и T-one не стартуют.
 3. **Только lmstudio:** перед ASR — `lms unload --all`, дождаться падения занятости по `nvidia-smi`; после ASR — `lms load google/gemma-4-31b-qat`.
 3a. **Только lmstudio:** в LM Studio **выключена автозагрузка модели по запросу (JIT)**. Иначе HTTP-запрос от пользователя во время ASR поднимет Gemma поверх ASR.
-4. **Только lmstudio:** Gemma после загрузки **не выгружать** между склейкой, нормализацией, сущностями, ТЗ и чатом. Выгрузка — только перед следующим аудио.
+4. **Только lmstudio:** Gemma после загрузки **не выгружать** между sense/proof, нормализацией, сущностями, ТЗ и чатом. Выгрузка — только перед следующим аудио.
 5. Чат и пересборка ТЗ ждут, если идёт ASR (очередь `jobs.phase`).
 6. Один GPU-воркер на весь сервер (`python -m app.app.main worker`). Портал только ставит jobs.
 
@@ -240,26 +240,19 @@ Gemma в VRAM **не загружается**. Шаги `gemma_load` / `gemma_un
 
 ### Модуль 2. Текст
 
-**2.1 Аудио (три ASR, только так)**
+**2.1 Аудио (двойной слух + Sortformer)**
 
-1. FFmpeg: мастер WAV 16 кГц моно. VAD: границы речи, паузы > 2 с вырезать.
-2. **Нарезка на окна 120–180 секунд по границам тишины.** Из каждого окна два файла: 16 кГц (Whisper, GigaAM) и 8 кГц (T-one), ресемпл из одного и того же куска. Запись окон в `transcript_windows`. Файлы в `tmp\audio_clean\`.
-3. **Только lmstudio:** убедиться, что Gemma выгружена и VRAM освободилась фактически. В режиме **cursor** этот шаг пропускается.
-4. Запустить три **параллельных процесса** ASR (Whisper, T-one, GigaAM), дождаться всех. Три файла:
-   - `parsed\calls\{id}_raw_whisper.txt`
-   - `parsed\calls\{id}_raw_tone.txt`
-   - `parsed\calls\{id}_raw_gigaam.txt`
-5. Статус `asr_completed`. Процессы завершены, VRAM свободна.
-6. **Склейка LLM по окнам** (lmstudio: предварительно `lms load`; cursor: без load). На каждое окно — запрос с тремя вариантами. Промпт: [prompts/merge_transcript.md](prompts/merge_transcript.md). LLM **не** размечает спикеров и **не** пересказывает: чинит битые слова ASR.
-7. Сшить окна. Поверх финального текста наложить интервалы диаризации по таймкодам (`asr/speakers.py`). Match Sortformer → WeSpeaker, **voice turn audit** (`asr/voice_turn_audit.py`). Сохранить реплики + `_speakers.json`. Имена участников — в `{id}_speaker_map.json` / enroll после ручной подписи. Статус `transcript_ready`.
-8. **Индексация** (модуль 5): чанки с именами спикеров → sqlite-vec.
-9. **Итоговая выжимка созвона** — `asr/summarize_call.py`, промпт [prompts/call_summary.md](prompts/call_summary.md). **После индекса**, отдельным проходом LLM по финальной стенограмме с подписанными спикерами. Map/reduce на длинных созвонах (~6000 символов на фрагмент). Детали: [stages/STAGE-03-asr-ensemble.md](stages/STAGE-03-asr-ensemble.md).
+1. FFmpeg: мастер WAV 16 кГц моно в `artifacts/{id}/audio/input_16k.wav`.
+2. **Только lmstudio:** выгрузить Gemma. В режиме **cursor** шаг пропускается.
+3. `venvs\lab`: `lab_pipeline.py --no-voice` — Parakeet-TDT v3 (окна ≤80 с с перекрытием) → Sortformer 4spk → покраска слов → реплики → VAD. Всё в `lab/runs/{run_id}/`.
+4. Основной venv: `lab_sense.py` (Cursor, только спорные спикеры) → `lab_giga.py` (Docker GigaAM) → `lab_reconcile.py` → `lab_proof.py` (выбор lab vs giga) → `lab_voice.py` (WeSpeaker).
+5. Публикация: `proof/transcript.json` → `asr/docker_gigaam_speakers.json`; `voice/match.json` → `reports/sortformer_speaker_match.json` (метки `speaker_N`); `parsed/{id}_final.txt`; HTML `/report`.
+6. Статус `speakers_pending`. Пользователь «Запомнить» / «Подтвердить спикеров».
+7. Confirm подставляет имена в turns → `transcript_ready` → сущности → индекс → **выжимка-протокол** (`docs/prompts/call_summary.md`, map ~6000 символов, reduce 4096 tokens) → граф → `done`.
 
-Почему по окнам: три расшифровки часового созвона не помещаются в один контекст; окна гарантируют сравнение **одного и того же фрагмента** у всех трёх движков. В режиме lmstudio — ещё и лимит VRAM рядом с весами Gemma.
+Whisper, T-one и `merge_ensemble.py` не вызываются. Контейнеры на диске — откат.
 
-Если один из трёх ASR упал — не подменять ансамбль одним движком. При двух живых всё равно звать LLM с пометкой «вариант N недоступен».
-
-Если все три движка вернули пустой текст — LLM не вызывается, артефакт закрывается с пометкой «речь не обнаружена».
+Если Parakeet и GigaAM оба пустые — LLM не вызывается, артефакт закрывается с пометкой «речь не обнаружена».
 
 **2.2 PDF/DOCX** — pymupdf / python-docx; скан → Tesseract rus+eng. `_raw.txt` → LLM-нормализация → `_clean.txt`. Статус `text_extracted`.
 
@@ -375,11 +368,9 @@ Upload в `raw_inputs`, запись `artifacts` + `jobs`, UI статусов. 
 
 Результат: файл лежит в дереве проекта, в БД статус меняется воркером.
 
-### Этап 3. Три ASR + склейка LLM → [STAGE-03](stages/STAGE-03-asr-ensemble.md)
+### Этап 3. Двойной слух ASR → [STAGE-03](stages/STAGE-03-asr-ensemble.md)
 
-Оркестратор фаз. Три ASR + склейка через выбранный LLM-провайдер. В режиме lmstudio — load/unload Gemma; в cursor — без Gemma в VRAM. PyAnnote/Sortformer, выжимка, HTML-просмотр.
-
-Результат: тестовый wav → три черновика + финал + выжимка; в lmstudio-режиме в `nvidia-smi` видно снятие Gemma на время ASR.
+Исторический этап (тройной ансамбль) выполнен. С 2026-08-26 канон — лабораторный контур: Parakeet + Sortformer + Cursor + GigaAM-сверка. Whisper/T-one/merge окон не вызываются.
 
 ### Этап 4. Документы и OCR → [STAGE-04](stages/STAGE-04-documents-ocr.md)
 

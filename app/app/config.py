@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
     job_max_attempts: int = 3
 
+    # Пауза после lab-стенограммы: имена спикеров, затем knowledge
+    voice_gate_before_asr: bool = True
+
     @field_validator("data_dir", mode="before")
     @classmethod
     def _path(cls, v: str | Path) -> Path:

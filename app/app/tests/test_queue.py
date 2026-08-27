@@ -63,6 +63,79 @@ def test_job_claim_is_atomic(db_engine):
         db.close()
 
 
+def test_claim_fifo_two_users_isolated_projects(db_engine):
+    db = db_mod.SessionLocal()
+    try:
+        from app.app.models.artifact import Artifact
+        from app.app.models.job import Job
+        from app.app.models.project import Project
+        from app.app.models.user import User
+        from app.app.services.storage import artifact_dir, create_project_tree
+        from app.app.config import get_settings
+
+        settings = get_settings()
+        u1 = User(name="ann", telegram_id="tg-a", role="user", password_hash="x")
+        u2 = User(name="bob", telegram_id="tg-b", role="user", password_hash="x")
+        db.add_all([u1, u2])
+        db.flush()
+        p1 = Project(name="P1", created_by=u1.id, is_active=True)
+        p2 = Project(name="P2", created_by=u2.id, is_active=True)
+        db.add_all([p1, p2])
+        db.flush()
+        create_project_tree(settings, p1.id)
+        create_project_tree(settings, p2.id)
+
+        art_a = Artifact(
+            artifact_id="art_user_a",
+            project_id=p1.id,
+            user_id=u1.id,
+            original_filename="first.webm",
+            stored_filename="first.webm",
+            file_path=str(artifact_dir(settings, p1.id, "art_user_a") / "audio" / "input_16k.wav"),
+            file_type="audio",
+            source_type="call",
+            sha256="aaa",
+        )
+        art_b = Artifact(
+            artifact_id="art_user_b",
+            project_id=p2.id,
+            user_id=u2.id,
+            original_filename="second.pdf",
+            stored_filename="second.pdf",
+            file_path=str(artifact_dir(settings, p2.id, "art_user_b") / "raw.txt"),
+            file_type="pdf",
+            source_type="document",
+            sha256="bbb",
+        )
+        db.add_all([art_a, art_b])
+        db.flush()
+        job_a = Job(artifact_id=art_a.id, status="queued", phase="asr")
+        db.add(job_a)
+        db.flush()
+        job_b = Job(artifact_id=art_b.id, status="queued", phase="asr")
+        db.add(job_b)
+        db.commit()
+
+        first = claim_next_job(db_mod.SessionLocal(), 3)
+        assert first is not None
+        assert first.id == job_a.id
+        assert first.artifact_id == art_a.id
+        second = claim_next_job(db_mod.SessionLocal(), 3)
+        assert second is not None
+        assert second.id == job_b.id
+        assert second.artifact_id == art_b.id
+
+        a_root = artifact_dir(settings, p1.id, "art_user_a")
+        b_root = artifact_dir(settings, p2.id, "art_user_b")
+        assert a_root != b_root
+        assert str(p1.id) in str(a_root)
+        assert str(p2.id) in str(b_root)
+        assert "art_user_a" in str(a_root)
+        assert "art_user_b" in str(b_root)
+    finally:
+        db.close()
+
+
 def test_dry_run_walks_all_statuses(client, manager_token, user_token):
     pid = _upload(client, manager_token, user_token)
     assert run_once()

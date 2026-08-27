@@ -9,6 +9,7 @@ from app.app.config import Settings
 from app.app.llm_labels import asr_step_labels, knowledge_steps_audio, knowledge_steps_doc
 from app.app.models.artifact import Artifact
 from app.app.schemas.artifact import ArtifactProgressOut, PipelineStepOut
+from app.app.services.pipeline_lab import LAB_STEPS
 from app.app.services.storage import ensure_artifact_workspace
 
 StepStatus = str
@@ -19,6 +20,66 @@ POST_ASR_STEPS: list[tuple[str, str]] = [
     ("voice_audit", "Voice audit (проверка голосов)"),
     ("transcript_finalize", "Финализация стенограммы"),
 ]
+
+VOICE_GATE_STEPS: list[tuple[str, str]] = [
+    ("audio_prep", "Подготовка WAV"),
+    ("sortformer", "Sortformer diarization"),
+    ("speakers_match", "Match Sortformer → профили"),
+    ("speakers_confirm", "Подтверждение спикеров"),
+]
+
+
+def _read_lab_checklist(ws: Path) -> dict | None:
+    path = ws / "asr" / "lab_checklist.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _lab_progress_steps(checklist: dict | None, status: str) -> list[PipelineStepOut]:
+    steps: list[PipelineStepOut] = []
+    rows = (checklist or {}).get("steps") or {}
+    for step_id, label in LAB_STEPS:
+        raw = (rows.get(step_id) or {}).get("status")
+        detail = (rows.get(step_id) or {}).get("detail")
+        mapped = _map_checklist_status(raw)
+        if step_id == "speakers_confirm" and status == "speakers_pending" and mapped in ("pending", "running"):
+            mapped = "running"
+            detail = detail or "Подтвердите спикеров на стенограмме"
+        steps.append(PipelineStepOut(id=step_id, label=label, status=mapped, detail=detail))
+    return steps
+
+
+def _read_voice_gate_checklist(ws: Path) -> dict | None:
+    path = ws / "asr" / "voice_gate_checklist.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _voice_gate_steps(checklist: dict | None, status: str) -> list[PipelineStepOut]:
+    steps: list[PipelineStepOut] = []
+    rows = (checklist or {}).get("steps") or {}
+    for step_id, label in VOICE_GATE_STEPS:
+        raw = (rows.get(step_id) or {}).get("status")
+        detail = (rows.get(step_id) or {}).get("detail")
+        mapped = _map_checklist_status(raw)
+        if step_id == "speakers_confirm" and status == "speakers_pending" and mapped == "pending":
+            mapped = "running"
+            detail = detail or "Подтвердите спикеров на странице Match"
+        steps.append(PipelineStepOut(id=step_id, label=label, status=mapped, detail=detail))
+    if checklist is None and status == "speakers_pending":
+        return [
+            PipelineStepOut(id="speakers_confirm", label="Подтверждение спикеров", status="running",
+                            detail="Подтвердите спикеров на странице Match"),
+        ]
+    return steps
 
 def _knowledge_steps_audio(settings: Settings) -> list[tuple[str, str]]:
     return knowledge_steps_audio(settings.llm_provider)
@@ -141,8 +202,19 @@ def build_artifact_progress(settings: Settings, artifact: Artifact) -> ArtifactP
 
 def _audio_progress(settings: Settings, artifact: Artifact, ws: Path) -> ArtifactProgressOut:
     status = artifact.status
-    checklist = _read_asr_checklist(ws / "asr")
+    lab_checklist = _read_lab_checklist(ws)
+    checklist = lab_checklist or _read_asr_checklist(ws / "asr")
     steps: list[PipelineStepOut] = []
+
+    if status in {"preprocessing", "asr_running"} and lab_checklist:
+        steps = _lab_progress_steps(lab_checklist, status)
+        current = next((s for s in steps if s.status == "running"), None)
+        if current is None:
+            pending = next((s for s in steps if s.status == "pending"), None)
+            current_label = pending.label if pending else "Лабораторный ASR"
+        else:
+            current_label = current.detail or current.label
+        return ArtifactProgressOut(phase="asr", current_label=current_label, steps=steps)
 
     if status in {"preprocessing", "asr_running"} and checklist:
         step_labels = asr_step_labels(settings.llm_provider)
@@ -166,11 +238,23 @@ def _audio_progress(settings: Settings, artifact: Artifact, ws: Path) -> Artifac
     if status in {"preprocessing", "asr_running"}:
         return ArtifactProgressOut(
             phase="asr",
-            current_label="ASR-пайплайн (старт…)",
+            current_label="Лабораторный ASR (старт…)",
             steps=[
-                PipelineStepOut(id="asr_boot", label="Запуск ASR-пайплайна", status="running"),
+                PipelineStepOut(id="asr_boot", label="Запуск лабораторного ASR", status="running"),
             ],
         )
+
+    if status in {"speakers_pending", "speakers_confirmed"}:
+        if lab_checklist:
+            steps = _lab_progress_steps(lab_checklist, status)
+            current = next((s for s in steps if s.status == "running"), None)
+            label = current.detail or current.label if current else "Подтвердите спикеров на стенограмме"
+            return ArtifactProgressOut(phase="speakers", current_label=label, steps=steps)
+        checklist = _read_voice_gate_checklist(ws)
+        steps = _voice_gate_steps(checklist, status)
+        current = next((s for s in steps if s.status == "running"), None)
+        label = current.detail or current.label if current else "Подтвердите спикеров на стенограмме"
+        return ArtifactProgressOut(phase="speakers", current_label=label, steps=steps)
 
     if status == "asr_completed":
         steps = _steps_from_template(POST_ASR_STEPS, active_idx=0, running_idx=0)

@@ -9,7 +9,7 @@ from app.app.db import Base
 
 
 class SpeakerProfile(Base):
-    """Отпечаток голоса: project — база проекта; global — общая (будущее)."""
+    """Отпечаток голоса: global — общая база подтверждённых; project — локальная копия."""
 
     __tablename__ = "speaker_profiles"
 

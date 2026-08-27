@@ -73,3 +73,33 @@ def test_check_llm_cursor_without_key(tmp_path):
     result = llm.check_llm_provider(settings)
     assert result.status == "fail"
     assert "CURSOR_API_KEY" in result.detail
+
+
+def test_cursor_chat_retries_then_succeeds(monkeypatch, tmp_path):
+    settings = Settings(
+        secret_key="test-secret-key-32chars!!",
+        data_dir=tmp_path,
+        llm_provider="cursor",
+        cursor_api_key="cursor_test",
+    )
+    calls = {"n": 0}
+
+    class _Result:
+        def __init__(self, status: str, text: str):
+            self.id = f"run-{calls['n']}"
+            self.status = status
+            self.result = text
+            self.duration_ms = 12
+            self.model = None
+
+    def _prompt(_message, _options):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _Result("error", "")
+        return _Result("finished", '{"picks": {}}')
+
+    monkeypatch.setattr("cursor_sdk.Agent.prompt", _prompt)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    text = llm.cursor_chat_raw(settings, system="s", user="u")
+    assert text == '{"picks": {}}'
+    assert calls["n"] == 2

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -11,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.app.config import ROOT, Settings
 from app.app.models.artifact import Artifact
 from app.app.services.ffmpeg_tools import resolve_ffmpeg_tool
+from app.app.services.media_cleanup import verify_extracted_wav
 from app.app.services.storage import (
     artifact_audio_download_mp3_path,
     artifact_audio_path,
@@ -25,6 +29,7 @@ from app.app.services.storage import (
     ensure_artifact_workspace,
     parsed_dir,
 )
+from app.app.services.upload import ffprobe_duration
 
 logger = logging.getLogger("skkkk.artifact_audio")
 
@@ -32,12 +37,14 @@ logger = logging.getLogger("skkkk.artifact_audio")
 _PLAYBACK_BITRATE = "48k"
 _PLAYBACK_MEDIA_TYPE = "audio/mp4"
 _DOWNLOAD_MP3_BITRATE = "64k"
+_EXTRACT_LOCK_TIMEOUT_SEC = 3600.0
 
 
 def _extract_wav(src: Path, dst: Path, sample_rate: int = 16000) -> None:
     ffmpeg = resolve_ffmpeg_tool("ffmpeg")
     dst.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
+    # ``.partial`` is not a known muxer; ffmpeg 9+ needs ``-f wav``.
+    proc = subprocess.run(
         [
             ffmpeg,
             "-y",
@@ -53,10 +60,114 @@ def _extract_wav(src: Path, dst: Path, sample_rate: int = 16000) -> None:
             str(sample_rate),
             "-c:a",
             "pcm_s16le",
+            "-f",
+            "wav",
             str(dst),
         ],
-        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+        raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, err)
+
+
+@contextmanager
+def _exclusive_lock(path: Path, *, timeout_sec: float = _EXTRACT_LOCK_TIMEOUT_SEC):
+    """Блокировка на файле: API и воркер не пишут input_16k.wav одновременно."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    handle.seek(0)
+    if handle.read(1) == b"":
+        handle.write(b"\0")
+        handle.flush()
+    handle.seek(0)
+    deadline = time.monotonic() + timeout_sec
+    try:
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timeout waiting for {path}") from None
+                time.sleep(0.2)
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        handle.close()
+
+
+def _extract_wav_atomic(src: Path, dst: Path, sample_rate: int = 16000) -> None:
+    """ffmpeg пишет во временный файл; `input_16k.wav` появляется только после успеха."""
+    partial = dst.with_name(dst.name + ".partial")
+    try:
+        _extract_wav(src, partial, sample_rate)
+        os.replace(partial, dst)
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def wav_is_complete(wav: Path, source: Path | None = None) -> bool:
+    """Готовый мастер, а не обрезок, который ffmpeg ещё пишет на диск."""
+    if not wav.is_file():
+        return False
+    if source is not None and source.is_file() and source.resolve() == wav.resolve():
+        return wav.stat().st_size > 0
+    ok, _ = verify_extracted_wav(wav)
+    if not ok:
+        return False
+    if source is None or not source.is_file():
+        return True
+    src_dur = ffprobe_duration(source)
+    wav_dur = ffprobe_duration(wav)
+    if src_dur is None or wav_dur is None:
+        return True
+    slack = max(2.0, 0.02 * src_dur)
+    return wav_dur + slack >= src_dur
+
+
+def ensure_audio_wav(settings: Settings, artifact: Artifact) -> Path | None:
+    wav = artifact_audio_path(settings, artifact.artifact_id, artifact.project_id)
+    src = Path(artifact.file_path)
+    lock = wav.with_name("input_16k.wav.lock")
+    with _exclusive_lock(lock):
+        source = src if src.is_file() else None
+        if wav_is_complete(wav, source):
+            return wav
+        if source is None:
+            return wav if wav.is_file() else None
+        if src.resolve() == wav.resolve():
+            return wav if wav.is_file() else None
+        ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
+        try:
+            _extract_wav_atomic(src, wav)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            detail = getattr(exc, "stderr", None) or str(exc)
+            logger.error("wav extract failed for %s: %s", artifact.artifact_id, detail)
+            return None
+        return wav if wav_is_complete(wav, src) else None
 
 
 def _encode_download_mp3(src_wav: Path, dst_mp3: Path) -> None:
@@ -126,21 +237,6 @@ def _fix_audio_src(html: str, audio_url: str) -> str:
     return re.sub(r"<audio\b[^>]*>", _rewrite, html, count=1, flags=re.IGNORECASE)
 
 
-def ensure_audio_wav(settings: Settings, artifact: Artifact) -> Path | None:
-    wav = artifact_audio_path(settings, artifact.artifact_id, artifact.project_id)
-    if wav.is_file():
-        return wav
-    src = Path(artifact.file_path)
-    if not src.is_file():
-        return None
-    ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
-    try:
-        _extract_wav(src, wav)
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return wav if wav.is_file() else None
-
-
 def ensure_audio_playback(settings: Settings, artifact: Artifact) -> tuple[Path, str] | None:
     """Return (path, media_type) for HTML players — AAC when possible, else WAV."""
     wav = ensure_audio_wav(settings, artifact)
@@ -187,6 +283,22 @@ def _rebuild_transcript_report(settings: Settings, artifact: Artifact) -> Path |
     """Пересобрать reports/transcript.html из asr/ + match JSON."""
     import os
     import sys
+
+    from app.app.services.artifact_lab import latest_run_id  # noqa: PLC0415
+
+    if latest_run_id(settings, artifact):
+        try:
+            from app.app.services.pipeline_lab import republish_named_transcript  # noqa: PLC0415
+
+            republish_named_transcript(settings, artifact)
+        except (FileNotFoundError, OSError) as exc:
+            logger.warning(
+                "lab transcript republish failed for %s: %s",
+                artifact.artifact_id,
+                exc,
+            )
+        report = artifact_transcript_path(settings, artifact.artifact_id, artifact.project_id)
+        return report if report.is_file() else None
 
     ws = ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
     asr_out = ws / "asr"
@@ -334,22 +446,11 @@ def ensure_audio_report(settings: Settings, artifact: Artifact) -> Path:
 
 
 def _default_sortformer_json(settings: Settings, artifact: Artifact) -> Path | None:
+    """Только файлы этого артефакта. Чужой эталон из experiments/ подставлять нельзя."""
     ws = artifact_dir(settings, artifact.project_id, artifact.artifact_id)
     candidates = (
         ws / "asr" / "sortformer_segments.json",
         ws / "reports" / "sortformer_segments.json",
-        ROOT
-        / "experiments"
-        / "nemo-diar"
-        / "out"
-        / f"pilot_{artifact.artifact_id}"
-        / "sortformer_gguf_vulkan_input_16k_report.json",
-        ROOT
-        / "experiments"
-        / "nemo-diar"
-        / "out"
-        / "pilot_22_07_26"
-        / "sortformer_gguf_vulkan_input_16k_report.json",
     )
     for path in candidates:
         if path.is_file():

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
@@ -72,6 +74,17 @@ def test_rebuild_tz_returns_409_when_running(client, admin_token, manager_token)
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 409
+
+
+def test_project_page_polls_tz_rebuild_to_lock_button():
+    """Автосбор и ручная пересборка одинаково гасят кнопку через tasks/active."""
+    html = (Path(__file__).resolve().parents[1] / "templates" / "project.html").read_text(encoding="utf-8")
+    assert "lockTzRebuildButton" in html
+    assert "await syncTzTaskUi()" in html
+    assert "tz_rebuild" in html
+    tz_page = (Path(__file__).resolve().parents[1] / "templates" / "tz.html").read_text(encoding="utf-8")
+    assert "setInterval(syncTaskUi, 3000)" in tz_page
+    assert "tzRebuildRunning" in tz_page
 
 
 def test_track_project_task_marks_done(db_engine, client, admin_token):

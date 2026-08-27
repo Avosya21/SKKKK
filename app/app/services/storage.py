@@ -83,8 +83,17 @@ def artifact_speaker_match_path(settings: Settings, artifact_id: str, project_id
     return artifact_dir(settings, project_id, artifact_id) / "reports" / "speaker_match_test.html"
 
 
+def artifact_lab_dir(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    """Каталог лабораторных прогонов артефакта. Внутри — runs/{run_id}/."""
+    return artifact_dir(settings, project_id, artifact_id) / "lab"
+
+
 def artifact_report_url(artifact_id: str) -> str:
     return f"/artifacts/{artifact_id}/report"
+
+
+def lab_report_url(artifact_id: str) -> str:
+    return f"/artifacts/{artifact_id}/report-lab"
 
 
 def sortformer_report_url(artifact_id: str) -> str:
@@ -128,6 +137,30 @@ def parsed_dir(settings: Settings, project_id: int, source_type: str) -> Path:
     mapping = {"call": "calls", "document": "documents", "note": "notes", "screenshot": "documents"}
     sub = mapping.get(source_type, "documents")
     return project_root(settings, project_id) / "parsed" / sub
+
+
+def artifact_knowledge_text(settings: Settings, artifact) -> str:
+    """Канон для ТЗ / сущностей / индекса: lab ``_final.txt`` (proof + имена), не Whisper/T-one."""
+    final_path = (
+        parsed_dir(settings, artifact.project_id, artifact.source_type)
+        / f"{artifact.artifact_id}_final.txt"
+    )
+    if final_path.is_file():
+        body = final_path.read_text(encoding="utf-8").strip()
+        if body:
+            return body
+    text = (getattr(artifact, "transcription_text", None) or "").strip()
+    if text:
+        return text
+    stored = getattr(artifact, "transcription_file_path", None)
+    if stored:
+        path = Path(stored)
+        name = path.name.lower()
+        if path.is_file() and "whisper" not in name and "tone" not in name:
+            body = path.read_text(encoding="utf-8").strip()
+            if body:
+                return body
+    return ""
 
 
 def structured_dir(settings: Settings, project_id: int) -> Path:

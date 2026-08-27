@@ -37,3 +37,17 @@ tmp/
 experiments/**/out/
 .DS_Store
 Thumbs.db
+tools/lightrag/.env
+tools/lightrag/data/
+logs/
+faster-whisper-large-v3-turbo-ct2/
+nvidiadiar_sortformer_4spk-v1/
+pyannotesegmentation3.0/
+speaker-diarization-3.1/
+wespeaker-voxceleb-resnet34-LM/
+whisper-large-v3-ru-podlodka/
+tools/wav2vec2.cpp/
+data/inbox/
+data/models/
+data/tmp/
+data/vendor/

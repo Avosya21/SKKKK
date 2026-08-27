@@ -80,6 +80,17 @@ def test_resolve_summary_docx(tmp_data, db_engine):
         assert summary_export_available(settings, art)
         docx2 = build_summary_docx_bytes("## Раздел\n\nОбычный и **жирный**", art)
         assert docx2.startswith(b"PK")
+        table_docx = build_summary_docx_bytes(
+            "## Кто / Что\n\n| Кто | Что |\n|-----|-----|\n| А | Б |\n",
+            art,
+        )
+        from docx import Document
+        import io
+
+        parsed = Document(io.BytesIO(table_docx))
+        assert len(parsed.tables) == 1
+        assert parsed.tables[0].cell(0, 0).text.strip() == "Кто"
+        assert parsed.tables[0].cell(1, 1).text.strip() == "Б"
     finally:
         db.close()
 

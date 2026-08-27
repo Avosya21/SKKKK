@@ -54,17 +54,16 @@ def chunk_plain_text(text: str, *, max_tokens: int = CHUNK_TOKENS, overlap_token
 
 
 def chunk_transcript(text: str, *, max_tokens: int = CHUNK_TOKENS) -> list[TextChunk]:
-    """Чанки по репликам: строки «Спикер: текст» или с таймкодами."""
+    """Чанки по репликам: строки «Спикер: текст» или «[таймкод] Имя: текст»."""
     turns: list[tuple[str | None, str]] = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
-        m = re.match(r"^(?:\[[^\]]+\]\s*)?(?:Спикер\s*№\d+|[^:]+):\s*(.+)$", line, re.I)
+        bare = re.sub(r"^\[[^\]]+\]\s*", "", line)
+        m = re.match(r"^(Спикер\s*№\d+|[^:]+):\s*(.+)$", bare, re.I)
         if m:
-            speaker = line.split(":", 1)[0].strip()
-            speaker = re.sub(r"^\[[^\]]+\]\s*", "", speaker)
-            turns.append((speaker, m.group(1).strip()))
+            turns.append((m.group(1).strip(), m.group(2).strip()))
         else:
             turns.append((None, line))
     if not turns:

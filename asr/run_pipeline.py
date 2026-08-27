@@ -44,6 +44,7 @@ ENV = ROOT / ".env"
 TEST = ROOT / "Test_video"
 
 sys.path.insert(0, str(ASR))
+from docker_stage import stage_tone_docker_input  # noqa: E402
 from paths import OUT, WORK  # noqa: E402
 
 WHISPER = "http://127.0.0.1:18101"
@@ -209,6 +210,8 @@ def run_whisper() -> dict:
 
 def run_tone() -> dict:
     t0 = time.time()
+    staged = stage_tone_docker_input(WORK / "input_8k.wav")
+    log(f"tone docker input staged {staged} ({staged.stat().st_size} bytes)")
     payload = json.dumps({"audio": "/data/input_8k.wav", "out_dir": "/out"}).encode("utf-8")
     req = urllib.request.Request(
         f"{TONE}/transcribe",

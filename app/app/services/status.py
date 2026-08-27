@@ -18,7 +18,7 @@ def set_status(db: Session, artifact: Artifact, status: str, **extra) -> None:
     """
     previous = artifact.status
     artifact.status = status
-    if status == "done":
+    if status != "error":
         artifact.error_message = None
     db.commit()
     log_event(

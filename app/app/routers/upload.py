@@ -21,6 +21,7 @@ from app.app.schemas.artifact import ArtifactOut, ArtifactProgressOut
 from app.app.services import resumable_upload as resumable
 from app.app.services.artifact_audio import ensure_audio_report
 from app.app.services.artifact_download import artifact_download_available, artifact_download_label
+from app.app.services.artifact_lab import list_runs as list_lab_runs
 from app.app.services.artifact_reports import document_report_url
 from app.app.services.pipeline_progress import build_artifact_progress, reconcile_artifact_status
 from app.app.services.storage import artifact_report_url
@@ -180,6 +181,7 @@ def list_artifacts(
         updates: dict = {
             "download_available": available,
             "download_filename": artifact_download_label(row) if available else None,
+            "lab_runs": len(list_lab_runs(settings, row)) if row.file_type == "audio" else 0,
         }
         if progress is not None:
             updates["progress"] = progress

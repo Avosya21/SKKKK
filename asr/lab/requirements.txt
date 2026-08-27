@@ -1,0 +1,30 @@
+# Окружение лаборатории расшифровки: venvs\lab (Python 3.10 — на этой машине нет 3.11)
+#
+#   py -3.10 -m venv venvs\lab
+#   venvs\lab\Scripts\python.exe -m pip install -U pip
+#   venvs\lab\Scripts\python.exe -m pip install -r asr\lab\requirements.txt
+#
+# Версии совпадают с vendor/GigaAMGUI/requirements.txt — тот стек уже проверен
+# на этой машине, расходиться с ним без причины не нужно.
+#
+# Почему отдельный venv, а не общий: onnxruntime-gpu конфликтует с обычным
+# onnxruntime из app/requirements.txt (один и тот же модуль onnxruntime).
+
+# ASR и диаризация на ONNX Runtime. GPU-сборка; для CPU-прогонов замените на
+# onnxruntime==1.23.2 (версию не менять — ломается совместимость с onnx-asr).
+# cuDNN 9 нужен отдельно: CUDA Toolkit его не кладёт, без DLL ORT падает на CPU.
+onnxruntime-gpu==1.23.2
+nvidia-cudnn-cu12==9.16.0.29
+onnx-asr==0.12.0
+sentencepiece==0.2.1
+
+numpy==1.26.4
+scipy==1.15.3
+librosa==0.11.0
+soundfile==0.13.1
+soxr==1.0.0
+
+# Загрузка ONNX-моделей Parakeet, Silero VAD и Sortformer в data/models.
+huggingface-hub==0.36.0
+
+pytest==9.0.1

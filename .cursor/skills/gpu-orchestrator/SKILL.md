@@ -9,31 +9,29 @@ description: Sequences GPU phases on the 24GB Windows card for SKKKK. Use when i
 
 ## Фазы
 
-1. **ASR** — в VRAM только Whisper + T-one + GigaAM, **три отдельных процесса**, запущенных одновременно. LM Studio должен быть unload, JIT-автозагрузка выключена.
-2. **LLM** — в VRAM только `google/gemma-4-31b-qat` через LM Studio (`http://127.0.0.1:1234/v1`). Процессы ASR завершены.
+1. **ASR** — последовательно, один GPU-воркер: Parakeet-TDT + Sortformer в `venvs\lab` (ONNX), затем GigaAM в контейнере `skkkk-gigaam` (сверка и WeSpeaker). Whisper и T-one не стартуют. В режиме lmstudio LM Studio должен быть unload.
+2. **LLM** — sense, proof, выжимка, сущности, ТЗ, чат. В режиме `lmstudio`: Gemma `google/gemma-4-31b-qat` через LM Studio. В режиме `cursor`: Cursor API, Gemma в VRAM нет.
 3. **EMBED** — Ollama `bge-m3` с `num_gpu=0`. Можно параллельно с LLM. Нельзя отдавать Ollama GPU.
 
-## Переключение
+## Переключение (lmstudio)
 
 ```
 lms unload --all
-# дождаться падения занятости по nvidia-smi, а не фиксированной паузы
-# ... три процесса ASR одновременно, три raw txt ...
-# процессы завершились -> VRAM освобождена гарантированно
+# дождаться падения занятости по nvidia-smi
+# ... lab_pipeline (Parakeet+Sortformer) → lab_giga → lab_voice ...
+# процессы завершились -> VRAM освобождена
 lms load google/gemma-4-31b-qat
-# склейка по окнам / нормализация / сущности / ТЗ / чат
+# sense/proof если ещё не сделаны в cursor-режиме; иначе сущности / ТЗ / чат
 ```
+
+В режиме **cursor** load/unload Gemma пропускаются; sense и proof идут через Cursor API сразу после ONNX.
 
 Чат и rebuild ТЗ ставятся в `jobs` с `phase=llm` и ждут, если сейчас `asr_running`.
 
-## Ансамбль
+## Двойной слух
 
-Всегда три движка. Упал один — записать `asr_runs` со статусом error, при двух живых всё равно звать Gemma с пометкой о недоступном варианте. Не удалять третий движок из пайплайна.
+Канон: Parakeet — таймлайн, GigaAM — сверка (выбор только lab vs giga). Sortformer ≤4 спикеров. WeSpeaker в том же `skkkk-gigaam`.
 
-Промпт склейки: `docs/prompts/merge_transcript.md`.
+Пустой текст у обоих слухов → артефакт «речь не обнаружена», LLM не вызывается.
 
-Аудио: мастер 16 кГц моно → окна 120–180 с по границам тишины/реплик → из каждого окна 16 кГц (Whisper, GigaAM) и 8 кГц (T-one). Перед Gemma — защита от галлюцинаций на паузе (петли ASR, энергия WAV ∩ диаризация, бюджет символов). Склейка Gemma идёт окно за окном, затем сшивка в `_final.txt`. Таймлайн исходного файла не сжимаем.
-
-Все три черновика пустые → Gemma не вызывается, артефакт закрывается с пометкой «речь не обнаружена».
-
-Детали и тесты: `docs/stages/STAGE-03-asr-ensemble.md`.
+Детали: `docs/DECISIONS.md` инвариант 1, `app/app/services/pipeline_lab.py`.

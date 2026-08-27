@@ -154,7 +154,12 @@ def rebuild(
     if not final_txt.is_file():
         raise SystemExit(f"нет {final_txt}")
     duration = _ffprobe_duration(wav)
-    seed_merged_windows(final_txt, asr_out, duration)
+    merged_windows = asr_out / "docker_merged_windows.json"
+    merged_plain = asr_out / "docker_merged_plain.txt"
+    if merged_windows.is_file() and merged_plain.is_file():
+        print(f"keep existing merge windows: {merged_windows.name}")
+    else:
+        seed_merged_windows(final_txt, asr_out, duration)
 
     summary = parsed / f"{artifact_id}_call_summary.md"
     if summary.is_file():

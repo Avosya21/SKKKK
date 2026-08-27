@@ -1,0 +1,36 @@
+---
+description: LightRAG — граф знаний по карте SKKKK (Docker :9621). Спрашивай перед нетривиальной работой с кнопками/API/БД.
+globs:
+alwaysApply: true
+---
+
+# LightRAG — карта проекта
+
+Перед правками пайплайнов, спикеров, UI-кнопок или API — **сначала** проверь граф:
+
+```powershell
+venv\Scripts\python.exe scripts\lightrag_query.py "ваш вопрос"
+```
+
+Fallback (sqlite-vec): `py scripts/search_project_map.py "вопрос"`.
+
+## Запуск
+
+```powershell
+cd tools\lightrag
+Copy-Item .env.example .env   # один раз
+docker compose up -d
+```
+
+WebUI: http://127.0.0.1:9621
+
+## Обновление после правок docs/ или архитектуры
+
+```powershell
+venv\Scripts\python.exe scripts\lightrag_sync_docs.py
+venv\Scripts\python.exe scripts\lightrag_index.py --wait
+```
+
+Источник истины для **кода** — `docs/PROJECT-MAP.md` + `manifest.yaml`. LightRAG — семантический граф связей поверх них.
+
+Не путать с prod RAG чата (`entities` / `chunks` в app.db).

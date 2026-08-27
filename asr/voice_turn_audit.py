@@ -19,6 +19,7 @@ sys.path.insert(0, str(ASR))
 sys.path.insert(0, str(ROOT))
 
 from paths import OUT, WORK  # noqa: E402
+from docker_stage import stage_gigaam_docker_input  # noqa: E402
 from speaker_registry import (  # noqa: E402
     AUDIT_AUTO_HIT,
     AUDIT_CENTROID_MIN_SEC,
@@ -79,11 +80,7 @@ def trim_clip(start: float, end: float, *, trim: float = AUDIT_EDGE_TRIM_SEC) ->
 
 def stage_audio_for_docker(audio: Path) -> Path:
     """Контейнер skkkk-gigaam видит только asr/work → /work."""
-    GIGAAM_WORK.mkdir(parents=True, exist_ok=True)
-    dest = GIGAAM_WORK / "input_16k.wav"
-    if audio.resolve() != dest.resolve():
-        shutil.copy2(audio, dest)
-    return dest
+    return stage_gigaam_docker_input(audio)
 
 
 def _embed_clips(audio: Path, clips: dict[str, dict]) -> dict[str, dict]:

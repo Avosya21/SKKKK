@@ -5,8 +5,13 @@ from pathlib import Path
 
 from app.app.config import Settings
 from app.app.models.artifact import Artifact
-from app.app.services.artifact_audio import ensure_audio_download_mp3, ensure_audio_wav
-from app.app.services.storage import ensure_inside, project_root
+from app.app.services.artifact_audio import ensure_audio_download_mp3
+from app.app.services.storage import (
+    artifact_audio_download_mp3_path,
+    artifact_audio_path,
+    ensure_inside,
+    project_root,
+)
 
 
 def _audio_download_name(artifact: Artifact) -> str:
@@ -37,10 +42,22 @@ def resolve_artifact_download(
 
 
 def artifact_download_available(settings: Settings, artifact: Artifact) -> bool:
+    """Только проверка файлов. Извлечение WAV здесь нельзя: опрос списка
+    артефактов иначе гоняет ffmpeg параллельно с GPU-воркером."""
     if artifact.file_type == "audio":
-        wav = ensure_audio_wav(settings, artifact)
-        return wav is not None and wav.stat().st_size >= 1000
-    return resolve_artifact_download(settings, artifact) is not None
+        mp3 = artifact_audio_download_mp3_path(settings, artifact.artifact_id, artifact.project_id)
+        if mp3.is_file() and mp3.stat().st_size >= 1000:
+            return True
+        wav = artifact_audio_path(settings, artifact.artifact_id, artifact.project_id)
+        return wav.is_file() and wav.stat().st_size >= 1000
+    src = Path(artifact.file_path)
+    if not src.is_file():
+        return False
+    try:
+        ensure_inside(project_root(settings, artifact.project_id), src)
+    except ValueError:
+        return False
+    return True
 
 
 def artifact_download_label(artifact: Artifact) -> str | None:

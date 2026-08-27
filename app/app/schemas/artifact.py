@@ -66,6 +66,8 @@ class ArtifactOut(BaseModel):
 
     progress: ArtifactProgressOut | None = None
 
+    lab_runs: int = 0
+
 
 
     model_config = {"from_attributes": True}

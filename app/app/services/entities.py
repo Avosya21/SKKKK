@@ -88,12 +88,278 @@ def _split_for_extraction(text: str, max_chars: int = 6000) -> list[str]:
     return chunks or [stripped[:max_chars]]
 
 
+_DEADLINE_MARKERS = re.compile(
+    r"(?i)"
+    r"(?:"
+    r"до\s+конца\s+(?:этой\s+|текущей\s+)?недел(?:и|е)"
+    r"|к\s+четвергу(?:\s*[–—-]\s*пятниц(?:е|у))?(?:\s+текущей\s+недел(?:и|е))?"
+    r"|четверг(?:\s*[–—-]\s*пятниц(?:а|у|е))?(?:\s*,?\s*до\s+конца\s+недел(?:и|е))?"
+    r"|до\s+\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?"
+    r"|к\s+\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?"
+    r"|до\s+\d{1,2}\s+[а-яё]+(?:\s+\d{4})?"
+    r"|к\s+\d{1,2}\s+[а-яё]+(?:\s+\d{4})?"
+    r"|20\d{2}-\d{2}-\d{2}"
+    r")"
+)
+
+_EMPTY_DEADLINE = frozenset(
+    {
+        "",
+        "срок не указан",
+        "не указан",
+        "неизвестно",
+        "unknown",
+        "нет",
+        "n/a",
+        "—",
+        "-",
+    }
+)
+
+_SPEAKER_LABEL = re.compile(r"^SPEAKER_\d+$", re.I)
+_TOKEN_STOP = frozenset(
+    "и в на с по для что это как или же не нет при из к ко от до за о об".split()
+)
+_PREP_VERBS = re.compile(r"(?i)(подготов|направ|сформир|состав|отправ|выдать|сделать|направить)")
+_DELIVERABLE = re.compile(r"(?i)(кп|коммерческ\w*\s+предлож|предложени\w*)")
+_COMPONENT = re.compile(r"(?i)(включить\s+в|добавить\s+в|в\s+кп|в\s+коммерч|без\s+демо|без\s+развертыван)")
+
+
+def _normalize_deadline_value(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    if text.casefold() in _EMPTY_DEADLINE:
+        return None
+    return text
+
+
+def _token_set(text: str) -> set[str]:
+    return {
+        tok
+        for tok in re.findall(r"[\wа-яё]+", text.casefold())
+        if len(tok) >= 3 and tok not in _TOKEN_STOP
+    }
+
+
+def _text_overlap(a: str, b: str, *, min_ratio: float = 0.35) -> bool:
+    ta, tb = _token_set(a), _token_set(b)
+    if not ta or not tb:
+        return False
+    return len(ta & tb) / min(len(ta), len(tb)) >= min_ratio
+
+
+def _extract_deadline_phrase(text: str) -> str | None:
+    match = _DEADLINE_MARKERS.search(text)
+    if not match:
+        return None
+    phrase = match.group(0).strip(" ,.;")
+    return phrase or None
+
+
+def _merge_task_into_list(tasks: list[TaskItem], incoming: TaskItem) -> list[TaskItem]:
+    if not incoming.description.strip():
+        return tasks
+    for task in tasks:
+        if _text_overlap(task.description, incoming.description):
+            if not _normalize_deadline_value(task.deadline) and _normalize_deadline_value(incoming.deadline):
+                task.deadline = incoming.deadline
+            if not (task.assignee or "").strip() and (incoming.assignee or "").strip():
+                task.assignee = incoming.assignee
+            if task.status == "unknown" and incoming.status != "unknown":
+                task.status = incoming.status
+            if len(incoming.description) > len(task.description):
+                task.description = incoming.description
+            return tasks
+    tasks.append(incoming)
+    return tasks
+
+
+def _assignee_from_participants(payload: EntitiesPayload, assignee: str | None) -> str | None:
+    if not assignee or not _SPEAKER_LABEL.match(assignee.strip()):
+        return assignee
+    return assignee
+
+
+def normalize_entities_payload(payload: EntitiesPayload) -> EntitiesPayload:
+    """Post-process LLM output: перенос сроков из decisions в tasks, слияние дублей."""
+    out = payload.model_copy(deep=True)
+
+    for task in out.tasks:
+        task.assignee = _assignee_from_participants(out, task.assignee)
+        task.deadline = _normalize_deadline_value(task.deadline)
+        if not task.deadline:
+            inline = _extract_deadline_phrase(task.description)
+            if inline:
+                task.deadline = inline
+
+    for decision in out.decisions:
+        deadline = _extract_deadline_phrase(decision)
+        if not deadline:
+            continue
+        matched = False
+        for task in out.tasks:
+            if _text_overlap(task.description, decision) or (
+                _DELIVERABLE.search(task.description) and _DELIVERABLE.search(decision)
+            ):
+                if not task.deadline:
+                    task.deadline = deadline
+                matched = True
+                break
+        if not matched and re.search(
+            r"(?i)(подготов|направ|сделать|уточн|провест|соглас|загруз|оцен|синхрон)",
+            decision,
+        ):
+            out.tasks.append(
+                TaskItem(
+                    description=decision,
+                    assignee=None,
+                    deadline=deadline,
+                    status="open",
+                )
+            )
+
+    deduped: list[TaskItem] = []
+    for task in out.tasks:
+        if not task.description.strip():
+            continue
+        deduped = _merge_task_into_list(deduped, task)
+    out.tasks = deduped
+    return out
+
+
+def _normalize_deadline_key(raw: str | None) -> str:
+    text = (raw or "").casefold().strip()
+    text = re.sub(r"[–—−]", "-", text)
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"^к\s+", "", text)
+    return text
+
+
+def _deadlines_equivalent(a: str | None, b: str | None) -> bool:
+    na = _normalize_deadline_key(a)
+    nb = _normalize_deadline_key(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    if na in nb or nb in na:
+        return True
+    return False
+
+
+def _task_parent_score(description: str) -> int:
+    text = description.casefold()
+    score = len(description)
+    if _PREP_VERBS.search(text):
+        score += 200
+    if _DELIVERABLE.search(text):
+        score += 100
+    if _COMPONENT.search(text):
+        score -= 50
+    return score
+
+
+def _is_component_of_deliverable(component_desc: str, parent_desc: str) -> bool:
+    c, p = component_desc.casefold(), parent_desc.casefold()
+    if c == p or c in p or p in c:
+        return True
+    if not _DELIVERABLE.search(c) and not _COMPONENT.search(component_desc):
+        return False
+    if _COMPONENT.search(component_desc) and (_PREP_VERBS.search(p) or _DELIVERABLE.search(p)):
+        if _DELIVERABLE.search(c) or "кп" in c or "коммерч" in c:
+            return True
+    if ("включ" in c or "добав" in c) and ("кп" in c or "коммерч" in c):
+        return _PREP_VERBS.search(p) or "кп" in p or "коммерч" in p or "предлож" in p
+    if "без демо" in c or "без развертыван" in c:
+        return (_PREP_VERBS.search(p) or "кп" in p) and ("кп" in p or "коммерч" in p or "предлож" in p)
+    return False
+
+
+def _combine_task_descriptions(primary: str, secondary: str) -> str:
+    a, b = primary.strip(), secondary.strip()
+    if not b or b.casefold() in a.casefold():
+        return a
+    if a.casefold() in b.casefold():
+        return b
+    return f"{a.rstrip('.')}. {b}"
+
+
+def _pick_assignee(current: str | None, incoming: str | None) -> str | None:
+    cur = (current or "").strip()
+    inc = (incoming or "").strip()
+    if not inc:
+        return cur or None
+    if not cur:
+        return inc
+    if _SPEAKER_LABEL.match(cur) and not _SPEAKER_LABEL.match(inc):
+        return inc
+    if len(inc) > len(cur) and cur.casefold() in {"акме", "acme", "команда"}:
+        return inc
+    return cur
+
+
+def merge_related_tasks(tasks: list[TaskItem]) -> list[TaskItem]:
+    """Склеить tasks с одним deadline, где одна — состав/условие другой (напр. КП + кейсы в КП)."""
+    if len(tasks) < 2:
+        return tasks
+
+    merged: list[TaskItem] = []
+    used: set[int] = set()
+
+    for i, task in enumerate(tasks):
+        if i in used or not task.description.strip():
+            continue
+        if not _normalize_deadline_value(task.deadline):
+            merged.append(task.model_copy(deep=True))
+            used.add(i)
+            continue
+
+        group = [task]
+        used.add(i)
+        for j, other in enumerate(tasks):
+            if j in used or not other.description.strip():
+                continue
+            if not _normalize_deadline_value(other.deadline):
+                continue
+            if not _deadlines_equivalent(task.deadline, other.deadline):
+                continue
+            group.append(other)
+            used.add(j)
+
+        if len(group) == 1:
+            merged.append(task.model_copy(deep=True))
+            continue
+
+        group.sort(key=lambda t: _task_parent_score(t.description), reverse=True)
+        parent = group[0].model_copy(deep=True)
+        for child in group[1:]:
+            if _is_component_of_deliverable(child.description, parent.description) or _is_component_of_deliverable(
+                child.description, group[0].description
+            ):
+                parent.description = _combine_task_descriptions(parent.description, child.description)
+                parent.assignee = _pick_assignee(parent.assignee, child.assignee)
+                if parent.status == "unknown" and child.status != "unknown":
+                    parent.status = child.status
+            else:
+                merged.append(child.model_copy(deep=True))
+        merged.append(parent)
+
+    for i, task in enumerate(tasks):
+        if i not in used and task.description.strip():
+            merged.append(task.model_copy(deep=True))
+
+    return merged
+
+
 def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
     if not parts:
         return EntitiesPayload()
     base = parts[0].model_copy(deep=True)
     seen_decisions = set(base.decisions)
-    seen_tasks: set[str] = {t.description for t in base.tasks}
+    merged_tasks: list[TaskItem] = list(base.tasks)
     for part in parts[1:]:
         if part.summary and len(part.summary) > len(base.summary):
             base.summary = part.summary
@@ -101,10 +367,8 @@ def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
             if d not in seen_decisions:
                 base.decisions.append(d)
                 seen_decisions.add(d)
-        for t in part.tasks:
-            if t.description not in seen_tasks:
-                base.tasks.append(t)
-                seen_tasks.add(t.description)
+        for incoming in part.tasks:
+            merged_tasks = _merge_task_into_list(merged_tasks, incoming)
         base.facts.update(part.facts)
         names = {m.name for m in base.mentions}
         for m in part.mentions:
@@ -116,7 +380,8 @@ def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
             if p.name not in pnames:
                 base.participants.append(p)
                 pnames.add(p.name)
-    return base
+    base.tasks = merged_tasks
+    return normalize_entities_payload(base)
 
 
 def _parse_entities(raw: str) -> EntitiesPayload:
@@ -181,6 +446,7 @@ def persist_entities(
     artifact: Artifact,
     payload: EntitiesPayload,
 ) -> Path:
+    payload.tasks = merge_related_tasks(payload.tasks)
     db.execute(delete(Entity).where(Entity.artifact_id == artifact.id))
     rows: list[Entity] = []
 
@@ -215,3 +481,69 @@ def persist_entities(
     out_path.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
     db.flush()
     return out_path
+
+
+def _count_tasks_with_deadline(payload: EntitiesPayload) -> int:
+    return sum(1 for task in payload.tasks if _normalize_deadline_value(task.deadline))
+
+
+def reextract_artifact_entities(db: Session, settings: Settings, artifact: Artifact) -> dict:
+    """Повторно извлечь сущности из канона lab ``_final.txt`` / transcription_text."""
+    from app.app.services.gpu_phase import prepare_for_llm
+    from app.app.services.storage import artifact_knowledge_text
+
+    text = artifact_knowledge_text(settings, artifact)
+    if not text:
+        return {
+            "ok": False,
+            "artifact_id": artifact.artifact_id,
+            "error": "нет текста стенограммы",
+            "tasks": 0,
+            "tasks_with_deadline": 0,
+        }
+    if settings.dry_run:
+        payload = stub_entities(artifact, text)
+    else:
+        prepare_for_llm(settings.lmstudio_model, settings=settings)
+        payload = extract_entities_llm(settings, artifact, text)
+    persist_entities(db, settings, artifact, payload)
+    db.commit()
+    return {
+        "ok": True,
+        "artifact_id": artifact.artifact_id,
+        "tasks": len(payload.tasks),
+        "tasks_with_deadline": _count_tasks_with_deadline(payload),
+    }
+
+
+def reextract_project_entities(db: Session, settings: Settings, project_id: int) -> dict:
+    """Все готовые материалы проекта: сущности из lab-стенограммы, не из Whisper/T-one."""
+    artifacts = db.scalars(
+        select(Artifact).where(Artifact.project_id == project_id, Artifact.status == "done")
+    ).all()
+    results: list[dict] = []
+    succeeded = 0
+    tasks_with_deadline = 0
+    for artifact in artifacts:
+        try:
+            row = reextract_artifact_entities(db, settings, artifact)
+        except Exception as exc:
+            logger.exception("reextract failed for %s", artifact.artifact_id)
+            row = {
+                "ok": False,
+                "artifact_id": artifact.artifact_id,
+                "error": str(exc),
+                "tasks": 0,
+                "tasks_with_deadline": 0,
+            }
+        results.append(row)
+        if row.get("ok"):
+            succeeded += 1
+            tasks_with_deadline += int(row.get("tasks_with_deadline") or 0)
+    return {
+        "project_id": project_id,
+        "artifacts": len(artifacts),
+        "succeeded": succeeded,
+        "tasks_with_deadline": tasks_with_deadline,
+        "results": results,
+    }

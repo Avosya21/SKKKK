@@ -1,10 +1,9 @@
 """Итоговая выжимка созвона: только из текста финальной стенограммы, без аудио/видео.
 
 Нужен `docker_gigaam_speakers.json` с подписанными спикерами — запускать после
-match + voice audit + индекса в sqlite-vec (воркер: `run_knowledge_pipeline`).
+confirm имён и индекса в sqlite-vec (воркер: `run_knowledge_pipeline`).
 Длинные созвоны режутся на фрагменты ~6000 символов по границам реплик (map),
-черновые заметки по фрагментам сшиваются в одну выжимку (reduce). Короткие
-созвоны (один фрагмент) идут в reduce напрямую, map пропускается.
+черновые заметки сшиваются в протокол встречи (reduce, до 4096 tokens).
 
 Требует загруженную в LM Studio Gemma (фаза LLM, ASR-контейнеры не должны
 работать одновременно, см. .cursor/skills/gpu-orchestrator).
@@ -31,6 +30,8 @@ from llm_client import chat, ensure_llm_ready, llm_name  # noqa: E402
 
 PROMPT = ROOT / "docs" / "prompts" / "call_summary.md"
 CHUNK_CHARS = 6000
+MAP_MAX_TOKENS = 1200
+REDUCE_MAX_TOKENS = 4096
 
 
 def _read(path: Path) -> str:
@@ -55,6 +56,22 @@ def _load_turns() -> list[Turn]:
         Turn(start=t["start"], end=t["end"], speaker=t["speaker"], text=t["text"])
         for t in payload.get("turns", [])
     ]
+
+
+def lab_proof_is_canonical(asr_out: Path) -> bool:
+    """Lab proof — канон реплик; build_transcript_view нарежет SPEAKER_00 поверх имён."""
+    art = asr_out.resolve().parent
+    latest = art / "lab" / "latest.json"
+    if not latest.is_file():
+        return False
+    try:
+        run_id = json.loads(latest.read_text(encoding="utf-8")).get("run_id")
+    except (json.JSONDecodeError, OSError):
+        return False
+    if not run_id:
+        return False
+    proof = art / "lab" / "runs" / str(run_id) / "proof" / "transcript.json"
+    return proof.is_file()
 
 
 def _chunk_text(turns: list[Turn], max_chars: int) -> list[str]:
@@ -100,11 +117,11 @@ def main() -> int:
         for i, chunk in enumerate(chunks):
             user = map_user_tmpl.format(i=i + 1, n=len(chunks), chunk_text=chunk)
             print(f"map {i + 1}/{len(chunks)}...", flush=True)
-            drafts.append(_chat(map_sys, user, max_tokens=800))
+            drafts.append(_chat(map_sys, user, max_tokens=MAP_MAX_TOKENS))
 
     reduce_user = reduce_user_tmpl.format(drafts="\n\n---\n\n".join(drafts))
     print("reduce...", flush=True)
-    summary = _chat(reduce_sys, reduce_user, max_tokens=1500)
+    summary = _chat(reduce_sys, reduce_user, max_tokens=REDUCE_MAX_TOKENS)
     if not summary.strip():
         raise SystemExit(f"{llm} вернула пустую выжимку")
 
@@ -124,6 +141,10 @@ def main() -> int:
     out_path = OUT / "call_summary.md"
     out_path.write_text(summary.strip() + "\n", encoding="utf-8")
     print("wrote", out_path, "chars", len(summary))
+
+    if lab_proof_is_canonical(OUT):
+        print("lab proof canonical — skip build_transcript_view")
+        return 0
 
     from build_transcript_view import build  # noqa: E402
 

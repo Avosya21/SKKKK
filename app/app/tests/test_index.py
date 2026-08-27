@@ -20,5 +20,97 @@ def test_transcript_chunks_keep_speaker():
     assert any(c.speaker and "Спикер" in c.speaker for c in chunks)
 
 
+def test_transcript_chunks_lab_timecodes_keep_names():
+    text = (
+        "[00:00 - 02:01] Елена Соколова: Запись. Сегодня повестка.\n"
+        "[02:01 - 02:02] Игорь (Пилот): Да, вас слышно.\n"
+    )
+    chunks = chunk_transcript(text)
+    speakers = {c.speaker for c in chunks}
+    assert "Елена Соколова" in speakers
+    assert "Игорь (Пилот)" in speakers
+    assert all("00:00" not in (c.speaker or "") for c in chunks)
+
+
 def test_estimate_tokens_positive():
     assert estimate_tokens("hello world") >= 1
+
+
+def test_index_artifact_prefers_lab_final(tmp_data, db_engine, client, admin_token, monkeypatch):
+    from sqlalchemy import select
+
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Chunk
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.indexing import index_artifact
+    from app.app.services.storage import create_project_tree, parsed_dir
+
+    dim = 1024
+    monkeypatch.setattr(
+        "app.app.services.indexing.embed_texts",
+        lambda _s, texts: [[0.01] * dim for _ in texts],
+    )
+    monkeypatch.setattr("app.app.services.indexing.init_vector_store", lambda _e: None)
+    monkeypatch.setattr("app.app.services.indexing.upsert_vectors", lambda _db, _pairs: None)
+    monkeypatch.setattr("app.app.services.indexing.delete_vectors_for_chunks", lambda _db, _ids: None)
+
+    settings = get_settings()
+    db = SessionLocal()
+    user = db.scalar(select(User).limit(1))
+    project = Project(name="IdxLab", description="", created_by=user.id, is_active=True)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    create_project_tree(settings, project.id)
+    art = Artifact(
+        artifact_id="art_idx_lab",
+        project_id=project.id,
+        user_id=user.id,
+        original_filename="call.webm",
+        stored_filename="call.webm",
+        file_path="x",
+        file_type="audio",
+        source_type="call",
+        status="done",
+        sha256="abc",
+        transcription_text="STALE WHISPER MERGE",
+    )
+    db.add(art)
+    db.commit()
+    db.refresh(art)
+    parsed_dir(settings, project.id, "call").mkdir(parents=True, exist_ok=True)
+    (parsed_dir(settings, project.id, "call") / "art_idx_lab_final.txt").write_text(
+        "[00:00 - 00:01] Елена Соколова: канон lab\n",
+        encoding="utf-8",
+    )
+    n = index_artifact(db, settings, art, "STALE WHISPER MERGE")
+    rows = list(db.scalars(select(Chunk).where(Chunk.artifact_id == art.id)).all())
+    db.close()
+    assert n >= 1
+    assert any("канон lab" in (c.text or "") for c in rows)
+    assert any(c.speaker == "Елена Соколова" for c in rows)
+
+
+def test_audit_empty_project_is_ok(tmp_data, db_engine, client, admin_token):
+    from sqlalchemy import select
+
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.indexing import audit_project_index
+
+    db = SessionLocal()
+    user = db.scalar(select(User).limit(1))
+    project = Project(name="EmptyIdx", description="", created_by=user.id, is_active=True)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    report = audit_project_index(db, get_settings(), project.id)
+    db.close()
+    assert report["ok"] is True
+    assert report["chunks"] == 0
+    assert report["artifacts"] == 0

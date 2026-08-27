@@ -16,16 +16,17 @@ from app.app.models.entity import Entity, Link, NoteRef, Resolution, UserNote
 from app.app.models.project import Project
 from app.app.models.user import User
 from app.app.services.chat import answer_chat, chat_is_pending, list_chat_messages
-from app.app.services.project_tasks import TaskAlreadyRunning
+from app.app.services.entities import reextract_project_entities
 from app.app.services.graph import build_graph_payload
-from app.app.services.storage import project_notes_dir
+from app.app.services.project_deadlines import list_project_deadlines
 from app.app.services.project_tasks import (
+    TASK_ENTITIES_REEXTRACT,
     TASK_TZ_REBUILD,
     TaskAlreadyRunning,
-    cleanup_stale_tasks,
     list_active_tasks,
     track_project_task,
 )
+from app.app.services.storage import project_notes_dir
 from app.app.services.tz import rebuild_tz, tz_paths
 
 logger = logging.getLogger("skkkk.api.knowledge")
@@ -290,6 +291,40 @@ def rebuild_tz_endpoint(
     except TaskAlreadyRunning as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"path": str(path)}
+
+
+@router.get("/projects/{project_id}/deadlines")
+def project_deadlines(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return list_project_deadlines(db, project_id)
+
+
+@router.post("/projects/{project_id}/reextract-entities")
+def reextract_entities_endpoint(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        with track_project_task(
+            db,
+            task_type=TASK_ENTITIES_REEXTRACT,
+            project_id=project_id,
+            user_id=user.id,
+        ):
+            return reextract_project_entities(db, settings, project_id)
+    except TaskAlreadyRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/projects/{project_id}/tz/content")

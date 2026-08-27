@@ -24,6 +24,7 @@ from app.app.services.artifact_audio import (
     ensure_two_voice_diar_report,
 )
 from app.app.services.artifact_download import resolve_artifact_download
+from app.app.services.artifact_lab import ensure_lab_report, lab_file
 from app.app.services.artifact_reports import ensure_document_report
 from app.app.services.report_embed import apply_embed_mode
 from app.app.services.transcript_export import resolve_summary_docx, resolve_transcript_txt
@@ -342,3 +343,63 @@ def artifact_two_voice_diar_page(
     if embed:
         html = apply_embed_mode(html, kind="audio")
     return HTMLResponse(html)
+
+
+LAB_MEDIA_TYPES = {
+    ".wav": "audio/wav",
+    ".json": "application/json",
+    ".txt": "text/plain; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".npy": "application/octet-stream",
+}
+
+
+def _audio_artifact(db: Session, artifact_id: str, what: str) -> Artifact:
+    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    if artifact.file_type != "audio":
+        raise HTTPException(status_code=404, detail=f"{what} is for audio artifacts only")
+    return artifact
+
+
+@router.get("/artifacts/{artifact_id}/report-lab", response_class=HTMLResponse)
+def artifact_lab_report_page(
+    artifact_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    run: Annotated[str | None, Query()] = None,
+    embed: Annotated[bool, Query()] = False,
+):
+    artifact = _audio_artifact(db, artifact_id, "Lab report")
+    try:
+        report_path = ensure_lab_report(settings, artifact, run)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    html = report_path.read_text(encoding="utf-8")
+    if embed:
+        html = apply_embed_mode(html, kind="audio")
+    return HTMLResponse(html)
+
+
+@router.get("/artifacts/{artifact_id}/lab/{run_id}/file/{relative:path}")
+def artifact_lab_file(
+    artifact_id: str,
+    run_id: str,
+    relative: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    artifact = _audio_artifact(db, artifact_id, "Lab files")
+    try:
+        path = lab_file(settings, artifact, run_id, relative)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type=LAB_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+        filename=path.name,
+        content_disposition_type="inline",
+        headers={"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=300"},
+    )

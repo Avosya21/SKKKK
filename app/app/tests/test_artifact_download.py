@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import app.app.db as db_mod
-from app.app.config import get_settings
+from app.app.config import Settings, get_settings
 from app.app.models.artifact import Artifact
 from app.app.models.project import Project
 from app.app.models.user import User
@@ -168,3 +168,22 @@ def test_download_requires_auth(client, tmp_data, db_engine):
 
     r = client.get("/artifacts/art_dl_auth/download")
     assert r.status_code == 401
+
+
+def test_download_available_does_not_extract_audio(tmp_data, monkeypatch):
+    settings = Settings(secret_key="x" * 16, data_dir=tmp_data)
+    src = tmp_data / "call.webm"
+    src.write_bytes(b"video")
+    art = MagicMock(
+        file_type="audio",
+        artifact_id="art_poll_no_wav",
+        project_id=1,
+        file_path=str(src),
+    )
+
+    def boom(*_a, **_k):
+        raise AssertionError("listing must not extract wav")
+
+    monkeypatch.setattr("app.app.services.artifact_audio.ensure_audio_wav", boom)
+    monkeypatch.setattr("app.app.services.artifact_audio._extract_wav", boom)
+    assert artifact_download_available(settings, art) is False

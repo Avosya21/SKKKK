@@ -22,9 +22,18 @@ COLORS = (
 )
 
 
+_PLACEHOLDER_SPEAKERS = frozenset({"", "unknown", "unk", "none"})
+
+
+def _is_placeholder_speaker(name: str) -> bool:
+    return str(name or "").strip().lower() in _PLACEHOLDER_SPEAKERS
+
+
 def _color_map(turns: list[Turn]) -> dict[str, str]:
     names = []
     for turn in turns:
+        if _is_placeholder_speaker(turn.speaker):
+            continue
         if turn.speaker not in names:
             names.append(turn.speaker)
     return {name: COLORS[i % len(COLORS)] for i, name in enumerate(names)}
@@ -55,10 +64,67 @@ def _inline_md(text: str) -> str:
     return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
 
 
+def _split_md_pipe_row(line: str) -> list[str]:
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [cell.strip() for cell in s.split("|")]
+
+
+def _is_md_table_sep(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
+
+
+def _looks_md_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.count("|") >= 2
+
+
+def parse_md_table(raw_rows: list[str]) -> tuple[list[str], list[list[str]]] | None:
+    """GFM-таблица: шапка + тело. Строка `---` необязательна (старый промпт её не требовал)."""
+    rows = [_split_md_pipe_row(r) for r in raw_rows]
+    if len(rows) < 2:
+        return None
+    header = rows[0]
+    if not header:
+        return None
+    rest = rows[1:]
+    if rest and _is_md_table_sep(rest[0]):
+        rest = rest[1:]
+    if not rest:
+        return None
+    ncols = len(header)
+    body = [(row + [""] * ncols)[:ncols] for row in rest]
+    return header, body
+
+
+def _md_table_to_html(raw_rows: list[str]) -> str | None:
+    parsed = parse_md_table(raw_rows)
+    if parsed is None:
+        return None
+    header, body = parsed
+    thead = "".join(f'<th scope="col">{_inline_md(cell)}</th>' for cell in header)
+    tbody = "".join(
+        "<tr>" + "".join(f"<td>{_inline_md(cell)}</td>" for cell in row) + "</tr>"
+        for row in body
+    )
+    return (
+        '<div class="summary-table-wrap">'
+        '<table class="summary-table">'
+        f"<thead><tr>{thead}</tr></thead>"
+        f"<tbody>{tbody}</tbody>"
+        "</table></div>"
+    )
+
+
 def _summary_to_html(summary_md: str) -> str:
-    """Мини-рендер markdown выжимки: заголовки ## / ###, списки и **жирный** — хватает для этого промпта."""
+    """Мини-рендер markdown выжимки: заголовки, списки, таблицы `|`, **жирный**."""
     parts: list[str] = []
     in_list = False
+    lines = summary_md.strip().splitlines()
+    i = 0
 
     def close_list() -> None:
         nonlocal in_list
@@ -66,10 +132,25 @@ def _summary_to_html(summary_md: str) -> str:
             parts.append("</ul>")
             in_list = False
 
-    for raw_line in summary_md.strip().splitlines():
-        line = raw_line.strip()
+    while i < len(lines):
+        line = lines[i].strip()
         if not line:
             close_list()
+            i += 1
+            continue
+        if _looks_md_table_row(line):
+            table_lines = [line]
+            i += 1
+            while i < len(lines) and _looks_md_table_row(lines[i].strip()):
+                table_lines.append(lines[i].strip())
+                i += 1
+            rendered = _md_table_to_html(table_lines)
+            close_list()
+            if rendered:
+                parts.append(rendered)
+            else:
+                for row in table_lines:
+                    parts.append(f"<p>{_inline_md(row)}</p>")
             continue
         if line.startswith("### "):
             close_list()
@@ -85,6 +166,7 @@ def _summary_to_html(summary_md: str) -> str:
         else:
             close_list()
             parts.append(f"<p>{_inline_md(line)}</p>")
+        i += 1
     close_list()
     return "\n".join(parts)
 
@@ -321,6 +403,13 @@ def render_transcript_html(
     .summary ul {{ margin: 4px 0 8px 20px; padding: 0; }}
     .summary li {{ margin: 2px 0; line-height: 1.4; }}
     .summary p {{ margin: 4px 0; line-height: 1.45; }}
+    .summary-table-wrap {{ overflow-x: auto; margin: 8px 0 12px; -webkit-overflow-scrolling: touch; }}
+    .summary-table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
+    .summary-table th, .summary-table td {{
+      border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top;
+    }}
+    .summary-table th {{ background: #f1f5f9; font-weight: 650; white-space: nowrap; }}
+    .summary-table tbody tr:nth-child(even) {{ background: #f8fafc; }}
     .turn {{ display: grid; grid-template-columns: 92px 1fr; gap: 8px; align-items: baseline; padding: 3px 4px; border-radius: 6px; cursor: pointer; }}
     .turn:hover {{ background: rgba(255,255,255,.6); }}
     .turn.active {{ background: #e0f2fe; }}
@@ -483,6 +572,8 @@ def render_transcript_html(
       .sp-enroll, .sp-merge {{ padding: 5px 10px; font-size: .85rem; }}
       .chip, .when, button.act {{ min-height: 34px; padding: 5px 10px; }}
       #q {{ width: 100%; min-width: 0 !important; }}
+      .summary-table {{ font-size: .85rem; }}
+      .summary-table th {{ white-space: normal; }}
     }}
   </style>
 </head>
@@ -517,7 +608,10 @@ if (!useRegistry) {{
     }}
   }}
 }}
-function displayName(id) {{ return useRegistry ? id : (data.mapping[id] || id); }}
+function displayName(id) {{
+  if (!id || String(id).toLowerCase() === "unknown") return "—";
+  return useRegistry ? id : (data.mapping[id] || id);
+}}
 function paint() {{
   document.querySelectorAll(".turn").forEach((el, i) => {{
     const t = data.turns[i];

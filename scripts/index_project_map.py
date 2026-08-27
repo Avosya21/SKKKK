@@ -40,6 +40,7 @@ MANIFEST = ROOT / "docs" / "project-map" / "manifest.yaml"
 CHUNK_SOURCES = [
     ROOT / "app" / "app" / "main.py",
     ROOT / "app" / "app" / "workers" / "gpu_worker.py",
+    ROOT / "app" / "app" / "services" / "pipeline_lab.py",
     ROOT / "asr" / "run_pipeline.py",
     ROOT / "asr" / "merge_ensemble.py",
     ROOT / "asr" / "build_transcript_view.py",

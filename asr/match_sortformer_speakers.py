@@ -53,9 +53,10 @@ def wait_gigaam() -> None:
 
 
 def docker_embed(audio: Path, clips: dict[str, dict]) -> dict[str, dict]:
-    docker_audio = "/work/input_16k.wav"
-    if audio != DEFAULT_WAV:
-        docker_audio = f"/work/{audio.name}"
+    from docker_stage import stage_gigaam_docker_input
+
+    staged = stage_gigaam_docker_input(audio)
+    docker_audio = f"/work/{staged.name}"
     job = {"audio": docker_audio, "clips": clips}
     JOB_HOST.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
     proc = subprocess.run(
@@ -112,8 +113,6 @@ def apply_confirmed_matches(
     """Подтверждённые имена пользователя важнее cosine-подсказки."""
     for label in list(matches):
         canon = dup_map.get(label, label)
-        if canon != label:
-            continue
         row = confirmed.get(label) or confirmed.get(canon)
         if not row:
             continue
@@ -121,32 +120,17 @@ def apply_confirmed_matches(
         m.profile_id = row["id"]
         m.profile_name = row["display_name"]
         m.score = 1.0
-        m.status = "confirmed"
+        m.status = "confirmed" if label == canon else "merged_duplicate"
 
 
 def load_profiles(project_id: int) -> list[dict]:
     from app.app.db import SessionLocal
-    from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.services.speaker_profiles import load_universal_voice_profiles
 
+    del project_id  # универсальный пул — все подтверждённые голоса
     db = SessionLocal()
     try:
-        rows = (
-            db.query(SpeakerProfile)
-            .filter(
-                (SpeakerProfile.scope == "global")
-                | ((SpeakerProfile.scope == "project") & (SpeakerProfile.project_id == project_id))
-            )
-            .all()
-        )
-        return [
-            {
-                "id": r.id,
-                "display_name": r.display_name,
-                "embedding": r.embedding,
-                "scope": r.scope,
-            }
-            for r in rows
-        ]
+        return load_universal_voice_profiles(db)
     finally:
         db.close()
 
@@ -182,16 +166,16 @@ def save_links(
         db.query(ArtifactSpeakerLink).filter(ArtifactSpeakerLink.artifact_id == artifact_id).delete()
         for label, match in matches.items():
             clip = clips.get(label, {})
-            confirmed = match.status == "confirmed" and match.profile_id
+            linked = match.profile_id and match.status in ("confirmed", "merged_duplicate")
             db.add(
                 ArtifactSpeakerLink(
                     artifact_id=artifact_id,
                     project_id=project_id,
                     diar_label=label,
                     suggested_profile_id=match.suggested_profile_id or match.profile_id,
-                    profile_id=match.profile_id if confirmed else None,
+                    profile_id=match.profile_id if linked else None,
                     match_score=match.score if match.score is not None else match.suggested_score,
-                    status=match.status,
+                    status="confirmed" if linked else match.status,
                     clip_start_sec=clip.get("start"),
                     clip_end_sec=clip.get("end"),
                 )
@@ -381,6 +365,9 @@ def run(
         "matches": {k: _match_to_dict(v) for k, v in matches.items()},
         "segments_merged": [
             {"start": s.start, "end": s.end, "speaker": s.speaker} for s in merged_segments
+        ],
+        "segments_raw": [
+            {"start": s.start, "end": s.end, "speaker": s.speaker} for s in segments
         ],
         "segments_labeled": segments_labeled,
         "display_names": display_names,

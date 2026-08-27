@@ -14,7 +14,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import Changelog, Chunk, Entity, Link, Resolution, UserNote
 from app.app.services.llm import chat_completion
 from app.app.services.retrieval import artifact_sort_key
-from app.app.services.storage import parsed_dir, project_root, structured_dir
+from app.app.services.storage import artifact_knowledge_text, parsed_dir, project_root, structured_dir
 
 logger = logging.getLogger("skkkk.tz")
 ROOT = Path(__file__).resolve().parents[3]
@@ -128,7 +128,7 @@ def _pack_map_chunks(parts: list[tuple[str, str]], *, max_chars: int = MAP_CHUNK
 
 
 def _collect_project_material(db: Session, settings: Settings, project_id: int) -> list[tuple[str, str]]:
-    """Все материалы проекта для выжимки: индекс (chunks) + сущности + заметки + конфликты."""
+    """Материалы для ТЗ: lab ``_final.txt`` для аудио, чанки для документов, сущности, заметки."""
     parts: list[tuple[str, str]] = []
 
     artifacts = db.scalars(
@@ -143,16 +143,35 @@ def _collect_project_material(db: Session, settings: Settings, project_id: int) 
             .where(Chunk.artifact_id == art.id)
             .order_by(Chunk.chunk_index)
         ).all()
-        if chunks:
-            lines = []
-            for c in chunks:
-                prefix = f"[{c.speaker}] " if c.speaker else ""
-                lines.append(f"{prefix}{c.text.strip()}")
-            label = _source_label(
-                art,
-                f"индекс, {len(chunks)} чанков, вес {art.priority_weight}",
+        if art.file_type == "audio":
+            lab_text = artifact_knowledge_text(settings, art)
+            if lab_text:
+                parts.append(
+                    (
+                        _source_label(art, f"стенограмма lab, вес {art.priority_weight}"),
+                        lab_text,
+                    )
+                )
+            elif chunks:
+                lines = [
+                    f"[{c.speaker}] {c.text.strip()}" if c.speaker else c.text.strip() for c in chunks
+                ]
+                parts.append(
+                    (
+                        _source_label(art, f"индекс, {len(chunks)} чанков, вес {art.priority_weight}"),
+                        "\n\n".join(lines),
+                    )
+                )
+        elif chunks:
+            lines = [
+                f"[{c.speaker}] {c.text.strip()}" if c.speaker else c.text.strip() for c in chunks
+            ]
+            parts.append(
+                (
+                    _source_label(art, f"индекс, {len(chunks)} чанков, вес {art.priority_weight}"),
+                    "\n\n".join(lines),
+                )
             )
-            parts.append((label, "\n\n".join(lines)))
         elif art.transcription_text and art.transcription_text.strip():
             label = _source_label(art, f"текст, без индекса, вес {art.priority_weight}")
             parts.append((label, art.transcription_text.strip()))

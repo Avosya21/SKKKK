@@ -31,20 +31,33 @@ def process_artifact(db: Session, settings: Settings, artifact: Artifact) -> Non
     )
     try:
         if artifact.file_type == "audio":
-            text = try_resume_transcript(settings, artifact)
-            if text is None:
-                text = process_audio_artifact(db, settings, artifact)
-            elif artifact.status not in {"transcript_ready", "text_extracted"}:
-                artifact.transcription_text = text
-                if not artifact.transcription_file_path:
-                    from app.app.services.storage import parsed_dir
+            from app.app.services.pipeline_lab import apply_confirmed_speaker_names, process_lab_artifact
 
-                    final = parsed_dir(settings, artifact.project_id, artifact.source_type) / (
-                        f"{artifact.artifact_id}_final.txt"
-                    )
-                    if final.is_file():
-                        artifact.transcription_file_path = str(final)
+            if artifact.status == "speakers_pending":
+                log_event(logger, "pipeline.stop", artifact=artifact.artifact_id, reason="speakers_pending")
+                return
+            if artifact.status == "speakers_confirmed":
+                text = apply_confirmed_speaker_names(db, settings, artifact)
                 set_status(db, artifact, "transcript_ready")
+            elif artifact.status in ("uploaded", "preprocessing", "asr_running", "error"):
+                text = process_lab_artifact(db, settings, artifact)
+                if artifact.status == "speakers_pending":
+                    return
+            else:
+                text = try_resume_transcript(settings, artifact)
+                if text is None:
+                    text = process_audio_artifact(db, settings, artifact)
+                elif artifact.status not in {"transcript_ready", "text_extracted"}:
+                    artifact.transcription_text = text
+                    if not artifact.transcription_file_path:
+                        from app.app.services.storage import parsed_dir
+
+                        final = parsed_dir(settings, artifact.project_id, artifact.source_type) / (
+                            f"{artifact.artifact_id}_final.txt"
+                        )
+                        if final.is_file():
+                            artifact.transcription_file_path = str(final)
+                    set_status(db, artifact, "transcript_ready")
             if not text and artifact.status == "done":
                 log_event(logger, "pipeline.stop", artifact=artifact.artifact_id, reason="no speech detected")
                 return

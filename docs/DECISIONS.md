@@ -2,28 +2,30 @@
 
 Эти решения не пересматриваются без явного запроса пользователя.
 
-## Конкретные модели ансамбля
+## Конкретные модели (двойной слух + диаризация)
 
-| Движок | Модель | Вход | Запуск |
+| Роль | Модель | Вход | Запуск |
 |---|---|---|---|
-| Whisper | [bond005/whisper-large-v3-ru-podlodka](https://huggingface.co/bond005/whisper-large-v3-ru-podlodka) | 16 кГц моно | контейнер `skkkk-whisper` |
-| GigaAM | [ai-sage/GigaAM-v3](https://huggingface.co/ai-sage/GigaAM-v3), ревизия `e2e_rnnt` | 16 кГц моно | контейнер `skkkk-gigaam` (образ [dubr1k/GigaAMGUI](https://github.com/dubr1k/GigaAMGUI), REST `api.py`) |
-| T-one | [t-tech/T-one](https://huggingface.co/t-tech/T-one) | 8 кГц моно | контейнер `skkkk-tone` (Linux) |
+| Текст (канон) | Parakeet-TDT 0.6B v3 (`nemo-parakeet-tdt-0.6b-v3`) | 16 кГц моно | `venvs\lab`, ONNX (`asr/lab_pipeline.py`) |
+| Кто говорит | Sortformer 4spk v2.1 ONNX | 16 кГц моно | тот же `venvs\lab` (не больше **4** спикеров) |
+| Второй слух | [ai-sage/GigaAM-v3](https://huggingface.co/ai-sage/GigaAM-v3), ревизия `e2e_rnnt` | 16 кГц моно | контейнер `skkkk-gigaam` — сверка/вычитка, не таймлайн |
+| Голос | WeSpeaker (`pipeline._embedding` в GigaAMGUI) | клипы | `skkkk-gigaam` docker exec |
 
-Канон: **Docker Compose + NVIDIA runtime**, три контейнера параллельно. Файл: [../asr/docker-compose.yml](../asr/docker-compose.yml), описание: [../asr/DOCKER.md](../asr/DOCKER.md). Хостовые `venvs\` — запасной путь, не прод.
+Контейнеры Whisper (`skkkk-whisper`) и T-one (`skkkk-tone`) **на диске остаются** (откат), воркер их **не** вызывает. Compose: [../asr/docker-compose.yml](../asr/docker-compose.yml).
 
-GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `onnxruntime-gpu`, официальный пакет GigaAM). Хостовый порт 18102, внутри контейнера 8000. `AudioToText/` — старый черновик, не канон. Токен Hugging Face только из `.env` (`HF_TOKEN`), ключ REST — `GIGAAM_API_KEY`.
+GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `onnxruntime-gpu`, официальный пакет GigaAM). Хостовый порт 18102, внутри контейнера 8000. Токен Hugging Face только из `.env` (`HF_TOKEN`), ключ REST — `GIGAAM_API_KEY`.
 
 ## Инварианты
 
-1. **Три параллельных ASR — обязательны.** Для каждого аудио запускаются одновременно Whisper, T-one и GigaAM. Затем три черновика склеиваются через **LLM** (см. п. 2). Один ASR «на потом» — запрещён.
-   - Параллелизм — **три GPU-контейнера** (не три потока в одном Python). Разные стеки CUDA/cuDNN изолированы. T-one официально Linux — в контейнере это родная среда.
-   - Склейка идёт **по окнам 120–180 секунд**, нарезанным по границам тишины.
+1. **Двойной слух, не тройной ансамбль.** Канон после загрузки — лабораторный контур: Parakeet-TDT (слова и таймлайн) + Sortformer (кто говорит) + Cursor (спорные спикеры и вычитка) + свой прогон GigaAM (второй слух) + WeSpeaker (голоса в `speaker_profiles`). Whisper, T-one и LLM-склейка окон 120–180 с **не вызываются**.
+   - Изоляция: всё в `artifacts/{id}/lab/runs/{run_id}/`, `LabRun.resolve()` не выпускает путь наружу.
+   - GigaAM не становится нарезкой: в вычитке модель выбирает только lab vs giga.
+   - Sortformer: **не больше 4 спикеров**.
 2. **LLM — два допустимых провайдера** (`LLM_PROVIDER` в `.env`, выбор при старте `python -m app.app.main`):
    - **`lmstudio`** (по умолчанию): Gemma **`google/gemma-4-31b-qat`**, LM Studio `http://127.0.0.1:1234/v1`, клиент OpenAI-compatible (`api_key=lm-studio`). Не дублировать Gemma в Ollama, llama.cpp, vLLM. **JIT-автозагрузка в LM Studio выключена** — load/unload управляет оркестратор. Склейка с `reasoning_effort: none`.
    - **`cursor`**: Cursor SDK (`cursor-sdk`), `CURSOR_API_KEY`, модель `CURSOR_MODEL` (напр. `composer-2.5`). Текст созвонов уходит в Cursor API. Gemma в VRAM **не** загружается; шаги `gemma_load` / `gemma_unload` пропускаются.
-   - **Единый код:** `app/app/services/llm.py`, ASR-скрипты — `asr/llm_client.py`. Один и тот же набор промптов и задач: склейка, выжимка, нормализация, сущности, ТЗ, чат, **vision для картинок** (Cursor: `UserMessage` + `SDKImage`).
-   - **Не меняется:** три ASR, Ollama-эмбеддинги, sqlite-vec, граф.
+   - **Единый код:** `app/app/services/llm.py`, ASR-скрипты — `asr/llm_client.py`. Один и тот же набор промптов и задач: sense/proof, выжимка, нормализация, сущности, ТЗ, чат, **vision для картинок** (Cursor: `UserMessage` + `SDKImage`).
+   - **Не меняется:** Ollama-эмбеддинги, sqlite-vec, граф. Канон ASR — двойной слух (п. 1), не ансамбль из трёх движков.
 3. **Эмбеддинги только через Ollama.** Модель уже стоит: `bge-m3`. Не тащить sentence-transformers на GPU.
 4. **Всё живёт в `C:\1C_NEW_SKKKK`.** Код, план, правила, скилы, промпты, данные проектов, логи, venv, документация. Не писать артефакты проекта в `C:\app`, `C:\data`, home и т.п.
 5. **Одна GPU, 24 ГБ VRAM, Windows 11.** В режиме **lmstudio** ASR и Gemma не пересекаются в VRAM — обязательны load/unload. В режиме **cursor** Gemma в VRAM нет, GPU только под ASR (и прочие локальные модели диаризации).
@@ -48,7 +50,7 @@ GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `o
 
 - **Границы спикеров:** Sortformer v2.1 GGUF (OpenResearchTools Engine, Vulkan) — основной диаризатор вместо PyAnnote+resegment на новых созвонах. PyAnnote остаётся fallback/сравнение.
 - **Sortformer не даёт текст** — только интервалы `SPEAKER_XX`. Флаг `--no-transcription` в `run_sortformer_gguf.ps1` обязателен для диаризации; это не ASR. Четвёртый вариант для Gemma из Sortformer **невозможен**. Engine умеет опционально Whisper-транскription, но это дубль контейнера `skkkk-whisper`, не Sortformer.
-- **Три ASR + Gemma** — без изменений (`DECISIONS` инвариант 1).
+- **Три ASR + Gemma** — снято (2026-08-26). Канон — двойной слух, см. инвариант 1.
 - **Верификация голоса:** WeSpeaker (`pipeline._embedding` в `skkkk-gigaam`) — cosine с `speaker_profiles` в SQLite. Скрипты: `data/gigaam/embed_voice.py`, `asr/match_sortformer_speakers.py`, логика `asr/speaker_registry.py`.
 - **Базы голосов:** `scope=project` (отдельно на проект, эталон — project 1) и `scope=global` (общая, позже). Автоимена — **подсказка** (`status=suggested`), подтверждение в UI; без silent override.
 - **Алгоритм:** длиннейший чистый кусок каждого `SPEAKER_XX` (≥2.5 с, без overlap) → embedding → match/merge дублей (≥0.82) → match профилю (≥0.72).
@@ -61,14 +63,22 @@ GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `o
 - Серые случаи не трогаем. Короткие реплики и единственный спикер — skip.
 - Пишет `voice_audit.json`, бэкап `docker_gigaam_speakers.before_audit.json`, обновляет `_speakers` / smooth / merged txt для индекса.
 - После enroll/merge — повторный audit; если были auto-правки и артефакт уже `indexed+` — сразу reindex чанков.
-- Не заменяет диаризацию и не меняет три ASR + Gemma.
+- Не заменяет диаризацию. На новой линии после cutover не вызывается: спикеров держит Sortformer + sense + WeSpeaker.
 
 ## Защита от чужого Tone / перепутанных raw (2026-08)
 
-Перед склейкой: если хвост `docker_tone` по длительности сильно расходится с мастером Whisper/GigaAM
-или начало текста Tone почти не пересекается с Whisper/GigaAM — Tone **отбрасывается**
-(`merge_ensemble._reject_mismatched_tone`). Иначе Gemma честно склеит **другой созвон**
-поверх таймлайна этой записи (типичный симптом: в `asr/work` остался WAV/Tone от прошлого прогона).
+**Обязательный staging:** перед T-one и GigaAM embed WAV копируется из `SKKKK_ASR_WORK`
+(каталог арtefactа) в `asr/work` (`asr/docker_stage.py`). Контейнеры видят только mount
+`asr/work` → `/data` или `/work`; без staging они читают **stale** файл прошлого job.
+
+**Проверка после staging:** `assert_docker_work_matches` — размер + SHA256 источника и копии.
+
+**Второй рубеж:** перед align/merge `engine_timeline.tone_for_align` отбрасывает Tone,
+если длительность или лексика начала не совпадают с Whisper/GigaAM (rescale только при
+overlap ≥ 0.35). Иначе LLM честно склеит чужой созвон поверх таймлайна этой записи.
+
+**Parsed-копии:** `finalize_audio_outputs` всегда перезаписывает `parsed/*_raw_*.txt` из
+`artifacts/.../asr/` (раньше stale-копии не обновлялись, если файл уже существовал).
 
 ## Привязка текста к времени (2026-08)
 
@@ -92,6 +102,12 @@ GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `o
 
 После удлинения склейки (remerge) часы якорятся к **тексту Tone/ASR-сегментов** и Tone-токенам в окне, а не к равномерной сетке по счётчику предложений — иначе клик по нижней части стенограммы открывает чужой фрагмент.
 
+**2026-08-24 — LLM Cursor API:** `LLM_PROVIDER=cursor` — merge/склейка через Cursor API (`cursor-sdk` в venv), не локальная Gemma. ASR-скрипты с LLM: `venv\Scripts\python.exe`, не голый `py`. Правило: `.cursor/rules/08-llm-cursor.mdc`.
+
+**2026-08-24 — timing UI:** если `clock_source=tone`, align использует **только Tone-токены** (`prefer_tone_clock`), без Whisper words и без tone-supplements; длинные слоты режутся по `_cap_turn_spans_by_text`.
+
+**2026-08-25 — timing UI (Tone-клик + gate):** после align при `prefer_tone_clock`: коррекция швов окон (`correct_seams_by_tone`), привязка к Tone (`snap_turns_to_clock`), нарезка длинных реплик по Tone (`split_long_turns_at_tone`), якорь клика `seek_start` (`apply_tone_seek_anchors`). HTML кликает по `data-seek`. `transcript_integrity.json`: реплики >25 с, unpunctuated blob >400 символов, drift клика vs Tone; `status=fail` блокирует `transcript_ready` и индекс.
+
 Ошибки «кто говорит» при одновременной речи допустимы. Вырезание целых фраз Gemma и показ петли Whisper вместо склейки — нет.
 
 Запасной путь без timed ASR — `carve`/`apply_merged_windows` (хуже по клику); не считать нормой, если есть Whisper words.
@@ -112,20 +128,115 @@ GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `o
 
 ## Итоговая выжимка созвона
 
-В самом начале HTML-страницы просмотра (`asr/transcript_view.py`) — блок с итоговой выжимкой созвона: суть, поднятые вопросы, открытые вопросы, запланированные задачи, решённые и утверждённые вопросы, щепетильные моменты, на чём остановились.
+В самом начале HTML-страницы просмотра (`asr/transcript_view.py`) — блок с итоговой выжимкой созвона: **протокол встречи** (позиции сторон, тематические блоки, итог, таблица Кто/Что, не закрыто).
 
-- Строится **только из текста финальной стенограммы** (`docker_gigaam_speakers.json` — реплики после склейки Gemma и нарезки по спикерам PyAnnote). Аудио и видео для выжимки не анализируются.
-- Генерирует **LLM** (lmstudio или cursor — см. инвариант 2), промпт `docs/prompts/call_summary.md`, скрипт `asr/summarize_call.py`. Запускать **после** match + voice audit и индекса. В режиме lmstudio — Gemma должна быть загружена (фаза LLM, не во время ASR-контейнеров). В режиме cursor — load Gemma не нужен.
-- Длинный созвон не помещается в контекст одним запросом: стенограмма режется на фрагменты ~6000 символов по границам реплик, по каждому фрагменту Gemma делает черновые заметки по категориям (map), затем один запрос сшивает заметки в одну выжимку (reduce). Короткий созвон (один фрагмент) идёт в reduce напрямую, без прохода map.
-- Пустые категории в ответ не включаются (не «нет данных» — раздел просто отсутствует). Отсутствие фактов сверх сказанного в стенограмме — то же правило, что и для склейки ASR: восстановление смысла можно, придумывание нельзя.
-- Результат кладётся в `asr/out/call_summary.md` и рендерится в HTML простым markdown (`##`/`###` заголовки, списки `- `) — сложный markdown не нужен, промпт не должен его генерировать.
+- Строится **только из текста финальной стенограммы** (`docker_gigaam_speakers.json` — реплики после proof и подписи имён). Аудио и видео для выжимки не анализируются.
+- Генерирует **LLM** (lmstudio или cursor — см. инвариант 2), промпт `docs/prompts/call_summary.md`, скрипт `asr/summarize_call.py`. Запускать **после** confirm спикеров и индекса. В режиме lmstudio — Gemma должна быть загружена (фаза LLM, не во время ONNX/GigaAM). В режиме cursor — load Gemma не нужен.
+- Длинный созвон не помещается в контекст одним запросом: стенограмма режется на фрагменты ~6000 символов по границам реплик, по каждому фрагменту LLM делает черновые заметки (map), затем один запрос сшивает заметки в протокол (reduce). Короткий созвон (один фрагмент) идёт в reduce напрямую, без прохода map.
+- Reduce — до **4096 tokens** (map ~1200). Пустые разделы в ответ не включаются.
+- Результат кладётся в `asr/call_summary.md` и рендерится в HTML простым markdown (`##`/`###` заголовки, списки `- `, таблицы).
+
+## Prod-стенограмма (cutover 2026-08-26)
+
+- **Prod-линия расшифровки** — лабораторный контур: `pipeline_lab.py` → Parakeet + Sortformer → Cursor sense → GigaAM → reconcile → proof → WeSpeaker → публикация в `asr/docker_gigaam_speakers.json` и `reports/sortformer_speaker_match.json` → `/report`.
+- Пауза **`speakers_pending` после текста**, не до него. «Подтвердить спикеров» подставляет имена и гонит knowledge (сущности, индекс, выжимка-протокол, граф), **не** тройной ASR.
+- Whisper / T-one / `run_pipeline.py` / `merge_ensemble.py` — legacy на диске, воркер не вызывает.
+- `/report-lab` — отладка стадий и теплокарты. Пользователь открывает **стенограмму** `/report`.
+
+## Имена, HTML и выжимка (2026-08-27)
+
+Зафиксировано после cutover, не откатывать молча:
+
+1. **Канон реплик lab** — `proof/transcript.json` + `write_prod_view` / `republish_named_transcript`. `asr/build_transcript_view.py` на lab-артефакте запрещён: он нарезает Sortformer `SPEAKER_00` поверх proof и сбрасывает имена в `docker_gigaam_speakers.json`.
+2. **«Запомнить» / «Слить»** сразу кладут имена в turns/HTML/`_final.txt` через `apply_confirmed_speaker_names`. «Подтвердить спикеров» — шлагбаум на **knowledge** (`jobs.phase=knowledge`), не на ASR.
+3. **«Пересчитать» / «Пересчитать подсказки»** на lab — cosine `voice/match.json` (`speaker_N`) ↔ `speaker_profiles`. Не вызывать `match_sortformer_speakers` и не брать JSON из `experiments/` или чужого артефакта.
+4. **Опрос списка артефактов** не извлекает WAV. `ensure_audio_wav` — lock + атомарный `.partial`. Резюме lab `--run-id` только если sha256 WAV совпадает с `run.json`.
+5. **Выжимка созвона** читает уже подписанный `docker_gigaam_speakers.json`. Промпт `docs/prompts/call_summary.md` требует GFM-таблицу «Кто / Что / Срок» (шапка + `| --- | --- | --- |`). Рендер — `<table class="summary-table">`, не сырые `|`.
+6. Метка lab **`unknown`** (бесхозное слово) остаётся в тексте, на фильтр-пилюлях человека нет. Не приписывать её соседу.
+
+Карта кнопок: [PROJECT-MAP.md §5.13](PROJECT-MAP.md).
+
+## Лаборатория расшифровки (канон с 2026-08-26)
+
+`asr/lab/` — **боевой** конвейер расшифровки: копия 16 кГц → Parakeet-TDT
+v3 → Sortformer 4spk v2.1 → покраска слов → Cursor sense → свой прогон GigaAM
+→ вычитка → WeSpeaker. Денойза нет: DeepFilterNet срезал согласные.
+Страница `/artifacts/{id}/report-lab` — диагностика; прод UI — `/report`.
+
+После cutover лаборатория **пишет** боевые файлы артефакта (`parsed/`,
+`docker_gigaam_speakers.json`, `sortformer_speaker_match.json`) и участвует
+в статусах (`asr_running` → `speakers_pending` → после confirm knowledge).
+Метка диаризации — `speaker_N`. CLI `asr/lab_voice.py` по-прежнему только
+слепки; enroll/merge — кнопки UI.
+
+Причина появления — три конкретных дефекта старого пути, закрытые архитектурно:
+
+1. **Подмешивание файлов.** Глобальные `asr/work` и `asr/out` с фиксированными
+   именами перезаписывались между прогонами. В лаборатории всё живёт в
+   `artifacts/{id}/lab/runs/{run_id}/`, а `LabRun.resolve()` физически не умеет
+   вернуть путь наружу.
+2. **Тихие fallback'и.** Раньше при отсутствии файла подставлялся файл из
+   другого прогона. Теперь нет входа — `MissingInput` с именем файла.
+3. **Придуманные фразы на тишине.** Вместо вычищения текста постфактум:
+   TDT-декодер вместо авторегрессионного, а стадия `07_verify` вторым проходом
+   через Silero VAD показывает слова, попавшие в тишину, и расхождение проходов.
+
+Что зафиксировано и не меняется молча:
+
+- **Порядок ASR → диаризация**, не наоборот. Если диаризация промахнётся мимо
+  тихой реплики, при обратном порядке текст будет потерян навсегда.
+  Длинный файл режется на окна ≤80 с с перекрытием: ONNX Parakeet держит
+  ~100 с позиционных эмбеддингов. Это не VAD и не отбрасывание тишины.
+- **Sortformer отдаёт вероятности, а не сегменты.** Пороги бинаризации —
+  параметр стадии, перебинаризовать можно без повторного инференса. Внутренние
+  эмбеддинги Sortformer — не слепки голоса и для сверки между записями непригодны.
+- **Слепки голоса считает WeSpeaker** в контейнере `skkkk-gigaam`, тот же, что
+  наполнил `speaker_profiles`. Другая модель обесценит уже сохранённые профили.
+- **Пропуск стадии — по отпечатку** (sha256 входов + параметры), не по mtime.
+- **Спорные и бесхозные слова остаются в тексте** с пометкой. Молчаливая раздача
+  их ближайшему спикеру и порождала ощущение «текст подмешался».
+- **Снимок 2026-08-26** (`asr/lab/FREEZE.md`, эталонный прогон
+  `20260826T174104Z_48a796`). Три принятых этапа, ни один не переписывается молча:
+  1. конвейер 01–07 без DeepFilterNet (Python 3.10.9, onnx-asr 0.12.0,
+     onnxruntime-gpu 1.23.2, Parakeet-TDT v3, Sortformer 4spk v2.1);
+  2. прогон Cursor — смысловая разноска в `sense/` (`asr/lab_sense.py`,
+     основной `venv`, cursor-sdk 1.0.28). Текст и времена этапа 1 неприкосновенны;
+  3. сверка с собственным прогоном GigaAM в `giga/` / `reconcile/` / `proof/`.
+- **Этап 3 лаборатории — сверка с GigaAM, а не переход на его нарезку.**
+  `asr/lab_giga.py` гоняет `skkkk-gigaam` на аудио того же прогона, дальше
+  `lab_reconcile.py` и `lab_proof.py` пишут только `giga/`, `reconcile/`,
+  `proof/`. Правила, которые нельзя ослаблять молча:
+  1. спорный кусок закрывается лишь по **однородной** реплике GigaAM — внутри неё
+     не должно быть уверенных слов этапа 1 разных лабораторных спикеров;
+  2. в проверке чистоты голосуют только слова этапа 1: ответы этапа 2 проверяются,
+     а не подтверждают сами себя;
+  3. таймкоды и нарезка GigaAM в итог не идут (у него точность до секунды);
+  4. в вычитке текста модель выбирает **только** между вариантом lab и giga,
+     своего текста не пишет.
+- **Этап 3 — сверка с GigaAM, не переход на его нарезку.** Таймкоды GigaAM в итог не идут. В вычитке модель выбирает только lab vs giga.
+- **Этап 4 — голоса в ту же БД.** CLI `asr/lab_voice.py` пишет `voice/`.
+  После cutover воркер копирует `voice/match.json` в боевой
+  `reports/sortformer_speaker_match.json` (метки `speaker_N`). «Запомнить» /
+  «Слить» на `/report` пишут `speaker_profiles`.
+- **Отдельный venv `venvs\lab`**: `onnxruntime-gpu` конфликтует с `onnxruntime`
+  из `app/requirements.txt`. Пины — `asr/lab/requirements.txt`.
+
+## Обкатка эталона (2026-08-27)
+
+Живой прогон проекта 18 «ПИЛОТ (обкатка ИИ)» подтвердил контур. Не откатывать молча.
+
+- **Режим:** `LLM_PROVIDER=cursor`, API `:777`, один GPU-воркер, FIFO на весь стенд.
+- **Созвон:** lab (Parakeet + GigaAM + Sortformer 4spk) → `speakers_pending` (ASR-job **заканчивается**, очередь свободна) → confirm имён в global `speaker_profiles` → knowledge: сущности, sqlite-vec из lab `_final.txt`, выжимка созвона, граф.
+- **Документы:** PDF/DOCX/HTML/txt → extract + normalize → `text_extracted` → тот же knowledge. После документа ТЗ проекта пересобирается сразу.
+- **Индекс и чат:** чанки только своего `project_id`. Чат читает чанки/выжимки, **не** пишет в сущности, граф и ТЗ (кроме ленты `chat_messages` / уточнений `chat_guidance`).
+- **UI:** кнопка «Пересобрать» на проекте блокируется, пока `tz_rebuild` running — и с кнопки, и с автосбора.
 
 ## Склейка частей 1 и 2
 
 | Было в части 1 | Было в части 2 | Как в SKKKK |
 |---|---|---|
 | Файловый портал, JWT, 3 пароля ролей | Память проекта, граф, ТЗ, RAG | Один продукт: портал + конвейер знаний |
-| Faster-Whisper turbo | Ансамбль Whisper + T-one + GigaAM + LLM | Только ансамбль из трёх ASR + LLM (Gemma или Cursor) |
+| Faster-Whisper turbo | Ансамбль Whisper + T-one + GigaAM + LLM | Двойной слух: Parakeet + GigaAM-сверка, Sortformer + WeSpeaker |
 | Потоки + watchdog | Модули 0–12 | Очередь в SQLite + один GPU-воркер |
 | `C:\app` / `C:\data` | `/root/project_kolibri` | `C:\1C_NEW_SKKKK` |
 | Celery не использовать | Qdrant + Neo4j сразу | Старт: SQLite (+ sqlite-vec). Qdrant/Neo4j — отдельный этап, не блокер MVP |

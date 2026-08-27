@@ -37,6 +37,8 @@ class ProfileMatch:
 
 # При «Запомнить»: при cosine ≥ порога — привязка к существующему profile_id.
 VOICE_AUTO_LINK_THRESHOLD = 0.995
+# Слияние project-профиля в global при совпадении имени или cosine.
+GLOBAL_VOICE_MERGE_THRESHOLD = 0.95
 
 
 def pack_embedding(vec: list[float]) -> bytes:

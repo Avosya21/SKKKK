@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.services.project_tasks import (
     TASK_ARTIFACT_REINDEX,
@@ -18,12 +19,14 @@ from app.app.services.project_tasks import (
     track_project_task,
 )
 from app.app.services.speaker_profiles import (
+    confirm_speakers_and_enqueue,
     enroll_speaker,
     list_profiles,
     merge_speakers,
     rebuild_artifact_call_summary,
     recalculate_speaker_match,
     refresh_artifact_project_index,
+    speakers_confirm_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,6 +131,83 @@ def api_merge_speakers(
     return result
 
 
+def _lab_match_or_404(artifact, run_id: str, settings: Settings):
+    from app.app.services.artifact_lab import lab_voice_match_path
+
+    try:
+        return lab_voice_match_path(settings, artifact, run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/artifacts/{artifact_id}/lab/{run_id}/speaker-enroll")
+def api_lab_enroll_speaker(
+    artifact_id: str,
+    run_id: str,
+    body: EnrollBody,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    artifact = _artifact_or_404(db, artifact_id)
+    match_path = _lab_match_or_404(artifact, run_id, settings)
+    try:
+        with track_project_task(
+            db,
+            task_type=TASK_SPEAKER_ENROLL,
+            project_id=artifact.project_id,
+            artifact_db_id=artifact.id,
+        ):
+            profile = enroll_speaker(
+                db,
+                project_id=artifact.project_id,
+                artifact_id=artifact_id,
+                diar_label=body.diar_label,
+                display_name=body.display_name,
+                match_path=match_path,
+                rebuild_views=False,
+            )
+    except TaskAlreadyRunning as exc:
+        raise _task_conflict(exc) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("lab speaker-enroll failed for %s %s", artifact_id, run_id)
+        raise HTTPException(status_code=500, detail=str(exc) or "Internal Server Error") from exc
+    return {"id": profile.id, "display_name": profile.display_name, "scope": profile.scope, "run_id": run_id}
+
+
+@router.post("/artifacts/{artifact_id}/lab/{run_id}/speaker-merge")
+def api_lab_merge_speakers(
+    artifact_id: str,
+    run_id: str,
+    body: MergeBody,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    artifact = _artifact_or_404(db, artifact_id)
+    match_path = _lab_match_or_404(artifact, run_id, settings)
+    try:
+        result = merge_speakers(
+            db,
+            project_id=artifact.project_id,
+            artifact_id=artifact_id,
+            source_diar_label=body.source_diar_label,
+            target_diar_label=body.target_diar_label,
+            match_path=match_path,
+            rebuild_views=False,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result["run_id"] = run_id
+    return result
+
+
 @router.post("/artifacts/{artifact_id}/speaker-recalculate")
 def api_recalculate_speakers(
     artifact_id: str,
@@ -140,12 +220,6 @@ def api_recalculate_speakers(
     if artifact.file_type != "audio":
         raise HTTPException(status_code=400, detail="Speaker recalculate is for audio artifacts only")
     settings = get_settings()
-    sortformer_json = _default_sortformer_json(settings, artifact)
-    if sortformer_json is None:
-        raise HTTPException(status_code=404, detail="Sortformer JSON not found for artifact")
-    audio = ensure_audio_wav(settings, artifact)
-    if audio is None:
-        raise HTTPException(status_code=404, detail="Audio WAV not found for artifact")
     try:
         with track_project_task(
             db,
@@ -153,6 +227,18 @@ def api_recalculate_speakers(
             project_id=artifact.project_id,
             artifact_db_id=artifact.id,
         ):
+            from app.app.services.artifact_lab import latest_run_id
+
+            lab_run_id = latest_run_id(settings, artifact)
+            sortformer_json = None
+            audio = None
+            if not lab_run_id:
+                sortformer_json = _default_sortformer_json(settings, artifact)
+                if sortformer_json is None:
+                    raise HTTPException(status_code=404, detail="Sortformer JSON not found for artifact")
+                audio = ensure_audio_wav(settings, artifact)
+                if audio is None:
+                    raise HTTPException(status_code=404, detail="Audio WAV not found for artifact")
             result = recalculate_speaker_match(
                 db,
                 artifact_id=artifact_id,
@@ -169,6 +255,30 @@ def api_recalculate_speakers(
     except OSError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return result
+
+
+@router.get("/artifacts/{artifact_id}/speakers-status")
+def api_speakers_status(artifact_id: str, db: Session = Depends(get_db)):
+    artifact = _artifact_or_404(db, artifact_id)
+    if artifact.file_type != "audio":
+        raise HTTPException(status_code=400, detail="Speaker status is for audio artifacts only")
+    return speakers_confirm_status(db, project_id=artifact.project_id, artifact_id=artifact_id)
+
+
+@router.post("/artifacts/{artifact_id}/speakers-confirm")
+def api_speakers_confirm(artifact_id: str, db: Session = Depends(get_db)):
+    from app.app.config import get_settings
+
+    artifact = _artifact_or_404(db, artifact_id)
+    if artifact.file_type != "audio":
+        raise HTTPException(status_code=400, detail="Speaker confirm is for audio artifacts only")
+    settings = get_settings()
+    if not settings.voice_gate_before_asr:
+        raise HTTPException(status_code=400, detail="Voice gate disabled")
+    try:
+        return confirm_speakers_and_enqueue(db, settings, artifact)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/artifacts/{artifact_id}/rebuild-summary")
