@@ -87,6 +87,7 @@ def ensure_artifact_asr_inputs(
     parsed = root / "data" / "projects" / str(project_id) / "parsed" / "calls"
     final_txt = parsed / f"{artifact_id}_final.txt"
     summary = parsed / f"{artifact_id}_call_summary.md"
+    brief = parsed / f"{artifact_id}_call_brief.md
     wav = ws / "audio" / "input_16k.wav"
 
     merged_ok = (asr_out / "docker_merged_windows.json").is_file() and (
@@ -100,6 +101,8 @@ def ensure_artifact_asr_inputs(
 
     if summary.is_file() and not (asr_out / "call_summary.md").is_file():
         shutil.copy2(summary, asr_out / "call_summary.md")
+    if brief.is_file() and not (asr_out / "call_brief.md").is_file():
+        shutil.copy2(brief, asr_out / "call_brief.md")
 
     if match_json and match_json.is_file():
         sf = asr_out / "sortformer_segments.json"

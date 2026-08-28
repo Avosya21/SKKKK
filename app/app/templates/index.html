@@ -5,6 +5,28 @@
   <button class="btn btn-success" id="btn-new-project">Новый проект</button>
 </div>
 <div id="projects-list" class="list-group"></div>
+<div class="modal fade" id="deleteProjectModal" tabindex="-1" aria-labelledby="delete-project-title" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="delete-project-title">Подтверждение удаления</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Удалить проект «<strong id="delete-project-name"></strong>»?</p>
+        <p class="text-muted small mb-3">Будут стёрты все загруженные файлы, стенограммы и записи этого проекта. Отменить нельзя.</p>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="delete-project-ack">
+          <label class="form-check-label" for="delete-project-ack">Подтверждаю полное удаление проекта</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-project-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="newProjectModal" tabindex="-1">
   <div class="modal-dialog">
     <form class="modal-content" id="new-project-form">
@@ -23,10 +45,37 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 if (!SKKKK.requireAuth()) throw new Error('auth');
 const modal = new bootstrap.Modal(document.getElementById('newProjectModal'));
+const deleteModalEl = document.getElementById('deleteProjectModal');
+const deleteNameEl = document.getElementById('delete-project-name');
+const deleteAck = document.getElementById('delete-project-ack');
+const deleteConfirmBtn = document.getElementById('delete-project-confirm');
+let pendingDelete = null;
+
+function syncDeleteConfirmEnabled() {
+  deleteConfirmBtn.disabled = !deleteAck.checked || !pendingDelete;
+}
+
+function resetDeleteDialog() {
+  deleteAck.checked = false;
+  syncDeleteConfirmEnabled();
+}
+
+function canDeleteProjects() {
+  const role = localStorage.getItem('skkkk_role') || '';
+  return role === 'admin' || role === 'manager';
+}
+
+function chevronSvg() {
+  return (
+    '<svg class="project-desc-chevron-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
+    '<path fill="currentColor" d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/>' +
+    '</svg>'
+  );
+}
+
 async function loadProjects() {
   const r = await SKKKK.api('/projects');
   if (!r.ok) return;
@@ -37,6 +86,7 @@ async function loadProjects() {
     list.innerHTML = '<p class="text-muted">Пока нет проектов — создайте первый.</p>';
     return;
   }
+  const allowDelete = canDeleteProjects();
   for (const p of rows) {
     const item = document.createElement('div');
     item.className = 'list-group-item project-list-item';
@@ -47,53 +97,99 @@ async function loadProjects() {
     title.href = `/projects/${p.id}`;
     title.textContent = p.name;
 
-    if (desc) {
-      const collapseId = `project-desc-${p.id}`;
-      const header = document.createElement('div');
-      header.className = 'project-list-header';
-
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = 'project-desc-chevron';
-      toggle.setAttribute('data-bs-toggle', 'collapse');
-      toggle.setAttribute('data-bs-target', `#${collapseId}`);
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.setAttribute('aria-controls', collapseId);
-      toggle.setAttribute('aria-label', 'Показать описание');
-      toggle.innerHTML =
-        '<svg class="project-desc-chevron-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
-        '<path fill="currentColor" d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/>' +
-        '</svg>';
-
-      header.appendChild(title);
-      header.appendChild(toggle);
-      item.appendChild(header);
-
-      const panel = document.createElement('div');
-      panel.id = collapseId;
-      panel.className = 'collapse mt-2';
-      const descText = document.createElement('p');
-      descText.className = 'text-muted small mb-0 project-desc-text';
-      descText.textContent = desc;
-      panel.appendChild(descText);
-
-      panel.addEventListener('show.bs.collapse', () => {
-        toggle.setAttribute('aria-expanded', 'true');
-        toggle.setAttribute('aria-label', 'Скрыть описание');
-      });
-      panel.addEventListener('hide.bs.collapse', () => {
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.setAttribute('aria-label', 'Показать описание');
-      });
-
-      item.appendChild(panel);
-    } else {
+    const showPanel = Boolean(desc) || allowDelete;
+    if (!showPanel) {
       item.appendChild(title);
+      list.appendChild(item);
+      continue;
     }
 
+    const collapseId = `project-desc-${p.id}`;
+    const header = document.createElement('div');
+    header.className = 'project-list-header';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'project-desc-chevron';
+    toggle.setAttribute('data-bs-toggle', 'collapse');
+    toggle.setAttribute('data-bs-target', `#${collapseId}`);
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', collapseId);
+    toggle.setAttribute('aria-label', desc ? 'Показать описание' : 'Показать действия проекта');
+    toggle.innerHTML = chevronSvg();
+
+    header.appendChild(title);
+    header.appendChild(toggle);
+    item.appendChild(header);
+
+    const panel = document.createElement('div');
+    panel.id = collapseId;
+    panel.className = 'collapse mt-2';
+
+    const body = document.createElement('div');
+    body.className = 'project-desc-panel';
+
+    const descText = document.createElement('p');
+    descText.className = 'text-muted small mb-0 project-desc-text';
+    descText.textContent = desc || 'Описание не задано';
+    body.appendChild(descText);
+
+    if (allowDelete) {
+      const actions = document.createElement('div');
+      actions.className = 'project-desc-actions';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn btn-sm btn-outline-danger';
+      delBtn.textContent = 'Удалить проект';
+      delBtn.setAttribute('aria-label', `Удалить проект ${p.name}`);
+      delBtn.setAttribute('data-bs-toggle', 'modal');
+      delBtn.setAttribute('data-bs-target', '#deleteProjectModal');
+      delBtn.addEventListener('click', () => {
+        pendingDelete = { id: p.id, name: p.name };
+        deleteNameEl.textContent = p.name;
+        resetDeleteDialog();
+      });
+      actions.appendChild(delBtn);
+      body.appendChild(actions);
+    }
+
+    panel.appendChild(body);
+    panel.addEventListener('show.bs.collapse', () => {
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.setAttribute('aria-label', desc ? 'Скрыть описание' : 'Скрыть действия проекта');
+    });
+    panel.addEventListener('hide.bs.collapse', () => {
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-label', desc ? 'Показать описание' : 'Показать действия проекта');
+    });
+
+    item.appendChild(panel);
     list.appendChild(item);
   }
 }
+
+deleteAck.addEventListener('change', syncDeleteConfirmEnabled);
+
+deleteModalEl.addEventListener('hidden.bs.modal', () => {
+  pendingDelete = null;
+  resetDeleteDialog();
+});
+
+deleteConfirmBtn.addEventListener('click', async () => {
+  if (!pendingDelete || !deleteAck.checked) return;
+  const target = pendingDelete;
+  await SKKKK.guardButton(deleteConfirmBtn, async () => {
+    const r = await SKKKK.api(`/projects/${target.id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      window.alert(r.status === 403 ? 'Недостаточно прав' : 'Не удалось удалить проект');
+      return;
+    }
+    pendingDelete = null;
+    bootstrap.Modal.getOrCreateInstance(deleteModalEl).hide();
+    await loadProjects();
+  }, { label: 'Удаляю…' });
+});
+
 document.getElementById('btn-new-project').onclick = () => modal.show();
 document.getElementById('new-project-form').onsubmit = async (e) => {
   e.preventDefault();

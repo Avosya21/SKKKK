@@ -11,6 +11,7 @@ from app.app.models.user import User
 from app.app.services.project_tasks import (
     TASK_TZ_REBUILD,
     TaskAlreadyRunning,
+    abandon_running_api_tasks,
     begin_task,
     get_running_task,
     list_active_tasks,
@@ -97,4 +98,19 @@ def test_track_project_task_marks_done(db_engine, client, admin_token):
     row = db.scalar(select(ProjectTask).where(ProjectTask.project_id == p.id))
     assert row.status == "done"
     assert list_active_tasks(db, project_id=p.id) == []
+    db.close()
+
+
+def test_abandon_running_api_tasks_on_restart(db_engine, client, admin_token):
+    from app.app.db import SessionLocal
+
+    db = SessionLocal()
+    p = _create_project(db)
+    begin_task(db, task_type=TASK_TZ_REBUILD, project_id=p.id)
+    n = abandon_running_api_tasks(db)
+    assert n == 1
+    row = db.scalar(select(ProjectTask).where(ProjectTask.project_id == p.id))
+    assert row.status == "error"
+    assert "перезапущен" in (row.error_message or "")
+    assert get_running_task(db, task_type=TASK_TZ_REBUILD, project_id=p.id) is None
     db.close()

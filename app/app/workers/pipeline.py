@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.services.pipeline_audio import process_audio_artifact
 from app.app.services.pipeline_documents import process_document_artifact
 from app.app.services.pipeline_knowledge import run_knowledge_pipeline
 from app.app.services.pipeline_resume import try_resume_transcript
@@ -46,7 +45,14 @@ def process_artifact(db: Session, settings: Settings, artifact: Artifact) -> Non
             else:
                 text = try_resume_transcript(settings, artifact)
                 if text is None:
-                    text = process_audio_artifact(db, settings, artifact)
+                    from app.app.services.artifact_lab import latest_run_id
+
+                    if latest_run_id(settings, artifact):
+                        text = apply_confirmed_speaker_names(db, settings, artifact)
+                    else:
+                        artifact.error_message = "нужен повтор лабораторной расшифровки (lab), Whisper отключён"
+                        set_status(db, artifact, "error", reason=artifact.error_message)
+                        return
                 elif artifact.status not in {"transcript_ready", "text_extracted"}:
                     artifact.transcription_text = text
                     if not artifact.transcription_file_path:

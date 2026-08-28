@@ -1,7 +1,7 @@
 # SKKKK project map manifest — nodes & dependency edges for agents and vector index.
 # Update together with docs/PROJECT-MAP.md when adding modules or pipelines.
 version: 1
-updated: "2026-08-27"
+updated: "2026-08-28"
 
 nodes:
   - id: fastapi_main
@@ -22,11 +22,41 @@ nodes:
     title: HTML pages and artifact reports
     tags: [api, ui]
 
+  - id: router_auth
+    kind: router
+    path: app/app/routers/auth.py
+    title: Login/logout; JWT in JSON and HttpOnly cookie skkkk_session
+    tags: [api, auth]
+
+  - id: router_projects
+    kind: router
+    path: app/app/routers/projects.py
+    title: List/create projects; DELETE fully purges files and DB rows
+    tags: [api, projects]
+
+  - id: svc_project_purge
+    kind: service
+    path: app/app/services/project_purge.py
+    title: Purge project tree or a single artifact files and SQLite rows
+    tags: [service, projects]
+
+  - id: ui_btn_delete_project
+    kind: ui_action
+    path: app/app/templates/index.html
+    title: "Удалить проект — в раскрытом описании справа, DELETE /projects/{id}"
+    tags: [ui, projects]
+
   - id: router_upload
     kind: router
     path: app/app/routers/upload.py
-    title: Resumable upload and artifact list
+    title: Resumable upload, artifact list, DELETE one artifact
     tags: [api, upload]
+
+  - id: ui_btn_delete_artifact
+    kind: ui_action
+    path: app/app/templates/project.html
+    title: "Удалить артефакт — иконка корзины после Ошибка, DELETE /projects/{id}/artifacts/{art_id}"
+    tags: [ui, artifacts]
 
   - id: router_knowledge
     kind: router
@@ -85,7 +115,7 @@ nodes:
   - id: svc_vector_index
     kind: service
     path: app/app/services/vector_index.py
-    title: sqlite-vec storage for artifact chunks
+    title: sqlite-vec chunks (kNN) and entity embedding cache
     tags: [index, sqlite]
 
   - id: svc_entities
@@ -97,7 +127,7 @@ nodes:
   - id: svc_graph
     kind: service
     path: app/app/services/graph.py
-    title: Seed knowledge graph and detect conflicts
+    title: Seed graph, detect conflicts, delete_entities_with_deps before entity DELETE
     tags: [knowledge, graph]
 
   - id: svc_tz
@@ -217,7 +247,7 @@ nodes:
   - id: asr_summarize_call
     kind: script
     path: asr/summarize_call.py
-    title: Map/reduce call summary from speakers.json
+    title: Map/reduce call_summary.md and call_brief.md from signed speakers JSON
     tags: [asr, summary, llm]
 
   - id: asr_voice_audit
@@ -259,7 +289,13 @@ nodes:
   - id: prompt_summary
     kind: prompt
     path: docs/prompts/call_summary.md
-    title: Call summary map/reduce prompts
+    title: Call summary map/reduce — итоговый протокол
+    tags: [prompt, summary]
+
+  - id: prompt_brief
+    kind: prompt
+    path: docs/prompts/call_brief.md
+    title: Call brief map/reduce — краткое резюме созвона
     tags: [prompt, summary]
 
   - id: prompt_entities
@@ -393,6 +429,24 @@ nodes:
     path: app/app/services/pipeline_voice_gate.py
     title: Voice gate (legacy) — replaced by pipeline_lab speakers_pending
     tags: [pipeline, speakers, asr, legacy]
+
+  - id: ui_btn_download_brief
+    kind: ui_action
+    path: asr/transcript_view.py
+    title: "Краткое резюме созвона — GET /artifacts/{id}/download/brief.docx"
+    tags: [ui, transcript, export]
+
+  - id: ui_btn_download_summary
+    kind: ui_action
+    path: asr/transcript_view.py
+    title: "Выжимка Word — GET /artifacts/{id}/download/summary.docx"
+    tags: [ui, transcript, export]
+
+  - id: svc_transcript_export
+    kind: service
+    path: app/app/services/transcript_export.py
+    title: Word/txt export of call summary and brief (Calibri, styled tables)
+    tags: [export, transcript]
 
   - id: ui_btn_rebuild_tz
     kind: ui_action
@@ -595,8 +649,14 @@ nodes:
   - id: lab_freeze
     kind: doc
     path: asr/lab/FREEZE.md
-    title: Снимок лаборатории — этапы 1 (01–07), 2 (Cursor), 3 (GigaAM)
-    tags: [lab, freeze]
+    title: Снимок лаборатории — SHA256 моделей, Python 3.10.9, ORT 1.23.2, Parakeet 0.6B v3, Sortformer 4spk v2.1
+    tags: [lab, freeze, versions]
+
+  - id: stack_snapshot
+    kind: doc
+    path: docs/PROJECT-MAP.md
+    title: "§1.1 стек 2026-08-27: FastAPI 0.141.1, sqlite-vec 0.1.9, WAV PCM 16k, AAC 48k playback, MP3 64k download, Cursor SDK 1.0.28"
+    tags: [docs, versions, codecs]
 
   - id: lab_view
     kind: script
@@ -716,15 +776,29 @@ edges:
   - {from: svc_entities, to: prompt_entities, relation: reads}
   - {from: svc_pipeline_knowledge, to: svc_indexing, relation: calls}
   - {from: svc_indexing, to: svc_vector_index, relation: stores}
+  - {from: svc_entities, to: svc_vector_index, relation: stores_entity_vectors}
+  - {from: svc_graph, to: svc_vector_index, relation: reads_entity_vectors}
+  - {from: svc_entities, to: svc_graph, relation: delete_entities_with_deps}
+  - {from: svc_project_purge, to: svc_graph, relation: delete_entities_with_deps}
   - {from: script_inspect_index, to: svc_indexing, relation: audits}
   - {from: svc_pipeline_knowledge, to: asr_summarize_call, relation: subprocess_via_run_call_summary}
   - {from: asr_summarize_call, to: file_speakers_json, relation: reads}
   - {from: asr_summarize_call, to: prompt_summary, relation: reads}
+  - {from: asr_summarize_call, to: prompt_brief, relation: reads}
   - {from: asr_summarize_call, to: asr_llm_client, relation: imports}
   - {from: router_speakers, to: svc_speaker_profiles, relation: api}
   - {from: svc_speaker_profiles, to: asr_match_speakers, relation: legacy_recalculate_only}
   - {from: svc_speaker_profiles, to: svc_pipeline_lab, relation: lab_cosine_recalculate}
   - {from: svc_speaker_profiles, to: asr_summarize_call, relation: rebuild_summary}
+  - {from: fastapi_main, to: router_auth, relation: mounts}
+  - {from: fastapi_main, to: router_projects, relation: mounts}
+  - {from: router_projects, to: svc_project_purge, relation: delete_project}
+  - {from: router_upload, to: svc_project_purge, relation: delete_artifact}
+  - {from: ui_index_page, to: ui_btn_delete_project, relation: contains}
+  - {from: ui_btn_delete_project, to: router_projects, relation: calls}
+  - {from: ui_project_page, to: ui_btn_delete_artifact, relation: contains}
+  - {from: ui_btn_delete_artifact, to: router_upload, relation: calls}
+  - {from: fastapi_main, to: router_pages, relation: mounts}
   - {from: fastapi_main, to: router_speakers, relation: mounts}
   - {from: fastapi_main, to: router_knowledge, relation: mounts}
   - {from: router_knowledge, to: svc_chat, relation: api}
@@ -767,6 +841,13 @@ edges:
   - {from: ui_transcript_report, to: ui_btn_recalculate_speakers, relation: contains}
   - {from: ui_transcript_report, to: ui_btn_rebuild_call_summary, relation: contains}
   - {from: ui_transcript_report, to: ui_btn_reindex, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_download_brief, relation: contains}
+  - {from: ui_btn_download_brief, to: router_pages, relation: GET_brief_docx}
+  - {from: ui_transcript_report, to: ui_btn_download_summary, relation: contains}
+  - {from: ui_btn_download_summary, to: router_pages, relation: GET_summary_docx}
+  - {from: router_pages, to: svc_transcript_export, relation: download_docx}
+  - {from: ui_btn_download_brief, to: svc_transcript_export, relation: renders_docx}
+  - {from: ui_btn_download_summary, to: svc_transcript_export, relation: renders_docx}
   - {from: ui_transcript_report, to: router_speakers, relation: embeds_actions}
   - {from: ui_speaker_match_report, to: router_speakers, relation: embeds_actions}
   - {from: ui_project_page, to: ui_speaker_match_report, relation: match_link}
@@ -778,5 +859,6 @@ edges:
   - {from: ui_project_page, to: ui_deadlines_collapsible, relation: contains}
   - {from: fastapi_main, to: router_project_mcp, relation: mounts}
   - {from: router_project_mcp, to: svc_project_mcp, relation: mcp_jsonrpc}
+  - {from: stack_snapshot, to: lab_freeze, relation: versions_and_sha256}
   - {from: router_project_mcp, to: model_project_mcp_token, relation: token_auth}
   - {from: ui_project_page, to: router_project_mcp, relation: mcp_panel}

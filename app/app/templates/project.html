@@ -327,6 +327,7 @@
   }
   #artifacts-table {
     --bs-table-bg: transparent;
+    --bs-table-border-color: #eef1f3;
     margin-bottom: 0;
   }
   #artifacts-table thead th {
@@ -336,13 +337,13 @@
     text-transform: uppercase;
     color: #6c757d;
     background: transparent;
-    border-bottom: 1px solid #e9ecef;
+    border-bottom: 1px solid #e8ecef;
     padding-top: 0.35rem;
     padding-bottom: 0.35rem;
   }
   #artifacts-table tbody td {
     vertical-align: middle;
-    border-bottom-color: #f1f3f5;
+    border-bottom-color: #f3f5f6;
   }
   #artifacts-table th.col-download,
   #artifacts-table td.col-download {
@@ -354,12 +355,45 @@
     padding-left: 0.35rem;
     padding-right: 0.35rem;
   }
+  #artifacts-table th.col-delete,
+  #artifacts-table td.col-delete {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    max-width: 2.5rem;
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+  }
   #artifacts-table .artifact-download {
     width: 4.5rem;
     min-width: 4.5rem;
     padding-left: 0.25rem;
     padding-right: 0.25rem;
     justify-content: center;
+  }
+  #artifacts-table .artifact-delete,
+  .artifact-card .artifact-delete {
+    width: 2rem;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0;
+    justify-content: center;
+    color: #868e96;
+    border-color: #dee2e6;
+    background: transparent;
+  }
+  #artifacts-table .artifact-delete:hover,
+  .artifact-card .artifact-delete:hover,
+  #artifacts-table .artifact-delete:focus-visible,
+  .artifact-card .artifact-delete:focus-visible {
+    color: #a61e1e;
+    border-color: #e0b4b4;
+    background: #fff8f8;
+  }
+  .artifact-delete-icon {
+    display: block;
+    flex-shrink: 0;
   }
   #artifacts-table .artifact-download-placeholder {
     display: inline-block;
@@ -549,6 +583,7 @@
             <th>Тип</th>
             <th>Статус</th>
             <th>Ошибка</th>
+            <th class="col-delete"><span class="visually-hidden">Удалить</span></th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -556,6 +591,29 @@
     </div>
     <div id="artifacts-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
     <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
+  </div>
+</div>
+
+<div class="modal fade" id="deleteArtifactModal" tabindex="-1" aria-labelledby="delete-artifact-title" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="delete-artifact-title">Подтверждение удаления</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Удалить артефакт «<strong id="delete-artifact-name"></strong>»?</p>
+        <p class="text-muted small mb-3">Будут стёрты файл, стенограмма, сущности и задания, которые пришли с этим артефактом. Остальные файлы проекта останутся. Отменить нельзя.</p>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="delete-artifact-ack">
+          <label class="form-check-label" for="delete-artifact-ack">Подтверждаю полное удаление артефакта</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-artifact-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -616,8 +674,8 @@
   <div id="deadlines-panel" class="collapse">
     <div class="card-body">
       <p class="text-muted small mb-3">
-        Поручения со сроком извлечены из материалов проекта (созвоны, документы). В списке только задачи, где назван дедлайн или срок.
-        Сроки в свободной форме показываются текстом; распознанные даты — на календаре.
+        Поручения со сроком извлечены из материалов проекта (созвоны, документы). В списке только задачи, где назван дедлайн.
+        Оценки длительности этапов («4–6 нед.») и очередность работ («перед этапом 2») сюда не попадают.
         Нажмите на строку в списке или на событие в календаре, чтобы прочитать описание целиком.
       </p>
       <div id="deadlines-status" class="text-muted small mb-2" aria-live="polite">Загрузка…</div>
@@ -749,7 +807,6 @@
 {% block scripts %}
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/main.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 if (!SKKKK.requireAuth()) throw new Error('auth');
 const projectId = {{ project_id }};
@@ -990,6 +1047,20 @@ const artifactsEmpty = document.getElementById('artifacts-empty');
 const kpiDone = document.getElementById('kpi-done');
 const kpiDocs = document.getElementById('kpi-docs');
 const kpiCalls = document.getElementById('kpi-calls');
+const deleteArtifactModalEl = document.getElementById('deleteArtifactModal');
+const deleteArtifactNameEl = document.getElementById('delete-artifact-name');
+const deleteArtifactAck = document.getElementById('delete-artifact-ack');
+const deleteArtifactConfirmBtn = document.getElementById('delete-artifact-confirm');
+let pendingArtifactDelete = null;
+
+function syncArtifactDeleteConfirmEnabled() {
+  deleteArtifactConfirmBtn.disabled = !deleteArtifactAck.checked || !pendingArtifactDelete;
+}
+
+function resetArtifactDeleteDialog() {
+  deleteArtifactAck.checked = false;
+  syncArtifactDeleteConfirmEnabled();
+}
 
 function escapeHtml(text) {
   return (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -1444,6 +1515,43 @@ function bindDownloadButtons(root) {
   });
 }
 
+function deleteIconSvg() {
+  return (
+    '<svg class="artifact-delete-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">' +
+    '<path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>' +
+    '<path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>' +
+    '</svg>'
+  );
+}
+
+function deleteCell(a) {
+  const label = `Удалить артефакт ${a.original_filename || ''}`.trim();
+  return `<button type="button" class="btn btn-sm btn-outline-secondary artifact-delete d-inline-flex align-items-center" ` +
+    `data-artifact-id="${escapeAttr(a.artifact_id)}" ` +
+    `data-artifact-name="${escapeAttr(a.original_filename)}" ` +
+    `data-bs-toggle="modal" data-bs-target="#deleteArtifactModal" ` +
+    `title="${escapeAttr(label)}" ` +
+    `aria-label="${escapeAttr(label)}">${deleteIconSvg()}</button>`;
+}
+
+function bindDeleteButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.artifact-delete').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      pendingArtifactDelete = {
+        id: btn.dataset.artifactId,
+        name: btn.dataset.artifactName || 'артефакт',
+      };
+      deleteArtifactModalEl.dataset.artifactId = pendingArtifactDelete.id;
+      deleteArtifactModalEl.dataset.artifactName = pendingArtifactDelete.name;
+      deleteArtifactNameEl.textContent = pendingArtifactDelete.name;
+      resetArtifactDeleteDialog();
+    });
+  });
+}
+
 function buildRow(a) {
   const hasReport = Boolean(a.transcript_html_url);
   const title = hasReport ? reportLink(a) : escapeHtml(a.original_filename);
@@ -1458,7 +1566,8 @@ function buildRow(a) {
           <td class="col-download">${downloadCell(a)}</td>
           <td class="text-muted">${escapeHtml(a.source_type)}</td>
           <td>${statusBadge(a.status)}</td>
-          <td>${err}</td>`;
+          <td>${err}</td>
+          <td class="col-delete">${deleteCell(a)}</td>`;
 }
 
 function buildCard(a) {
@@ -1474,6 +1583,7 @@ function buildCard(a) {
     <span class="artifact-name-line">${title}${actions}</span>
     <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
       ${downloadCell(a)}
+      ${deleteCell(a)}
       <span class="text-muted">${escapeHtml(a.source_type)}</span>
       ${statusBadge(a.status)}
     </div>
@@ -1482,6 +1592,7 @@ function buildCard(a) {
 }
 
 async function refreshArtifacts() {
+  if (deleteArtifactModalEl && deleteArtifactModalEl.classList.contains('show')) return;
   const r = await SKKKK.api(`/projects/${projectId}/artifacts`);
   const arts = await r.json();
   const tbody = document.querySelector('#artifacts-table tbody');
@@ -1524,9 +1635,48 @@ async function refreshArtifacts() {
 
   bindDownloadButtons(tbody);
   bindDownloadButtons(cards);
+  bindDeleteButtons(tbody);
+  bindDeleteButtons(cards);
   bindSpeakerConfirmButtons(tbody);
   bindSpeakerConfirmButtons(cards);
 }
+
+deleteArtifactAck.addEventListener('change', syncArtifactDeleteConfirmEnabled);
+
+deleteArtifactModalEl.addEventListener('hidden.bs.modal', () => {
+  pendingArtifactDelete = null;
+  delete deleteArtifactModalEl.dataset.artifactId;
+  delete deleteArtifactModalEl.dataset.artifactName;
+  resetArtifactDeleteDialog();
+});
+
+deleteArtifactConfirmBtn.addEventListener('click', async () => {
+  const target = pendingArtifactDelete || {
+    id: deleteArtifactModalEl.dataset.artifactId,
+    name: deleteArtifactModalEl.dataset.artifactName || 'артефакт',
+  };
+  if (!target.id || !deleteArtifactAck.checked) return;
+  pendingArtifactDelete = target;
+  await SKKKK.guardButton(deleteArtifactConfirmBtn, async () => {
+    const r = await SKKKK.api(
+      `/projects/${projectId}/artifacts/${encodeURIComponent(target.id)}`,
+      { method: 'DELETE' },
+    );
+    if (!r.ok) {
+      toastBody.textContent = r.status === 403 ? 'Недостаточно прав' : 'Не удалось удалить артефакт';
+      bsToast.show();
+      return;
+    }
+    delete _prev[target.id];
+    pendingArtifactDelete = null;
+    bootstrap.Modal.getOrCreateInstance(deleteArtifactModalEl).hide();
+    toastBody.textContent = `Удалён: ${target.name}`;
+    bsToast.show();
+    await refreshArtifacts();
+    if (typeof loadDeadlinesPanel === 'function') loadDeadlinesPanel();
+  }, { label: 'Удаляю…' });
+  syncArtifactDeleteConfirmEnabled();
+});
 
 function keepChatVisibleOnKeyboard() {
   const composer = document.querySelector('.chat-composer');
@@ -1651,6 +1801,12 @@ function mcpCursorConfig(url, tokenPlaceholder) {
 
 async function loadMcpPanel() {
   if (!mcpStatus) return;
+  const role = localStorage.getItem('skkkk_role');
+  const card = document.querySelector('.mcp-access-card');
+  if (role === 'user') {
+    if (card) card.classList.add('d-none');
+    return;
+  }
   try {
     const r = await SKKKK.api(`/projects/${projectId}/mcp/info`);
     if (!r.ok) throw new Error('mcp info failed');

@@ -117,7 +117,7 @@ def check_vector_store() -> CheckResult:
             f"sqlite-vec недоступен: {exc}",
             "поиск и чат работать не будут",
         )
-    return CheckResult("vector_store", OK, "sqlite-vec подключён, таблица chunk_vectors готова")
+    return CheckResult("vector_store", OK, "sqlite-vec подключён, chunk_vectors и entity_vectors готовы")
 
 
 def check_llm(settings: Settings) -> CheckResult:

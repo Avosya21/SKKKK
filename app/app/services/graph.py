@@ -5,16 +5,20 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings
 from app.app.db import get_engine
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.models.entity import Entity, Link, Resolution
+from app.app.models.entity import Entity, Link, NoteRef, Resolution
 from app.app.services.ollama_client import embed_texts
-from app.app.services.vector_index import init_vector_store
+from app.app.services.vector_index import (
+    init_vector_store,
+    load_entity_vectors,
+    upsert_entity_vectors,
+)
 
 logger = logging.getLogger("skkkk.graph")
 
@@ -24,14 +28,45 @@ CANCEL_PATTERNS = re.compile(
 )
 
 
-def _entity_text(entity: Entity) -> str:
+def entity_text(value_json: str) -> str:
+    """Канон строки для bge-m3. Persist и seed должны считать одно и то же."""
     try:
-        data = json.loads(entity.value_json)
+        data = json.loads(value_json)
     except json.JSONDecodeError:
-        return entity.value_json
+        return value_json
     if isinstance(data, dict):
         return " ".join(str(v) for v in data.values())
     return str(data)
+
+
+def _entity_text(entity: Entity) -> str:
+    return entity_text(entity.value_json)
+
+
+def delete_entities_with_deps(db: Session, entity_ids: list[int]) -> None:
+    """Снять resolutions/links/note_refs, затем строки entities. Иначе SQLite FK падает."""
+    if not entity_ids:
+        return
+    link_ids = list(
+        db.scalars(
+            select(Link.id).where(
+                or_(Link.source_entity_id.in_(entity_ids), Link.target_entity_id.in_(entity_ids))
+            )
+        )
+    )
+    if link_ids:
+        db.execute(delete(Resolution).where(Resolution.link_id.in_(link_ids)))
+        db.execute(delete(Link).where(Link.id.in_(link_ids)))
+    db.execute(
+        delete(Resolution).where(
+            or_(
+                Resolution.winning_entity_id.in_(entity_ids),
+                Resolution.losing_entity_id.in_(entity_ids),
+            )
+        )
+    )
+    db.execute(delete(NoteRef).where(NoteRef.target_kind == "entity", NoteRef.target_id.in_(entity_ids)))
+    db.execute(delete(Entity).where(Entity.id.in_(entity_ids)))
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -43,6 +78,24 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+def vectors_for_entities(
+    db: Session, settings: Settings, entities: list[Entity]
+) -> tuple[list[list[float]], int]:
+    if not entities:
+        return [], 0
+    loaded = load_entity_vectors(db, [e.id for e in entities])
+    missing = [e for e in entities if e.id not in loaded]
+    embedded = 0
+    if missing and not settings.dry_run:
+        vecs = embed_texts(settings, [entity_text(e.value_json) for e in missing])
+        pairs = list(zip((e.id for e in missing), vecs, strict=True))
+        upsert_entity_vectors(db, pairs)
+        for eid, vec in pairs:
+            loaded[eid] = vec
+        embedded = len(missing)
+    return [loaded[e.id] for e in entities], embedded
+
+
 def seed_graph(db: Session, settings: Settings, artifact: Artifact, source_text: str) -> None:
     init_vector_store(get_engine())
     threshold = artifact.project.settings().get("similarity_threshold", settings.similarity_threshold)
@@ -51,20 +104,19 @@ def seed_graph(db: Session, settings: Settings, artifact: Artifact, source_text:
         log_event(logger, "graph.skipped", artifact=artifact.artifact_id, reason="no active entities")
         return
 
-    texts = [_entity_text(e) for e in new_entities]
-    new_vecs = embed_texts(settings, texts) if texts else []
+    new_vecs, emb_new = vectors_for_entities(db, settings, list(new_entities))
 
     prior = db.scalars(
         select(Entity)
         .join(Artifact, Artifact.id == Entity.artifact_id)
         .where(Artifact.project_id == artifact.project_id, Entity.artifact_id != artifact.id, Entity.is_active.is_(True))
     ).all()
-    prior_texts = [_entity_text(e) for e in prior]
-    prior_vecs = embed_texts(settings, prior_texts) if prior_texts else []
+    prior_list = list(prior)
+    prior_vecs, emb_prior = vectors_for_entities(db, settings, prior_list) if prior_list else ([], 0)
 
     created: dict[str, int] = {}
     for ent, vec in zip(new_entities, new_vecs, strict=True):
-        for old, old_vec in zip(prior, prior_vecs, strict=True):
+        for old, old_vec in zip(prior_list, prior_vecs, strict=True):
             score = _cosine(vec, old_vec)
             if score < threshold:
                 continue
@@ -97,15 +149,20 @@ def seed_graph(db: Session, settings: Settings, artifact: Artifact, source_text:
             )
             created[link_type] = created.get(link_type, 0) + 1
 
+    compared = len(prior_list)
+    total = len(new_entities) + compared
+    embedded = emb_new + emb_prior
     log_event(
         logger,
         "graph.seeded",
         artifact=artifact.artifact_id,
         entities=len(new_entities),
-        compared_with=len(prior),
+        compared_with=compared,
         related=created.get("SEMANTICALLY_RELATED", 0),
         conflicts=created.get("POTENTIAL_CONFLICT", 0),
         threshold=round(threshold, 2),
+        cached=max(0, total - embedded),
+        embedded=embedded,
     )
     # Сессия работает с autoflush=False, поэтому только что добавленные связи
     # не попадут в выборку авторазрешения без явного flush.

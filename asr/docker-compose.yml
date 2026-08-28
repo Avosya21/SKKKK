@@ -1,14 +1,16 @@
-# Три ASR-сервиса. Whisper и T-one — готовые образы, GigaAM — GigaAMGUI.
+# GigaAM — прод. Whisper и T-one только с профилем legacy:
+#   docker compose --env-file ..\.env --profile legacy up -d
 #
 #   cd C:\1C_NEW_SKKKK\asr
-#   docker compose --env-file ..\.env up -d --build
+#   docker compose --env-file ..\.env up -d --build gigaam
 #
-# Хост: 18101 Whisper / 18102 GigaAM / 18103 T-one. Порт 8000 на хосте не трогаем.
+# Хост: 18101 Whisper (legacy) / 18102 GigaAM / 18103 T-one (legacy).
 
 name: skkkk-asr
 
 services:
   whisper:
+    profiles: ["legacy"]
     image: hwdsl2/whisper-server:cuda
     container_name: skkkk-whisper
     restart: unless-stopped
@@ -103,6 +105,7 @@ services:
               capabilities: [gpu]
 
   tone:
+    profiles: ["legacy"]
     build:
       context: .
       dockerfile: docker/tone.Dockerfile

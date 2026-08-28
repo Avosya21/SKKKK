@@ -6,9 +6,9 @@
 > **Переиндексация:** `py scripts/index_project_map.py`  
 > **LightRAG (граф):** `py scripts/lightrag_query.py "…"` — см. `tools/lightrag/README.md`
 
-Связанные документы: [PLAN.md](PLAN.md) · [DECISIONS.md](DECISIONS.md) · [TESTING.md](TESTING.md) · [manifest.yaml](project-map/manifest.yaml)
+Связанные документы: [PLAN.md](PLAN.md) · [DECISIONS.md](DECISIONS.md) · [TESTING.md](TESTING.md) · [HOWTO-MANAGER.md](HOWTO-MANAGER.md) · [manifest.yaml](project-map/manifest.yaml)
 
-**Кнопки прод-созвона (что вызывает что):** [§5.13](#513-прод-созвон-кнопка--api--функция-актуально-2026-08-27). Полный перечень UI: [§5](#5-ui-страницы-кнопки-кто-выполняет).
+**Снимок стека/кодеков/версий:** [§1.1](#11-снимок-стека-актуально-2026-08-27). **Кнопки прод-созвона:** [§5.13](#513-прод-созвон-кнопка--api--функция-актуально-2026-08-27). Полный перечень UI: [§5](#5-ui-страницы-кнопки-кто-выполняет).
 
 ---
 
@@ -51,7 +51,7 @@ flowchart TB
 
     subgraph Store["Хранилища"]
         DB[(SQLite app.db)]
-        VEC[(sqlite-vec chunks)]
+        VEC[(sqlite-vec chunks + entity BLOB)]
         PM[(project_map.db)]
         FS[data/projects/]
     end
@@ -76,6 +76,81 @@ flowchart TB
     PK --> DB
 ```
 
+Снимок стека, кодеков и версий — **§1.1**. Кнопки прод-созвона — [§5.13](#513-прод-созвон-кнопка--api--функция-актуально-2026-08-27).
+
+### 1.1. Снимок стека (актуально 2026-08-27)
+
+Зафиксировано по коду и живой машине. Менять версии моделей/кодеков только вместе с этой таблицей и `docs/DECISIONS.md`.
+
+#### Платформа
+
+| Что | Как сейчас |
+|-----|------------|
+| ОС | Windows 11 (`10.0.26200`), одна GPU **RTX 3090 24 ГБ**, драйвер **577.00** |
+| CUDA (хост, lab ONNX) | Toolkit **12.8** (nvcc 12.8.61) + cuDNN **9.16.0.29** |
+| Корень | только `C:\1C_NEW_SKKKK` |
+| Python (портал `venv/`) | **3.10.9** |
+| Python (лаборатория `venvs\lab`) | **3.10.9** (отдельный venv: `onnxruntime-gpu` vs `onnxruntime` в app) |
+| Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
+| ORM | SQLAlchemy **2.0.52**, Alembic **1.19.1**, Pydantic **2.13.4** |
+| Порт UI | `.env` `WEB_PORT` (шаблон **1111**; на этой машине часто **777**). Порт **8000** занят MCP 1С |
+| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL |
+| Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
+| Auth | JWT (`python-jose` 3.5.0) + HttpOnly cookie `skkkk_session`; Bearer из localStorage ещё принимается |
+| Очередь | таблица `jobs`, **один** GPU-воркер |
+| LLM | `LLM_PROVIDER=cursor` **или** `lmstudio` (переключатель при старте) |
+
+#### Модели слуха и голоса (двойной слух)
+
+| Роль | Модель / артефакт | Версия / ревизия | Как запускается |
+|------|-------------------|------------------|-----------------|
+| Слова + таймлайн (канон) | Parakeet-TDT | **0.6B v3**, HF `istupakov/parakeet-tdt-0.6b-v3-onnx` rev `8f23f0c` | `venvs\lab`, onnx-asr **0.12.0**, ONNX Runtime GPU **1.23.2** |
+| Кто говорит | Sortformer 4spk | **v2.1** ONNX `Scrybl/diar_streaming_sortformer_4spk-v2.1` rev `3be92087` | тот же lab; **не больше 4** спикеров |
+| VAD | Silero | `istupakov/silero-vad-onnx` | onnx-asr load_vad |
+| Второй слух / вычитка | GigaAM-v3 e2e RNNT | HF `ai-sage/GigaAM-v3` rev **`e2e_rnnt`** | Docker `skkkk-gigaam` `:18102` |
+| Голос (enroll/match) | WeSpeaker | `pipeline._embedding` внутри GigaAMGUI | lab_voice / docker exec |
+| Эмбеддинги текста | bge-m3 | Ollama, **CPU** (`OLLAMA_NUM_GPU=0`) | `:11434` |
+| LLM текст | Cursor SDK **1.0.28** или Gemma `google/gemma-4-31b-qat` | `CURSOR_MODEL` (напр. composer-2.5) / LM Studio `:1234` | sense, proof, сущности, ТЗ, чат, vision |
+
+Whisper `large-v3` и T-one в compose с `profiles: [legacy]` — на диске для отката, **воркер не вызывает**.
+
+GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, CUDA **12.4**, torch **2.6+cu124**, `ASR_MODEL=v3_e2e_rnnt`, `MODEL_REVISION=e2e_rnnt`. Lab ONNX: onnxruntime-gpu **1.23.2**, onnx-asr **0.12.0**, cuDNN **9.16.0.29**. SHA256 весов и эталонный прогон — `asr/lab/FREEZE.md` / `asr/lab/freeze.json`.
+
+#### Кодеки и звук (FFmpeg)
+
+Мастер для ASR всегда один: **WAV PCM s16le, 16 кГц, моно** → `artifacts/{id}/audio/input_16k.wav`. Бинарь: PATH / WinGet **Gyan.FFmpeg 9.0-full_build** (код помечает muxer ffmpeg 9+). DeepFilterNet на прод-пути **выключен** (`01_audio` = `copy_16k`).
+
+| Назначение | Файл | Кодек | Параметры |
+|------------|------|-------|-----------|
+| ASR / диаризация / WeSpeaker | `input_16k.wav` | PCM s16le | 16 kHz mono (`-vn -ac 1 -ar 16000 -c:a pcm_s16le`) |
+| Плеер в HTML (`GET /artifacts/{id}/audio`) | `playback.m4a` | **AAC** | 48 kbps, mono, `+faststart`; если encode падает — отдача WAV |
+| Скачать созвон | `download.mp3` | **MP3** libmp3lame | 64 kbps, mono |
+| Загрузка | `.wav .mp3 .m4a .ogg .flac .webm .mp4 .mkv` | как пришло | видео: звук вынимается, оригинал может быть снесён после проверки WAV |
+
+Документы: PDF (PyMuPDF **1.28.2**), DOCX (python-docx **1.2.0**), картинки OCR Tesseract / vision через LLM.
+
+#### Как устроена итоговая выжимка проекта
+
+Не «перечитать сырые файлы». `tz.rebuild_tz()` собирает **уже готовое**:
+
+1. Артефакты `status=done`, порядок: вес ↓, дата ↓.
+2. **Созвон:** канон `parsed/calls/{id}_final.txt` (proof + имена). Нет файла — чанки БД. Плюс `*_call_summary.md` (протокол **этого** созвона).
+3. **Документ:** чанки `chunks`; нет индекса — `transcription_text`.
+4. Плюс активные `entities`, `user_notes`, конфликты `POTENTIAL_CONFLICT` ± `resolutions`.
+5. Нарезка ~6000 симв. → если кусков >1, **последовательный** map (LLM, 1200 tok) → reduce (8192 tok) вместе с **предыдущей** `current_tz.md`. Промпт `docs/prompts/rebuild_tz.md`.
+6. Результат: `project_state/current_tz.md` + архив `versions/` + `changelog`.
+
+Кнопка **Пересобрать** — только **admin**, синхронно в FastAPI (минуты из‑за N+1 LLM). Авто: каждый готовый документ; созвоны — каждые `TZ_REBUILD_EVERY_N` (по умолчанию 3). Чат — другое: top‑8 чанков под вопрос.
+
+#### Удаление
+
+| Что | Кто | Что стирается | Что остаётся |
+|-----|-----|---------------|--------------|
+| Проект | admin, manager | `data/projects/{id}/` + строки БД этого проекта | другие проекты, global `speaker_profiles`, пользователи |
+| Артефакт | любой залогиненный | workspace, оригинал, parsed/structured `{id}_*`, jobs, chunks, entities **и их links/resolutions**, project-scoped голоса с этого файла | проект, чат, ТЗ, чужие файлы, global голоса |
+
+Перед `DELETE FROM entities` — `graph.delete_entities_with_deps` (иначе SQLite FK). UI артефакта: иконка корзины, серый контур, модалка + чекбокс.
+
 ---
 
 ## 2. Корень и каталоги
@@ -99,7 +174,7 @@ flowchart TB
 | `tools/lightrag/` | **LightRAG** Docker (:9621) — граф знаний по docs (кнопки, API, БД) |
 | `.cursor/rules/` | Правила агента Cursor |
 | `.cursor/skills/` | Скилы (gpu-orchestrator, knowledge-pipeline, …) |
-| `venv/` | Python 3.10+ окружение |
+| `venv/` | Python **3.10.9** (портал); `venvs/lab` — тот же 3.10.9 под ONNX |
 | `.env` | Секреты (не в git), шаблон `.env.example` |
 
 ---
@@ -108,7 +183,7 @@ flowchart TB
 
 | Процесс | Команда | Порт / роль |
 |---------|---------|-------------|
-| **API + UI** | `python -m app.app.main all` | `:777` — HTTP, JWT, страницы, **синхронные** действия (спикеры, выжимка) |
+| **API + UI** | `python -m app.app.main all` | `WEB_PORT` из `.env` (часто **777**, шаблон 1111) — HTTP, JWT+cookie, страницы, sync-действия |
 | **GPU Worker** | `python -m app.app.main worker` | Очередь `jobs` — lab ASR, knowledge, один job за раз |
 | **GigaAM** | Docker `skkkk-gigaam` | `:18102` — второй слух + **embed_voice** |
 | **Whisper / T-one** | Docker (не стартуют) | `:18101` / `:18103` — откат, воркер не вызывает |
@@ -125,7 +200,7 @@ flowchart TB
 |------|------|----------|
 | **Канон арtefactа** | `data/projects/{id}/artifacts/{art_id}/` | audio, asr, reports — только этот job |
 | **Parsed / structured** | `data/projects/{id}/parsed/`, `structured/` | имена с `{artifact_id}_*` |
-| **Docker bridge** | `asr/work/` | **общий** mount; перед T-one/embed — `docker_stage.py` копирует WAV из арtefact |
+| **Docker bridge** | `asr/work/` | общий mount GigaAM; прод-изоляция — `lab/runs/{run_id}/`, не чужой файл |
 | **Dev fallback** | `asr/work`, `asr/out` | только если `SKKKK_ASR_*` не заданы (локальный прогон) |
 | **GigaAM embed job** | `data/gigaam/embed_job.json` | общий файл; один GPU-воркер — OK; параллель без staging — нет |
 | **Tone sidecar txt** | `asr/out/input_raw_tone.txt` | dev-арtefact; prod пишет в `SKKKK_ASR_OUT/docker_tone.*` |
@@ -170,6 +245,10 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 
 (Документы: `text_extracted` вместо ASR-статусов.)
 
+### 4.4. Итоговая выжимка проекта vs выжимка созвона
+
+См. **§1.1**. Кратко: проектная выжимка = map/reduce по **готовым** стенограммам/чанкам + сущности + заметки + конфликты + `*_call_summary.md`. Выжимка созвона = `summarize_call.py` по подписанному `docker_gigaam_speakers.json` → `call_summary.md` одного файла.
+
 ---
 
 ## 5. UI: страницы, кнопки, кто выполняет
@@ -184,9 +263,9 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | Файл | Prefix | Назначение |
 |------|--------|------------|
 | `routers/pages.py` | `/` | HTML-страницы, отчёты арtefact, audio stream |
-| `routers/auth.py` | `/auth` | POST login → JWT |
-| `routers/projects.py` | `/projects` | CRUD проектов |
-| `routers/upload.py` | `/projects` | Resumable upload, list artifacts |
+| `routers/auth.py` | `/auth` | POST login → JWT **и** cookie `skkkk_session` |
+| `routers/projects.py` | `/projects` | список, создание, **полное удаление** (`DELETE /{id}`) |
+| `routers/upload.py` | `/projects` | Resumable upload, list artifacts, **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, reextract-entities, conflicts, notes |
 | `routers/speaker_profiles.py` | `/api` | enroll, merge, lab enroll/merge, recalculate, speakers-confirm, rebuild-summary, reindex |
 
@@ -196,8 +275,12 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 |---------|-----|--------|----------|
 | Логотип **SKKKK** | `/` | `base.html` | Список проектов |
 | **к проектам** | `/` | `project.html` nav | То же |
-| `/login` | `/login` | `login.html` | Вход (JWT в localStorage) |
-| `/admin/conflicts` | `/admin/conflicts` | `conflicts.html` | Очередь конфликтов (**admin**, только просмотр JSON) |
+| `/login` | `/login` | `login.html` | Вход: JWT в JSON **и** HttpOnly cookie `skkkk_session` (Bearer из localStorage ещё принимается) |
+| HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
+| `/audio`, `/download`, speaker API | те же URL | — | Без сессии — **401** |
+| `/health` | `/health` | — | Публично только `{"status":"ok"}` |
+| `/health/ready` | `/health/ready` | бейдж LLM в nav | Очередь/VRAM/LLM — только с сессией |
+| `/admin/conflicts` | `/admin/conflicts` | `conflicts.html` | Очередь конфликтов (**admin**, HTML 302→login / 403 не-admin) |
 | `/projects/{id}/graph` | graph | `graph.html` | Cytoscape-граф (GET graph/data) |
 | `/projects/{id}/tz` | tz | `tz.html` | Отдельная страница ТЗ (дублирует rebuild-tz) |
 | `/projects/{id}/chat` | chat | `chat.html` | Отдельный чат (дублирует чат на project) |
@@ -210,7 +293,8 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | **Создать** | `POST /projects` | FastAPI | admin, manager | Проект + `data/projects/{id}/` tree |
 | **Отмена** | — | UI | — | Закрыть модалку |
 | Клик по проекту | — | navigate | любая | `/projects/{id}` |
-| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый текст `description` под названием (если задан при создании) |
+| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый блок: текст описания слева, **Удалить проект** справа (admin/manager). Без описания стрелка всё равно есть, чтобы открыть удаление |
+| **Удалить проект** | `DELETE /projects/{id}` | FastAPI | admin, manager | Сначала модалка «Подтверждение удаления» + чекбокс «Подтверждаю полное удаление»; без галочки кнопка «Удалить» неактивна. Затем полное удаление дерева и записей БД |
 | Авто-загрузка | `GET /projects` | FastAPI | auth | Список активных проектов |
 
 ### 5.4. Страница проекта — `/projects/{id}` (`project.html`)
@@ -239,6 +323,7 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | **Подтвердить спикеров** | `POST /api/artifacts/{id}/speakers-confirm` | При `speakers_pending` → `speakers_confirmed` + job **knowledge** (имена уже в proof/HTML; выжимка из подписанного `docker_gigaam_speakers.json`) |
 | **Pipeline live** (раскрывашка) | тот же GET | lab checklist / knowledge из `pipeline_progress.py` |
 | **Скачать** | `GET /artifacts/{id}/download` | Созвон/видео → **MP3** (`download.mp3`, 64 kbps); документ → оригинал из `raw_inputs/` |
+| **Удалить** | `DELETE /projects/{id}/artifacts/{art_id}` | Узкая колонка после «Ошибка», **иконка корзины** (`aria-label` + подсказка). Модалка «Подтверждение удаления» + чекбокс; без галочки кнопка неактивна. Стирает файл, workspace, parsed, джобы, чанки, сущности этого артефакта. Проект и остальные файлы остаются. Любой залогиненный. |
 | Toast «обработан» | — | Когда статус сменился на `done` |
 
 Статусы в UI: В очереди → Подготовка → ASR → … → **Готово** / **Ошибка**.
@@ -268,7 +353,7 @@ Enter в textarea — тоже отправка. Отдельная страни
 
 #### Дедлайны (сворачиваемый блок, над MCP)
 
-Поручения **со сроком** из сущностей `entity_type=task` (поля `description`, `assignee`, `deadline`, `status`) по всем артефактам проекта. В API и списке — **только** задачи с непустым `deadline`; дедупликация по описанию + ответственный + срок.
+Поручения **со сроком** из сущностей `entity_type=task` (поля `description`, `assignee`, `deadline`, `status`) по всем артефактам проекта. В API и списке — **только** задачи с непустым `deadline`; дедупликация по описанию + ответственный + срок. Оценки длительности этапа («4–6 нед.») и очередность («перед этапом 2») **не** считаются дедлайном.
 
 | Элемент | API | Поведение |
 |---------|-----|-----------|
@@ -281,7 +366,7 @@ Enter в textarea — тоже отправка. Отдельная страни
 
 #### Удалённый доступ MCP (низ страницы проекта)
 
-Read-only MCP (Streamable HTTP) к знаниям **только этого проекта**. Авторизация — ключ `skkkk_mcp_…`, не JWT портала.
+Read-only MCP (Streamable HTTP) к знаниям **только этого проекта**. Авторизация — ключ `skkkk_mcp_…`, не JWT портала. Карточка MCP **скрыта для роли `user`**; `GET /projects/{id}/mcp/info` и выпуск ключей — **admin/manager**.
 
 **UI:** блок **сворачиваемый** (Bootstrap `collapse`, `#mcp-access-panel`). По умолчанию **сложен**; клик по заголовку «Удалённый доступ (MCP)» — развернуть/свернуть, подсказка `(развернуть)` / `(свернуть)` в `#mcp-toggle-hint`. Badge «только чтение» в шапке всегда виден.
 
@@ -300,15 +385,21 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 
 Открывается из таблицы проекта (status=done). Встроенный HTML с плеером.
 
-#### Блок «Итоговая выжимка созвона» (верх)
+#### Блок резюме созвона (верх)
 
-Read-only markdown из `call_summary.md` (собран при knowledge или кнопкой ниже). Таблица «Кто / Что / Срок» — HTML `<table>`, не сырые `|`.
+Две вкладки на одной карточке (переключение без перезагрузки; после reload — `sessionStorage`):
+
+- **Итоговое резюме созвона** — `call_summary.md`, промпт `docs/prompts/call_summary.md` (протокол, таблица «Кто / Что / Срок»).
+- **Краткое резюме созвона** — `call_brief.md`, промпт `docs/prompts/call_brief.md` (пока заготовка: «Отрази просто суть созвона»).
+
+Кнопка **Пересобрать выжимку** пишет **оба** файла (если brief падает — итоговый всё равно сохраняется). ТЗ/чат берут только полный протокол. Word: полная выжимка и краткое резюме — отдельные кнопки.
 
 #### Скачать материалы (под плеером)
 
 | Кнопка | API | Файл |
 |--------|-----|------|
-| **Выжимка Word** | `GET /artifacts/{id}/download/summary.docx` | `.docx` через **python-docx** из `call_summary.md` |
+| **Выжимка Word** | `GET /artifacts/{id}/download/summary.docx` | `.docx` из `call_summary.md` |
+| **Краткое резюме созвона** | `GET /artifacts/{id}/download/brief.docx` | `.docx` из `call_brief.md` |
 | **Стенограмма .txt** | `GET /artifacts/{id}/download/transcript.txt` | `[таймкод] имя: текст` из `docker_gigaam_speakers.json` |
 
 #### Панель «Спикеры и инструменты» (registry)
@@ -316,10 +407,10 @@ Read-only markdown из `call_summary.md` (собран при knowledge или 
 | Кнопка | API | Кто | На чём | Время |
 |--------|-----|-----|--------|-------|
 | **▶** (у спикера) | — | browser | seek audio | мгновенно |
-| **Запомнить** / **Сохранить** | `POST /api/artifacts/{id}/speaker-enroll` | FastAPI → GigaAM embed + DB | match JSON, `speaker_profiles`; lab: `write_prod_view` (proof + имена → speakers.json/HTML), **не** `build_transcript_view` | ~5–20 с |
+| **Запомнить** / **Сохранить** | `POST /api/artifacts/{id}/speaker-enroll` | FastAPI → DB + `write_prod_view` | match JSON, `speaker_profiles`; lab: proof + имена → speakers.json/HTML, **не** `build_transcript_view`, **не** `voice_turn_audit` / GigaAM по всем репликам | ~1–5 с |
 | **Слить** (два ID) | `POST /api/artifacts/{id}/speaker-merge` | FastAPI | merge_map + lab `write_prod_view` | ~1 с |
 | **Пересчитать** (`#recalc`) | `POST /api/artifacts/{id}/speaker-recalculate` | FastAPI | Тот же API, что «Пересчитать подсказки» на match. Lab: cosine `speaker_N` ↔ база. Legacy: Sortformer JSON **этого** артефакта | ~1–20 с |
-| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | FastAPI → имена в speakers.json → `summarize_call.py` → **LLM** | Lab: proof turns с именами, затем HTML из `write_prod_view` (не `SPEAKER_00`). Промпт `call_summary.md` | ~1–5 мин |
+| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | FastAPI → имена в speakers.json → `summarize_call.py` → **LLM** | Lab: proof turns с именами, затем HTML из `write_prod_view`. Промпты `call_summary.md` **и** `call_brief.md` → `call_summary.md` + `call_brief.md` | ~1–5 мин |
 | **Обновить и переиндексировать** | `POST /api/artifacts/{id}/reindex` | FastAPI | rebuild view → `*_final.txt` → **Ollama** index chunks | ~30 с |
 
 После POST-кнопок — `location.reload()`.
@@ -338,7 +429,7 @@ Read-only markdown из `call_summary.md` (собран при knowledge или 
 | Chip фильтр спикера | Фильтр реплик; `unknown` (бесхозные слова lab) на пилюлях нет |
 | Поле поиска `#q` | Фильтр по тексту |
 | Клик по времени / реплике | Seek аудио |
-| `GET /artifacts/{id}/audio` | Поток WAV/M4A |
+| `GET /artifacts/{id}/audio` | Поток WAV/M4A **этого** артефакта; query `clip` игнорируется (не общий `asr/work`) |
 
 ### 5.6. Match спикеров — `/artifacts/{id}/report-speaker-match` (`speaker_match_test.html`)
 
@@ -418,7 +509,8 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/projects/{id}/chat` | *(авто при pending)* | `GET /projects/{id}/chat/status` + poll history |
 | `/projects/{id}/graph` | — | `GET …/graph/data` (Cytoscape) |
 | `/admin/conflicts` | — | `GET …/conflicts` (admin, read-only cards) |
-| `/login` | **Войти** | `POST /auth/login` |
+| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `skkkk_session`) |
+| `/auth/logout` | *(JS `clearSession`)* | `POST /auth/logout` — сброс cookie |
 
 API без кнопок в UI (для будущего / интеграций):  
 `GET …/search`, `POST …/notes`, `POST /links`, `POST /entities/{id}/review`, `POST /conflicts/{id}/resolve`.
@@ -438,15 +530,15 @@ API без кнопок в UI (для будущего / интеграций):
 
 | UI | Кнопка | Scope | Output |
 |----|--------|-------|--------|
-| `/projects/{id}` | **Пересобрать** (выжимка проекта) | весь проект | `current_tz.md` из **всех chunks БД** + entities + notes |
+| `/projects/{id}` | **Пересобрать** (выжимка проекта) | весь проект | `current_tz.md`: аудио из lab `_final.txt`, документы из `chunks`, плюс entities / notes / conflicts / call_summary |
 | `/artifacts/…/report` | **Пересобрать выжимку** | один созвон | `call_summary.md` из полной стенограммы |
 
 ### 5.11. Ограничения выжимок (контекст LLM)
 
 | Выжимка | Вход | Ограничение |
 |---------|------|-------------|
-| **Созвон** (`call_summary.md`) | Вся стенограмма | map ~6000 симв. × N + reduce **4096 tokens** — протокол встречи |
-| **Проект** (`current_tz.md`) | **Все chunks** проекта из `chunks` + entities + notes + conflicts + call_summary | map ~6000 симв. × N + reduce **8192 tokens** |
+| **Созвон** (`call_summary.md` + `call_brief.md`) | Вся стенограмма | итог: map ~6000 × N + reduce **4096**; кратко: тот же map + reduce **1024** |
+| **Проект** (`current_tz.md`) | Аудио: lab `_final.txt` (нет файла → чанки); документы: `chunks`; плюс entities / notes / conflicts / `_call_summary.md` | map ~6000 симв. × N **последовательно** + reduce **8192 tokens**; минуты из‑за N+1 LLM |
 | **Чат** | top‑8 релевантных chunks (semantic search) | только к вопросу, не полная выжимка |
 
 ### 5.12. BPMN: кнопки → API → сервисы → БД/файлы
@@ -543,12 +635,13 @@ flowchart TB
 | sense/giga/proof/voice | `pipeline_lab` | `lab_sense.py` → `lab_giga.py` → `lab_reconcile.py` → `lab_proof.py` → `lab_voice.py` | Cursor + GigaAM + WeSpeaker |
 | публикация | `publish_lab_to_prod` | proof + `voice/match.json` | `write_prod_view`, match HTML, `speakers_pending` |
 | стоп | `process_artifact` | `return` | пока статус `speakers_pending` |
+| knowledge retry (`transcript_ready` / индекс) | `process_artifact` else | lab: `_final.txt` / `apply_confirmed_speaker_names`; **не** `process_audio_artifact` (Whisper/T-one) | иначе старый `pipeline_checklist.json` не находится и срабатывает тройной ASR |
 
 #### Имена спикеров
 
 | Кнопка / событие | API | Функция | Результат |
 |------------------|-----|---------|-----------|
-| **Запомнить** / **Сохранить** (`/report` и `/report-speaker-match`) | `POST /api/artifacts/{id}/speaker-enroll` | `speaker_profiles` enroll + `_safe_rebuild_artifact_views` | БД `speaker_profiles` + links; lab: `apply_confirmed_speaker_names` → `write_prod_view` (имена сразу в turns/HTML/`_final.txt`) |
+| **Запомнить** / **Сохранить** (`/report` и `/report-speaker-match`) | `POST /api/artifacts/{id}/speaker-enroll` | `speaker_profiles` enroll + `_safe_rebuild_artifact_views` | БД `speaker_profiles` + links; lab: `apply_confirmed_speaker_names` → `write_prod_view` (имена сразу в turns/HTML/`_final.txt`). Lab **не** вызывает `voice_turn_audit` (GigaAM по всем репликам) — иначе «Запомнить» висит и блокирует следующих спикеров |
 | **Слить** / **Объединить** | `POST …/speaker-merge` | merge_map + тот же rebuild | два `speaker_N` → один человек |
 | **Пересчитать подсказки** (lab) | `POST …/speaker-recalculate` | cosine `voice/match.json` ↔ `speaker_profiles` | **не** `match_sortformer_speakers`, **не** эталон `experiments/`; confirmed не сбрасываются |
 | **Пересчитать** (legacy, нет lab-прогона) | тот же POST | `recalculate_speaker_match` → `match_sortformer_speakers.run` | только Sortformer JSON **этого** артефакта |
@@ -581,14 +674,16 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | Чат | `knowledge.chat_endpoint` | `chat.answer_chat` — чанки lab-индекса |
 | GET `/report` | `pages.artifact_report_page` | `artifact_audio.ensure_audio_report` → lab: `republish_named_transcript` |
 | Выжимка Word | `pages.artifact_summary_docx_download` | `transcript_export.build_summary_docx_bytes` |
+| Краткое резюме Word | `pages.artifact_brief_docx_download` | `transcript_export.resolve_brief_docx` |
 | Стенограмма .txt | `pages.artifact_transcript_txt_download` | `resolve_transcript_txt` |
 
 #### Выжимка созвона и HTML
 
 | Кнопка | API | Функция | Результат |
 |--------|-----|---------|-----------|
-| **Пересобрать выжимку** | `POST …/rebuild-summary` | `rebuild_artifact_call_summary` | 1) lab: `apply_confirmed_speaker_names`; 2) `run_call_summary` → `asr/summarize_call.py` (вход: **подписанный** `docker_gigaam_speakers.json`, промпт `docs/prompts/call_summary.md`); 3) lab: снова `republish_named_transcript` (вклеить `call_summary.md` в HTML). `summarize_call` **не** вызывает `build_transcript_view`, если есть lab proof |
-| **Выжимка Word** | `GET …/download/summary.docx` | `transcript_export.build_summary_docx_bytes` | GFM-таблица → Word table |
+| **Пересобрать выжимку** | `POST …/rebuild-summary` | `rebuild_artifact_call_summary` | 1) lab: `apply_confirmed_speaker_names`; 2) `run_call_summary` → `asr/summarize_call.py` (вход: **подписанный** `docker_gigaam_speakers.json`, промпты `docs/prompts/call_summary.md` и `call_brief.md` → `call_summary.md` + `call_brief.md`); 3) lab: `republish_named_transcript` (вкладки в HTML). `summarize_call` **не** вызывает `build_transcript_view`, если есть lab proof |
+| **Выжимка Word** | `GET …/download/summary.docx` | `transcript_export.build_summary_docx_bytes` | Calibri (в т.ч. кириллица), поля A4, шапка таблицы `#5B7FA6`, zebra, списки с выступом, `**`/`*`/`` ` `` |
+| **Краткое резюме созвона** | `GET …/download/brief.docx` | `transcript_export.resolve_brief_docx` | тот же рендер, заголовок «Краткое резюме созвона», файл `{имя}_краткое_резюме.docx` |
 | **Стенограмма .txt** | `GET …/download/transcript.txt` | `resolve_transcript_txt` | таймкоды + имена из speakers.json |
 | **Обновить и переиндексировать** | `POST …/reindex` | `refresh_artifact_project_index` | тот же lab-rebuild HTML + Ollama chunks |
 
@@ -604,7 +699,8 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | `lab/runs/{id}/voice/match.json` | `lab_voice.py` | enroll/recalc lab |
 | `reports/sortformer_speaker_match.json` | publish + enroll | имена, registry UI |
 | `asr/docker_gigaam_speakers.json` | `write_prod_view` | `/report`, `summarize_call`, скачать .txt |
-| `asr/call_summary.md` | `summarize_call.py` | блок выжимки, Word |
+| `asr/call_summary.md` | summarize_call.py | вкладка «Итоговое резюме», Word |
+| `asr/call_brief.md` | summarize_call.py | вкладка «Краткое резюме» |
 | `reports/transcript.html` | `write_prod_view` + `finalize_audio_outputs` | GET `/report` |
 | `parsed/calls/{id}_final.txt` | `finalize_audio_outputs` | индекс, ТЗ |
 
@@ -636,10 +732,12 @@ data/projects/{project_id}/
 │   │   ├── docker_gigaam_speakers.json   # реплики для UI/summary
 │   │   ├── transcript_integrity.json
 │   │   ├── call_summary.md
+│   │   ├── call_brief.md
 │   │   └── transcript.html
 │   ├── reports/                          # копии для UI
 │   │   ├── transcript.html
 │   │   ├── call_summary.md
+│   │   ├── call_brief.md
 │   │   └── sortformer_speaker_match.json
 │   └── lab/                              # боевой ASR: изоляция прогонов
 │       ├── latest.json                   # указатель на последний прогон
@@ -660,7 +758,8 @@ data/projects/{project_id}/
 ├── parsed/calls/
 │   ├── {id}_final.txt
 │   ├── {id}_transcript.html
-│   └── {id}_call_summary.md
+│   ├── {id}_call_summary.md
+│   └── {id}_call_brief.md
 └── structured/{id}_entities.json
 ```
 
@@ -686,15 +785,16 @@ data/projects/{project_id}/
 | `artifact_lab.py` | Лаборатория: список прогонов, выбор прогона, отдача файлов; fallback запрещён |
 | `media_cleanup.py` | удаление видео-оригинала после проверки `input_16k.wav` |
 | `speaker_profiles.py` | enroll/merge/recalculate; lab enroll в `voice/match.json`; **global pool** подтверждённых голосов (все проекты) |
-| `entities.py` | LLM extract + persist entities JSON |
+| `entities.py` | LLM extract + persist entities JSON; upsert `entity_vectors` |
 | `indexing.py` | chunk → Ollama embed → chunks + chunk_vectors; аудио из lab `_final.txt`; `audit_project_index` |
-| `vector_index.py` | sqlite-vec CRUD для artifact chunks |
-| `graph.py` | seed entities/links, conflicts |
-| `tz.py` | rebuild TZ (map/reduce по всем chunks проекта + entities + notes) |
+| `vector_index.py` | sqlite-vec CRUD чанков (vec0 kNN) и кэш сущностей (`entity_vectors` BLOB по id) |
+| `graph.py` | seed entities/links, conflicts; `delete_entities_with_deps` (resolutions → links → note_refs → entities); читает `entity_vectors` |
+| `tz.py` | rebuild TZ: аудио из lab `_final.txt`, документы из chunks; map/reduce + entities + notes + conflicts |
 | `chat.py` | RAG chat over project; history in `chat_messages` |
 | `models/chat_message.py` | Per-user chat log (`project_id` + `user_id`) |
 | `chunking.py` | split transcript / plain text; lab `[таймкод] Имя:` → поле `speaker` без скобок |
 | `storage.py` | paths: artifact_root, parsed, structured |
+| `project_purge.py` | полное удаление проекта **или одного артефакта**: БД + файлы (`data/projects/{id}/` целиком либо `artifacts/{art_id}/` + оригинал/parsed) |
 | `status.py` | artifact status transitions |
 | `auth.py` | JWT, role passwords |
 | `upload.py` / `resumable_upload.py` | file registration |
@@ -764,7 +864,7 @@ data/projects/{project_id}/
 | `transcript_view.py` | HTML renderer + JS (recalc, summary, reindex) |
 | `build_speaker_match_view.py` | HTML страница match |
 | `speaker_registry.py` | enroll/merge в UI |
-| `summarize_call.py` | Map/reduce выжимка → call_summary.md из `docker_gigaam_speakers.json`. Lab: не вызывает `build_transcript_view`; HTML обновляет `write_prod_view` |
+| `summarize_call.py` | Map/reduce: `call_summary.md` (протокол) + `call_brief.md` (кратко) из `docker_gigaam_speakers.json`. Lab: HTML через `write_prod_view` |
 
 ### 8.5. Лаборатория (`asr/lab/`) — боевой конвейер
 
@@ -831,7 +931,8 @@ run_pipeline
 | Файл | Используется в |
 |------|----------------|
 | `merge_transcript.md` | merge_ensemble.py |
-| `call_summary.md` | summarize_call.py |
+| `call_summary.md` | summarize_call.py (итоговое резюме) |
+| `call_brief.md` | summarize_call.py (краткое резюме) |
 | `extract_entities.md` | entities.py |
 | `normalize_document.md` | pipeline_documents |
 | `extract_image_vision.md` | image_extract |
@@ -852,6 +953,7 @@ run_pipeline
 | `rerun_transcript_integrity.py` | Только integrity + plain + view |
 | `resume_knowledge.py` | Догнать knowledge phase |
 | `inspect_project_index.py` | Сверка чанков sqlite-vec с lab `_final.txt` (`--project 18`) |
+| `refresh_portal_knowledge.py` | Пересборка выжимок созвонов + индекс + сущности + ТЗ (`--project 19` / `--all`) |
 | `rebuild_artifact_report.py` | Пересборка отчёта артефакта |
 | `monitor_status.py` / `monitor_skkkk_loop.ps1` | Мониторинг сервера |
 | `scripts/start.ps1` | Запуск API+воркер: `-Llm cursor|gemma` или из `.env` |
@@ -866,7 +968,7 @@ run_pipeline
 
 | Путь | Что покрывает |
 |------|---------------|
-| `app/app/tests/` | API routes, auth, TZ counting, artifact actions, страница лаборатории, lab enroll |
+| `app/app/tests/` | API routes, auth, cookie, TZ, artifact actions/purge, user scenarios, страница лаборатории, lab enroll |
 | `app/app/tests/test_pipeline_lab.py` | publish `speaker_N`, `republish_named_transcript` пишет имена |
 | `app/app/tests/test_artifact_audio.py` | lab rebuild не вызывает `build_transcript_view` |
 | `asr/tests/test_summarize_lab_view.py` | `lab_proof_is_canonical` |
@@ -875,10 +977,13 @@ run_pipeline
 | `asr/tests/test_lab_stages.py` | Слова из токенов, покраска, реплики, клипы, бинаризация |
 | `asr/tests/test_lab_voice.py` | Клипы из overlay-слов, lab match.json без Docker |
 | `app/app/tests/test_lab_enroll.py` | Enroll/merge пишет lab match и не трогает прод JSON |
+| `app/app/tests/test_projects.py` | создание проекта, `DELETE /projects/{id}` |
+| `app/app/tests/test_artifact_purge.py` | `DELETE` артефакта, FK entities/links, HTML иконки |
+| `app/app/tests/test_user_scenarios.py` | сквозные сценарии портала (в т.ч. s31 purge) |
 | `docs/TESTING.md` | Стратегия, команды pytest |
 
 ```powershell
-py -m pytest app/app/tests asr/tests -q
+venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 ```
 
 ---
@@ -887,7 +992,7 @@ py -m pytest app/app/tests asr/tests -q
 
 | Система | Переменные .env | Когда нужна |
 |---------|-----------------|-------------|
-| LM Studio | `LMSTUDIO_*`, `LLM_PROVIDER=lmstudio` | Merge, entities, summary, TZ, chat |
+| LM Studio | `LMSTUDIO_*`, `LLM_PROVIDER=lmstudio` | Sense, proof, entities, summary, TZ, chat (Gemma в VRAM; ASR в этот момент выгружен) |
 | Cursor API | `CURSOR_*`, `LLM_PROVIDER=cursor` | То же, без VRAM Gemma |
 | Ollama bge-m3 | `OLLAMA_*` | Индекс артефактов, search |
 | Docker ASR | `GIGAAM_URL` | Прод: GigaAM (второй слух + embed). Whisper/T-one URL — откат |
@@ -913,9 +1018,10 @@ py -m pytest app/app/tests asr/tests -q
 2. **Новая кнопка / страница UI** → §5 (соответствующий подраздел) и при необходимости §5.13; для нетривиального layout — node `ui_pattern` в `manifest.yaml`.
 3. **Новый API** → §5.1 + §5.9.
 4. **Новый файл в data/** → §6.
-5. После архитектурных изменений → `py scripts/index_project_map.py`
-6. Агенты: правило `.cursor/rules/07-project-map.mdc`.
+5. **Версии моделей, кодеков, пакетов** → §1.1; SHA256 лаборатории → `asr/lab/FREEZE.md`. Не менять молча.
+6. После архитектурных изменений → `venv\Scripts\python.exe scripts\index_project_map.py` (нужен Ollama bge-m3). Граф агентов: `lightrag_sync_docs.py` + `lightrag_index.py --wait`.
+7. Агенты: правило `.cursor/rules/07-project-map.mdc`.
 
 ---
 
-*Последнее обновление карты: 2026-08-27 — кнопка «Пересобрать» блокируется на время автосбора ТЗ.*
+*Последнее обновление карты: 2026-08-28 — refresh_portal_knowledge.py (выжимки + индекс + ТЗ).*

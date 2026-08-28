@@ -1,9 +1,62 @@
 from app.app.services.entities import (
     EntitiesPayload,
     TaskItem,
+    is_duration_estimate,
+    is_informational_schedule,
+    is_stage_sequence_phrase,
     merge_related_tasks,
     normalize_entities_payload,
 )
+
+
+def test_duration_estimate_is_not_a_deadline():
+    assert is_duration_estimate("4–6 нед.")
+    assert is_duration_estimate("8–12 недель")
+    assert is_duration_estimate("8–12 недель после приёмки этапа 1")
+    assert is_duration_estimate("на этапе MVP (4–6 недель)")
+    assert not is_duration_estimate("до конца недели")
+    assert not is_duration_estimate("перед этапом 2")
+    assert not is_duration_estimate("к пятнице")
+    assert not is_duration_estimate("за неделю, возможно меньше (до 2026-09-03)")
+
+
+def test_stage_sequence_is_not_a_deadline():
+    assert is_stage_sequence_phrase("перед этапом 2")
+    assert is_stage_sequence_phrase("после этапа 1")
+    assert is_stage_sequence_phrase("после приёмки этапа 1")
+    assert is_stage_sequence_phrase("на этапе MVP")
+    assert is_informational_schedule("перед этапом 2")
+    assert not is_stage_sequence_phrase("до конца недели")
+    assert not is_stage_sequence_phrase("к пятнице")
+    assert not is_informational_schedule("к 15.03, перед этапом 2")
+
+
+def test_normalize_strips_stage_duration_deadline():
+    payload = EntitiesPayload(
+        tasks=[
+            TaskItem(
+                description="Этап 1 MVP: настройка коннектора",
+                assignee="Исполнитель",
+                deadline="4–6 нед.",
+            )
+        ]
+    )
+    out = normalize_entities_payload(payload)
+    assert out.tasks[0].deadline is None
+
+
+def test_normalize_strips_stage_sequence_deadline():
+    payload = EntitiesPayload(
+        tasks=[
+            TaskItem(
+                description="Перед этапом 2 нужно сделать нормализацию номенклатуры",
+                assignee="Заказчик",
+                deadline="перед этапом 2",
+            )
+        ]
+    )
+    out = normalize_entities_payload(payload)
+    assert out.tasks[0].deadline is None
 
 
 def test_normalize_moves_deadline_from_decision_to_matching_task():

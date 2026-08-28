@@ -2,24 +2,39 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from app.app.models.job import Job
 
 
 def requeue_orphaned_jobs(db: Session, max_attempts: int) -> int:
+    exhausted = db.execute(
+        update(Job)
+        .where(Job.status == "running", Job.attempts >= max_attempts)
+        .values(status="error", error_message="max attempts after worker restart")
+    )
+    db.commit()
     q = (
         update(Job)
-        .where(Job.status == "running")
+        .where(Job.status == "running", Job.attempts < max_attempts)
         .values(status="queued", started_at=None, error_message="requeued after worker restart")
     )
     result = db.execute(q)
     db.commit()
-    return result.rowcount or 0
+    return (result.rowcount or 0) + (exhausted.rowcount or 0)
 
 
 def claim_next_job(db: Session, max_attempts: int) -> Job | None:
+    db.commit()
+    try:
+        db.execute(text("BEGIN IMMEDIATE"))
+    except Exception as exc:
+        # SQLAlchemy already opened a transaction after commit(); SQLite then
+        # rejects a nested BEGIN. The UPDATE ... WHERE status='queued' below
+        # still serializes claims for the single GPU worker.
+        if "within a transaction" not in str(exc).lower() and "cannot start" not in str(exc).lower():
+            raise
     job = db.scalar(
         select(Job)
         .where(Job.status == "queued", Job.attempts < max_attempts)

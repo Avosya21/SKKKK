@@ -164,6 +164,9 @@ def rebuild(
     summary = parsed / f"{artifact_id}_call_summary.md"
     if summary.is_file():
         (asr_out / "call_summary.md").write_text(summary.read_text(encoding="utf-8"), encoding="utf-8")
+    brief = parsed / f"{artifact_id}_call_brief.md"
+    if brief.is_file():
+        (asr_out / "call_brief.md").write_text(brief.read_text(encoding="utf-8"), encoding="utf-8")
 
     env = os.environ.copy()
     env["SKKKK_ASR_WORK"] = str(audio_dir)

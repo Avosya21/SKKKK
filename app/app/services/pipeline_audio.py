@@ -18,7 +18,7 @@ from app.app.models.entity import AsrRun
 from app.app.services.artifact_audio import finalize_audio_outputs
 from app.app.services.media_cleanup import maybe_discard_video_source, reconcile_artifact_source_path
 from app.app.services.pipeline_resume import should_continue_asr
-from app.app.services.notify import send_telegram
+from app.app.services.notify import notify_artifact_user
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_audio_path, artifact_audio_url, ensure_artifact_workspace
 
@@ -223,6 +223,13 @@ def _run_voice_turn_audit(env: dict[str, str], artifact: Artifact) -> dict:
 
 
 def process_audio_artifact(db: Session, settings: Settings, artifact: Artifact) -> str:
+    from app.app.services.artifact_lab import latest_run_id
+
+    if latest_run_id(settings, artifact):
+        raise RuntimeError(
+            f"legacy Whisper/T-one ASR refused for lab artifact {artifact.artifact_id}"
+        )
+
     src = Path(artifact.file_path)
     wav = artifact_audio_path(settings, artifact.artifact_id, artifact.project_id)
     if not src.is_file():
@@ -313,5 +320,5 @@ def process_audio_artifact(db: Session, settings: Settings, artifact: Artifact) 
     log_event(logger, "transcript.ready", artifact=artifact.artifact_id, chars=len(text), file=final_path.name)
     set_status(db, artifact, "transcript_ready")
 
-    send_telegram(settings, str(artifact.user_id), f"Стенограмма готова: {artifact.original_filename}")
+    notify_artifact_user(db, settings, artifact, f"Стенограмма готова: {artifact.original_filename}")
     return text

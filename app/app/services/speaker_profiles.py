@@ -719,10 +719,9 @@ def enroll_speaker(
     if rebuild_views:
         _safe_rebuild_artifact_views(db, project_id=project_id, artifact_id=artifact_id)
         if not was_already_confirmed:
-            try:
-                reaudit_voices_and_reindex(db, project_id=project_id, artifact_id=artifact_id)
-            except Exception:
-                logger.exception("voice reaudit after enroll failed for %s", artifact_id)
+            _maybe_reaudit_voices_after_names(
+                db, project_id=project_id, artifact_id=artifact_id, payload=payload
+            )
     return profile
 
 
@@ -871,10 +870,9 @@ def merge_speakers(
     _write_match_payload(out_path, payload)
     if rebuild_views:
         _safe_rebuild_artifact_views(db, project_id=project_id, artifact_id=artifact_id)
-        try:
-            reaudit_voices_and_reindex(db, project_id=project_id, artifact_id=artifact_id)
-        except Exception:
-            logger.exception("voice reaudit after merge failed for %s", artifact_id)
+        _maybe_reaudit_voices_after_names(
+            db, project_id=project_id, artifact_id=artifact_id, payload=payload
+        )
     return {
         "source": source_diar_label,
         "target": target_diar_label,
@@ -1031,11 +1029,29 @@ def _safe_rebuild_artifact_views(db: Session, *, project_id: int, artifact_id: s
         logger.exception("transcript HTML rebuild failed for %s", artifact_id)
 
 
+def _is_lab_match(payload: dict | None) -> bool:
+    return str((payload or {}).get("source") or "").strip().lower() == "lab"
+
+
+def _maybe_reaudit_voices_after_names(
+    db: Session, *, project_id: int, artifact_id: str, payload: dict | None
+) -> None:
+    """WeSpeaker-audit всех реплик — только legacy. Lab уже размечен Sortformer."""
+    if _is_lab_match(payload):
+        logger.info("skip voice reaudit after name save for lab %s", artifact_id)
+        return
+    try:
+        reaudit_voices_and_reindex(db, project_id=project_id, artifact_id=artifact_id)
+    except Exception:
+        logger.exception("voice reaudit after name save failed for %s", artifact_id)
+
+
 def reaudit_voices_and_reindex(db: Session, *, project_id: int, artifact_id: str) -> dict:
     """Повторный voice audit после смены имён; при правках — обновить текст и индекс."""
     import sys
 
     from app.app.config import get_settings
+    from app.app.services.artifact_lab import latest_run_id
     from app.app.services.indexing import index_artifact
     from app.app.services.storage import ensure_artifact_workspace
 
@@ -1047,6 +1063,9 @@ def reaudit_voices_and_reindex(db: Session, *, project_id: int, artifact_id: str
     )
     if artifact is None:
         return {"ok": False, "reason": "no_artifact"}
+    if latest_run_id(settings, artifact):
+        logger.info("skip voice reaudit for lab artifact %s", artifact_id)
+        return {"ok": True, "auto_n": 0, "reindexed": False, "skipped": "lab"}
 
     ws = ensure_artifact_workspace(settings, project_id, artifact_id)
     speakers = ws / "asr" / "docker_gigaam_speakers.json"
@@ -1086,7 +1105,7 @@ def reaudit_voices_and_reindex(db: Session, *, project_id: int, artifact_id: str
 
 
 def rebuild_artifact_call_summary(db: Session, *, project_id: int, artifact_id: str) -> dict:
-    """Пересобрать call_summary.md и обновить HTML (LLM, фаза knowledge)."""
+    """Пересобрать call_summary.md + call_brief.md и обновить HTML (LLM)."""
     from app.app.config import get_settings
     from app.app.llm_labels import llm_unavailable_hint
     from app.app.models.artifact import Artifact

@@ -89,3 +89,49 @@ def test_render_transcript_embeds_html_table():
     assert "<table class=\"summary-table\">" in html
     assert "summary-table-wrap" in html
     assert "<td>А</td>" in html
+    assert 'role="tablist"' in html
+    assert "Итоговое резюме созвона" in html
+    assert "Краткое резюме созвона" in html
+    assert "Пересобрать выжимку" in html
+
+
+def test_render_transcript_brief_tab_and_placeholder():
+    html = render_transcript_html(
+        title="test",
+        audio_url="/a",
+        turns=[],
+        summary_md="## Итог\n\n- договорённость",
+        brief_md="",
+        artifact_id="art_t",
+        project_id=1,
+    )
+    assert "Итоговое резюме созвона" in html
+    assert "Краткое резюме созвона" in html
+    assert "договорённость" in html
+    assert "Краткое резюме ещё не собрано" in html
+    assert 'id="panel-summary-brief"' in html
+    assert 'hidden' in html
+
+
+def test_render_transcript_shows_brief_text():
+    html = render_transcript_html(
+        title="test",
+        audio_url="/a",
+        turns=[],
+        summary_md="полное",
+        brief_md="суть созвона одним абзацем",
+    )
+    assert "суть созвона одним абзацем" in html
+    assert "полное" in html
+
+
+def test_summary_to_html_inline_and_numbered():
+    html = _summary_to_html(
+        "## Тема\n\n- **жирный** и *курсив* и `код`\n1. Первый\n2. Второй"
+    )
+    assert "<strong>жирный</strong>" in html
+    assert "<em>курсив</em>" in html
+    assert "<code>код</code>" in html
+    assert "<ol>" in html
+    assert "<li>Первый</li>" in html
+    assert "<li>Второй</li>" in html

@@ -296,6 +296,10 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
 
         if not deadline_text:
             continue
+        from app.app.services.entities import is_informational_schedule
+
+        if is_informational_schedule(deadline_text):
+            continue
 
         dedupe_key = (_normalize_key(description), _normalize_key(assignee_text or ""), _normalize_key(deadline_text))
         if dedupe_key in seen:

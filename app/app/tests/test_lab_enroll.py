@@ -233,4 +233,19 @@ def test_lab_enroll_api_404_without_match(client: TestClient, tmp_data: Path, ad
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == 404
-    assert "lab_voice" in response.json()["detail"]
+
+
+def test_lab_skips_voice_reaudit(client: TestClient, db_engine, tmp_data: Path, admin_token: str):
+    from app.app.db import SessionLocal
+    from app.app.services.speaker_profiles import reaudit_voices_and_reindex
+
+    project_id, artifact_id = _seed_artifact("art_lab_skip_audit")
+    _make_run(tmp_data, project_id, artifact_id)
+    db = SessionLocal()
+    try:
+        result = reaudit_voices_and_reindex(db, project_id=project_id, artifact_id=artifact_id)
+        assert result["ok"] is True
+        assert result.get("skipped") == "lab"
+        assert result.get("auto_n") == 0
+    finally:
+        db.close()

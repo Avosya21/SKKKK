@@ -15,7 +15,7 @@ from app.app.services.gpu_phase import prepare_for_llm
 from app.app.services.graph import seed_graph
 from app.app.services.indexing import index_artifact
 from app.app.services.pipeline_audio import run_call_summary
-from app.app.services.notify import send_telegram
+from app.app.services.notify import notify_artifact_user
 from app.app.services.status import set_status
 from app.app.services.tz import maybe_auto_rebuild_tz
 
@@ -102,4 +102,4 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
         project_id=artifact.project_id,
     )
 
-    send_telegram(settings, str(artifact.user_id), f"Обработка завершена: {artifact.original_filename}")
+    notify_artifact_user(db, settings, artifact, f"Обработка завершена: {artifact.original_filename}")

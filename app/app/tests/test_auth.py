@@ -10,6 +10,12 @@ def test_login_creates_user_with_admin_role(client, admin_token):
     assert r.status_code == 200
 
 
+def test_login_sets_session_cookie(client, admin_token):
+    from app.app.dependencies import SESSION_COOKIE_NAME
+
+    assert client.cookies.get(SESSION_COOKIE_NAME)
+
+
 def test_login_existing_user_wrong_password_401(client, admin_token):
     r = client.post(
         "/auth/login",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from typing import Any
 
 _CONFIGURED: set[str] = set()
@@ -34,7 +35,12 @@ def setup_logging(component: str, log_dir, level: int = logging.INFO) -> None:
     console = logging.StreamHandler(stream=sys.stdout)
     console.setFormatter(formatter)
 
-    file_handler = logging.FileHandler(log_dir / f"{component}.log", encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        log_dir / f"{component}.log",
+        maxBytes=20 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
 
     root = logging.getLogger()

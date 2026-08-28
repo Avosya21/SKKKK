@@ -56,27 +56,6 @@ def test_process_artifact_retries_error_via_lab(tmp_path):
     asr_mock.assert_not_called()
 
 
-def test_process_artifact_retries_error_via_lab(tmp_path):
-    from app.app.workers.pipeline import process_artifact
-
-    settings = Settings(secret_key="x" * 16, voice_gate_before_asr=True, data_dir=tmp_path)
-    artifact = _Art(
-        artifact_id="art_err",
-        project_id=1,
-        file_type="audio",
-        status="error",
-        original_filename="call.webm",
-    )
-    db = MagicMock()
-
-    with patch("app.app.services.pipeline_lab.process_lab_artifact", return_value="") as lab_mock:
-        with patch("app.app.services.pipeline_audio.process_audio_artifact") as asr_mock:
-            process_artifact(db, settings, artifact)
-
-    lab_mock.assert_called_once_with(db, settings, artifact)
-    asr_mock.assert_not_called()
-
-
 def test_process_artifact_stops_on_speakers_pending(tmp_path):
     from app.app.workers.pipeline import process_artifact
 
@@ -172,3 +151,113 @@ def test_confirm_speakers_enqueues_knowledge_job():
     assert result["job_id"] == 7
     assert len(added) == 1
     assert added[0].phase == "knowledge"
+
+
+def test_process_artifact_knowledge_retry_does_not_run_legacy_asr(tmp_path):
+    from app.app.workers.pipeline import process_artifact
+
+    settings = Settings(secret_key="x" * 16, voice_gate_before_asr=True, data_dir=tmp_path)
+    artifact = _Art(
+        artifact_id="art_retry",
+        project_id=1,
+        file_type="audio",
+        source_type="call",
+        status="transcript_ready",
+        original_filename="call.webm",
+        transcription_text="",
+        transcription_file_path="",
+    )
+    db = MagicMock()
+
+    with patch(
+        "app.app.workers.pipeline.try_resume_transcript",
+        return_value="[00:00] Елена: привет",
+    ):
+        with patch("app.app.services.pipeline_audio.process_audio_artifact") as asr_mock:
+            with patch("app.app.workers.pipeline.run_knowledge_pipeline") as knowledge_mock:
+                process_artifact(db, settings, artifact)
+
+    asr_mock.assert_not_called()
+    knowledge_mock.assert_called_once()
+
+
+def test_process_artifact_lab_retry_without_resume_skips_whisper(tmp_path):
+    from app.app.workers.pipeline import process_artifact
+
+    settings = Settings(secret_key="x" * 16, voice_gate_before_asr=True, data_dir=tmp_path)
+    artifact = _Art(
+        artifact_id="art_retry_lab",
+        project_id=1,
+        file_type="audio",
+        source_type="call",
+        status="transcript_ready",
+        original_filename="call.webm",
+        transcription_text="",
+        transcription_file_path="",
+    )
+    db = MagicMock()
+
+    with patch("app.app.workers.pipeline.try_resume_transcript", return_value=None):
+        with patch("app.app.services.artifact_lab.latest_run_id", return_value="run_lab"):
+            with patch(
+                "app.app.services.pipeline_lab.apply_confirmed_speaker_names",
+                return_value="[00:00] Елена: привет",
+            ) as names_mock:
+                with patch("app.app.services.pipeline_audio.process_audio_artifact") as asr_mock:
+                    with patch("app.app.workers.pipeline.run_knowledge_pipeline"):
+                        process_artifact(db, settings, artifact)
+
+    names_mock.assert_called_once()
+    asr_mock.assert_not_called()
+
+
+def test_process_artifact_without_lab_run_sets_error(tmp_path):
+    from app.app.workers.pipeline import process_artifact
+
+    settings = Settings(secret_key="x" * 16, voice_gate_before_asr=True, data_dir=tmp_path)
+    artifact = _Art(
+        artifact_id="art_no_lab",
+        project_id=1,
+        file_type="audio",
+        source_type="call",
+        status="transcript_ready",
+        original_filename="call.webm",
+        transcription_text="",
+        transcription_file_path="",
+        error_message=None,
+    )
+    db = MagicMock()
+
+    with patch("app.app.workers.pipeline.try_resume_transcript", return_value=None):
+        with patch("app.app.services.artifact_lab.latest_run_id", return_value=None):
+            with patch("app.app.services.pipeline_audio.process_audio_artifact") as asr_mock:
+                with patch("app.app.workers.pipeline.run_knowledge_pipeline") as knowledge_mock:
+                    process_artifact(db, settings, artifact)
+
+    asr_mock.assert_not_called()
+    knowledge_mock.assert_not_called()
+    assert artifact.status == "error"
+    assert "lab" in (artifact.error_message or "").lower()
+
+
+def test_legacy_asr_refuses_lab_artifact(tmp_path):
+    from app.app.services.pipeline_audio import process_audio_artifact
+
+    settings = Settings(secret_key="x" * 16, data_dir=tmp_path)
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"RIFF")
+    artifact = _Art(
+        artifact_id="art_lab_asr",
+        project_id=1,
+        file_type="audio",
+        file_path=str(wav),
+        original_filename="call.webm",
+    )
+
+    with patch("app.app.services.artifact_lab.latest_run_id", return_value="run_lab"):
+        try:
+            process_audio_artifact(MagicMock(), settings, artifact)
+        except RuntimeError as exc:
+            assert "legacy Whisper/T-one" in str(exc)
+        else:
+            raise AssertionError("lab artifact must not enter Whisper/T-one")

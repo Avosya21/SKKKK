@@ -25,15 +25,71 @@ def test_user_cannot_create_project_403(client, user_token):
     assert r.status_code == 403
 
 
-def test_only_admin_can_archive_project(client, admin_token, manager_token, user_token):
-    r = client.post(
+def test_user_cannot_delete_project(client, manager_token, user_token):
+    pid = client.post(
         "/projects",
-        json={"name": "Archive me"},
+        json={"name": "Keep"},
         headers={"Authorization": f"Bearer {manager_token}"},
-    )
-    pid = r.json()["id"]
-    assert client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"}).status_code == 403
+    ).json()["id"]
     assert client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {user_token}"}).status_code == 403
+    assert client.get(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"}).status_code == 200
+
+
+def test_manager_purge_removes_files_and_db(client, manager_token, user_token, tmp_data):
+    import io
+
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.project import Project
+
+    headers = {"Authorization": f"Bearer {manager_token}"}
+    keep = client.post("/projects", json={"name": "Keep me"}, headers=headers).json()
+    gone = client.post(
+        "/projects",
+        json={"name": "Wipe me", "description": "к удалению"},
+        headers=headers,
+    ).json()
+    pid = gone["id"]
+    settings = get_settings()
+    root = project_root(settings, pid)
+    marker = root / "raw_inputs" / "notes" / "secret.txt"
+    marker.write_text("wipe", encoding="utf-8")
+    client.post(
+        f"/projects/{pid}/upload",
+        headers={"Authorization": f"Bearer {user_token}"},
+        data={"source_type": "note"},
+        files=[("files", ("hello.txt", io.BytesIO(b"hello"), "text/plain"))],
+    )
+    keep_root = project_root(settings, keep["id"])
+    keep_marker = keep_root / "raw_inputs" / "notes" / "stay.txt"
+    keep_marker.write_text("stay", encoding="utf-8")
+
+    r = client.delete(f"/projects/{pid}", headers=headers)
+    assert r.status_code == 204
+    assert not root.exists()
+    assert keep_marker.is_file()
+    assert client.get(f"/projects/{pid}", headers=headers).status_code == 404
+    ids = [p["id"] for p in client.get("/projects", headers=headers).json()]
+    assert pid not in ids
+    assert keep["id"] in ids
+
+    db = SessionLocal()
+    try:
+        from sqlalchemy import select
+
+        assert db.get(Project, pid) is None
+        leftover = db.scalars(select(Artifact).where(Artifact.project_id == pid)).all()
+        assert leftover == []
+    finally:
+        db.close()
+
+
+def test_admin_can_delete_project(client, admin_token, manager_token):
+    pid = client.post(
+        "/projects",
+        json={"name": "Admin wipe"},
+        headers={"Authorization": f"Bearer {manager_token}"},
+    ).json()["id"]
     assert client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {admin_token}"}).status_code == 204
 
 
@@ -108,6 +164,15 @@ def test_project_name_with_path_chars_is_sanitized(client, manager_token):
 def test_list_projects_visible_to_all_roles(client, admin_token, user_token):
     assert client.get("/projects", headers={"Authorization": f"Bearer {admin_token}"}).status_code == 200
     assert client.get("/projects", headers={"Authorization": f"Bearer {user_token}"}).status_code == 200
+
+
+def test_projects_page_asks_delete_confirmation(client, manager_token):
+    r = client.get("/", headers={"Authorization": f"Bearer {manager_token}"})
+    assert r.status_code == 200
+    html = r.text
+    assert 'id="deleteProjectModal"' in html
+    assert "Подтверждаю полное удаление проекта" in html
+    assert "Подтверждение удаления" in html
 
 
 def test_list_projects_returns_description(client, manager_token):

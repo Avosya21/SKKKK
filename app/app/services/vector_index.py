@@ -4,6 +4,10 @@
 недопустимо: SQLite допускает только одного писателя, а сессия в этот момент
 держит открытую транзакцию — второй писатель гарантированно получал
 `database is locked`.
+
+``chunk_vectors`` — vec0, kNN для чата/поиска.
+``entity_vectors`` — обычная таблица BLOB по ``entity_id`` (не WeSpeaker, не kNN).
+Смена канона ``entity_text`` без смены id делает кэш лживым: тогда DROP/пересоздать таблицу.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ import struct
 from typing import Any
 
 import sqlite_vec
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
@@ -56,10 +60,70 @@ def init_vector_store(engine: Engine) -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS entity_vectors (
+                    entity_id INTEGER PRIMARY KEY,
+                    embedding BLOB NOT NULL
+                )
+                """
+            )
+        )
 
 
 def serialize_float32(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
+
+
+def deserialize_float32(blob: bytes) -> list[float]:
+    expected = EMBED_DIM * 4
+    if not blob or len(blob) != expected:
+        return []
+    return list(struct.unpack(f"{EMBED_DIM}f", blob))
+
+
+_LOAD_BATCH = 400
+
+
+def upsert_entity_vectors(db: Session, pairs: list[tuple[int, list[float]]]) -> None:
+    if not pairs:
+        return
+    conn = _prepare(db.connection())
+    for entity_id, vec in pairs:
+        conn.execute(text("DELETE FROM entity_vectors WHERE entity_id = :id"), {"id": entity_id})
+        conn.execute(
+            text("INSERT INTO entity_vectors(entity_id, embedding) VALUES (:id, :emb)"),
+            {"id": entity_id, "emb": serialize_float32(vec)},
+        )
+
+
+def delete_vectors_for_entities(db: Session, entity_ids: list[int]) -> None:
+    if not entity_ids:
+        return
+    conn = _prepare(db.connection())
+    for eid in entity_ids:
+        conn.execute(text("DELETE FROM entity_vectors WHERE entity_id = :id"), {"id": eid})
+
+
+def load_entity_vectors(db: Session, entity_ids: list[int]) -> dict[int, list[float]]:
+    if not entity_ids:
+        return {}
+    conn = _prepare(db.connection())
+    sql = text("SELECT entity_id, embedding FROM entity_vectors WHERE entity_id IN :ids").bindparams(
+        bindparam("ids", expanding=True)
+    )
+    out: dict[int, list[float]] = {}
+    unique = list(dict.fromkeys(entity_ids))
+    for start in range(0, len(unique), _LOAD_BATCH):
+        batch = unique[start : start + _LOAD_BATCH]
+        rows = conn.execute(sql, {"ids": batch}).mappings().all()
+        for row in rows:
+            vec = deserialize_float32(row["embedding"])
+            if len(vec) != EMBED_DIM:
+                continue
+            out[int(row["entity_id"])] = vec
+    return out
 
 
 def upsert_vectors(db: Session, pairs: list[tuple[int, list[float]]]) -> None:

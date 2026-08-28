@@ -7,8 +7,10 @@ from app.app.models.project import Project
 from app.app.models.user import User
 from app.app.services.transcript_export import (
     build_summary_docx_bytes,
+    resolve_brief_docx,
     resolve_summary_docx,
     resolve_transcript_txt,
+    brief_export_available,
     summary_export_available,
     transcript_export_available,
 )
@@ -37,6 +39,7 @@ def _seed_audio(db, tmp_data, artifact_id: str = "art_export") -> tuple[Artifact
         encoding="utf-8",
     )
     (asr / "call_summary.md").write_text("## Итог\n\n- **Пункт один**", encoding="utf-8")
+    (asr / "call_brief.md").write_text("Суть созвона одним абзацем.", encoding="utf-8")
     art = Artifact(
         artifact_id=artifact_id,
         project_id=project.id,
@@ -123,3 +126,105 @@ def test_summary_download_endpoint(client, tmp_data, db_engine, user_token):
     assert r.status_code == 200, r.text
     assert "wordprocessingml" in r.headers["content-type"]
     assert r.content[:2] == b"PK"
+
+
+def test_resolve_brief_docx(tmp_data, db_engine):
+    db = db_mod.SessionLocal()
+    try:
+        art, settings = _seed_audio(db, tmp_data)
+        resolved = resolve_brief_docx(settings, art)
+        assert resolved is not None
+        body, name = resolved
+        assert name == "call_краткое_резюме.docx"
+        assert body[:2] == b"PK"
+        assert brief_export_available(settings, art)
+        from docx import Document
+        import io
+
+        parsed = Document(io.BytesIO(body))
+        assert parsed.paragraphs[0].text == "Краткое резюме созвона"
+        assert "Суть созвона одним абзацем" in "\n".join(p.text for p in parsed.paragraphs)
+    finally:
+        db.close()
+
+
+def test_brief_download_endpoint(client, tmp_data, db_engine, user_token):
+    db = db_mod.SessionLocal()
+    try:
+        _seed_audio(db, tmp_data, "art_export_brief")
+    finally:
+        db.close()
+    r = client.get(
+        "/artifacts/art_export_brief/download/brief.docx",
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert "wordprocessingml" in r.headers["content-type"]
+    assert r.content[:2] == b"PK"
+
+
+def test_brief_download_requires_auth(anon_client):
+    r = anon_client.get("/artifacts/missing/download/brief.docx")
+    assert r.status_code == 401
+
+
+def test_summary_docx_readable_layout(tmp_data, db_engine):
+    db = db_mod.SessionLocal()
+    try:
+        art, _settings = _seed_audio(db, tmp_data)
+        md = """## По темам
+
+### Учёт
+
+- Решение по **документу** *Реализация*
+- Поле `Склад`
+
+1. Первый шаг
+2. Второй шаг
+
+## Кто / Что
+
+| Кто | Что | Срок |
+| --- | --- | --- |
+| Иван | Отправить смету | пятница |
+"""
+        blob = build_summary_docx_bytes(md, art)
+        from docx import Document
+        from docx.oxml.ns import qn
+        import io
+
+        parsed = Document(io.BytesIO(blob))
+        xml = parsed.element.xml
+        assert "5B7FA6" in xml
+        assert "Calibri" in xml
+        texts = [p.text for p in parsed.paragraphs]
+        assert texts[0] == "Итоговая выжимка созвона"
+        assert "call.mp4" in texts[1]
+        assert any(t.startswith("Экспорт:") for t in texts)
+        assert "По темам" in texts
+        assert "Учёт" in texts
+        assert any("• " in t and "документу" in t for t in texts)
+        assert any("1. Первый шаг" in t for t in texts)
+        italic_ok = any(
+            run.italic and "Реализация" in (run.text or "")
+            for p in parsed.paragraphs
+            for run in p.runs
+        )
+        assert italic_ok
+        code_run = next(
+            run
+            for p in parsed.paragraphs
+            for run in p.runs
+            if run.text == "Склад"
+        )
+        assert code_run.font.name == "Consolas"
+        header_xml = parsed.tables[0].rows[0].cells[0]._tc.xml
+        assert "5B7FA6" in header_xml
+        hrun = parsed.paragraphs[0].runs[0]
+        rPr = hrun._element.find(qn("w:rPr"))
+        rFonts = rPr.find(qn("w:rFonts"))
+        assert rFonts.get(qn("w:ascii")) == "Calibri"
+        assert rFonts.get(qn("w:eastAsia")) == "Calibri"
+        assert rFonts.get(qn("w:cs")) == "Calibri"
+    finally:
+        db.close()

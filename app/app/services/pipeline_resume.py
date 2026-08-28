@@ -7,7 +7,7 @@ from pathlib import Path
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.services.storage import artifact_root, ensure_artifact_workspace, parsed_dir
+from app.app.services.storage import artifact_dir, ensure_artifact_workspace, parsed_dir
 
 logger = logging.getLogger("skkkk.pipeline")
 
@@ -25,6 +25,22 @@ def _merge_step_ok(checklist_path: Path) -> bool:
 
 def try_resume_transcript(settings: Settings, artifact: Artifact) -> str | None:
     """Reuse ASR outputs when merge/view already finished (knowledge-phase retry)."""
+    from app.app.services.artifact_lab import latest_run_id
+    from app.app.services.storage import artifact_knowledge_text
+
+    if latest_run_id(settings, artifact):
+        text = artifact_knowledge_text(settings, artifact).strip()
+        if text:
+            log_event(
+                logger,
+                "asr.resume",
+                artifact=artifact.artifact_id,
+                source="lab",
+                chars=len(text),
+            )
+            return text
+        return None
+
     ws = ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
     asr_dir = ws / "asr"
     checklist = asr_dir / "pipeline_checklist.json"
@@ -60,13 +76,13 @@ def try_resume_transcript(settings: Settings, artifact: Artifact) -> str | None:
 
 
 def artifact_has_asr_workspace(settings: Settings, artifact: Artifact) -> bool:
-    ws = artifact_root(settings, artifact.project_id, artifact.artifact_id)
+    ws = artifact_dir(settings, artifact.project_id, artifact.artifact_id)
     return (ws / "asr" / "pipeline_checklist.json").is_file()
 
 
 def should_continue_asr(settings: Settings, artifact: Artifact) -> bool:
     """Продолжить прерванный ASR (audio_prep уже ok, merge ещё нет)."""
-    ws = artifact_root(settings, artifact.project_id, artifact.artifact_id)
+    ws = artifact_dir(settings, artifact.project_id, artifact.artifact_id)
     checklist = ws / "asr" / "pipeline_checklist.json"
     if not checklist.is_file():
         return False

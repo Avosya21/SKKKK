@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 COMPOSE_FILE = ROOT / "asr" / "docker-compose.yml"
 ENV_FILE = ROOT / ".env"
 
-ASR_CONTAINERS: tuple[str, ...] = ("skkkk-whisper", "skkkk-gigaam", "skkkk-tone")
+ASR_CONTAINERS: tuple[str, ...] = ("skkkk-gigaam",)
 
 
 def docker_daemon_running() -> bool:
@@ -126,7 +126,7 @@ def _compose_up() -> None:
     cmd = ["docker", "compose", "-f", str(COMPOSE_FILE)]
     if ENV_FILE.is_file():
         cmd.extend(["--env-file", str(ENV_FILE)])
-    cmd.extend(["up", "-d"])
+    cmd.extend(["up", "-d", "gigaam"])
 
     proc = subprocess.run(
         cmd,
@@ -142,7 +142,7 @@ def _compose_up() -> None:
 
 
 def ensure_asr_containers(*, restart: bool = True) -> None:
-    """Docker daemon + три ASR-контейнера (создать через compose при первом запуске)."""
+    """Docker daemon + контейнер GigaAM (Whisper/T-one только с profile legacy)."""
     ensure_docker_daemon()
 
     missing = [name for name in ASR_CONTAINERS if not _container_exists(name)]

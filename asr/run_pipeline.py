@@ -180,13 +180,17 @@ def wait_http(url: str, timeout: int = 180, *, label: str = "") -> None:
 
 
 def _restart_asr_containers() -> None:
-    """Перезапуск контейнеров: сброс зависшей транскрипции Whisper и чистый GPU."""
-    log("перезапуск ASR-контейнеров (whisper, gigaam, tone)")
+    """Перезапуск ASR. По умолчанию только GigaAM; тройка — ALLOW_LEGACY_ASR=1."""
+    if os.environ.get("ALLOW_LEGACY_ASR") == "1":
+        log("перезапуск ASR-контейнеров (whisper, gigaam, tone) ALLOW_LEGACY_ASR=1")
+        ensure_asr_containers(restart=True)
+        wait_http(f"{WHISPER}/health", timeout=300, label="whisper")
+        wait_http(f"{GIGAAM}/health", timeout=300, label="gigaam")
+        wait_http(f"{TONE}/health", timeout=120, label="tone")
+        return
+    log("перезапуск ASR-контейнера gigaam (Whisper/T-one не поднимаем)")
     ensure_asr_containers(restart=True)
-    # Whisper грузит large-v3 ~30–60 с; /health надёжнее /v1/models при cold start.
-    wait_http(f"{WHISPER}/health", timeout=300, label="whisper")
     wait_http(f"{GIGAAM}/health", timeout=300, label="gigaam")
-    wait_http(f"{TONE}/health", timeout=120, label="tone")
 
 
 def run_whisper() -> dict:
@@ -412,7 +416,7 @@ def main() -> int:
         try:
             gate("asr_containers")
             _restart_asr_containers()
-            mark_ok("asr_containers", "whisper+gigaam+tone healthy")
+            mark_ok("asr_containers", "gigaam healthy")
             log("asr containers healthy")
         except PipelineGateError:
             raise
@@ -421,36 +425,45 @@ def main() -> int:
             print_summary()
             raise SystemExit(f"FAIL asr_containers: {exc}") from exc
 
-    # ── 3. Три ASR параллельно ───────────────────────────────────────────────
+    # ── 3. ASR: канон GigaAM; Whisper/T-one только ALLOW_LEGACY_ASR=1 ──
     if _step_ok("asr_run"):
-        log("=== 3. три ASR — skip (ok) ===")
+        log("=== 3. ASR — skip (ok) ===")
     else:
-        log("=== 3. три ASR параллельно ===")
         try:
             gate("asr_run")
             OUT.mkdir(parents=True, exist_ok=True)
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futs = {
-                    pool.submit(run_whisper): "whisper",
-                    pool.submit(run_tone): "tone",
-                    pool.submit(run_gigaam, key): "gigaam",
-                }
-                for fut in as_completed(futs):
-                    eng = futs[fut]
-                    try:
-                        asr_summary[eng] = fut.result()
-                    except Exception as exc:  # noqa: BLE001
-                        asr_summary[eng] = {"ok": False, "engine": eng, "error": str(exc)}
-                        log(f"FAIL {eng}: {exc}")
+            if os.environ.get("ALLOW_LEGACY_ASR") == "1":
+                log("=== 3. три ASR параллельно (ALLOW_LEGACY_ASR=1) ===")
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futs = {
+                        pool.submit(run_whisper): "whisper",
+                        pool.submit(run_tone): "tone",
+                        pool.submit(run_gigaam, key): "gigaam",
+                    }
+                    for fut in as_completed(futs):
+                        eng = futs[fut]
+                        try:
+                            asr_summary[eng] = fut.result()
+                        except Exception as exc:  # noqa: BLE001
+                            asr_summary[eng] = {"ok": False, "engine": eng, "error": str(exc)}
+                            log(f"FAIL {eng}: {exc}")
+                alive = [n for n, row in asr_summary.items() if isinstance(row, dict) and row.get("ok")]
+                if not alive:
+                    raise RuntimeError("все три ASR упали")
+                if len(alive) < 3:
+                    log(f"продолжаем с живыми: {alive}")
+                mark_ok("asr_run", f"живых: {', '.join(alive)}")
+            else:
+                log("=== 3. только GigaAM (Whisper/T-one отключены) ===")
+                try:
+                    asr_summary["gigaam"] = run_gigaam(key)
+                except Exception as exc:  # noqa: BLE001
+                    asr_summary["gigaam"] = {"ok": False, "engine": "gigaam", "error": str(exc)}
+                    raise RuntimeError(f"GigaAM упал: {exc}") from exc
+                mark_ok("asr_run", "gigaam")
             (OUT / "pipeline_asr_summary.json").write_text(
                 json.dumps(asr_summary, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            alive = [n for n, row in asr_summary.items() if isinstance(row, dict) and row.get("ok")]
-            if not alive:
-                raise RuntimeError("все три ASR упали")
-            if len(alive) < 3:
-                log(f"продолжаем с живыми: {alive}")
-            mark_ok("asr_run", f"живых: {', '.join(alive)}")
         except PipelineGateError:
             raise
         except Exception as exc:
@@ -465,7 +478,10 @@ def main() -> int:
         log("=== 4. снять ASR с GPU ===")
         try:
             gate("asr_stop")
-            subprocess.run(["docker", "stop", "skkkk-whisper", "skkkk-gigaam"], check=False)
+            if os.environ.get("ALLOW_LEGACY_ASR") == "1":
+                subprocess.run(["docker", "stop", "skkkk-whisper", "skkkk-gigaam"], check=False)
+            else:
+                subprocess.run(["docker", "stop", "skkkk-gigaam"], check=False)
             used = wait_vram(2500)
             mark_ok("asr_stop", f"VRAM после выгрузки {used} MiB")
         except PipelineGateError:

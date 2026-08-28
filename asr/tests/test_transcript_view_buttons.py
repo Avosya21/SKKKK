@@ -28,13 +28,21 @@ def test_transcript_registry_toolbar_has_three_buttons():
     )
     assert 'id="recalc"' in html
     assert 'id="rebuild-summary"' in html
+    assert "rect-act" in html
+    assert "font-size: .875rem" in html
     assert 'id="reindex"' in html
     assert 'id="download-transcript"' in html
     assert 'id="download-summary"' in html
+    assert 'id="download-brief"' in html
     assert "export-panel" in html
     assert html.index("export-panel") < html.index("<h1>")
     assert "/download/transcript.txt" in html
     assert "/download/summary.docx" in html
+    assert "/download/brief.docx" in html
+    assert "Краткое резюме созвона" in html
+    assert "width: 11rem;" not in html
+    assert "overflow-wrap: break-word" in html
+    assert "summary-format-v2" in html
     assert "/rebuild-summary" in html
     assert "/reindex" in html
     assert "registry-collapse" in html

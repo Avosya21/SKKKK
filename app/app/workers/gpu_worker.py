@@ -100,16 +100,36 @@ def run_once() -> bool:
             logger.exception("job %s failed", job.id)
             from pathlib import Path
 
+            from app.app.models.job import Job
             from app.app.services.pipeline_resume import try_resume_transcript
 
+            job_pk = job.id
+            artifact_pk = job.artifact_id
+            db.rollback()
+            artifact = db.get(Artifact, artifact_pk)
+            job = db.get(Job, job_pk)
+            if artifact is None or job is None:
+                return True
             transcript_path = artifact.transcription_file_path
             has_transcript = bool(
                 transcript_path
                 and Path(transcript_path).is_file()
                 and Path(transcript_path).stat().st_size > 50
             ) or try_resume_transcript(settings, artifact) is not None
+            past_gate = artifact.status in {
+                "speakers_confirmed",
+                "transcript_ready",
+                "text_extracted",
+                "entities_extracted",
+                "indexed",
+                "graph_seeded",
+                "done",
+            }
             if has_transcript and artifact.file_type == "audio":
-                artifact.status = "transcript_ready"
+                if settings.voice_gate_before_asr and not past_gate:
+                    artifact.status = "speakers_pending"
+                else:
+                    artifact.status = "transcript_ready"
             else:
                 artifact.status = "error"
             artifact.error_message = str(exc)

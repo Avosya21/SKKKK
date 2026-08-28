@@ -110,3 +110,26 @@ def test_start_docker_desktop_missing_raises(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="Docker Desktop не найден"):
         dr.start_docker_desktop()
+
+
+def test_asr_containers_prod_is_gigaam_only():
+    assert dr.ASR_CONTAINERS == ("skkkk-gigaam",)
+
+
+def test_compose_up_starts_gigaam_service(monkeypatch, tmp_path):
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services:\n  gigaam: {}\n", encoding="utf-8")
+    monkeypatch.setattr(dr, "COMPOSE_FILE", compose)
+    monkeypatch.setattr(dr, "ENV_FILE", tmp_path / "missing.env")
+    captured: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        captured.append(list(cmd))
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(dr.subprocess, "run", fake_run)
+    dr._compose_up()
+    assert captured
+    assert captured[0][-2:] == ["-d", "gigaam"]
+    assert "whisper" not in captured[0]
+    assert "tone" not in captured[0]

@@ -3,17 +3,22 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
-from app.app.dependencies import authenticate_new_user, create_access_token
+from app.app.dependencies import (
+    authenticate_new_user,
+    clear_session_cookie,
+    create_access_token,
+    set_session_cookie,
+)
 from app.app.logging_setup import log_event
 from app.app.models.user import User
 from app.app.schemas.auth import LoginRequest, TokenResponse
-from app.app.services.auth import hash_password, verify_password
+from app.app.services.auth import verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("skkkk.auth")
@@ -22,6 +27,8 @@ logger = logging.getLogger("skkkk.auth")
 @router.post("/login", response_model=TokenResponse)
 def login(
     body: LoginRequest,
+    request: Request,
+    response: Response,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
@@ -61,6 +68,7 @@ def login(
         created = True
         log_event(logger, "user.created", user_id=user.id, name=user.name, role=user.role)
     token = create_access_token(settings, user)
+    set_session_cookie(response, request, settings, token)
     log_event(
         logger,
         "login.ok",
@@ -71,3 +79,9 @@ def login(
         new_user=created,
     )
     return TokenResponse(access_token=token, role=user.role, name=user.name)
+
+
+@router.post("/logout")
+def logout(response: Response):
+    clear_session_cookie(response)
+    return {"ok": True}

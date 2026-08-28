@@ -12,6 +12,7 @@ from app.app.dependencies import get_current_user, require_role
 from app.app.models.project import Project
 from app.app.models.user import User
 from app.app.schemas.project import ProjectCreate, ProjectOut
+from app.app.services.project_purge import purge_project
 from app.app.services.storage import create_project_tree, sanitize_display_name
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -59,13 +60,13 @@ def get_project(
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def archive_project(
+def delete_project(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(require_role("admin"))],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    project.is_active = False
-    db.commit()
+    purge_project(db, settings, project)

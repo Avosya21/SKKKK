@@ -58,10 +58,18 @@ def _strip_llm_artifacts(text: str) -> str:
         text = re.sub(r"\$([^$\n]{1,80})\$", r"\1", text)
         return text
 
+_NUMBERED = re.compile(r"^(\d+)[.)]\s+(.*)$")
+_INLINE_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
+
 def _inline_md(text: str) -> str:
-    """Только **жирный** — этого хватает для того, что вставляет Gemma в этот промпт."""
+    """Жирный, курсив, код, ссылки как текст — тот же набор, что в Word-экспорте."""
     escaped = html.escape(_strip_llm_artifacts(text))
-    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = _INLINE_LINK.sub(r"\1", escaped)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", escaped)
+    return escaped
 
 
 def _split_md_pipe_row(line: str) -> list[str]:
@@ -119,22 +127,74 @@ def _md_table_to_html(raw_rows: list[str]) -> str | None:
     )
 
 
+def load_call_summary_files(asr_dir: Path) -> tuple[str, str]:
+    """Итоговый протокол и краткое резюме из asr/ (пусто, если файла нет)."""
+
+    def _read(name: str) -> str:
+        path = asr_dir / name
+        return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+    return _read("call_summary.md"), _read("call_brief.md")
+
+
+def _summary_empty_html(message: str) -> str:
+    return f'<p class="summary-empty">{html.escape(message)}</p>'
+
+
+def _summary_tabs_html(summary_md: str, brief_md: str) -> str:
+    full = summary_md.strip()
+    brief = brief_md.strip()
+    if not full and not brief:
+        return ""
+    full_body = _summary_to_html(full) if full else _summary_empty_html(
+        "Итоговое резюме ещё не собрано."
+    )
+    brief_body = _summary_to_html(brief) if brief else _summary_empty_html(
+        "Краткое резюме ещё не собрано. Нажмите «Пересобрать выжимку»."
+    )
+    return (
+        '<section class="summary" aria-label="Резюме созвона">'
+        '<div class="summary-tabs" role="tablist" aria-label="Вид резюме">'
+        '<button type="button" class="summary-tab" role="tab" id="tab-summary-full" '
+        'aria-controls="panel-summary-full" aria-selected="true" data-summary-tab="full">'
+        "Итоговое резюме созвона</button>"
+        '<button type="button" class="summary-tab" role="tab" id="tab-summary-brief" '
+        'aria-controls="panel-summary-brief" aria-selected="false" data-summary-tab="brief" tabindex="-1">'
+        "Краткое резюме созвона</button>"
+        "</div>"
+        '<div class="summary-panel" role="tabpanel" id="panel-summary-full" '
+        'aria-labelledby="tab-summary-full">'
+        f"{full_body}</div>"
+        '<div class="summary-panel" role="tabpanel" id="panel-summary-brief" '
+        'aria-labelledby="tab-summary-brief" hidden>'
+        f"{brief_body}</div>"
+        "</section>"
+    )
+
+
 def _summary_to_html(summary_md: str) -> str:
     """Мини-рендер markdown выжимки: заголовки, списки, таблицы `|`, **жирный**."""
     parts: list[str] = []
-    in_list = False
+    in_list: str | None = None
     lines = summary_md.strip().splitlines()
     i = 0
 
     def close_list() -> None:
         nonlocal in_list
         if in_list:
-            parts.append("</ul>")
-            in_list = False
+            parts.append(f"</{in_list}>")
+            in_list = None
+
+    def open_list(kind: str) -> None:
+        nonlocal in_list
+        if in_list != kind:
+            close_list()
+            parts.append(f"<{kind}>")
+            in_list = kind
 
     while i < len(lines):
         line = lines[i].strip()
-        if not line:
+        if not line or re.fullmatch(r"-{3,}", line):
             close_list()
             i += 1
             continue
@@ -152,20 +212,29 @@ def _summary_to_html(summary_md: str) -> str:
                 for row in table_lines:
                     parts.append(f"<p>{_inline_md(row)}</p>")
             continue
-        if line.startswith("### "):
+        if line.startswith("#### "):
+            close_list()
+            parts.append(f"<h4>{_inline_md(line[5:].strip())}</h4>")
+        elif line.startswith("### "):
             close_list()
             parts.append(f"<h4>{_inline_md(line[4:].strip())}</h4>")
         elif line.startswith("## "):
             close_list()
             parts.append(f"<h3>{_inline_md(line[3:].strip())}</h3>")
+        elif line.startswith("# "):
+            close_list()
+            parts.append(f"<h3>{_inline_md(line[2:].strip())}</h3>")
         elif line.startswith("- ") or line.startswith("* "):
-            if not in_list:
-                parts.append("<ul>")
-                in_list = True
+            open_list("ul")
             parts.append(f"<li>{_inline_md(line[2:].strip())}</li>")
         else:
-            close_list()
-            parts.append(f"<p>{_inline_md(line)}</p>")
+            numbered = _NUMBERED.match(line)
+            if numbered:
+                open_list("ol")
+                parts.append(f"<li>{_inline_md(numbered.group(2).strip())}</li>")
+            else:
+                close_list()
+                parts.append(f"<p>{_inline_md(line)}</p>")
         i += 1
     close_list()
     return "\n".join(parts)
@@ -270,9 +339,9 @@ def _registry_panel(registry: list[dict], colors: dict[str, str]) -> str:
         + "".join(cards)
         + "</div>"
         + '<div class="toolbar registry-tools">'
-        '<button type="button" class="act primary action-btn" id="recalc" data-idle-label="Пересчитать">Пересчитать</button>'
-        '<button type="button" class="act action-btn" id="rebuild-summary" data-idle-label="Пересобрать выжимку">Пересобрать выжимку</button>'
-        '<button type="button" class="act action-btn" id="reindex" data-idle-label="Обновить и переиндексировать">Обновить и переиндексировать</button>'
+        '<button type="button" class="act primary action-btn rect-act" id="recalc" data-idle-label="Пересчитать">Пересчитать</button>'
+        '<button type="button" class="act action-btn rect-act" id="rebuild-summary" data-idle-label="Пересобрать выжимку">Пересобрать выжимку</button>'
+        '<button type="button" class="act action-btn rect-act" id="reindex" data-idle-label="Обновить и переиндексировать">Обновить и переиндексировать</button>'
         '<span class="hint">спикеры ~20 с · выжимка ~1 мин · индекс ~30 с</span>'
         "</div></div></details>"
     )
@@ -285,6 +354,7 @@ def render_transcript_html(
     turns: list[Turn],
     mapping: dict[str, str] | None = None,
     summary_md: str = "",
+    brief_md: str = "",
     artifact_id: str | None = None,
     project_id: int | None = None,
     registry: list[dict] | None = None,
@@ -334,12 +404,7 @@ def render_transcript_html(
         if registry and artifact_id
         else "Клик по времени или реплике ставит плеер. Фильтр оставляет одного человека. Имена правятся ниже."
     )
-    summary_block = (
-        f'<details class="summary" open><summary>Итоговая выжимка созвона</summary>'
-        f"{_summary_to_html(summary_md)}</details>"
-        if summary_md.strip()
-        else ""
-    )
+    summary_block = _summary_tabs_html(summary_md, brief_md)
     items = []
     for i, turn in enumerate(turns):
         color = colors.get(turn.speaker, "#64748b")
@@ -373,6 +438,8 @@ def render_transcript_html(
             '<div class="toolbar export-tools">'
             '<button type="button" class="act primary export-download" id="download-summary" '
             'data-idle-label="Выжимка Word">Выжимка Word</button>'
+            '<button type="button" class="act export-download" id="download-brief" '
+            'data-idle-label="Краткое резюме созвона">Краткое резюме созвона</button>'
             '<button type="button" class="act export-download" id="download-transcript" '
             'data-idle-label="Стенограмма .txt">Стенограмма .txt</button>'
             "</div></section>"
@@ -390,19 +457,34 @@ def render_transcript_html(
     h1 {{ font-size: 1.35rem; margin: 0 0 8px; }}
     audio {{ width: 100%; margin: 8px 0 16px; }}
     .toolbar {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; align-items: center; }}
-    .chip, .when, button.act {{ border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: inherit; }}
+    .chip, .when, button.act {{
+      border: 1px solid #cbd5e1; background: #fff; border-radius: 999px;
+      padding: 6px 12px; cursor: pointer; font: inherit; font-size: inherit;
+      box-sizing: border-box; max-width: 100%;
+    }}
     .chip.active, .chip:hover {{ background: #e2e8f0; }}
     button.act.primary {{ background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }}
     .dot {{ display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }}
-    .summary {{ background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin: 12px 0 20px; }}
-    .summary > summary {{ cursor: pointer; font-weight: 650; font-size: 1.1rem; list-style: none; }}
-    .summary > summary::-webkit-details-marker {{ display: none; }}
+    .summary {{ background: #fff; border: 1px solid var(--border); border-radius: 12px; margin: 12px 0 20px; overflow: hidden; }}
+    .summary-tabs {{ display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--border); padding: 0 8px; }}
+    .summary-tab {{
+      border: 0; background: transparent; font: inherit; font-size: 1rem; font-weight: 600;
+      color: #64748b; cursor: pointer; padding: 12px 14px 10px; margin-bottom: -1px;
+      border-bottom: 2px solid transparent;
+    }}
+    .summary-tab:hover {{ color: #0f172a; }}
+    .summary-tab[aria-selected="true"] {{ color: #0f172a; border-bottom-color: var(--accent); }}
+    .summary-tab:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 2px; }}
+    .summary-panel {{ padding: 14px 18px; }}
+    .summary-empty {{ color: #64748b; margin: 4px 0; }}
     .summary h3 {{ margin: 14px 0 6px; font-size: 1rem; color: #1e293b; }}
     .summary h3:first-of-type {{ margin-top: 4px; }}
     .summary h4 {{ margin: 8px 0 4px; font-size: .92rem; }}
-    .summary ul {{ margin: 4px 0 8px 20px; padding: 0; }}
-    .summary li {{ margin: 2px 0; line-height: 1.4; }}
-    .summary p {{ margin: 4px 0; line-height: 1.45; }}
+    .summary ul, .summary ol {{ margin: 4px 0 10px 1.25rem; padding: 0; }}
+    .summary li {{ margin: 3px 0; line-height: 1.5; }}
+    .summary p {{ margin: 4px 0 8px; line-height: 1.55; }}
+    .summary code {{ font-family: Consolas, "Courier New", monospace; font-size: .9em; }}
+    /* summary-format-v2 */
     .summary-table-wrap {{ overflow-x: auto; margin: 8px 0 12px; -webkit-overflow-scrolling: touch; }}
     .summary-table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
     .summary-table th, .summary-table td {{
@@ -485,30 +567,71 @@ def render_transcript_html(
       margin-bottom: 8px;
       color: #1e293b;
     }}
-    .export-tools {{ margin: 0; flex-wrap: wrap; }}
+    .export-tools {{
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: stretch;
+    }}
     .export-tools .export-download {{
       display: inline-flex;
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
-      min-width: 11rem;
-      width: 11rem;
-      flex-shrink: 0;
-      white-space: nowrap;
+      flex: 1 1 13rem;
+      min-width: min(100%, 11rem);
+      max-width: 100%;
+      white-space: normal;
+      text-align: center;
+      line-height: 1.3;
+      padding: 8px 14px;
+      min-height: 2.6rem;
+      overflow-wrap: break-word;
+      border-radius: 10px;
     }}
     .action-btn {{
       display: inline-flex;
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
-      flex-shrink: 0;
-      white-space: nowrap;
+      min-width: 0;
+      max-width: 100%;
+      flex-shrink: 1;
+      white-space: normal;
+      text-align: center;
+      line-height: 1.3;
+      padding: 8px 14px;
+      overflow-wrap: break-word;
+      border-radius: 10px;
+    }}
+    .registry-tools {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: stretch;
+      margin-top: 2px;
     }}
     .registry-tools .action-btn {{
-      min-width: 10.5rem;
+      flex: 1 1 11rem;
+      min-width: min(100%, 10rem);
+    }}
+    .registry-tools button.act.rect-act {{
+      border-radius: 10px;
+      white-space: normal;
+      text-align: center;
+      line-height: 1.3;
+      padding: 6px 10px;
+      min-height: 2.15rem;
+      font-size: .875rem;
+      flex: 1 1 9.5rem;
+      min-width: min(100%, 8.5rem);
+      overflow-wrap: break-word;
     }}
     .sp-enroll.action-btn, .sp-merge.action-btn {{
+      flex: 0 0 auto;
       min-width: 6.5rem;
+      padding: 6px 12px;
     }}
     .action-spinner, .export-spinner {{
       display: inline-block;
@@ -571,9 +694,14 @@ def render_transcript_html(
       .sp-item {{ padding: 8px; }}
       .sp-enroll, .sp-merge {{ padding: 5px 10px; font-size: .85rem; }}
       .chip, .when, button.act {{ min-height: 34px; padding: 5px 10px; }}
+      .export-tools .export-download,
+      .registry-tools .action-btn {{
+        flex: 1 1 100%;
+      }}
       #q {{ width: 100%; min-width: 0 !important; }}
       .summary-table {{ font-size: .85rem; }}
       .summary-table th {{ white-space: normal; }}
+      .summary-tab {{ font-size: .92rem; padding: 10px 10px 8px; }}
     }}
   </style>
 </head>
@@ -597,6 +725,40 @@ def render_transcript_html(
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
 const player = document.getElementById("player");
+function initSummaryTabs() {{
+  const tabs = [...document.querySelectorAll(".summary-tab")];
+  if (!tabs.length) return;
+  const key = data.artifact_id ? ("skkkk-summary-tab:" + data.artifact_id) : "";
+  const select = (name) => {{
+    tabs.forEach((tab) => {{
+      const on = tab.dataset.summaryTab === name;
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+      tab.tabIndex = on ? 0 : -1;
+      const panel = document.getElementById(tab.getAttribute("aria-controls"));
+      if (panel) panel.hidden = !on;
+    }});
+    if (key) try {{ sessionStorage.setItem(key, name); }} catch (_) {{}}
+  }};
+  tabs.forEach((tab) => {{
+    tab.addEventListener("click", () => select(tab.dataset.summaryTab));
+    tab.addEventListener("keydown", (ev) => {{
+      const i = tabs.indexOf(tab);
+      if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {{
+        ev.preventDefault();
+        const next = ev.key === "ArrowRight"
+          ? tabs[(i + 1) % tabs.length]
+          : tabs[(i - 1 + tabs.length) % tabs.length];
+        next.focus();
+        select(next.dataset.summaryTab);
+      }}
+    }});
+  }});
+  let start = "full";
+  if (key) try {{ start = sessionStorage.getItem(key) || "full"; }} catch (_) {{}}
+  if (!tabs.some((t) => t.dataset.summaryTab === start)) start = "full";
+  select(start);
+}}
+initSummaryTabs();
 const useRegistry = {"true" if use_registry else "false"};
 const storeKey = "skkkk-speakers:" + location.pathname;
 const saved = useRegistry ? {{}} : JSON.parse(localStorage.getItem(storeKey) || "{{}}");
@@ -950,6 +1112,10 @@ if (data.artifact_id) {{
   const dlSummary = document.getElementById("download-summary");
   if (dlSummary) dlSummary.addEventListener("click", () =>
     downloadExport(dlSummary, `/artifacts/${{data.artifact_id}}/download/summary.docx`)
+  );
+  const dlBrief = document.getElementById("download-brief");
+  if (dlBrief) dlBrief.addEventListener("click", () =>
+    downloadExport(dlBrief, `/artifacts/${{data.artifact_id}}/download/brief.docx`)
   );
   const dlTranscript = document.getElementById("download-transcript");
   if (dlTranscript) dlTranscript.addEventListener("click", () =>

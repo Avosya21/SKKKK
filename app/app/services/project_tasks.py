@@ -85,6 +85,21 @@ def cleanup_stale_tasks(db: Session) -> int:
     return n
 
 
+def abandon_running_api_tasks(db: Session) -> int:
+    """При старте API все running project_tasks — сироты прошлого процесса."""
+    now = _utcnow()
+    rows = db.scalars(select(ProjectTask).where(ProjectTask.status == "running")).all()
+    n = 0
+    for row in rows:
+        row.status = "error"
+        row.error_message = "Сервер перезапущен, задача прервана"
+        row.finished_at = now
+        n += 1
+    if n:
+        db.commit()
+    return n
+
+
 def _running_query(
     db: Session,
     *,

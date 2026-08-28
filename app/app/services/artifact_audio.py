@@ -386,7 +386,15 @@ def ensure_audio_report(settings: Settings, artifact: Artifact) -> Path:
             needs_rebuild = True
         elif not has_registry_ui or not is_current_layout:
             needs_rebuild = True
-        elif "download-transcript" not in report_body or "export-panel" not in report_body:
+        elif (
+            "download-transcript" not in report_body
+            or "export-panel" not in report_body
+            or "download-brief" not in report_body
+            or "overflow-wrap: break-word" not in report_body
+            or "tab-summary-brief" not in report_body
+            or "rect-act" not in report_body
+            or "summary-format-v2" not in report_body
+        ):
             needs_rebuild = True
         elif has_llm_markup_artifacts(report_body):
             needs_rebuild = True
@@ -460,6 +468,12 @@ def _default_sortformer_json(settings: Settings, artifact: Artifact) -> Path | N
 
 def ensure_sortformer_report(settings: Settings, artifact: Artifact) -> Path:
     """Тестовая стенogramma: Sortformer v2.1 вместо PyAnnote."""
+    from app.app.services.artifact_lab import latest_run_id
+
+    if latest_run_id(settings, artifact):
+        raise FileNotFoundError(
+            f"report-sortformer — legacy; lab {artifact.artifact_id} uses /report"
+        )
     report = artifact_sortformer_transcript_path(settings, artifact.artifact_id, artifact.project_id)
     sortformer_json = _default_sortformer_json(settings, artifact)
     if sortformer_json is None:
@@ -468,7 +482,9 @@ def ensure_sortformer_report(settings: Settings, artifact: Artifact) -> Path:
     ws = ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
     asr_out = ws / "asr"
     if not (asr_out / "docker_merged_windows.json").is_file():
-        asr_out = ROOT / "asr" / "out"
+        raise FileNotFoundError(
+            f"нет docker_merged_windows.json у {artifact.artifact_id} — чужой asr/out не подставляем"
+        )
     summary = parsed_dir(settings, artifact.project_id, artifact.source_type) / (
         f"{artifact.artifact_id}_call_summary.md"
     )
@@ -501,6 +517,12 @@ def ensure_sortformer_report(settings: Settings, artifact: Artifact) -> Path:
 
 def ensure_raw_diar_report(settings: Settings, artifact: Artifact) -> Path:
     """Сырые интервалы диаризации — без Gemma и без сглаживания UI."""
+    from app.app.services.artifact_lab import latest_run_id
+
+    if latest_run_id(settings, artifact):
+        raise FileNotFoundError(
+            f"report-raw-diar — legacy; lab {artifact.artifact_id} uses /report"
+        )
     report = artifact_raw_diar_path(settings, artifact.artifact_id, artifact.project_id)
     manifest = ROOT / "experiments" / "diar-presets" / "out" / "manifest.json"
     preset_dir = ROOT / "experiments" / "diar-presets" / "out"
@@ -549,7 +571,7 @@ def ensure_two_voice_diar_report(settings: Settings, artifact: Artifact) -> Path
     manifest = ROOT / "experiments" / "diar-presets" / "out" / "two_voice_4min" / "manifest.json"
     if not manifest.is_file():
         raise FileNotFoundError(f"two-voice manifest missing: {manifest}")
-    audio_url = f"/artifacts/{artifact.artifact_id}/audio?clip=240"
+    audio_url = f"/artifacts/{artifact.artifact_id}/audio"
     needs_build = not report.is_file() or report.stat().st_mtime < manifest.stat().st_mtime
     if needs_build:
         import sys
@@ -616,7 +638,7 @@ def ensure_speaker_match_report(settings: Settings, artifact: Artifact, db: Sess
 
 
 def sync_transcript_view_reports(settings: Settings, artifact: Artifact) -> None:
-    """Скопировать transcript.html и call_summary.md из asr/ в reports/ и parsed/."""
+    """Скопировать transcript.html и call_summary.md / call_brief.md из asr/ в reports/ и parsed/."""
     ws = ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
     asr_dir = ws / "asr"
     reports = ws / "reports"
@@ -633,11 +655,17 @@ def sync_transcript_view_reports(settings: Settings, artifact: Artifact) -> None
     if summary_src.is_file():
         shutil.copy2(summary_src, reports / "call_summary.md")
 
+    brief_src = asr_dir / "call_brief.md"
+    if brief_src.is_file():
+        shutil.copy2(brief_src, reports / "call_brief.md")
+
     dest_dir = parsed_dir(settings, artifact.project_id, artifact.source_type)
     dest_dir.mkdir(parents=True, exist_ok=True)
     base = artifact.artifact_id
     if summary_src.is_file():
         shutil.copy2(summary_src, dest_dir / f"{base}_call_summary.md")
+    if brief_src.is_file():
+        shutil.copy2(brief_src, dest_dir / f"{base}_call_brief.md")
     if report_path.is_file():
         shutil.copy2(report_path, dest_dir / f"{base}_transcript.html")
 
@@ -676,6 +704,7 @@ def finalize_audio_outputs(settings: Settings, artifact: Artifact) -> tuple[Path
         "docker_gigaam_speakers.json": f"{base}_speakers.json",
         "docker_merged_speakers.json": f"{base}_speakers.json",
         "call_summary.md": f"{base}_call_summary.md",
+        "call_brief.md": f"{base}_call_brief.md",
         "voice_audit.json": f"{base}_voice_audit.json",
     }
     for src_name, dst_name in mapping.items():

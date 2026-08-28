@@ -94,7 +94,7 @@ def test_ensure_audio_playback_falls_back_to_wav(tmp_data, db_engine, monkeypatc
     assert path == artifact_audio_path(settings, artifact_id, project_id)
 
 
-def test_audio_endpoint_serves_inline_aac(client, tmp_data, db_engine, monkeypatch):
+def test_audio_endpoint_serves_inline_aac(client, tmp_data, db_engine, monkeypatch, admin_token):
     artifact_id, project_id = _seed_audio_artifact(
         artifact_id="art_play_http", telegram_id="tg-play-http"
     )
@@ -120,7 +120,7 @@ def test_audio_endpoint_serves_inline_aac(client, tmp_data, db_engine, monkeypat
     assert r.content == b"fake-aac-http"
 
 
-def test_audio_endpoint_format_wav(client, tmp_data, db_engine, monkeypatch):
+def test_audio_endpoint_format_wav(client, tmp_data, db_engine, monkeypatch, admin_token):
     artifact_id, _project_id = _seed_audio_artifact(
         artifact_id="art_play_wav_q", telegram_id="tg-play-wav-q"
     )
@@ -133,3 +133,30 @@ def test_audio_endpoint_format_wav(client, tmp_data, db_engine, monkeypatch):
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("audio/wav")
     assert "inline" in r.headers.get("content-disposition", "").lower()
+
+
+def test_audio_clip_query_serves_this_artifact_not_shared_work(
+    client, tmp_data, db_engine, monkeypatch, admin_token
+):
+    artifact_id, project_id = _seed_audio_artifact(
+        artifact_id="art_clip_own", telegram_id="tg-clip-own"
+    )
+    playback = artifact_audio_playback_path(get_settings(), artifact_id, project_id)
+    playback.parent.mkdir(parents=True, exist_ok=True)
+    own = b"OWN-ARTIFACT-AUDIO"
+    playback.write_bytes(own)
+    monkeypatch.setattr(
+        "app.app.routers.pages.ensure_audio_playback",
+        lambda _settings, artifact: (
+            artifact_audio_playback_path(_settings, artifact.artifact_id, artifact.project_id),
+            "audio/mp4",
+        ),
+    )
+
+    with_clip = client.get(f"/artifacts/{artifact_id}/audio", params={"clip": 240})
+    without = client.get(f"/artifacts/{artifact_id}/audio")
+    assert with_clip.status_code == 200, with_clip.text
+    assert without.status_code == 200
+    assert with_clip.content == own
+    assert with_clip.content == without.content
+

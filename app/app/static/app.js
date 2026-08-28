@@ -16,7 +16,9 @@ const SKKKK = {
     const el = document.getElementById('nav-llm');
     if (!el) return;
     try {
-      const r = await fetch('/health');
+      const token = this.token();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const r = await fetch('/health/ready', { credentials: 'same-origin', headers });
       if (!r.ok) return;
       const data = await r.json();
       const provider = data.llm_provider || '';
@@ -38,6 +40,11 @@ const SKKKK = {
     localStorage.removeItem('skkkk_role');
     localStorage.removeItem('skkkk_name');
     this.updateNav();
+    try {
+      fetch('/auth/logout', { method: 'POST' });
+    } catch {
+      /* cookie drop is best-effort */
+    }
   },
   requireAuth() {
     if (!this.token()) {

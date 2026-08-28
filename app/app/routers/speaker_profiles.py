@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends, HTTPException
+from app.app.dependencies import get_current_user
 
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
@@ -31,7 +32,11 @@ from app.app.services.speaker_profiles import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["speaker-profiles"])
+router = APIRouter(
+    prefix="/api",
+    tags=["speaker-profiles"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 def _artifact_or_404(db: Session, artifact_id: str):
@@ -92,14 +97,14 @@ def api_enroll_speaker(
     except TaskAlreadyRunning as exc:
         raise _task_conflict(exc) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("speaker-enroll failed for %s", artifact_id)
-        raise HTTPException(status_code=500, detail=str(exc) or "Internal Server Error") from exc
+        raise HTTPException(status_code=500, detail="Internal Server Error") from exc
     return {"id": profile.id, "display_name": profile.display_name, "scope": profile.scope}
 
 
@@ -124,7 +129,7 @@ def api_merge_speakers(
             target_diar_label=body.target_diar_label,
         )
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     rebuild_match_report_html(db, project_id=artifact.project_id, artifact_id=artifact_id)
@@ -137,7 +142,7 @@ def _lab_match_or_404(artifact, run_id: str, settings: Settings):
     try:
         return lab_voice_match_path(settings, artifact, run_id)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
 
 
 @router.post("/artifacts/{artifact_id}/lab/{run_id}/speaker-enroll")
@@ -169,14 +174,14 @@ def api_lab_enroll_speaker(
     except TaskAlreadyRunning as exc:
         raise _task_conflict(exc) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("lab speaker-enroll failed for %s %s", artifact_id, run_id)
-        raise HTTPException(status_code=500, detail=str(exc) or "Internal Server Error") from exc
+        raise HTTPException(status_code=500, detail="Internal Server Error") from exc
     return {"id": profile.id, "display_name": profile.display_name, "scope": profile.scope, "run_id": run_id}
 
 
@@ -201,7 +206,7 @@ def api_lab_merge_speakers(
             rebuild_views=False,
         )
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     result["run_id"] = run_id
@@ -251,7 +256,7 @@ def api_recalculate_speakers(
     except SystemExit as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except OSError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return result
@@ -304,7 +309,7 @@ def api_rebuild_summary(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -332,6 +337,6 @@ def api_reindex_artifact(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Not found") from exc
     except OSError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

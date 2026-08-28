@@ -19,7 +19,7 @@ from app.app.models.artifact import Artifact
 from app.app.services.artifact_audio import ensure_audio_wav, finalize_audio_outputs
 from app.app.services.artifact_lab import latest_run_id, resolve_run
 from app.app.services.media_cleanup import maybe_discard_video_source, reconcile_artifact_source_path
-from app.app.services.notify import send_telegram
+from app.app.services.notify import notify_artifact_user
 from app.app.services.pipeline_audio import _asr_env
 from app.app.services.status import set_status
 from app.app.services.storage import (
@@ -124,24 +124,39 @@ def _run_cmd(
 ) -> str:
     log_event(logger, "lab.step.start", artifact=artifact_id, step=step, cmd=cmd[-1])
     started = time.monotonic()
-    proc = subprocess.run(
-        cmd,
-        cwd=str(ROOT),
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-    )
+    log_dir = ROOT / "data" / "logs" / "lab_steps"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    safe_art = "".join(c if c.isalnum() or c in "-_" else "_" for c in artifact_id)[:80]
+    safe_step = "".join(c if c.isalnum() or c in "-_" else "_" for c in step)[:40]
+    stdout_path = log_dir / f"{safe_art}_{safe_step}.out.log"
+    stderr_path = log_dir / f"{safe_art}_{safe_step}.err.log"
+    with stdout_path.open("w", encoding="utf-8") as out_f, stderr_path.open("w", encoding="utf-8") as err_f:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            env=env,
+            stdout=out_f,
+            stderr=err_f,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
     elapsed = round(time.monotonic() - started, 1)
-    stdout = proc.stdout or ""
     if proc.returncode != 0:
-        tail = (proc.stderr or stdout)[-2000:]
+        try:
+            tail = stderr_path.read_text(encoding="utf-8", errors="replace")[-2000:]
+            if not tail.strip():
+                tail = stdout_path.read_text(encoding="utf-8", errors="replace")[-2000:]
+        except OSError:
+            tail = ""
         log_event(logger, "lab.step.failed", artifact=artifact_id, step=step, error=tail[-400:])
         raise RuntimeError(f"{step} failed: {tail}")
     log_event(logger, "lab.step.ok", artifact=artifact_id, step=step, seconds=elapsed)
-    return stdout
+    try:
+        return stdout_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def _prepare_wav(settings: Settings, artifact: Artifact, src: Path) -> Path:
@@ -236,7 +251,7 @@ def write_prod_view(
         sys.path.insert(0, str(ROOT / "asr"))
     from speaker_labels import apply_match_labels, speaker_registry_rows  # noqa: PLC0415
     from speakers import format_turns_timecodes, format_turns_txt, turns_to_json  # noqa: PLC0415
-    from transcript_view import write_transcript_html  # noqa: PLC0415
+    from transcript_view import load_call_summary_files, write_transcript_html  # noqa: PLC0415
     from paths import default_audio_url  # noqa: PLC0415
 
     labeled = apply_match_labels(list(turns), match_payload) if match_payload else list(turns)
@@ -256,8 +271,7 @@ def write_prod_view(
     (asr_dir / "docker_merged.txt").write_text(plain, encoding="utf-8")
     (asr_dir / "docker_merged_plain.txt").write_text(plain, encoding="utf-8")
 
-    summary_path = asr_dir / "call_summary.md"
-    summary_md = summary_path.read_text(encoding="utf-8") if summary_path.is_file() else ""
+    summary_md, brief_md = load_call_summary_files(asr_dir)
     registry = speaker_registry_rows(match_payload) if match_payload else None
     write_transcript_html(
         asr_dir / "transcript.html",
@@ -266,6 +280,7 @@ def write_prod_view(
         turns=labeled,
         mapping=None,
         summary_md=summary_md,
+        brief_md=brief_md,
         artifact_id=artifact_id,
         project_id=project_id,
         registry=registry,
@@ -444,14 +459,15 @@ def process_lab_artifact(db: Session, settings: Settings, artifact: Artifact) ->
         mark_lab_step(ws, "speakers_confirm", "running", detail="ожидание пользователя")
         set_status(db, artifact, "speakers_pending")
         db.commit()
-        send_telegram(
+        notify_artifact_user(
+            db,
             settings,
-            str(artifact.user_id),
+            artifact,
             f"Подтвердите спикеров: {artifact.original_filename}",
         )
         log_event(logger, "lab.speakers_pending", artifact=artifact.artifact_id, run_id=run_id)
         return ""
 
     set_status(db, artifact, "transcript_ready")
-    send_telegram(settings, str(artifact.user_id), f"Стенограмма готова: {artifact.original_filename}")
+    notify_artifact_user(db, settings, artifact, f"Стенограмма готова: {artifact.original_filename}")
     return text

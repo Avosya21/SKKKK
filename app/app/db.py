@@ -32,6 +32,7 @@ def _set_sqlite_pragma(dbapi_conn, _connection_record) -> None:
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=15000")
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
     # Расширение живёт в рамках соединения, а пул выдаёт их по кругу, поэтому
     # загружать его нужно на каждом новом соединении, а не один раз при старте.

@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings, get_settings
@@ -16,15 +15,41 @@ from app.app.services.auth import verify_password
 
 security = HTTPBearer(auto_error=False)
 
+SESSION_COOKIE_NAME = "skkkk_session"
+
 
 def create_access_token(settings: Settings, user: User) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": str(user.id), "role": user.role, "exp": expire}
-    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
+    token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
+    return token if isinstance(token, str) else token.decode("utf-8")
 
 
 def decode_token(settings: Settings, token: str) -> dict:
     return jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+
+
+def _cookie_secure(request: Request) -> bool:
+    if request.url.scheme == "https":
+        return True
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return proto == "https"
+
+
+def set_session_cookie(response: Response, request: Request, settings: Settings, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=int(settings.jwt_expire_minutes) * 60,
+        httponly=True,
+        samesite="lax",
+        secure=_cookie_secure(request),
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
 
 
 def authenticate_new_user(settings: Settings, password: str) -> tuple[str, str] | None:
@@ -57,15 +82,9 @@ def authenticate_new_user(settings: Settings, password: str) -> tuple[str, str] 
     return None
 
 
-def get_current_user(
-    db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
-) -> User:
-    if creds is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+def _user_from_access_token(db: Session, settings: Settings, token: str) -> User:
     try:
-        payload = decode_token(settings, creds.credentials)
+        payload = decode_token(settings, token)
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from None
@@ -73,6 +92,41 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
+
+
+def get_current_user(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+) -> User:
+    # Bearer, if sent, wins and must be valid — do not fall back to cookie
+    # (tampered Authorization must stay 401 even when a good cookie exists).
+    if creds is not None:
+        return _user_from_access_token(db, settings, creds.credentials)
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie:
+        return _user_from_access_token(db, settings, cookie)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+
+def require_html_user(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+) -> User:
+    """HTML shells: no session → 302 /login (not a JSON 401)."""
+    try:
+        return get_current_user(request, db, settings, creds)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            raise HTTPException(
+                status_code=status.HTTP_302_FOUND,
+                detail="Not authenticated",
+                headers={"Location": "/login"},
+            ) from exc
+        raise
 
 
 def require_role(*roles: str):

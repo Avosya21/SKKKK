@@ -111,7 +111,9 @@ python -m app.app.main api --host 127.0.0.1 --port 1111 --reload
 
 - `test_manager_can_create_project`
 - `test_user_cannot_create_project_403`
-- `test_only_admin_can_archive_project`
+- `test_user_cannot_delete_project`
+- `test_manager_purge_removes_files_and_db`
+- `test_admin_can_delete_project`
 - `test_create_project_makes_directory_tree` — проверяются все шесть подкаталогов.
 - `test_project_name_with_path_chars_is_sanitized` — имя `../../etc` не создаёт каталог вне `data\projects`.
 - `test_list_projects_visible_to_all_roles`
@@ -130,7 +132,7 @@ pytest app -m "not gpu" -q
 
 - [ ] Три пароля дают три разные роли, эскалация невозможна
 - [ ] Проект создаётся вместе с деревом каталогов
-- [ ] Права на создание и архивацию соблюдаются
+- [ ] Права на создание и удаление проекта соблюдаются
 - [ ] Тесты `test_auth.py` и `test_projects.py` зелёные
 - [ ] Приложение стартует с пустой БД без ручных правок
 

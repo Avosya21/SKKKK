@@ -61,7 +61,7 @@ from timing_align import (  # noqa: E402
     timed_asr_turns,
 )
 from transcript_integrity import audit_view_turns, write_transcript_integrity  # noqa: E402
-from transcript_view import write_transcript_html  # noqa: E402
+from transcript_view import load_call_summary_files, write_transcript_html  # noqa: E402
 
 
 def _match_json_path() -> Path | None:
@@ -244,8 +244,7 @@ def build(mapping_path: Path | None = None) -> dict:
         (OUT / "docker_whisper_on_pyannote.txt").write_text(format_turns_txt(overlaid), encoding="utf-8")
         overlay_note += f"; whisper_raw_overlay={len(overlaid)}"
 
-    summary_path = OUT / "call_summary.md"
-    summary_md = _read(summary_path) if summary_path.is_file() else ""
+    summary_md, brief_md = load_call_summary_files(OUT)
 
     registry = speaker_registry_rows(match_payload) if match_payload else None
     write_transcript_html(
@@ -255,6 +254,7 @@ def build(mapping_path: Path | None = None) -> dict:
         turns=turns,
         mapping=mapping,
         summary_md=summary_md,
+        brief_md=brief_md,
         artifact_id=artifact_id,
         project_id=project_id,
         registry=registry,

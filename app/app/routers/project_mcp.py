@@ -98,7 +98,7 @@ def mcp_connection_info(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    _user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
     project = _project_or_404(db, project_id)
     base = external_base_url(settings, str(request.base_url))

@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session
 
-from app.app.config import ROOT, Settings, get_settings
+from app.app.config import Settings, get_settings
 from app.app.db import get_db
-from app.app.dependencies import get_current_user
+from app.app.dependencies import get_current_user, require_html_user
 from app.app.models.artifact import Artifact
 from app.app.models.project import Project
 from app.app.models.user import User
@@ -27,7 +27,11 @@ from app.app.services.artifact_download import resolve_artifact_download
 from app.app.services.artifact_lab import ensure_lab_report, lab_file
 from app.app.services.artifact_reports import ensure_document_report
 from app.app.services.report_embed import apply_embed_mode
-from app.app.services.transcript_export import resolve_summary_docx, resolve_transcript_txt
+from app.app.services.transcript_export import (
+    resolve_brief_docx,
+    resolve_summary_docx,
+    resolve_transcript_txt,
+)
 from fastapi.templating import Jinja2Templates
 
 router = APIRouter(tags=["pages"])
@@ -49,7 +53,10 @@ def login_page(request: Request):
 
 
 @router.get("/", response_class=HTMLResponse)
-def index_page(request: Request):
+def index_page(
+    request: Request,
+    _user: Annotated[User, Depends(require_html_user)],
+):
     return templates.TemplateResponse(request, "index.html", {"title": "Проекты"})
 
 
@@ -58,6 +65,7 @@ def project_page(
     request: Request,
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
+    _user: Annotated[User, Depends(require_html_user)],
 ):
     project = db.get(Project, project_id)
     if not project or not project.is_active:
@@ -75,7 +83,11 @@ def project_page(
 
 
 @router.get("/projects/{project_id}/graph", response_class=HTMLResponse)
-def graph_page(request: Request, project_id: int):
+def graph_page(
+    request: Request,
+    project_id: int,
+    _user: Annotated[User, Depends(require_html_user)],
+):
     return templates.TemplateResponse(
         request,
         "graph.html",
@@ -84,7 +96,11 @@ def graph_page(request: Request, project_id: int):
 
 
 @router.get("/projects/{project_id}/tz", response_class=HTMLResponse)
-def tz_page(request: Request, project_id: int):
+def tz_page(
+    request: Request,
+    project_id: int,
+    _user: Annotated[User, Depends(require_html_user)],
+):
     return templates.TemplateResponse(
         request,
         "tz.html",
@@ -93,7 +109,11 @@ def tz_page(request: Request, project_id: int):
 
 
 @router.get("/projects/{project_id}/chat", response_class=HTMLResponse)
-def chat_page(request: Request, project_id: int):
+def chat_page(
+    request: Request,
+    project_id: int,
+    _user: Annotated[User, Depends(require_html_user)],
+):
     return templates.TemplateResponse(
         request,
         "chat.html",
@@ -102,7 +122,12 @@ def chat_page(request: Request, project_id: int):
 
 
 @router.get("/admin/conflicts", response_class=HTMLResponse)
-def conflicts_page(request: Request):
+def conflicts_page(
+    request: Request,
+    user: Annotated[User, Depends(require_html_user)],
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
     return templates.TemplateResponse(request, "conflicts.html", {"title": "Конфликты"})
 
 
@@ -126,20 +151,13 @@ def artifact_audio_file(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    clip: Annotated[float | None, Query()] = None,
+    _user: Annotated[User, Depends(get_current_user)],
     fmt: Annotated[str | None, Query(alias="format")] = None,
 ):
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
     if not artifact or artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Audio artifact not found")
-    if clip is not None and clip > 0:
-        clip_path = ROOT / "asr" / "work" / "input_16k_4min.wav"
-        if clip_path.is_file() and clip <= 240:
-            return _inline_audio_response(
-                clip_path,
-                "audio/wav",
-                f"{artifact.artifact_id}_4min.wav",
-            )
+    # ?clip= is ignored on purpose: old HTML asked for a shared asr/work WAV.
     want_wav = (fmt or "").lower() in {"wav", "pcm"}
     if want_wav:
         path = ensure_audio_wav(settings, artifact)
@@ -230,11 +248,33 @@ def artifact_summary_doc_legacy(
     return artifact_summary_docx_download(artifact_id, db, settings, _user)
 
 
+@router.get("/artifacts/{artifact_id}/download/brief.docx")
+def artifact_brief_docx_download(
+    artifact_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
+    if not artifact or artifact.file_type != "audio":
+        raise HTTPException(status_code=404, detail="Brief summary not found")
+    resolved = resolve_brief_docx(settings, artifact)
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Brief summary not available")
+    body, filename = resolved
+    return Response(
+        content=body,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers=_attachment_headers(filename),
+    )
+
+
 @router.get("/artifacts/{artifact_id}/report", response_class=HTMLResponse)
 def artifact_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
@@ -262,6 +302,7 @@ def artifact_sortformer_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
@@ -284,6 +325,7 @@ def artifact_raw_diar_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
@@ -306,6 +348,7 @@ def artifact_speaker_match_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
@@ -328,6 +371,7 @@ def artifact_two_voice_diar_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
@@ -369,6 +413,7 @@ def artifact_lab_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(require_html_user)],
     run: Annotated[str | None, Query()] = None,
     embed: Annotated[bool, Query()] = False,
 ):
@@ -390,6 +435,7 @@ def artifact_lab_file(
     relative: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(get_current_user)],
 ):
     artifact = _audio_artifact(db, artifact_id, "Lab files")
     try:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import httpx
+from sqlalchemy.orm import Session
 
 from app.app.config import Settings
 
@@ -24,3 +24,19 @@ def send_telegram(settings: Settings, chat_id: str, text: str) -> bool:
     except Exception as exc:
         logger.warning("telegram send failed: %s", exc)
         return False
+
+
+def notify_artifact_user(db: Session, settings: Settings, artifact, text: str) -> bool:
+    """Send Telegram to users.telegram_id, not the SQLite user PK."""
+    from app.app.models.user import User
+
+    user = db.get(User, artifact.user_id)
+    chat_id = (getattr(user, "telegram_id", None) or "").strip() if user else ""
+    if not chat_id:
+        logger.info("telegram skip: no telegram_id for user_id=%s", artifact.user_id)
+        return False
+    body = chat_id[1:] if chat_id.startswith("-") else chat_id
+    if not body.isdigit():
+        logger.warning("telegram skip: telegram_id is not a chat id")
+        return False
+    return send_telegram(settings, chat_id, text)

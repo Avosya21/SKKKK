@@ -16,7 +16,7 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.services.artifact_audio import ensure_audio_wav
 from app.app.services.media_cleanup import maybe_discard_video_source, reconcile_artifact_source_path
-from app.app.services.notify import send_telegram
+from app.app.services.notify import notify_artifact_user
 from app.app.services.pipeline_audio import _asr_env, _run_speaker_match
 from app.app.services.speaker_profiles import rebuild_match_report_html
 from app.app.services.status import set_status
@@ -159,9 +159,10 @@ def run_voice_gate(db: Session, settings: Settings, artifact: Artifact) -> None:
     _mark_step(ws, "speakers_confirm", "running", detail="ожидание пользователя")
     set_status(db, artifact, "speakers_pending")
     db.commit()
-    send_telegram(
+    notify_artifact_user(
+        db,
         settings,
-        str(artifact.user_id),
+        artifact,
         f"Подтвердите спикеров: {artifact.original_filename}",
     )
     log_event(logger, "voice_gate.speakers_pending", artifact=artifact.artifact_id)

@@ -70,6 +70,7 @@ powershell -ExecutionPolicy Bypass -File C:\1C_NEW_SKKKK\scripts\check_env.ps1
 
 | Файл | О чём |
 |------|--------|
+| [docs/HOWTO-MANAGER.md](docs/HOWTO-MANAGER.md) | Короткий how-to для менеджера: вход, загрузка, спикеры, выжимки, чат |
 | [docs/PLAN.md](docs/PLAN.md) | Полный план разработки |
 | [docs/PROJECT-MAP.md](docs/PROJECT-MAP.md) | Карта: где что лежит в коде |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Запуск, остановка, типичные проблемы |

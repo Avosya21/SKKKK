@@ -203,7 +203,7 @@ def refresh_transcript_html(out_dir: Path, turns: list[Turn], *, mapping: dict |
     """Обновить transcript.html без пересборки диаризации (не затирать audit)."""
     from paths import default_audio_url  # noqa: PLC0415
     from speaker_labels import load_match_payload, speaker_registry_rows  # noqa: PLC0415
-    from transcript_view import write_transcript_html  # noqa: PLC0415
+    from transcript_view import load_call_summary_files, write_transcript_html  # noqa: PLC0415
     import os
 
     match_path = os.environ.get("SKKKK_MATCH_JSON", "").strip()
@@ -211,8 +211,7 @@ def refresh_transcript_html(out_dir: Path, turns: list[Turn], *, mapping: dict |
     aid = os.environ.get("SKKKK_ARTIFACT_ID", "").strip() or None
     pid_raw = os.environ.get("SKKKK_PROJECT_ID", "").strip()
     pid = int(pid_raw) if pid_raw.isdigit() else None
-    summary_path = out_dir / "call_summary.md"
-    summary_md = summary_path.read_text(encoding="utf-8") if summary_path.is_file() else ""
+    summary_md, brief_md = load_call_summary_files(out_dir)
     registry = speaker_registry_rows(match_payload) if match_payload else None
     write_transcript_html(
         out_dir / "transcript.html",
@@ -221,6 +220,7 @@ def refresh_transcript_html(out_dir: Path, turns: list[Turn], *, mapping: dict |
         turns=turns,
         mapping=mapping or {},
         summary_md=summary_md,
+        brief_md=brief_md,
         artifact_id=aid,
         project_id=pid,
         registry=registry,

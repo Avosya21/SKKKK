@@ -155,6 +155,89 @@ def test_list_project_deadlines_dedupes_and_sorts(db_engine, client, admin_token
     db.close()
 
 
+def test_list_project_deadlines_skips_stage_duration_estimates(db_engine, client, admin_token):
+    from app.app.db import SessionLocal
+
+    db = SessionLocal()
+    user = db.scalar(select(User).limit(1))
+    project = Project(name="Estimates", description="", created_by=user.id, is_active=True)
+    db.add(project)
+    db.flush()
+    art = Artifact(
+        artifact_id="art_estimate_skip",
+        project_id=project.id,
+        user_id=user.id,
+        original_filename="tz.docx",
+        stored_filename="tz.docx",
+        file_path="x",
+        file_type="document",
+        source_type="document",
+        status="done",
+        sha256="est",
+    )
+    db.add(art)
+    db.flush()
+    db.add(
+        Entity(
+            artifact_id=art.id,
+            entity_type="task",
+            value_json=json.dumps(
+                {
+                    "description": "Этап 1 MVP заказ → сделка",
+                    "assignee": "Исполнитель",
+                    "deadline": "4–6 нед.",
+                    "status": "unknown",
+                },
+                ensure_ascii=False,
+            ),
+            confidence=0.7,
+            is_active=True,
+            needs_review=False,
+        )
+    )
+    db.add(
+        Entity(
+            artifact_id=art.id,
+            entity_type="task",
+            value_json=json.dumps(
+                {
+                    "description": "Заполнить артикул перед этапом 2",
+                    "assignee": "Заказчик",
+                    "deadline": "перед этапом 2",
+                    "status": "unknown",
+                },
+                ensure_ascii=False,
+            ),
+            confidence=0.7,
+            is_active=True,
+            needs_review=False,
+        )
+    )
+    db.add(
+        Entity(
+            artifact_id=art.id,
+            entity_type="task",
+            value_json=json.dumps(
+                {
+                    "description": "Согласовать таблицу статусов",
+                    "assignee": "Заказчик",
+                    "deadline": "к пятнице",
+                    "status": "open",
+                },
+                ensure_ascii=False,
+            ),
+            confidence=0.7,
+            is_active=True,
+            needs_review=False,
+        )
+    )
+    db.commit()
+    data = list_project_deadlines(db, project.id)
+    assert data["total"] == 1
+    assert data["items"][0]["deadline"] == "к пятнице"
+    db.close()
+
+
 def test_artifact_knowledge_text_prefers_lab_final(tmp_data):
     from app.app.config import get_settings
     from app.app.services.storage import artifact_knowledge_text, create_project_tree, parsed_dir

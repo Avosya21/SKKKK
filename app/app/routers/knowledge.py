@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings, get_settings
-from app.app.db import get_db
+from app.app.db import get_db, get_engine
 from app.app.dependencies import get_current_user, require_role
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Link, NoteRef, Resolution, UserNote
@@ -17,7 +18,9 @@ from app.app.models.project import Project
 from app.app.models.user import User
 from app.app.services.chat import answer_chat, chat_is_pending, list_chat_messages
 from app.app.services.entities import reextract_project_entities
-from app.app.services.graph import build_graph_payload
+from app.app.services.graph import build_graph_payload, entity_text
+from app.app.services.ollama_client import embed_texts
+from app.app.services.vector_index import init_vector_store, upsert_entity_vectors
 from app.app.services.project_deadlines import list_project_deadlines
 from app.app.services.project_tasks import (
     TASK_ENTITIES_REEXTRACT,
@@ -38,9 +41,14 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
 
 
+class NoteRefIn(BaseModel):
+    kind: str = Field(min_length=1, max_length=32)
+    id: int
+
+
 class NoteCreate(BaseModel):
-    text: str = Field(min_length=1)
-    refs: list[dict[str, Any]] = Field(default_factory=list)
+    text: str = Field(min_length=1, max_length=20000)
+    refs: list[NoteRefIn] = Field(default_factory=list)
 
 
 class LinkCreate(BaseModel):
@@ -58,7 +66,7 @@ class ResolveConflict(BaseModel):
 
 class EntityReview(BaseModel):
     action: str  # accept | reject | edit
-    value_json: str | None = None
+    value_json: str | None = Field(default=None, max_length=32768)
 
 
 @router.get("/projects/{project_id}/search")
@@ -68,7 +76,7 @@ def semantic_search(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     _user: Annotated[User, Depends(get_current_user)],
-    limit: int = 10,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ):
     from app.app.db import get_engine
     from app.app.services.ollama_client import embed_texts
@@ -128,6 +136,7 @@ def review_entity(
     entity_id: int,
     body: EntityReview,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     _user: Annotated[User, Depends(get_current_user)],
 ):
     ent = db.get(Entity, entity_id)
@@ -141,6 +150,10 @@ def review_entity(
     elif body.action == "edit" and body.value_json:
         ent.value_json = body.value_json
         ent.needs_review = False
+        if not settings.dry_run:
+            init_vector_store(get_engine())
+            vec = embed_texts(settings, [entity_text(ent.value_json)])[0]
+            upsert_entity_vectors(db, [(ent.id, vec)])
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     db.commit()
@@ -162,8 +175,11 @@ def create_note(
     notes_dir.mkdir(parents=True, exist_ok=True)
     from datetime import datetime
 
-    fname = f"user_note_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{user.name[:20]}.txt"
-    fpath = notes_dir / fname
+    fname = f"user_note_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{user.id}.txt"
+    notes_root = notes_dir.resolve()
+    fpath = (notes_dir / fname).resolve()
+    if fpath.parent != notes_root:
+        raise HTTPException(status_code=400, detail="Invalid note path")
     fpath.write_text(body.text, encoding="utf-8")
     note = UserNote(project_id=project_id, user_id=user.id, text=body.text, file_path=str(fpath))
     db.add(note)
@@ -172,8 +188,8 @@ def create_note(
         db.add(
             NoteRef(
                 note_id=note.id,
-                target_kind=str(ref.get("kind", "entity")),
-                target_id=int(ref["id"]),
+                target_kind=ref.kind,
+                target_id=ref.id,
             )
         )
     db.commit()
@@ -186,6 +202,22 @@ def create_link(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
+    project = db.get(Project, body.project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=404, detail="Project not found")
+    src = db.get(Entity, body.source_entity_id)
+    tgt = db.get(Entity, body.target_entity_id)
+    if not src or not tgt:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    src_art = db.get(Artifact, src.artifact_id)
+    tgt_art = db.get(Artifact, tgt.artifact_id)
+    if (
+        not src_art
+        or not tgt_art
+        or src_art.project_id != body.project_id
+        or tgt_art.project_id != body.project_id
+    ):
+        raise HTTPException(status_code=404, detail="Entity not found")
     link = Link(
         project_id=body.project_id,
         source_entity_id=body.source_entity_id,
@@ -236,6 +268,8 @@ def resolve_conflict(
     link = db.get(Link, link_id)
     if not link or link.link_type != "POTENTIAL_CONFLICT":
         raise HTTPException(status_code=404, detail="Conflict not found")
+    if body.winning_entity_id not in {link.source_entity_id, link.target_entity_id}:
+        raise HTTPException(status_code=400, detail="winner must be source or target")
     losing = (
         link.target_entity_id
         if body.winning_entity_id == link.source_entity_id
@@ -254,7 +288,11 @@ def resolve_conflict(
             status="resolved",
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="already resolved") from exc
     return {"ok": True}
 
 
@@ -417,6 +455,13 @@ def chat_endpoint(
         raise HTTPException(status_code=404, detail="Project not found")
     if chat_is_pending(db, project_id=body.project_id, user_id=user.id):
         raise HTTPException(status_code=409, detail="ИИ уже готовит ответ на предыдущий вопрос")
+    from app.app.llm_settings import uses_local_gemma
+    from app.app.models.job import Job
+
+    if uses_local_gemma(settings.llm_provider):
+        running = db.scalar(select(func.count()).select_from(Job).where(Job.status == "running")) or 0
+        if running:
+            raise HTTPException(status_code=409, detail="GPU занят расшифровкой")
     try:
         return answer_chat(db, settings, body.project_id, user.id, body.question)
     except TaskAlreadyRunning as exc:

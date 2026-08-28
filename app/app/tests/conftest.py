@@ -100,6 +100,14 @@ def db_engine(tmp_data: Path, monkeypatch):
 
     )
 
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _fk_on(dbapi_conn, _record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     from app.app.db import Base
 
     import app.app.models  # noqa: F401
@@ -223,4 +231,30 @@ def user_token(client: TestClient) -> str:
 def auth_headers(admin_token: str) -> dict[str, str]:
 
     return {"Authorization": f"Bearer {admin_token}"}
+
+
+
+
+@pytest.fixture()
+
+def anon_client(client: TestClient) -> TestClient:
+
+    """TestClient that has never called /auth/login (no session cookie)."""
+
+    return client
+
+
+
+
+@pytest.fixture()
+
+def cookie_auth_client(client: TestClient, admin_token: str) -> TestClient:
+
+    """Same TestClient after admin login: HttpOnly skkkk_session is in the cookie jar.
+
+    admin_token is the Bearer twin of that cookie. Packet 1: cookie alone is enough
+    for get_current_user; Bearer still works. Packet 2 will close anonymous reports.
+    """
+
+    return client
 

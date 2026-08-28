@@ -8,16 +8,24 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings
+from app.app.db import get_engine
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity
 from app.app.logging_setup import log_event
 from app.app.llm_labels import llm_runtime_label
+from app.app.services.graph import delete_entities_with_deps, entity_text
 from app.app.services.llm import chat_completion, strip_json_fence
+from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import structured_dir
+from app.app.services.vector_index import (
+    delete_vectors_for_entities,
+    init_vector_store,
+    upsert_entity_vectors,
+)
 
 logger = logging.getLogger("skkkk.entities")
 
@@ -102,6 +110,62 @@ _DEADLINE_MARKERS = re.compile(
     r")"
 )
 
+_DURATION_RANGE = re.compile(
+    r"(?i)\d{1,2}\s*[–—\-−]\s*\d{1,2}\s*(?:нед\.?|недель|недели|мес\.?|месяц)"
+)
+_DURATION_BARE = re.compile(
+    r"(?i)^\s*\d{1,2}\s*(?:нед\.?|недель|недели|мес\.?|месяц(?:ев|а)?)\.?\s*$"
+)
+_CALENDAR_DEADLINE_HINT = re.compile(
+    r"(?i)("
+    r"\d{1,2}[./]\d{1,2}"
+    r"|20\d{2}-\d{2}-\d{2}"
+    r"|четверг|пятниц|понедельник|вторник|сред[аыу]|суббот|воскресень"
+    r"|сегодня|завтра"
+    r"|до\s+конца"
+    r"|к\s+\d"
+    r")"
+)
+
+
+_STAGE_SEQUENCE = re.compile(
+    r"(?i)(?:"
+    r"перед\s+этап"
+    r"|после\s+(?:приёмк\w+\s+)?этап"
+    r"|на\s+этапе\b"
+    r")"
+)
+
+
+def is_duration_estimate(raw: str | None) -> bool:
+    """«4–6 нед.» / «8–12 недель» — оценка длительности этапа, не дедлайн."""
+    if raw is None:
+        return False
+    text = raw.strip()
+    if not text:
+        return False
+    if _CALENDAR_DEADLINE_HINT.search(text):
+        return False
+    return bool(_DURATION_RANGE.search(text) or _DURATION_BARE.search(text))
+
+
+def is_stage_sequence_phrase(raw: str | None) -> bool:
+    """«перед этапом 2» — очередность работ, не календарный срок."""
+    if raw is None:
+        return False
+    text = raw.strip()
+    if not text:
+        return False
+    if _CALENDAR_DEADLINE_HINT.search(text):
+        return False
+    return bool(_STAGE_SEQUENCE.search(text))
+
+
+def is_informational_schedule(raw: str | None) -> bool:
+    """Длительность этапа или очередность — не поручение с дедлайном."""
+    return is_duration_estimate(raw) or is_stage_sequence_phrase(raw)
+
+
 _EMPTY_DEADLINE = frozenset(
     {
         "",
@@ -132,6 +196,8 @@ def _normalize_deadline_value(raw: str | None) -> str | None:
     if not text:
         return None
     if text.casefold() in _EMPTY_DEADLINE:
+        return None
+    if is_informational_schedule(text):
         return None
     return text
 
@@ -447,39 +513,57 @@ def persist_entities(
     payload: EntitiesPayload,
 ) -> Path:
     payload.tasks = merge_related_tasks(payload.tasks)
-    db.execute(delete(Entity).where(Entity.artifact_id == artifact.id))
-    rows: list[Entity] = []
+    drafts: list[tuple[str, str, float]] = []
 
-    def add(entity_type: str, value: Any, confidence: float = 0.6) -> None:
+    def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
+        drafts.append((entity_type, json.dumps(value, ensure_ascii=False), confidence))
+
+    for d in payload.decisions:
+        draft("decision", {"text": d})
+    for t in payload.tasks:
+        draft("task", t.model_dump())
+    for k, v in payload.facts.items():
+        draft("fact", {"key": k, "value": v})
+    for m in payload.mentions:
+        draft("mention", m.model_dump())
+    for p in payload.participants:
+        draft("participant", p.model_dump())
+    if payload.summary:
+        draft("summary", {"text": payload.summary}, 0.7)
+
+    texts = [entity_text(vj) for _, vj, _ in drafts]
+    vectors: list[list[float]] = []
+    if texts and not settings.dry_run:
+        init_vector_store(get_engine())
+        vectors = embed_texts(settings, texts)
+        if len(vectors) != len(texts):
+            raise ValueError(f"ollama returned {len(vectors)} embeddings for {len(texts)} entities")
+
+    old_ids = list(db.scalars(select(Entity.id).where(Entity.artifact_id == artifact.id)).all())
+    if old_ids:
+        delete_vectors_for_entities(db, old_ids)
+        delete_entities_with_deps(db, old_ids)
+
+    rows: list[Entity] = []
+    for entity_type, value_json, confidence in drafts:
         ent = Entity(
             artifact_id=artifact.id,
             entity_type=entity_type,
-            value_json=json.dumps(value, ensure_ascii=False),
+            value_json=value_json,
             confidence=confidence,
             is_active=True,
             needs_review=True,
         )
         db.add(ent)
         rows.append(ent)
-
-    for d in payload.decisions:
-        add("decision", {"text": d})
-    for t in payload.tasks:
-        add("task", t.model_dump())
-    for k, v in payload.facts.items():
-        add("fact", {"key": k, "value": v})
-    for m in payload.mentions:
-        add("mention", m.model_dump())
-    for p in payload.participants:
-        add("participant", p.model_dump())
-    if payload.summary:
-        add("summary", {"text": payload.summary}, confidence=0.7)
+    db.flush()
+    if vectors:
+        upsert_entity_vectors(db, list(zip((r.id for r in rows), vectors, strict=True)))
 
     out_dir = structured_dir(settings, artifact.project_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{artifact.artifact_id}_entities.json"
     out_path.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-    db.flush()
     return out_path
 
 

@@ -19,11 +19,11 @@ from app.app.models.project import Project
 from app.app.models.user import User
 from app.app.schemas.artifact import ArtifactOut, ArtifactProgressOut
 from app.app.services import resumable_upload as resumable
-from app.app.services.artifact_audio import ensure_audio_report
 from app.app.services.artifact_download import artifact_download_available, artifact_download_label
 from app.app.services.artifact_lab import list_runs as list_lab_runs
 from app.app.services.artifact_reports import document_report_url
 from app.app.services.pipeline_progress import build_artifact_progress, reconcile_artifact_status
+from app.app.services.project_purge import purge_artifact
 from app.app.services.storage import artifact_report_url
 from app.app.services.storage import ensure_inside, generate_stored_filename, raw_input_dir
 from app.app.services.upload import (
@@ -161,10 +161,6 @@ def list_artifacts(
             if old != canonical or old.startswith("http://") or old.startswith("https://"):
                 row.transcript_html_url = canonical
                 updated = True
-                try:
-                    ensure_audio_report(settings, row)
-                except FileNotFoundError:
-                    pass
         elif row.transcription_text:
             old = row.transcript_html_url or ""
             canonical = document_report_url(row)
@@ -188,6 +184,25 @@ def list_artifacts(
         item = item.model_copy(update=updates)
         out.append(item)
     return out
+
+
+@router.delete("/{project_id}/artifacts/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_artifact(
+    project_id: int,
+    artifact_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[User, Depends(get_current_user)],
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    art = db.scalar(
+        select(Artifact).where(Artifact.project_id == project_id, Artifact.artifact_id == artifact_id)
+    )
+    if not art:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+    purge_artifact(db, settings, art)
 
 
 @router.post("/{project_id}/uploads/init", response_model=UploadSessionOut)
@@ -332,9 +347,23 @@ def complete_resumable_upload(
     dest_dir = raw_input_dir(settings, project_id, session.source_type)
     dest = ensure_inside(settings.data_dir, dest_dir / stored)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(part), str(dest))
+    shutil.copy2(str(part), str(dest))
+    try:
+        result = _register_file_on_disk(
+            db,
+            settings,
+            project=project,
+            user=user,
+            original=session.filename,
+            dest=dest,
+            sha256=sha256,
+            size=size,
+            source_type=session.source_type,
+        )
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
     resumable.cleanup_session(settings, project_id, upload_id)
-
     log_event(
         logger,
         "upload.saved",
@@ -344,17 +373,7 @@ def complete_resumable_upload(
         path=dest.name,
         mode="resumable",
     )
-    return _register_file_on_disk(
-        db,
-        settings,
-        project=project,
-        user=user,
-        original=session.filename,
-        dest=dest,
-        sha256=sha256,
-        size=size,
-        source_type=session.source_type,
-    )
+    return result
 
 
 @router.post("/{project_id}/upload", response_model=list[ArtifactOut])

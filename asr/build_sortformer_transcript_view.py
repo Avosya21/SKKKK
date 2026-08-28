@@ -25,7 +25,7 @@ from speakers import (  # noqa: E402
     reattach_cut_letters,
     renumber_speakers,
 )
-from transcript_view import write_transcript_html  # noqa: E402
+from transcript_view import load_call_summary_files, write_transcript_html  # noqa: E402
 
 from paths import OUT  # noqa: E402
 
@@ -118,7 +118,10 @@ def build(
 
     turns = sanitize_transcript_turns(turns)
 
-    summary_md = _read(summary_path) if summary_path and summary_path.is_file() else ""
+    summary_md, brief_md = ("", "")
+    if summary_path and summary_path.is_file():
+        summary_md, brief_md = load_call_summary_files(summary_path.parent)
+        summary_md = _read(summary_path)
     write_transcript_html(
         out_html,
         title="Созвон — склейка трёх ASR, нарезка по голосам Sortformer v2.1",
@@ -126,6 +129,7 @@ def build(
         turns=turns,
         mapping=None,
         summary_md=summary_md,
+        brief_md=brief_md,
     )
     return {
         "ok": True,

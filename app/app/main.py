@@ -29,7 +29,9 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.app.config import Settings, get_settings  # noqa: E402
 from app.app.db import Base, get_db, get_engine  # noqa: E402
 from app.app.logging_setup import log_event, setup_logging  # noqa: E402
+from app.app.dependencies import get_current_user  # noqa: E402
 from app.app.models.job import Job  # noqa: E402
+from app.app.models.user import User  # noqa: E402
 from app.app.routers import auth, knowledge, pages, project_mcp, projects, speaker_profiles, upload  # noqa: E402
 from app.app.services.gpu_phase import nvidia_memory_used_mib  # noqa: E402
 from app.app.services.llm import check_llm_provider, provider_uses_lmstudio  # noqa: E402
@@ -47,12 +49,15 @@ async def lifespan(_app: FastAPI):
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
     from app.app.db import SessionLocal, apply_schema_migrations
-    from app.app.services.project_tasks import cleanup_stale_tasks
+    from app.app.services.project_tasks import abandon_running_api_tasks, cleanup_stale_tasks
 
     apply_schema_migrations()
     db = SessionLocal()
     try:
+        abandoned = abandon_running_api_tasks(db)
         cleanup_stale_tasks(db)
+        if abandoned:
+            log_event(logger, "api.abandoned_tasks", count=abandoned)
     finally:
         db.close()
     try:
@@ -88,9 +93,15 @@ app.include_router(speaker_profiles.router)
 
 
 @app.get("/health")
-def health(
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    _user: User = Depends(get_current_user),
 ):
     queued = db.scalar(select(func.count()).select_from(Job).where(Job.status == "queued")) or 0
     running = db.scalar(select(func.count()).select_from(Job).where(Job.status == "running")) or 0
