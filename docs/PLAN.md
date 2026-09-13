@@ -43,10 +43,11 @@
 
 Логика `POST /auth/login`:
 
-1. Найти пользователя по `telegram_id`.
-2. Если есть — проверить пароль против сохранённого хеша роли.
-3. Если нет — сопоставить пароль с тремя хешами из `.env`, создать пользователя с этой ролью.
-4. Выдать JWT.
+1. Найти пользователя по **имени (логину)**, без учёта регистра.
+2. Если есть несколько с одним именем — склеить в одну учётку (история чата и файлы переезжают).
+3. Сопоставить пароль с тремя хешами из `.env`. Какой пароль ввели — такая роль (в том числе у уже существующей учётки: роль перезаписывается).
+4. Если учётки нет — создать с этой ролью; если есть — обновить роль и хеш, записать Telegram ID.
+5. Не совпал ни с одной ролью — 401. Выдать JWT.
 
 Ограничения API как в части 1 плюс: resolve конфликтов и ручная правка ТЗ — только `admin`.
 
@@ -62,7 +63,7 @@
 | БД | SQLite в `C:\1C_NEW_SKKKK\data\app.db` | Достаточно на 20 человек; PostgreSQL позже |
 | ORM | SQLAlchemy 2 + Alembic | |
 | Очередь | Таблица `jobs` + один GPU-воркер (процесс) | Без Celery и без watchdog |
-| LLM | **Два режима** (переключатель при старте, `LLM_PROVIDER` в `.env`): **lmstudio** — Gemma `google/gemma-4-31b-qat`, LM Studio `http://127.0.0.1:1234/v1`; **cursor** — Cursor SDK + `CURSOR_API_KEY` | Локально — приватность и GPU-фазы; облако — без VRAM под Gemma |
+| LLM | **Два режима** (переключатель при старте, `LLM_PROVIDER` в `.env`): **lmstudio** — `LMSTUDIO_MODEL` (`qwen/qwen3.8-27b`), LM Studio `http://127.0.0.1:1234/v1`; **cursor** — Cursor SDK + `CURSOR_API_KEY` | Локально — приватность и GPU-фазы; облако — без VRAM под локальную LLM |
 | Web | FastAPI + Uvicorn на `http://127.0.0.1:1111` | Порт 8000 занят MCP 1С |
 | Эмбеддинги | Ollama `bge-m3`, API `http://127.0.0.1:11434`, **CPU** | Не занимает VRAM |
 | ASR | Parakeet-TDT v3 + GigaAM v3 (сверка) + Sortformer 4spk | Двойной слух, не ансамбль Whisper/T-one |
@@ -81,13 +82,13 @@
 
 | `LLM_PROVIDER` | Движок | GPU под LLM | Когда удобно |
 |---|---|---|---|
-| `lmstudio` (по умолчанию) | Gemma `google/gemma-4-31b-qat` через LM Studio | Да: load/unload, фазы ASR ↔ LLM | Локальная разработка, приватность, длинные созвоны без API-биллинга |
+| `lmstudio` (по умолчанию) | `LMSTUDIO_MODEL` (`qwen/qwen3.8-27b`) через LM Studio | Да: load/unload, фазы ASR ↔ LLM | Локальная разработка, приватность, длинные созвоны без API-биллинга |
 | `cursor` | Cursor SDK (`cursor-sdk`), модель `CURSOR_MODEL` (напр. `composer-2.5`) | **Нет** — VRAM целиком под ASR | Опубликованный сервер, интернет всегда есть, LM Studio не нужен |
 
 **Запуск и выбор:**
 
 ```powershell
-python -m app.app.main all                    # окно: Gemma или Cursor
+python -m app.app.main all                    # окно/консоль: LM Studio или Cursor
 python -m app.app.main all --llm-provider cursor
 python -m app.app.main all --use-saved-llm    # взять из .env (службы NSSM)
 ```
@@ -146,7 +147,7 @@ C:\1C_NEW_SKKKK\
 
 ### 5.1. Реляционные таблицы
 
-`users` — id, name, telegram_id (unique), role, position, password_hash, created_at
+`users` — id, name (логин, уникален без учёта регистра), telegram_id (хранится, на вход не влияет), role, position, password_hash, created_at
 
 `projects` — id, name, description, created_by, created_at, is_active, settings_json (веса источников, порог схожести 0.82)
 
@@ -218,7 +219,7 @@ Gemma в VRAM **не загружается**. Шаги `gemma_load` / `gemma_un
 
 1. В режиме **lmstudio** в VRAM одновременно **не** живут Gemma и ASR. В режиме **cursor** Gemma в VRAM нет.
 2. Двойной слух **последовательно** на одном GPU-воркере: сначала ONNX Parakeet+Sortformer (`venvs\lab`), затем GigaAM в Docker для сверки. Whisper и T-one не стартуют.
-3. **Только lmstudio:** перед ASR — `lms unload --all`, дождаться падения занятости по `nvidia-smi`; после ASR — `lms load google/gemma-4-31b-qat`.
+3. **Только lmstudio:** перед ASR — `lms unload --all`, дождаться падения занятости по `nvidia-smi`; после ASR — `lms load` той модели, что в `LMSTUDIO_MODEL`.
 3a. **Только lmstudio:** в LM Studio **выключена автозагрузка модели по запросу (JIT)**. Иначе HTTP-запрос от пользователя во время ASR поднимет Gemma поверх ASR.
 4. **Только lmstudio:** Gemma после загрузки **не выгружать** между sense/proof, нормализацией, сущностями, ТЗ и чатом. Выгрузка — только перед следующим аудио.
 5. Чат и пересборка ТЗ ждут, если идёт ASR (очередь `jobs.phase`).
@@ -349,7 +350,7 @@ UI: текст + привязки к узлам. Файл в `project_notes\`. �
 1. `nvidia-smi` — драйвер жив, 24 ГБ видны.
 2. Python 3.11 в PATH, Git, FFmpeg (`ffmpeg -version`).
 3. Tesseract OCR с языками rus+eng, путь в PATH.
-4. **LM Studio** (обязательно при `LLM_PROVIDER=lmstudio`): модель `google/gemma-4-31b-qat`, сервер `:1234`, JIT выключен, CLI `lms`.
+4. **LM Studio** (обязательно при `LLM_PROVIDER=lmstudio`): модель из `LMSTUDIO_MODEL` (`qwen/qwen3.8-27b`), сервер `:1234`, JIT выключен, CLI `lms`.
 5. **Cursor API** (обязательно при `LLM_PROVIDER=cursor`): `CURSOR_API_KEY` в `.env`, preflight проверяет доступность API.
 6. **Ollama:** `ollama list` содержит `bge-m3`, эмбеддинг на CPU.
 7. Создать `.env` из `.env.example` (`LLM_PROVIDER`, секреты, URL, хеши паролей).
@@ -436,7 +437,7 @@ NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy —
 См. `.env.example` в корне репозитория. Критичные:
 
 - `SECRET_KEY`, три `*_PASSWORD_HASH`
-- `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL=google/gemma-4-31b-qat`
+- `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL=qwen/qwen3.8-27b`
 - `WEB_HOST=127.0.0.1`, `WEB_PORT=1111` (не 8000)
 - `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL=bge-m3`, `OLLAMA_NUM_GPU=0`
 - `TELEGRAM_BOT_TOKEN`

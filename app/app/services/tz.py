@@ -20,6 +20,7 @@ logger = logging.getLogger("skkkk.tz")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "rebuild_tz.md"
 MAP_CHUNK_CHARS = 6000
+TZ_ENTITY_TYPES = frozenset({"decision", "task"})
 _ART_ID_IN_PARENS = re.compile(r"\((art_\d{4}-\d{2}-\d{2}_\d{6}_[a-f0-9]+)\)", re.IGNORECASE)
 
 
@@ -186,7 +187,11 @@ def _collect_project_material(db: Session, settings: Settings, project_id: int) 
     entities = db.scalars(
         select(Entity)
         .join(Artifact, Artifact.id == Entity.artifact_id)
-        .where(Artifact.project_id == project_id, Entity.is_active.is_(True))
+        .where(
+            Artifact.project_id == project_id,
+            Entity.is_active.is_(True),
+            Entity.entity_type.in_(TZ_ENTITY_TYPES),
+        )
         .order_by(Entity.id)
     ).all()
     if entities:

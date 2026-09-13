@@ -3,7 +3,9 @@
 <h1 class="h4 mb-3">Техническое задание — проект {{ project_id }}</h1>
 <pre id="tz" class="border rounded bg-white p-3" style="white-space:pre-wrap;"></pre>
 <div id="tz-status" class="text-muted small mb-2" aria-live="polite"></div>
+{% if current_role == 'admin' %}
 <button type="button" id="rebuild" class="btn btn-primary mt-3 skkkk-action-btn" data-idle-label="Пересобрать ТЗ" aria-label="Пересобрать ТЗ">Пересобрать ТЗ</button>
+{% endif %}
 <script>
 (async () => {
   if (!SKKKK.requireAuth()) return;
@@ -11,6 +13,13 @@
   const rebuildBtn = document.getElementById('rebuild');
   const tzStatus = document.getElementById('tz-status');
   let tzRebuildRunning = false;
+  if (!rebuildBtn) {
+    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    document.getElementById('tz').textContent = SKKKK.plainifyLlmMarkup(
+      (await r.json()).content || '(пусто)',
+    );
+    return;
+  }
 
   const load = async () => {
     const r = await SKKKK.api(`/projects/${projectId}/tz/content`);

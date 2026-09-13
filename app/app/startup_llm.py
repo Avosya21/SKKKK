@@ -1,7 +1,8 @@
-"""Выбор LLM при запуске SKKKK: Gemma (локально) или Cursor API."""
+"""Выбор LLM при запуске SKKKK: LM Studio (локально) или Cursor API."""
 
 from __future__ import annotations
 
+import os
 import sys
 
 from app.app.llm_settings import (
@@ -12,18 +13,30 @@ from app.app.llm_settings import (
     write_llm_provider_to_env,
 )
 
+_WINDOWS_SERVICE_SESSION = "services"
+
+
+def can_prompt() -> bool:
+    """PyCharm и обычная консоль — да; служба Windows без TTY — нет."""
+    if sys.stdin.isatty():
+        return True
+    if os.environ.get("PYCHARM_HOSTED"):
+        return True
+    session = os.environ.get("SESSIONNAME", "").strip().lower()
+    return bool(session) and session != _WINDOWS_SERVICE_SESSION
+
 
 def _pick_cli(current: LlmProvider | None) -> LlmProvider:
     saved = current or DEFAULT_LLM_PROVIDER
-    print()
-    print("=" * 52)
-    print("  Primary Analytics — выбор LLM")
-    print("=" * 52)
-    print(f"  Сохранено в .env: {saved}")
-    print("  1 — Gemma (локально, LM Studio)")
-    print("  2 — Cursor API (облако)")
-    print("  Enter — оставить сохранённое")
-    print("=" * 52)
+    print("", flush=True)
+    print("=" * 52, flush=True)
+    print("  Primary Analytics — выбор LLM", flush=True)
+    print("=" * 52, flush=True)
+    print(f"  Сохранено в .env: {saved}", flush=True)
+    print("  1 — LM Studio (локально)", flush=True)
+    print("  2 — Cursor API (облако)", flush=True)
+    print("  Enter — оставить сохранённое", flush=True)
+    print("=" * 52, flush=True)
     try:
         choice = input("Выбор [1/2/Enter]: ").strip()
     except EOFError:
@@ -74,7 +87,7 @@ def _pick_tkinter(current: LlmProvider | None) -> LlmProvider:
 
     tk.Button(
         buttons,
-        text="Gemma\n(локально, LM Studio)",
+        text="LM Studio\n(локально)",
         width=22,
         height=3,
         command=lambda: choose("lmstudio"),
@@ -109,11 +122,15 @@ def resolve_llm_provider_at_startup(
         provider = normalize_llm_provider(cli_choice)
     elif use_saved:
         provider = saved or DEFAULT_LLM_PROVIDER
-    elif interactive and sys.stdin.isatty():
-        try:
-            provider = _pick_tkinter(saved)
-        except Exception:
+    elif interactive and can_prompt():
+        # PyCharm Run: stdin не TTY, но input() в консоли работает.
+        if os.environ.get("PYCHARM_HOSTED") and not sys.stdin.isatty():
             provider = _pick_cli(saved)
+        else:
+            try:
+                provider = _pick_tkinter(saved)
+            except Exception:
+                provider = _pick_cli(saved)
     else:
         provider = saved or DEFAULT_LLM_PROVIDER
 

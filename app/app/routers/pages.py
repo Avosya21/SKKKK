@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated
 from urllib.parse import quote
 
@@ -11,6 +12,15 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user, require_html_user
+from app.app.services.meetings import get_meeting, meeting_by_token, require_meeting_staff
+from app.app.services.project_access import (
+    can_grant_access,
+    staff_ui_role,
+    require_admin,
+    require_artifact_project,
+    require_project,
+    require_project_staff,
+)
 from app.app.models.artifact import Artifact
 from app.app.models.project import Project
 from app.app.models.user import User
@@ -25,8 +35,10 @@ from app.app.services.artifact_audio import (
 )
 from app.app.services.artifact_download import resolve_artifact_download
 from app.app.services.artifact_lab import ensure_lab_report, lab_file
+from app.app.services.meeting_lab import RELOAD_MS, build_meeting_lab, child_belongs_to_parent
+from app.app.services.pipeline_meeting import is_meeting_artifact
 from app.app.services.artifact_reports import ensure_document_report
-from app.app.services.report_embed import apply_embed_mode
+from app.app.services.report_embed import apply_embed_mode, apply_role_chrome
 from app.app.services.transcript_export import (
     resolve_brief_docx,
     resolve_summary_docx,
@@ -38,6 +50,24 @@ router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
 
+def _page_role(db: Session, user: User, project: Project) -> str:
+    return staff_ui_role(db, user, project)
+
+
+def _artifact_role(db: Session, user: User, artifact: Artifact) -> str:
+    project = db.get(Project, artifact.project_id)
+    if not project:
+        return user.role
+    return _page_role(db, user, project)
+
+
+def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None) -> HTMLResponse:
+    html = apply_role_chrome(html, role or user.role)
+    if embed:
+        html = apply_embed_mode(html, kind=kind)
+    return HTMLResponse(html)
+
+
 def _attachment_headers(filename: str) -> dict[str, str]:
     ascii_name = filename.encode("ascii", "ignore").decode("ascii") or "download"
     return {
@@ -47,17 +77,69 @@ def _attachment_headers(filename: str) -> dict[str, str]:
     }
 
 
+def meeting_voice_flags(settings: Settings) -> dict[str, bool]:
+    return {
+        "dfn3": bool(settings.meeting_voice_dfn3),
+        "loudness": bool(settings.meeting_voice_loudness),
+        "server": bool(settings.meeting_voice_server),
+    }
+
+
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     return templates.TemplateResponse(request, "login.html", {"title": "Вход"})
 
 
+@router.get("/m/{token}", response_class=HTMLResponse)
+def public_meeting_page(
+    request: Request,
+    token: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    meeting_by_token(db, token)
+    return templates.TemplateResponse(
+        request,
+        "meeting_public.html",
+        {
+            "title": "Встреча",
+            "token": token,
+            "meeting_voice": meeting_voice_flags(get_settings()),
+        },
+    )
+
+
+@router.get("/projects/{project_id}/meetings/{meeting_id}/room", response_class=HTMLResponse)
+def meeting_room_page(
+    request: Request,
+    project_id: int,
+    meeting_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_html_user)],
+):
+    require_meeting_staff(db, user, project_id)
+    get_meeting(db, project_id, meeting_id)
+    return templates.TemplateResponse(
+        request,
+        "meeting_room.html",
+        {
+            "title": "Комната",
+            "project_id": project_id,
+            "meeting_id": meeting_id,
+            "meeting_voice": meeting_voice_flags(get_settings()),
+        },
+    )
+
+
 @router.get("/", response_class=HTMLResponse)
 def index_page(
     request: Request,
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
 ):
-    return templates.TemplateResponse(request, "index.html", {"title": "Проекты"})
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"title": "Проекты", "current_role": user.role},
+    )
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -65,12 +147,11 @@ def project_page(
     request: Request,
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, project_id)
     title = f"Проект {project_id} — {project.name}"
+    role = _page_role(db, user, project)
     return templates.TemplateResponse(
         request,
         "project.html",
@@ -78,6 +159,8 @@ def project_page(
             "title": title,
             "project_id": project_id,
             "project_name": project.name,
+            "current_role": role,
+            "can_grant_access": can_grant_access(db, user, project),
         },
     )
 
@@ -86,12 +169,14 @@ def project_page(
 def graph_page(
     request: Request,
     project_id: int,
-    _user: Annotated[User, Depends(require_html_user)],
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_html_user)],
 ):
+    project = require_project(db, user, project_id)
     return templates.TemplateResponse(
         request,
         "graph.html",
-        {"title": f"Граф {project_id}", "project_id": project_id},
+        {"title": f"Граф {project_id}", "project_id": project_id, "current_role": _page_role(db, user, project)},
     )
 
 
@@ -99,12 +184,14 @@ def graph_page(
 def tz_page(
     request: Request,
     project_id: int,
-    _user: Annotated[User, Depends(require_html_user)],
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_html_user)],
 ):
+    project = require_project(db, user, project_id)
     return templates.TemplateResponse(
         request,
         "tz.html",
-        {"title": f"ТЗ {project_id}", "project_id": project_id},
+        {"title": f"ТЗ {project_id}", "project_id": project_id, "current_role": _page_role(db, user, project)},
     )
 
 
@@ -112,12 +199,14 @@ def tz_page(
 def chat_page(
     request: Request,
     project_id: int,
-    _user: Annotated[User, Depends(require_html_user)],
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_html_user)],
 ):
+    project = require_project(db, user, project_id)
     return templates.TemplateResponse(
         request,
         "chat.html",
-        {"title": f"Чат {project_id}", "project_id": project_id},
+        {"title": f"Чат {project_id}", "project_id": project_id, "current_role": _page_role(db, user, project)},
     )
 
 
@@ -151,11 +240,11 @@ def artifact_audio_file(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
     fmt: Annotated[str | None, Query(alias="format")] = None,
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact or artifact.file_type != "audio":
+    artifact = require_artifact_project(db, user, artifact_id)
+    if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Audio artifact not found")
     # ?clip= is ignored on purpose: old HTML asked for a shared asr/work WAV.
     want_wav = (fmt or "").lower() in {"wav", "pcm"}
@@ -178,11 +267,9 @@ def artifact_download_file(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     resolved = resolve_artifact_download(settings, artifact)
     if not resolved:
         raise HTTPException(status_code=404, detail="Download not available yet")
@@ -200,11 +287,9 @@ def artifact_transcript_txt_download(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact or artifact.file_type != "audio":
-        raise HTTPException(status_code=404, detail="Transcript not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     resolved = resolve_transcript_txt(settings, artifact)
     if not resolved:
         raise HTTPException(status_code=404, detail="Transcript not available")
@@ -221,11 +306,9 @@ def artifact_summary_docx_download(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact or artifact.file_type != "audio":
-        raise HTTPException(status_code=404, detail="Summary not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     resolved = resolve_summary_docx(settings, artifact)
     if not resolved:
         raise HTTPException(status_code=404, detail="Summary not available")
@@ -242,10 +325,10 @@ def artifact_summary_doc_legacy(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
     """Старый URL → тот же docx."""
-    return artifact_summary_docx_download(artifact_id, db, settings, _user)
+    return artifact_summary_docx_download(artifact_id, db, settings, user)
 
 
 @router.get("/artifacts/{artifact_id}/download/brief.docx")
@@ -253,10 +336,10 @@ def artifact_brief_docx_download(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact or artifact.file_type != "audio":
+    artifact = require_artifact_project(db, user, artifact_id)
+    if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Brief summary not found")
     resolved = resolve_brief_docx(settings, artifact)
     if not resolved:
@@ -274,27 +357,21 @@ def artifact_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     if artifact.file_type == "audio":
         try:
             report_path = ensure_audio_report(settings, artifact)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Report not found") from exc
         html = report_path.read_text(encoding="utf-8")
-        if embed:
-            html = apply_embed_mode(html, kind="audio")
-        return HTMLResponse(html)
+        return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
 
     report_path = ensure_document_report(settings, artifact)
     html = report_path.read_text(encoding="utf-8")
-    if embed:
-        html = apply_embed_mode(html, kind="document")
-    return HTMLResponse(html)
+    return _serve_report(html, user, embed=embed, kind="document", role=_artifact_role(db, user, artifact))
 
 
 @router.get("/artifacts/{artifact_id}/report-sortformer", response_class=HTMLResponse)
@@ -302,12 +379,10 @@ def artifact_sortformer_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Sortformer report is for audio artifacts only")
     try:
@@ -315,9 +390,7 @@ def artifact_sortformer_report_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    if embed:
-        html = apply_embed_mode(html, kind="audio")
-    return HTMLResponse(html)
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
 
 
 @router.get("/artifacts/{artifact_id}/report-diar-raw", response_class=HTMLResponse)
@@ -325,12 +398,10 @@ def artifact_raw_diar_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Raw diarization report is for audio artifacts only")
     try:
@@ -338,9 +409,7 @@ def artifact_raw_diar_report_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    if embed:
-        html = apply_embed_mode(html, kind="audio")
-    return HTMLResponse(html)
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
 
 
 @router.get("/artifacts/{artifact_id}/report-speaker-match", response_class=HTMLResponse)
@@ -348,12 +417,11 @@ def artifact_speaker_match_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact = require_artifact_project(db, user, artifact_id)
+    require_project_staff(db, user, artifact.project_id)
     if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Speaker match report is for audio artifacts only")
     try:
@@ -361,9 +429,7 @@ def artifact_speaker_match_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    if embed:
-        html = apply_embed_mode(html, kind="audio")
-    return HTMLResponse(html)
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
 
 
 @router.get("/artifacts/{artifact_id}/report-diar-two-voice", response_class=HTMLResponse)
@@ -371,12 +437,10 @@ def artifact_two_voice_diar_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
     embed: Annotated[bool, Query()] = False,
 ):
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+    artifact = require_artifact_project(db, user, artifact_id)
     if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail="Two-voice diar report is for audio artifacts only")
     try:
@@ -384,9 +448,7 @@ def artifact_two_voice_diar_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    if embed:
-        html = apply_embed_mode(html, kind="audio")
-    return HTMLResponse(html)
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
 
 
 LAB_MEDIA_TYPES = {
@@ -399,10 +461,8 @@ LAB_MEDIA_TYPES = {
 }
 
 
-def _audio_artifact(db: Session, artifact_id: str, what: str) -> Artifact:
-    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+def _audio_artifact(db: Session, user: User, artifact_id: str, what: str) -> Artifact:
+    artifact = require_artifact_project(db, user, artifact_id)
     if artifact.file_type != "audio":
         raise HTTPException(status_code=404, detail=f"{what} is for audio artifacts only")
     return artifact
@@ -413,19 +473,18 @@ def artifact_lab_report_page(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_html_user)],
+    user: Annotated[User, Depends(require_html_user)],
     run: Annotated[str | None, Query()] = None,
     embed: Annotated[bool, Query()] = False,
 ):
-    artifact = _audio_artifact(db, artifact_id, "Lab report")
+    artifact = _audio_artifact(db, user, artifact_id, "Lab report")
+    require_admin(user)
     try:
         report_path = ensure_lab_report(settings, artifact, run)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    if embed:
-        html = apply_embed_mode(html, kind="audio")
-    return HTMLResponse(html)
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
 
 
 @router.get("/artifacts/{artifact_id}/lab/{run_id}/file/{relative:path}")
@@ -435,11 +494,64 @@ def artifact_lab_file(
     relative: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    artifact = _audio_artifact(db, artifact_id, "Lab files")
+    artifact = _audio_artifact(db, user, artifact_id, "Lab files")
+    require_admin(user)
     try:
         path = lab_file(settings, artifact, run_id, relative)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type=LAB_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+        filename=path.name,
+        content_disposition_type="inline",
+        headers={"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=300"},
+    )
+
+
+@router.get("/artifacts/{artifact_id}/report-meeting-lab", response_class=HTMLResponse)
+def meeting_lab_report_page(
+    request: Request,
+    artifact_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(require_html_user)],
+):
+    artifact = _audio_artifact(db, user, artifact_id, "Meeting lab")
+    require_admin(user)
+    if not is_meeting_artifact(artifact):
+        raise HTTPException(status_code=404, detail="Meeting lab is for meeting artifacts only")
+    return templates.TemplateResponse(
+        request,
+        "meeting_lab.html",
+        {
+            "title": "Лаборатория созвона",
+            "lab": build_meeting_lab(settings, artifact),
+            "project_id": artifact.project_id,
+            "reload_ms": RELOAD_MS,
+        },
+    )
+
+
+@router.get("/artifacts/{artifact_id}/meeting-lab/{child_id}/lab/{run_id}/file/{relative:path}")
+def meeting_lab_file(
+    artifact_id: str,
+    child_id: str,
+    run_id: str,
+    relative: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    artifact = _audio_artifact(db, user, artifact_id, "Meeting lab files")
+    require_admin(user)
+    if not is_meeting_artifact(artifact) or not child_belongs_to_parent(artifact_id, child_id):
+        raise HTTPException(status_code=404, detail="unknown meeting track")
+    child = SimpleNamespace(project_id=artifact.project_id, artifact_id=child_id)
+    try:
+        path = lab_file(settings, child, run_id, relative)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return FileResponse(

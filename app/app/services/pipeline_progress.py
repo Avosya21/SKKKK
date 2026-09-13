@@ -10,6 +10,7 @@ from app.app.llm_labels import asr_step_labels, knowledge_steps_audio, knowledge
 from app.app.models.artifact import Artifact
 from app.app.schemas.artifact import ArtifactProgressOut, PipelineStepOut
 from app.app.services.pipeline_lab import LAB_STEPS
+from app.app.services.pipeline_meeting import MEETING_LAB_STEPS, is_meeting_artifact
 from app.app.services.storage import ensure_artifact_workspace
 
 StepStatus = str
@@ -39,10 +40,15 @@ def _read_lab_checklist(ws: Path) -> dict | None:
         return None
 
 
-def _lab_progress_steps(checklist: dict | None, status: str) -> list[PipelineStepOut]:
+def _lab_progress_steps(
+    checklist: dict | None,
+    status: str,
+    *,
+    template: tuple[tuple[str, str], ...] | None = None,
+) -> list[PipelineStepOut]:
     steps: list[PipelineStepOut] = []
     rows = (checklist or {}).get("steps") or {}
-    for step_id, label in LAB_STEPS:
+    for step_id, label in template or LAB_STEPS:
         raw = (rows.get(step_id) or {}).get("status")
         detail = (rows.get(step_id) or {}).get("detail")
         mapped = _map_checklist_status(raw)
@@ -207,7 +213,8 @@ def _audio_progress(settings: Settings, artifact: Artifact, ws: Path) -> Artifac
     steps: list[PipelineStepOut] = []
 
     if status in {"preprocessing", "asr_running"} and lab_checklist:
-        steps = _lab_progress_steps(lab_checklist, status)
+        template = MEETING_LAB_STEPS if is_meeting_artifact(artifact) else None
+        steps = _lab_progress_steps(lab_checklist, status, template=template)
         current = next((s for s in steps if s.status == "running"), None)
         if current is None:
             pending = next((s for s in steps if s.status == "pending"), None)

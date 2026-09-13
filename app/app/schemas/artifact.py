@@ -68,6 +68,14 @@ class ArtifactOut(BaseModel):
 
     lab_runs: int = 0
 
+    meeting_lab: bool = False
+
+    speakers_match_available: bool = False
+
+    speakers_match_ready: bool = False
+
+    speakers_confirm_ready: bool = False
+
 
 
     model_config = {"from_attributes": True}

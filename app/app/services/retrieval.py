@@ -6,6 +6,62 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.app.models.artifact import Artifact
+from app.app.models.entity import Entity
+from app.app.services.graph import _cosine, entity_text
+from app.app.services.vector_index import load_entity_vectors
+
+MATERIAL_ENTITY_TYPES = frozenset({"decision", "task", "fact"})
+ENTITY_SEARCH_LIMIT = 12
+
+
+def search_entities(
+    db: Session,
+    query_vec: list[float],
+    *,
+    project_id: int,
+    limit: int = ENTITY_SEARCH_LIMIT,
+    min_score: float = 0.35,
+) -> list[dict[str, Any]]:
+    """Ближайшие decision/task/fact проекта по уже посчитанному вектору вопроса."""
+    rows = db.execute(
+        select(Entity, Artifact)
+        .join(Artifact, Artifact.id == Entity.artifact_id)
+        .where(
+            Artifact.project_id == project_id,
+            Entity.is_active.is_(True),
+            Entity.entity_type.in_(MATERIAL_ENTITY_TYPES),
+        )
+        .order_by(Entity.id.asc())
+    ).all()
+    if not rows:
+        return []
+    vectors = load_entity_vectors(db, [ent.id for ent, _art in rows])
+    ranked: list[tuple[float, Entity, Artifact]] = []
+    for ent, art in rows:
+        vec = vectors.get(ent.id)
+        if not vec:
+            continue
+        score = _cosine(query_vec, vec)
+        if score < min_score:
+            continue
+        ranked.append((score, ent, art))
+    ranked.sort(key=lambda item: (-item[0], -item[1].id))
+    out: list[dict[str, Any]] = []
+    for score, ent, art in ranked[:limit]:
+        out.append(
+            {
+                "entity_id": ent.id,
+                "entity_type": ent.entity_type,
+                "value_json": ent.value_json,
+                "text": entity_text(ent.value_json),
+                "score": score,
+                "artifact_db_id": art.id,
+                "artifact_id": art.artifact_id,
+                "filename": art.original_filename,
+                "priority_weight": art.priority_weight,
+            }
+        )
+    return out
 
 
 def weighted_score(semantic_score: float, priority_weight: float) -> float:

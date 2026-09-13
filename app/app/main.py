@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from starlette.middleware.cors import CORSMiddleware
+
 # Запуск файлом (`python app/app/main.py`) не кладёт корень проекта в sys.path.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
@@ -32,7 +34,18 @@ from app.app.logging_setup import log_event, setup_logging  # noqa: E402
 from app.app.dependencies import get_current_user  # noqa: E402
 from app.app.models.job import Job  # noqa: E402
 from app.app.models.user import User  # noqa: E402
-from app.app.routers import auth, knowledge, pages, project_mcp, projects, speaker_profiles, upload  # noqa: E402
+from app.app.routers import (  # noqa: E402
+    acme,
+    auth,
+    knowledge,
+    meetings,
+    pages,
+    project_mcp,
+    project_members,
+    projects,
+    speaker_profiles,
+    upload,
+)
 from app.app.services.gpu_phase import nvidia_memory_used_mib  # noqa: E402
 from app.app.services.llm import check_llm_provider, provider_uses_lmstudio  # noqa: E402
 from app.app.services.ollama_client import ollama_tags  # noqa: E402
@@ -47,6 +60,7 @@ async def lifespan(_app: FastAPI):
     settings = get_settings()
     setup_logging("api", settings.data_dir / "logs")
     engine = get_engine()
+    import app.app.models  # noqa: F401 — зарегистрировать все таблицы, включая project_members
     Base.metadata.create_all(bind=engine)
     from app.app.db import SessionLocal, apply_schema_migrations
     from app.app.services.project_tasks import abandon_running_api_tasks, cleanup_stale_tasks
@@ -56,8 +70,25 @@ async def lifespan(_app: FastAPI):
     try:
         abandoned = abandon_running_api_tasks(db)
         cleanup_stale_tasks(db)
+        from app.app.services.user_activity import backfill_chat_activity
+        from app.app.services.user_identity import ensure_login_name_unique_index, merge_duplicate_logins
+
+        merged = merge_duplicate_logins(db)
+        ensure_login_name_unique_index()
+        backfilled = backfill_chat_activity(db)
+        from app.app.services.graph import purge_orphan_links
+
+        orphan_links = purge_orphan_links(db)
+        if orphan_links:
+            db.commit()
         if abandoned:
             log_event(logger, "api.abandoned_tasks", count=abandoned)
+        if merged:
+            log_event(logger, "users.merged_duplicate_logins", count=merged)
+        if backfilled:
+            log_event(logger, "activity.chat_backfill", count=backfilled)
+        if orphan_links:
+            log_event(logger, "graph.orphan_links.startup_purged", count=orphan_links)
     finally:
         db.close()
     try:
@@ -78,17 +109,27 @@ async def lifespan(_app: FastAPI):
     log_event(logger, "api.stopped")
 
 
+
+
+# =====================================================================
+
+
 app = FastAPI(title="Primary Analytics", lifespan=lifespan)
+
+
 static_dir = Path(__file__).resolve().parent / "static"
 static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+app.include_router(acme.router)
 app.include_router(pages.router)
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(upload.router)
 app.include_router(knowledge.router)
 app.include_router(project_mcp.router)
+app.include_router(project_members.router)
+app.include_router(meetings.router)
 app.include_router(speaker_profiles.router)
 
 
@@ -267,6 +308,16 @@ def _serve(host: str, port: int, *, reload: bool) -> None:
     uvicorn.run(target, host=host, port=port, log_level="info", reload=reload)
 
 
+def _ensure_edge() -> None:
+    """Сертификат :777 (перевыпуск если надо), Caddy, LiveKit. Ошибка комнаты не валит портал."""
+    from app.app.services.edge_runtime import ensure_edge_services
+
+    try:
+        ensure_edge_services(get_settings())
+    except Exception as exc:
+        log_event(startup_logger, "edge.failed", level=logging.WARNING, error=str(exc))
+
+
 def _run_all(host: str, port: int, *, skip_checks: bool, reload: bool) -> int:
     code = _preflight("all", skip=skip_checks, host=host, port=port)
     if code == 1:
@@ -275,6 +326,7 @@ def _run_all(host: str, port: int, *, skip_checks: bool, reload: bool) -> int:
         return code
 
     _print_credentials(_NEW_CREDENTIALS, host=host, port=port)
+    _ensure_edge()
     worker = _spawn_worker()
     try:
         _serve(host, port, reload=reload)
@@ -292,6 +344,7 @@ def _run_api(host: str, port: int, *, skip_checks: bool, reload: bool) -> int:
     if code:
         return code
     _print_credentials(_NEW_CREDENTIALS, host=host, port=port)
+    _ensure_edge()
     _serve(host, port, reload=reload)
     return 0
 
@@ -350,8 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         choices=("all", "api", "worker", "check", "credentials"),
         default="all",
         help=(
-            "all — проверка систем, веб-портал и GPU-воркер (по умолчанию); "
-            "api — только портал; worker — только воркер; "
+            "all — проверка, Caddy, LiveKit, очистка голоса, портал и GPU-воркер (по умолчанию); "
+            "api — Caddy, LiveKit, очистка голоса и портал; worker — только воркер; "
             "check — только проверка систем; credentials — пароли ролей"
         ),
     )

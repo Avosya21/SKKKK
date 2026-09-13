@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -335,17 +334,20 @@ def lmstudio_models(settings: Settings, timeout: float = 5) -> list[str]:
     return [row.get("id", "") for row in data if isinstance(row, dict)]
 
 
+def lmstudio_model_loaded(model: str, loaded_ids: list[str]) -> bool:
+    base = model.split(":")[0]
+    return any(mid == model or mid.startswith(base) for mid in loaded_ids)
+
+
 def ensure_lmstudio_gemma_loaded(settings: Settings, *, timeout: float = 10) -> None:
-    """Проверка, что Gemma видна в LM Studio (для ASR merge/summary)."""
-    models = urllib.request.urlopen(
-        f"{settings.lmstudio_base_url.rstrip('/')}/models",
-        timeout=timeout,
-    ).read().decode("utf-8")
-    if "gemma" not in models.lower():
-        raise RuntimeError(
-            "Gemma не в LM Studio. Сначала остановите GPU ASR-контейнеры и выполните: "
-            f"lms load {settings.lmstudio_model} -y"
-        )
+    """Проверка, что LMSTUDIO_MODEL видна в LM Studio."""
+    loaded = lmstudio_models(settings, timeout=timeout)
+    if lmstudio_model_loaded(settings.lmstudio_model, loaded):
+        return
+    raise RuntimeError(
+        f"{settings.lmstudio_model} не в LM Studio. Сначала остановите GPU ASR-контейнеры "
+        f"и выполните: lms load {settings.lmstudio_model} -y"
+    )
 
 
 def check_llm_provider(settings: Settings):
@@ -361,14 +363,14 @@ def check_llm_provider(settings: Settings):
                 f"LM Studio {settings.lmstudio_base_url} недоступен: {exc}",
                 "запустите LM Studio и включите сервер",
             )
-        if settings.lmstudio_model not in models:
+        if not lmstudio_model_loaded(settings.lmstudio_model, models):
             return CheckResult(
                 "llm",
                 WARN,
-                f"Gemma {settings.lmstudio_model} не загружена (доступно {len(models)})",
+                f"{settings.lmstudio_model} не загружена (доступно {len(models)})",
                 "lms load " + settings.lmstudio_model,
             )
-        return CheckResult("llm", OK, f"Gemma ({settings.lmstudio_model}) через LM Studio")
+        return CheckResult("llm", OK, f"{settings.lmstudio_model} через LM Studio")
 
     if not settings.cursor_api_key.strip():
         return CheckResult(

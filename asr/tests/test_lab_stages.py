@@ -127,6 +127,20 @@ def test_replicas_split_on_speaker_and_pause():
     assert replicas[0]["text"] == "раз два"
 
 
+def test_empty_paint_is_not_a_hard_failure():
+    from asr.lab.stages.s06_transcript import replicas_from_paint
+
+    assert replicas_from_paint({"words": []}, max_gap=1.2, keep_unassigned=True) == []
+
+
+def test_painted_words_without_replicas_still_fail():
+    from asr.lab.stages.s06_transcript import EMPTY_REPLICAS, replicas_from_paint
+
+    painted = _painted([("шум", 0.0, 0.2, UNASSIGNED, None)])
+    with pytest.raises(RuntimeError, match=EMPTY_REPLICAS):
+        replicas_from_paint({"words": painted}, max_gap=1.2, keep_unassigned=False)
+
+
 def test_unassigned_words_are_kept_and_flagged():
     words = _painted(
         [
@@ -195,3 +209,18 @@ def test_binarize_uses_hysteresis_and_merges_short_gaps():
 def test_binarize_ignores_weak_probabilities():
     probabilities = np.full((30, 4), 0.3, dtype=np.float32)
     assert binarize(probabilities, audio_duration=2.4) == []
+
+
+def test_native_track_diar_is_one_known_speaker():
+    from asr.lab.sortformer import FRAME_DURATION, NUM_SPEAKERS
+    from asr.lab.stages.s03_diar import native_track_probabilities, native_track_segments
+
+    duration = 2.4
+    probs = native_track_probabilities(duration)
+    segments = native_track_segments(duration)
+    assert probs.shape == (int(round(duration / FRAME_DURATION)), NUM_SPEAKERS)
+    assert float(probs[:, 0].min()) == 1.0
+    assert float(probs[:, 1:].max()) == 0.0
+    assert segments == [
+        {"speaker": "speaker_0", "speaker_index": 0, "start": 0.0, "end": duration}
+    ]

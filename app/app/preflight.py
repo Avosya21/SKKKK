@@ -263,6 +263,7 @@ def _plan(settings: Settings, mode: str) -> list[tuple[str, object]]:
     ]
     if mode in {"all", "api"}:
         plan.append(("port", lambda: check_port(settings)))
+        plan.append(("meeting_voice", lambda: check_meeting_voice(settings)))
     if mode in {"all", "worker"}:
         plan.append(("worker_slot", lambda: check_worker_slot(settings)))
 
@@ -292,6 +293,28 @@ def _log(item: CheckResult) -> None:
         **({"hint": item.hint} if item.hint else {}),
         **item.extra,
     )
+
+
+def check_meeting_voice(settings: Settings) -> CheckResult:
+    if not settings.meeting_voice_server:
+        return CheckResult("meeting_voice", OK, "чистка комнаты выключена")
+    from app.app.services.edge_runtime import VOICE_CLEANER, VOICE_PY, voice_venv_ready
+
+    if not VOICE_PY.is_file() or not VOICE_CLEANER.is_file():
+        return CheckResult(
+            "meeting_voice",
+            WARN,
+            "нет venvs/voice, комната будет без серверной очистки",
+            hint="venv\\Scripts\\python.exe scripts\\install_meeting_voice.py",
+        )
+    if not voice_venv_ready():
+        return CheckResult(
+            "meeting_voice",
+            WARN,
+            "venvs/voice без torchaudio/DeepFilterNet, чистильщик не стартует",
+            hint="venv\\Scripts\\python.exe scripts\\install_meeting_voice.py",
+        )
+    return CheckResult("meeting_voice", OK, "venvs/voice готов, main поднимет чистильщик")
 
 
 def run_preflight(settings: Settings, *, mode: str = "all") -> list[CheckResult]:

@@ -2,7 +2,9 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
   <h1 class="h3 mb-0">Проекты</h1>
+  {% if current_role in ('admin', 'manager') %}
   <button class="btn btn-success" id="btn-new-project">Новый проект</button>
+  {% endif %}
 </div>
 <div id="projects-list" class="list-group"></div>
 <div class="modal fade" id="deleteProjectModal" tabindex="-1" aria-labelledby="delete-project-title" aria-hidden="true" data-bs-backdrop="static">
@@ -47,7 +49,10 @@
 {% block scripts %}
 <script>
 if (!SKKKK.requireAuth()) throw new Error('auth');
-const modal = new bootstrap.Modal(document.getElementById('newProjectModal'));
+const currentRole = {{ current_role|tojson }};
+const newProjectBtn = document.getElementById('btn-new-project');
+const modalEl = document.getElementById('newProjectModal');
+const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
 const deleteModalEl = document.getElementById('deleteProjectModal');
 const deleteNameEl = document.getElementById('delete-project-name');
 const deleteAck = document.getElementById('delete-project-ack');
@@ -64,8 +69,7 @@ function resetDeleteDialog() {
 }
 
 function canDeleteProjects() {
-  const role = localStorage.getItem('skkkk_role') || '';
-  return role === 'admin' || role === 'manager';
+  return currentRole === 'admin' || currentRole === 'manager';
 }
 
 function chevronSvg() {
@@ -83,7 +87,9 @@ async function loadProjects() {
   list.innerHTML = '';
   const rows = await r.json();
   if (!Array.isArray(rows) || !rows.length) {
-    list.innerHTML = '<p class="text-muted">Пока нет проектов — создайте первый.</p>';
+    list.innerHTML = currentRole === 'user'
+      ? '<p class="text-muted">Нет своих проектов.</p>'
+      : '<p class="text-muted">Пока нет проектов — создайте первый.</p>';
     return;
   }
   const allowDelete = canDeleteProjects();
@@ -190,7 +196,7 @@ deleteConfirmBtn.addEventListener('click', async () => {
   }, { label: 'Удаляю…' });
 });
 
-document.getElementById('btn-new-project').onclick = () => modal.show();
+if (newProjectBtn && modal) newProjectBtn.onclick = () => modal.show();
 document.getElementById('new-project-form').onsubmit = async (e) => {
   e.preventDefault();
   const form = e.target;

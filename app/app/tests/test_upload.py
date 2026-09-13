@@ -21,7 +21,7 @@ def test_upload_creates_artifact_and_job(client, manager_token, user_token):
     files = {"files": ("hello.txt", io.BytesIO(b"hello world"), "text/plain")}
     r = client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "note"},
         files=[("files", ("hello.txt", io.BytesIO(b"hello world"), "text/plain"))],
     )
@@ -39,7 +39,7 @@ def test_upload_rejects_oversized_file_413(client, manager_token, user_token, mo
     pid = _project(client, manager_token)
     r = client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "note"},
         files=[("files", ("big.bin", io.BytesIO(b"x" * 20), "application/octet-stream"))],
     )
@@ -52,19 +52,21 @@ def test_upload_detects_duplicate_by_sha256(client, manager_token, user_token):
     for _ in range(2):
         r = client.post(
             f"/projects/{pid}/upload",
-            headers={"Authorization": f"Bearer {user_token}"},
+            headers={"Authorization": f"Bearer {manager_token}"},
             data={"source_type": "note"},
             files=[("files", ("a.txt", io.BytesIO(payload), "text/plain"))],
         )
         assert r.status_code == 200
     arts = client.get(
         f"/projects/{pid}/artifacts",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     ).json()
     assert len(arts) == 1
+    assert arts[0]["speakers_match_available"] is False
+    assert arts[0]["speakers_confirm_ready"] is False
     r2 = client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "note"},
         files=[("files", ("b.txt", io.BytesIO(payload), "text/plain"))],
     )
@@ -76,7 +78,7 @@ def test_upload_generates_safe_stored_filename(client, manager_token, user_token
     name = "отчёт (финал)#1.pdf"
     client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "document"},
         files=[("files", (name, io.BytesIO(b"%PDF-1.4"), "application/pdf"))],
     )
@@ -92,7 +94,7 @@ def test_upload_path_traversal_blocked(client, manager_token, user_token, tmp_da
     pid = _project(client, manager_token)
     client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "note"},
         files=[("files", ("../../evil.txt", io.BytesIO(b"ok"), "text/plain"))],
     )
@@ -105,14 +107,14 @@ def test_upload_sets_source_type_and_weight(client, manager_token, user_token):
     pid = _project(client, manager_token)
     r = client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "call"},
         files=[("files", ("x.wav", io.BytesIO(b"RIFF"), "audio/wav"))],
     )
     assert r.json()[0]["source_type"] == "call"
 
 
-def test_user_role_can_upload(client, manager_token, user_token):
+def test_user_cannot_upload_to_foreign_project(client, manager_token, user_token):
     pid = _project(client, manager_token)
     r = client.post(
         f"/projects/{pid}/upload",
@@ -120,4 +122,4 @@ def test_user_role_can_upload(client, manager_token, user_token):
         data={"source_type": "note"},
         files=[("files", ("n.txt", io.BytesIO(b"1"), "text/plain"))],
     )
-    assert r.status_code == 200
+    assert r.status_code == 404

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings, get_settings
 from app.app.db import get_db, get_engine
 from app.app.dependencies import get_current_user, require_role
+from app.app.services.project_access import require_project, require_project_staff
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Link, NoteRef, Resolution, UserNote
 from app.app.models.project import Project
@@ -31,6 +32,17 @@ from app.app.services.project_tasks import (
 )
 from app.app.services.storage import project_notes_dir
 from app.app.services.tz import rebuild_tz, tz_paths
+from app.app.services.user_activity import (
+    ACTION_NOTE,
+    ACTION_REBUILD,
+    ACTION_REEXTRACT,
+    ACTION_RESOLVE,
+    ACTION_REVIEW,
+    BLOCK_KNOWLEDGE,
+    BLOCK_TZ,
+    log_activity,
+    list_activity,
+)
 
 logger = logging.getLogger("skkkk.api.knowledge")
 router = APIRouter(tags=["knowledge"])
@@ -75,7 +87,7 @@ def semantic_search(
     q: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ):
     from app.app.db import get_engine
@@ -83,9 +95,7 @@ def semantic_search(
     from app.app.services.retrieval import enrich_and_rerank_hits
     from app.app.services.vector_index import init_vector_store, search_vectors
 
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, project_id)
     if settings.dry_run:
         return {"query": q, "results": []}
     init_vector_store(get_engine())
@@ -100,11 +110,9 @@ def semantic_search(
 def project_graph(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project(db, user, project_id)
     return build_graph_payload(db, project_id)
 
 
@@ -113,8 +121,9 @@ def list_entities(
     project_id: int,
     artifact_db_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
+    require_project(db, user, project_id)
     art = db.get(Artifact, artifact_db_id)
     if not art or art.project_id != project_id:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -137,11 +146,15 @@ def review_entity(
     body: EntityReview,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
     ent = db.get(Entity, entity_id)
     if not ent:
         raise HTTPException(status_code=404, detail="Entity not found")
+    art = db.get(Artifact, ent.artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    require_project(db, user, art.project_id)
     if body.action == "accept":
         ent.needs_review = False
     elif body.action == "reject":
@@ -157,6 +170,17 @@ def review_entity(
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     db.commit()
+    log_activity(
+        db,
+        user_id=user.id,
+        project_id=art.project_id,
+        block=BLOCK_KNOWLEDGE,
+        action=ACTION_REVIEW,
+        title="Проверил сущность",
+        content=body.action,
+        target_kind="entity",
+        target_id=entity_id,
+    )
     return {"ok": True}
 
 
@@ -168,9 +192,7 @@ def create_note(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, project_id)
     notes_dir = project_notes_dir(settings, project_id)
     notes_dir.mkdir(parents=True, exist_ok=True)
     from datetime import datetime
@@ -193,6 +215,17 @@ def create_note(
             )
         )
     db.commit()
+    log_activity(
+        db,
+        user_id=user.id,
+        project_id=project_id,
+        block=BLOCK_KNOWLEDGE,
+        action=ACTION_NOTE,
+        title="Добавил заметку",
+        content=body.text[:500],
+        target_kind="note",
+        target_id=note.id,
+    )
     return {"id": note.id, "file_path": str(fpath)}
 
 
@@ -202,9 +235,7 @@ def create_link(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, body.project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, body.project_id)
     src = db.get(Entity, body.source_entity_id)
     tgt = db.get(Entity, body.target_entity_id)
     if not src or not tgt:
@@ -236,8 +267,9 @@ def create_link(
 def list_conflicts(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _admin: Annotated[User, Depends(require_role("admin"))],
+    admin: Annotated[User, Depends(require_role("admin"))],
 ):
+    require_project(db, admin, project_id)
     links = db.scalars(
         select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT")
     ).all()
@@ -293,6 +325,17 @@ def resolve_conflict(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="already resolved") from exc
+    log_activity(
+        db,
+        user_id=admin.id,
+        project_id=link.project_id,
+        block=BLOCK_KNOWLEDGE,
+        action=ACTION_RESOLVE,
+        title="Разрешил конфликт",
+        content=body.reason,
+        target_kind="link",
+        target_id=link_id,
+    )
     return {"ok": True}
 
 
@@ -300,11 +343,9 @@ def resolve_conflict(
 def project_active_tasks(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project(db, user, project_id)
     return {"tasks": list_active_tasks(db, project_id=project_id)}
 
 
@@ -315,9 +356,7 @@ def rebuild_tz_endpoint(
     settings: Annotated[Settings, Depends(get_settings)],
     admin: Annotated[User, Depends(require_role("admin"))],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project(db, admin, project_id)
     try:
         with track_project_task(
             db,
@@ -328,6 +367,16 @@ def rebuild_tz_endpoint(
             path = rebuild_tz(db, settings, project_id, manual=True)
     except TaskAlreadyRunning as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    log_activity(
+        db,
+        user_id=admin.id,
+        project_id=project_id,
+        block=BLOCK_TZ,
+        action=ACTION_REBUILD,
+        title="Пересобрал выжимку проекта",
+        target_kind="project",
+        target_id=project_id,
+    )
     return {"path": str(path)}
 
 
@@ -335,11 +384,9 @@ def rebuild_tz_endpoint(
 def project_deadlines(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project(db, user, project_id)
     return list_project_deadlines(db, project_id)
 
 
@@ -348,11 +395,9 @@ def reextract_entities_endpoint(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    user: Annotated[User, Depends(require_role("admin", "manager"))],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project_staff(db, user, project_id)
     try:
         with track_project_task(
             db,
@@ -360,9 +405,20 @@ def reextract_entities_endpoint(
             project_id=project_id,
             user_id=user.id,
         ):
-            return reextract_project_entities(db, settings, project_id)
+            result = reextract_project_entities(db, settings, project_id)
     except TaskAlreadyRunning as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    log_activity(
+        db,
+        user_id=user.id,
+        project_id=project_id,
+        block=BLOCK_KNOWLEDGE,
+        action=ACTION_REEXTRACT,
+        title="Переизвлёк сущности",
+        target_kind="project",
+        target_id=project_id,
+    )
+    return result
 
 
 @router.get("/projects/{project_id}/tz/content")
@@ -370,11 +426,9 @@ def get_tz(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project(db, user, project_id)
     current, _ = tz_paths(settings, project_id)
     if not current.is_file():
         return {"content": "", "path": str(current)}
@@ -395,10 +449,11 @@ def tz_versions(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
     from app.app.models.entity import Changelog
 
+    require_project(db, user, project_id)
     rows = db.scalars(
         select(Changelog).where(Changelog.project_id == project_id).order_by(Changelog.id.desc())
     ).all()
@@ -418,15 +473,30 @@ def tz_versions(
     }
 
 
+@router.get("/projects/{project_id}/activity")
+def project_activity(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+    all_users: Annotated[bool, Query()] = False,
+):
+    project = require_project(db, user, project_id)
+    scope_all = bool(all_users) and user.role == "admin"
+    events = list_activity(
+        db,
+        project_id=project_id,
+        user_id=None if scope_all else user.id,
+    )
+    return {"events": events, "all_users": scope_all}
+
+
 @router.get("/projects/{project_id}/chat/history")
 def chat_history(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, project_id)
     return {"messages": list_chat_messages(db, project_id=project_id, user_id=user.id)}
 
 
@@ -436,9 +506,7 @@ def chat_status(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, project_id)
     pending = chat_is_pending(db, project_id=project_id, user_id=user.id)
     return {"pending": pending, "label": "ИИ готовит ответ…" if pending else ""}
 
@@ -450,9 +518,7 @@ def chat_endpoint(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, body.project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = require_project(db, user, body.project_id)
     if chat_is_pending(db, project_id=body.project_id, user_id=user.id):
         raise HTTPException(status_code=409, detail="ИИ уже готовит ответ на предыдущий вопрос")
     from app.app.llm_settings import uses_local_gemma

@@ -27,6 +27,7 @@ TRANSCRIPT_TXT = "transcript.txt"
 TIMECODES_TXT = "transcript_timecodes.txt"
 
 UNKNOWN_SPEAKER = "unknown"
+EMPTY_REPLICAS = "из покрашенных слов не собралось ни одной реплики"
 
 
 def transcript_path(run: LabRun) -> Path:
@@ -97,6 +98,19 @@ def build_replicas(
     return replicas
 
 
+def replicas_from_paint(
+    paint_doc: dict[str, Any],
+    *,
+    max_gap: float,
+    keep_unassigned: bool,
+) -> list[dict[str, Any]]:
+    painted = list(paint_doc.get("words") or [])
+    replicas = build_replicas(painted, max_gap=max_gap, keep_unassigned=keep_unassigned)
+    if not replicas and painted:
+        raise RuntimeError(EMPTY_REPLICAS)
+    return replicas
+
+
 def run(
     lab_run: LabRun,
     *,
@@ -117,11 +131,9 @@ def run(
         words_doc = json.loads(words_path(lab_run).read_text(encoding="utf-8"))
         diar_doc = json.loads(diar_path(lab_run).read_text(encoding="utf-8"))
 
-        replicas = build_replicas(
-            paint_doc["words"], max_gap=max_gap, keep_unassigned=keep_unassigned
+        replicas = replicas_from_paint(
+            paint_doc, max_gap=max_gap, keep_unassigned=keep_unassigned
         )
-        if not replicas:
-            raise RuntimeError("из покрашенных слов не собралось ни одной реплики")
 
         provenance = {
             "run_id": lab_run.run_id,

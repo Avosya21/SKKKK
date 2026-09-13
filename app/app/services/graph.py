@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings
@@ -67,6 +67,58 @@ def delete_entities_with_deps(db: Session, entity_ids: list[int]) -> None:
     )
     db.execute(delete(NoteRef).where(NoteRef.target_kind == "entity", NoteRef.target_id.in_(entity_ids)))
     db.execute(delete(Entity).where(Entity.id.in_(entity_ids)))
+
+
+def purge_orphan_links(db: Session, *, project_id: int | None = None) -> int:
+    """Удалить связи, у которых уже нет source/target сущности (после reextract без FK)."""
+    live_ids = select(Entity.id)
+    q = select(Link).where(
+        or_(
+            Link.source_entity_id.not_in(live_ids),
+            Link.target_entity_id.not_in(live_ids),
+        )
+    )
+    if project_id is not None:
+        q = q.where(Link.project_id == project_id)
+    rows = list(db.scalars(q).all())
+    if not rows:
+        return 0
+    link_ids = [row.id for row in rows]
+    db.execute(delete(Resolution).where(Resolution.link_id.in_(link_ids)))
+    db.execute(delete(Link).where(Link.id.in_(link_ids)))
+    log_event(logger, "graph.orphan_links.purged", count=len(link_ids), project_id=project_id)
+    return len(link_ids)
+
+
+def rebuild_project_graph(db: Session, settings: Settings, project_id: int) -> dict[str, int]:
+    """Пересобрать автоматические связи по текущим сущностям проекта."""
+    from app.app.services.storage import artifact_knowledge_text
+
+    purged = purge_orphan_links(db, project_id=project_id)
+    auto_ids = list(
+        db.scalars(
+            select(Link.id).where(Link.project_id == project_id, Link.is_automatic.is_(True))
+        ).all()
+    )
+    if auto_ids:
+        db.execute(delete(Resolution).where(Resolution.link_id.in_(auto_ids)))
+        db.execute(delete(Link).where(Link.id.in_(auto_ids)))
+    artifacts = db.scalars(
+        select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id.asc())
+    ).all()
+    seeded = 0
+    for art in artifacts:
+        has_ents = db.scalar(
+            select(Entity.id).where(Entity.artifact_id == art.id, Entity.is_active.is_(True)).limit(1)
+        )
+        if not has_ents:
+            continue
+        text = artifact_knowledge_text(settings, art) or art.transcription_text or ""
+        seed_graph(db, settings, art, text)
+        seeded += 1
+    db.commit()
+    left = db.scalar(select(func.count()).select_from(Link).where(Link.project_id == project_id)) or 0
+    return {"purged_orphans": purged, "artifacts_seeded": seeded, "links": int(left)}
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -211,16 +263,21 @@ def _try_auto_resolve(db: Session, artifact: Artifact, source_text: str) -> None
 
 
 def build_graph_payload(db: Session, project_id: int, *, limit: int = 200) -> dict[str, Any]:
-    artifacts = db.scalars(
-        select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id.desc()).limit(limit)
-    ).all()
-    entities = db.scalars(
-        select(Entity)
-        .join(Artifact, Artifact.id == Entity.artifact_id)
-        .where(Artifact.project_id == project_id, Entity.is_active.is_(True))
-        .limit(limit)
-    ).all()
-    links = db.scalars(select(Link).where(Link.project_id == project_id).limit(limit * 2)).all()
+    artifacts = list(
+        db.scalars(select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id.desc())).all()
+    )
+    entities = list(
+        db.scalars(
+            select(Entity)
+            .join(Artifact, Artifact.id == Entity.artifact_id)
+            .where(Artifact.project_id == project_id, Entity.is_active.is_(True))
+            .order_by(Entity.id.desc())
+            .limit(limit)
+        ).all()
+    )
+    node_ids = {f"artifact-{art.id}" for art in artifacts} | {f"entity-{ent.id}" for ent in entities}
+    allowed_entity_ids = {ent.id for ent in entities}
+    links = db.scalars(select(Link).where(Link.project_id == project_id)).all()
 
     nodes: list[dict[str, Any]] = []
     for art in artifacts:
@@ -242,17 +299,24 @@ def build_graph_payload(db: Session, project_id: int, *, limit: int = 200) -> di
                 "needs_review": ent.needs_review,
             }
         )
-    edges = [
-        {
-            "id": f"link-{lnk.id}",
-            "source": f"entity-{lnk.source_entity_id}",
-            "target": f"entity-{lnk.target_entity_id}",
-            "type": lnk.link_type,
-            "score": lnk.similarity_score,
-            "automatic": lnk.is_automatic,
-        }
-        for lnk in links
-    ]
+    edges = []
+    for lnk in links:
+        if lnk.source_entity_id not in allowed_entity_ids or lnk.target_entity_id not in allowed_entity_ids:
+            continue
+        src = f"entity-{lnk.source_entity_id}"
+        tgt = f"entity-{lnk.target_entity_id}"
+        if src not in node_ids or tgt not in node_ids:
+            continue
+        edges.append(
+            {
+                "id": f"link-{lnk.id}",
+                "source": src,
+                "target": tgt,
+                "type": lnk.link_type,
+                "score": lnk.similarity_score,
+                "automatic": lnk.is_automatic,
+            }
+        )
     for ent in entities:
         edges.append(
             {
@@ -263,4 +327,4 @@ def build_graph_payload(db: Session, project_id: int, *, limit: int = 200) -> di
                 "automatic": True,
             }
         )
-    return {"nodes": nodes[:limit], "edges": edges[: limit * 2]}
+    return {"nodes": nodes, "edges": edges}

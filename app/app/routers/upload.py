@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user
+from app.app.services.project_access import require_project
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.project import Project
@@ -22,8 +23,10 @@ from app.app.services import resumable_upload as resumable
 from app.app.services.artifact_download import artifact_download_available, artifact_download_label
 from app.app.services.artifact_lab import list_runs as list_lab_runs
 from app.app.services.artifact_reports import document_report_url
+from app.app.services.pipeline_meeting import is_meeting_artifact
 from app.app.services.pipeline_progress import build_artifact_progress, reconcile_artifact_status
 from app.app.services.project_purge import purge_artifact
+from app.app.services.speaker_profiles import speaker_action_flags
 from app.app.services.storage import artifact_report_url
 from app.app.services.storage import ensure_inside, generate_stored_filename, raw_input_dir
 from app.app.services.upload import (
@@ -35,6 +38,7 @@ from app.app.services.upload import (
     hash_file,
     save_upload_stream,
 )
+from app.app.services.user_activity import ACTION_DELETE, ACTION_UPLOAD, BLOCK_UPLOAD, log_activity
 
 router = APIRouter(prefix="/projects", tags=["upload"])
 logger = logging.getLogger("skkkk.upload")
@@ -130,6 +134,18 @@ def _register_file_on_disk(
         bytes=size,
     )
     log_event(logger, "job.queued", job_id=job.id, artifact=art.artifact_id, priority=weight)
+    log_activity(
+        db,
+        user_id=user.id,
+        project_id=project.id,
+        block=BLOCK_UPLOAD,
+        action=ACTION_UPLOAD,
+        title="Загрузил файл",
+        content=original,
+        target_kind="artifact",
+        target_id=art.artifact_id,
+        meta={"file_type": file_type, "source_type": source_type},
+    )
     return ArtifactOut.model_validate(art)
 
 
@@ -138,11 +154,9 @@ def list_artifacts(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    require_project(db, user, project_id)
     rows = db.scalars(
         select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id.desc())
     ).all()
@@ -177,7 +191,19 @@ def list_artifacts(
         updates: dict = {
             "download_available": available,
             "download_filename": artifact_download_label(row) if available else None,
-            "lab_runs": len(list_lab_runs(settings, row)) if row.file_type == "audio" else 0,
+            "lab_runs": (
+                len(list_lab_runs(settings, row))
+                if user.role == "admin" and row.file_type == "audio"
+                else 0
+            ),
+            "meeting_lab": user.role == "admin" and is_meeting_artifact(row),
+            **speaker_action_flags(
+                db,
+                project_id=row.project_id,
+                artifact_id=row.artifact_id,
+                status=row.status,
+                file_type=row.file_type,
+            ),
         }
         if progress is not None:
             updates["progress"] = progress
@@ -192,17 +218,27 @@ def delete_artifact(
     artifact_id: str,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = require_project(db, user, project_id)
     art = db.scalar(
         select(Artifact).where(Artifact.project_id == project_id, Artifact.artifact_id == artifact_id)
     )
     if not art:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+    filename = art.original_filename
     purge_artifact(db, settings, art)
+    log_activity(
+        db,
+        user_id=user.id,
+        project_id=project_id,
+        block=BLOCK_UPLOAD,
+        action=ACTION_DELETE,
+        title="Удалил файл",
+        content=filename,
+        target_kind="artifact",
+        target_id=artifact_id,
+    )
 
 
 @router.post("/{project_id}/uploads/init", response_model=UploadSessionOut)
@@ -213,9 +249,7 @@ def init_resumable_upload(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = require_project(db, user, project_id)
     try:
         session = resumable.create_session(
             settings,
@@ -253,9 +287,7 @@ def get_resumable_upload(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = require_project(db, user, project_id)
     try:
         session = resumable.get_session(settings, project_id, upload_id)
     except FileNotFoundError:
@@ -275,9 +307,7 @@ async def put_resumable_chunk(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = require_project(db, user, project_id)
     try:
         session = resumable.get_session(settings, project_id, upload_id)
     except FileNotFoundError:
@@ -318,9 +348,7 @@ def complete_resumable_upload(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = require_project(db, user, project_id)
     try:
         session = resumable.get_session(settings, project_id, upload_id)
     except FileNotFoundError:
@@ -385,9 +413,7 @@ async def upload_files(
     files: Annotated[list[UploadFile], File(...)],
     source_type: Annotated[str, Form()] = "document",
 ):
-    project = db.get(Project, project_id)
-    if not project or not project.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    project = require_project(db, user, project_id)
 
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files")

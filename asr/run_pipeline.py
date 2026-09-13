@@ -51,7 +51,7 @@ WHISPER = "http://127.0.0.1:18101"
 GIGAAM = "http://127.0.0.1:18102"
 TONE = "http://127.0.0.1:18103"
 LMSTUDIO = os.environ.get("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
-MODEL = os.environ.get("LMSTUDIO_MODEL", "google/gemma-4-31b-qat")
+MODEL = os.environ.get("LMSTUDIO_MODEL", "qwen/qwen3.8-27b")
 
 
 def _uses_local_gemma() -> bool:

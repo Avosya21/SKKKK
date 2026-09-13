@@ -102,7 +102,7 @@ def test_resolve_document_download_original(tmp_data, db_engine):
         db.close()
 
 
-def test_download_endpoint_audio_mp3(client, tmp_data, db_engine, user_token):
+def test_download_endpoint_audio_mp3(client, tmp_data, db_engine, admin_token):
     db = db_mod.SessionLocal()
     try:
         project, user = _seed_project(db, tmp_data)
@@ -136,7 +136,7 @@ def test_download_endpoint_audio_mp3(client, tmp_data, db_engine, user_token):
     ):
         r = client.get(
             f"/artifacts/{artifact_id}/download",
-            headers={"Authorization": f"Bearer {user_token}"},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("audio/mpeg")

@@ -47,14 +47,6 @@ def prepare_for_asr(vram_threshold_mib: int = 2500) -> int:
     return wait_vram_below(vram_threshold_mib)
 
 
-def _model_loaded(model: str, loaded_ids: list[str]) -> bool:
-    base = model.split(":")[0]
-    for mid in loaded_ids:
-        if mid == model or mid.startswith(base):
-            return True
-    return False
-
-
 def prepare_for_llm(model: str, vram_threshold_mib: int = 2500, *, settings=None) -> None:
     if settings is not None:
         from app.app.llm_settings import uses_local_gemma
@@ -64,10 +56,10 @@ def prepare_for_llm(model: str, vram_threshold_mib: int = 2500, *, settings=None
             return
     if settings is not None:
         try:
-            from app.app.services.llm import lmstudio_models
+            from app.app.services.llm import lmstudio_model_loaded, lmstudio_models
 
             loaded = lmstudio_models(settings)
-            if _model_loaded(model, loaded):
+            if lmstudio_model_loaded(model, loaded):
                 logger.info("LLM already loaded: %s", model)
                 return
         except Exception as exc:

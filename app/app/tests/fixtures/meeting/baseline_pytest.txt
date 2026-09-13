@@ -1,0 +1,4 @@
+Date: 2026-09-13
+Command: pytest meeting-related files after stages 0-9/12/13/14-partial
+Result: 81 passed (test_meetings, test_meeting_lab, test_voice_cleaner, test_meeting_recordings, test_meeting_merge, test_meeting_checks, test_proof_spread)
+Note: living baseline of old meeting.json is baseline_meeting.json (pre-contract). Do not edit.

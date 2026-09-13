@@ -31,11 +31,16 @@ def process_artifact(db: Session, settings: Settings, artifact: Artifact) -> Non
     try:
         if artifact.file_type == "audio":
             from app.app.services.pipeline_lab import apply_confirmed_speaker_names, process_lab_artifact
+            from app.app.services.pipeline_meeting import is_meeting_artifact, process_meeting_artifact
 
-            if artifact.status == "speakers_pending":
+            if is_meeting_artifact(artifact):
+                text = process_meeting_artifact(db, settings, artifact)
+                if artifact.status == "speakers_pending":
+                    return
+            elif artifact.status == "speakers_pending":
                 log_event(logger, "pipeline.stop", artifact=artifact.artifact_id, reason="speakers_pending")
                 return
-            if artifact.status == "speakers_confirmed":
+            elif artifact.status == "speakers_confirmed":
                 text = apply_confirmed_speaker_names(db, settings, artifact)
                 set_status(db, artifact, "transcript_ready")
             elif artifact.status in ("uploaded", "preprocessing", "asr_running", "error"):

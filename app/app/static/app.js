@@ -7,10 +7,15 @@ const SKKKK = {
   },
   updateNav() {
     const el = document.getElementById('nav-user');
-    if (!el) return;
+    const session = document.getElementById('nav-session');
     const name = localStorage.getItem('skkkk_name');
     const role = localStorage.getItem('skkkk_role');
-    el.textContent = name && role ? `${name} (${role})` : '';
+    if (el) {
+      el.textContent = name && role ? `${name} (${role})` : '';
+    }
+    if (session) {
+      session.classList.toggle('d-none', !(name && role));
+    }
   },
   async updateLlmBadge() {
     const el = document.getElementById('nav-llm');
@@ -35,16 +40,26 @@ const SKKKK = {
   token() {
     return localStorage.getItem('skkkk_token');
   },
-  clearSession() {
+  clearSession({ skipServer = false } = {}) {
     localStorage.removeItem('skkkk_token');
     localStorage.removeItem('skkkk_role');
     localStorage.removeItem('skkkk_name');
     this.updateNav();
+    if (skipServer) return;
     try {
-      fetch('/auth/logout', { method: 'POST' });
+      fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {
       /* cookie drop is best-effort */
     }
+  },
+  async logout() {
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch {
+      /* cookie drop is best-effort */
+    }
+    this.clearSession({ skipServer: true });
+    location.href = '/login';
   },
   requireAuth() {
     if (!this.token()) {
@@ -421,3 +436,6 @@ const SKKKK = {
 };
 SKKKK.updateNav();
 SKKKK.updateLlmBadge();
+document.getElementById('nav-logout')?.addEventListener('click', () => {
+  SKKKK.logout();
+});

@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+import json
+import math
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +33,8 @@ from ..sortformer import (
 from .s01_audio import clean_wav
 
 STAGE = "03_diar"
+KNOWN_SPEAKER_FILE = "known_speaker.json"
+NATIVE_MODEL = "native_track"
 
 DIAR_JSON = "diar.json"
 PROBS_CLEAN = "probs_clean.npy"
@@ -42,6 +47,39 @@ HEATMAP_MAX_COLUMNS = 2400
 
 def diar_path(run: LabRun) -> Path:
     return run.stage_dir(STAGE) / DIAR_JSON
+
+
+def known_speaker_doc(artifact_root: Path) -> dict | None:
+    path = Path(artifact_root) / KNOWN_SPEAKER_FILE
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def native_track_frame_count(duration_sec: float) -> int:
+    return max(1, math.ceil(float(duration_sec) / FRAME_DURATION - 1e-9))
+
+
+def native_track_probabilities(duration_sec: float) -> np.ndarray:
+    frames = native_track_frame_count(duration_sec)
+    probs = np.zeros((frames, NUM_SPEAKERS), dtype=np.float32)
+    probs[:, 0] = 1.0
+    return probs
+
+
+def native_track_segments(duration_sec: float) -> list[dict[str, Any]]:
+    end = round(float(duration_sec), 3)
+    return [{"speaker": "speaker_0", "speaker_index": 0, "start": 0.0, "end": end}]
+
+
+def wav_duration_sec(path: Path) -> float:
+    with wave.open(str(path), "rb") as handle:
+        rate = handle.getframerate() or 1
+        return max(handle.getnframes() / rate, FRAME_DURATION)
 
 
 def _speaker_stats(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -117,6 +155,55 @@ def run(
     inputs = {"clean_16k": audio}
     if compare_with_source:
         inputs["source_wav"] = original
+
+    known = known_speaker_doc(lab_run.artifact_root)
+    if known and (known.get("skip_sortformer") or known.get("speaker")):
+        params["model"] = NATIVE_MODEL
+        params["skip_sortformer"] = True
+        params["speaker"] = known.get("speaker")
+
+        def native_work(ctx: StageContext) -> None:
+            duration = wav_duration_sec(audio)
+            probabilities = native_track_probabilities(duration)
+            np.save(ctx.out(PROBS_CLEAN), probabilities)
+            ctx.add_output(ctx.out(PROBS_CLEAN))
+            segments = native_track_segments(duration)
+            speakers = _speaker_stats(segments)
+            payload = {
+                "run_id": lab_run.run_id,
+                "stage": STAGE,
+                "audio": ctx.inputs["clean_16k"].as_dict(),
+                "model": NATIVE_MODEL,
+                "frame_sec": FRAME_DURATION,
+                "frames": int(probabilities.shape[0]),
+                "audio_duration_sec": round(duration, 2),
+                "max_speakers": NUM_SPEAKERS,
+                "binarization": rules.as_dict(),
+                "speakers": speakers,
+                "segment_count": len(segments),
+                "overlap_sec": 0.0,
+                "segments": segments,
+            }
+            ctx.write_json(DIAR_JSON, payload)
+            ctx.write_json(HEATMAP_JSON, _heatmap(probabilities))
+            ctx.metrics = {
+                "frames": int(probabilities.shape[0]),
+                "segment_count": len(segments),
+                "speakers_detected": len(speakers),
+                "overlap_sec": 0.0,
+                "speech_sec": round(sum(s["seconds"] for s in speakers), 2),
+            }
+            ctx.tool = {"name": NATIVE_MODEL}
+            ctx.log("native track: Sortformer пропущен, один спикер")
+
+        return execute_stage(
+            lab_run,
+            STAGE,
+            inputs=inputs,
+            params=params,
+            work=native_work,
+            force=force,
+        )
 
     def work(ctx: StageContext) -> None:
         providers = providers_for(device)

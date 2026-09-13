@@ -1,0 +1,12 @@
+{
+  "meeting_id": 12,
+  "tracks": [
+    {
+      "identity": "guest:c544d4211924e48d076d9e00febbf78e",
+      "speaker": "Даша",
+      "src": "data/meetings/skkkk-<комната>/tracks/guest-c544d4211924e48d076d9e00febbf78e.wav",
+      "child_id": "art_2026-09-13_114639_6099e1__guest-c544d4211924e48d076d9e00febbf78e",
+      "offset_sec": 0.0
+    }
+  ]
+}

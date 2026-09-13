@@ -74,6 +74,24 @@ def tmp_data(tmp_path: Path, monkeypatch) -> Path:
 
     monkeypatch.setenv("DATABASE_URL", "sqlite://")
 
+    allow = tmp_path / "Login_up.txt"
+    allow.write_text(
+        "\n".join(
+            [
+                "Admin",
+                "Manager",
+                "User",
+                "dup_login_keep",
+                "Bootstrap admin",
+                "Bootstrap manager",
+                "Bootstrap user",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOGIN_ALLOWLIST_PATH", str(allow))
+
     return data
 
 

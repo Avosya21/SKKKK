@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -31,6 +32,12 @@ logger = logging.getLogger("skkkk.entities")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities.md"
+SOURCE_TYPE_CALL = "call"
+TEXT_HASH_LEN = 16
+CALL_BOUND_TYPES = {"decision", "task", "fact"}
+TURN_PROMPT_LIMIT = 120
+REPLICA_MATCH_WINDOW = 3
+TEXT_OVERLAP_MIN_RATIO = 0.35
 
 
 class TaskItem(BaseModel):
@@ -210,7 +217,7 @@ def _token_set(text: str) -> set[str]:
     }
 
 
-def _text_overlap(a: str, b: str, *, min_ratio: float = 0.35) -> bool:
+def _text_overlap(a: str, b: str, *, min_ratio: float = TEXT_OVERLAP_MIN_RATIO) -> bool:
     ta, tb = _token_set(a), _token_set(b)
     if not ta or not tb:
         return False
@@ -466,13 +473,14 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str) -> E
         llm=llm_runtime_label(settings.llm_provider),
         chars=len(text),
     )
+    turns = _turn_prompt(settings, artifact)
     parts: list[EntitiesPayload] = []
     for chunk in _split_for_extraction(text):
         user = (
             f"artifact_id={artifact.artifact_id}\n"
             f"source_type={artifact.source_type}\n"
             f"timestamp={datetime.now(timezone.utc).isoformat()}\n\n"
-            f"{chunk}"
+            f"{turns}{chunk}"
         )
         last_err = ""
         for attempt in range(2):
@@ -506,6 +514,144 @@ def stub_entities(artifact: Artifact, text: str) -> EntitiesPayload:
     )
 
 
+def _replica_text(row: dict) -> str:
+    return str(row.get("text") or "").strip()
+
+
+def _leak_covers(text: str, leaks: list[dict]) -> bool:
+    needle = text.casefold().strip()
+    if not needle:
+        return False
+    for leak in leaks:
+        body = str(leak.get("text") or "").casefold().strip()
+        if body and (body in needle or needle in body):
+            return True
+    return False
+
+
+def _has_span_replicas(replicas: list[dict]) -> bool:
+    return any(str(row.get("source_span_id") or "").strip() for row in replicas)
+
+
+def _overlap_score(text: str, replica_text: str) -> float:
+    left, right = _token_set(text), _token_set(replica_text)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / min(len(left), len(right))
+
+
+def _best_window_row(text: str, group: list[dict]) -> dict:
+    scored = [(_overlap_score(text, _replica_text(row)), row) for row in group]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1] if scored else group[0]
+
+
+def _match_replica(text: str, replicas: list[dict]) -> dict | None:
+    needle = text.casefold().strip()
+    if not needle:
+        return None
+    for row in replicas:
+        body = _replica_text(row).casefold()
+        if body and (needle in body or body in needle):
+            return row
+    for row in replicas:
+        if _text_overlap(text, _replica_text(row)):
+            return row
+    for index in range(len(replicas)):
+        group = replicas[index : index + REPLICA_MATCH_WINDOW]
+        if len(group) < 2:
+            continue
+        joined = " ".join(_replica_text(row) for row in group)
+        if _text_overlap(text, joined):
+            return _best_window_row(text, group)
+    return None
+
+
+def load_meeting_proof(settings: Settings, artifact: Artifact) -> tuple[list[dict], list[dict]]:
+    from app.app.services.artifact_lab import latest_run_id, resolve_run
+
+    run_id = latest_run_id(settings, artifact)
+    if not run_id:
+        return [], []
+    path = resolve_run(settings, artifact, run_id).resolve("proof/transcript.json")
+    if not path.is_file():
+        return [], []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [], []
+    return list(data.get("replicas") or []), list(data.get("leaks") or [])
+
+
+def _turn_prompt(settings: Settings, artifact: Artifact) -> str:
+    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL:
+        return ""
+    replicas, _leaks = load_meeting_proof(settings, artifact)
+    lines = []
+    for row in replicas[:TURN_PROMPT_LIMIT]:
+        sid = str(row.get("source_span_id") or "").strip()
+        text = _replica_text(row)
+        if sid and text:
+            lines.append(f"{sid}\t{row.get('speaker')}\t{text}")
+    if not lines:
+        return ""
+    return (
+        "Реплики с source_span_id. decision/task/fact только из этого списка.\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
+def filter_call_payload(
+    payload: EntitiesPayload,
+    artifact: Artifact,
+    replicas: list[dict],
+    leaks: list[dict],
+) -> EntitiesPayload:
+    data = payload.model_copy(deep=True)
+    data.decisions = [
+        item for item in payload.decisions if bind_call_source({"text": item}, artifact, replicas, leaks)
+    ]
+    data.tasks = [
+        item for item in payload.tasks if bind_call_source(item.model_dump(), artifact, replicas, leaks)
+    ]
+    data.facts = {
+        key: value
+        for key, value in payload.facts.items()
+        if bind_call_source({"key": key, "value": value}, artifact, replicas, leaks)
+    }
+    return data
+
+
+def bind_call_source(
+    value: dict,
+    artifact: Artifact,
+    replicas: list[dict],
+    leaks: list[dict],
+) -> dict | None:
+    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL:
+        return value
+    text = str(value.get("text") or value.get("description") or value.get("value") or "")
+    if _leak_covers(text, leaks):
+        return None
+    if not _has_span_replicas(replicas):
+        return value
+    replica = _match_replica(text, replicas)
+    bound = dict(value)
+    if replica is None:
+        bound["source_span_id"] = None
+        bound["needs_review"] = True
+        return bound
+    bound["artifact_id"] = artifact.artifact_id
+    bound["source_type"] = SOURCE_TYPE_CALL
+    bound["speaker"] = replica.get("speaker")
+    bound["start_sec"] = replica.get("start")
+    bound["end_sec"] = replica.get("end")
+    bound["source_span_id"] = replica.get("source_span_id")
+    bound["text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:TEXT_HASH_LEN]
+    return bound
+
+
 def persist_entities(
     db: Session,
     settings: Settings,
@@ -513,10 +659,20 @@ def persist_entities(
     payload: EntitiesPayload,
 ) -> Path:
     payload.tasks = merge_related_tasks(payload.tasks)
+    replicas, leaks = ([], [])
+    if getattr(artifact, "source_type", "") == SOURCE_TYPE_CALL:
+        replicas, leaks = load_meeting_proof(settings, artifact)
+        if _has_span_replicas(replicas):
+            payload = filter_call_payload(payload, artifact, replicas, leaks)
     drafts: list[tuple[str, str, float]] = []
 
     def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
-        drafts.append((entity_type, json.dumps(value, ensure_ascii=False), confidence))
+        item = value
+        if entity_type in CALL_BOUND_TYPES:
+            item = bind_call_source(value, artifact, replicas, leaks)
+            if item is None:
+                return
+        drafts.append((entity_type, json.dumps(item, ensure_ascii=False), confidence))
 
     for d in payload.decisions:
         draft("decision", {"text": d})
@@ -543,6 +699,9 @@ def persist_entities(
     if old_ids:
         delete_vectors_for_entities(db, old_ids)
         delete_entities_with_deps(db, old_ids)
+        from app.app.services.graph import purge_orphan_links
+
+        purge_orphan_links(db, project_id=artifact.project_id)
 
     rows: list[Entity] = []
     for entity_type, value_json, confidence in drafts:

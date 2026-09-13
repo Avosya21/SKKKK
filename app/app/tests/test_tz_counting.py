@@ -40,8 +40,10 @@ def test_call_summary_runs_after_index_for_audio(monkeypatch):
     knowledge_src = inspect.getsource(pipeline_knowledge.run_knowledge_pipeline)
     index_at = knowledge_src.index("index_artifact(")
     summary_at = knowledge_src.index("run_call_summary(")
+    doc_summary_at = knowledge_src.index("run_document_summary(")
     graph_at = knowledge_src.index('set_status(db, artifact, "graph_seeded")')
     assert index_at < summary_at < graph_at
+    assert index_at < doc_summary_at < graph_at
 
 
 def test_auto_rebuild_counts_the_current_artifact(monkeypatch):

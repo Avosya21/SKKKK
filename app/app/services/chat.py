@@ -19,16 +19,22 @@ from app.app.models.entity import Entity, Link, Resolution, UserNote
 from app.app.models.job import Job
 from app.app.services.llm import chat_completion
 from app.app.services.artifact_reports import load_document_payload
+from app.app.services.summarize_document import load_document_source_text, load_document_summary_md
 from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import parsed_dir
-from app.app.services.retrieval import enrich_and_rerank_hits, weighted_score
+from app.app.services.retrieval import (
+    ENTITY_SEARCH_LIMIT,
+    enrich_and_rerank_hits,
+    search_entities,
+    weighted_score,
+)
 from app.app.services.vector_index import init_vector_store, search_vectors
 
 logger = logging.getLogger("skkkk.chat")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "rag_chat.md"
 CHAT_SEARCH_LIMIT = 12
-CHAT_HISTORY_LIMIT = 200
+CHAT_HISTORY_LIMIT = 1000
 CHAT_PENDING_TEXT = "Думаю над ответом..."
 CHAT_STALE_MINUTES = 30
 CHAT_DOC_EXCERPT_CHARS = 3500
@@ -319,12 +325,13 @@ def list_chat_messages(
     limit: int = CHAT_HISTORY_LIMIT,
 ) -> list[dict[str, Any]]:
     cleanup_stale_chat_pending(db, project_id=project_id, user_id=user_id)
-    rows = db.scalars(
+    newest = db.scalars(
         select(ChatMessage)
         .where(ChatMessage.project_id == project_id, ChatMessage.user_id == user_id)
-        .order_by(ChatMessage.id.asc())
+        .order_by(ChatMessage.id.desc())
         .limit(limit)
     ).all()
+    rows = list(reversed(newest))
     out: list[dict[str, Any]] = []
     for row in rows:
         sources: list[dict[str, Any]] = []
@@ -373,6 +380,28 @@ def save_chat_message(
     return row
 
 
+def _log_chat_activity(
+    db: Session,
+    *,
+    project_id: int,
+    user_id: int,
+    action: str,
+    title: str,
+    content: str,
+) -> None:
+    from app.app.services.user_activity import BLOCK_CHAT, log_activity
+
+    log_activity(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        block=BLOCK_CHAT,
+        action=action,
+        title=title,
+        content=content,
+    )
+
+
 def finalize_chat_message(
     db: Session,
     row: ChatMessage,
@@ -390,6 +419,17 @@ def finalize_chat_message(
         row.meta_json = _dump_meta(meta)
     db.commit()
     db.refresh(row)
+    if not waiting and content.strip() and content.strip() != CHAT_PENDING_TEXT:
+        from app.app.services.user_activity import ACTION_ANSWER
+
+        _log_chat_activity(
+            db,
+            project_id=row.project_id,
+            user_id=row.user_id,
+            action=ACTION_ANSWER,
+            title="Ответ ИИ",
+            content=content,
+        )
     return row
 
 
@@ -481,10 +521,7 @@ def _entities_for_artifacts(db: Session, artifact_db_ids: set[int]) -> list[Enti
 
 
 def _load_document_raw_excerpt(settings: Settings, artifact: Artifact, *, max_chars: int = CHAT_DOC_EXCERPT_CHARS) -> str:
-    raw_path = parsed_dir(settings, artifact.project_id, artifact.source_type) / f"{artifact.artifact_id}_raw.txt"
-    if raw_path.is_file():
-        return raw_path.read_text(encoding="utf-8")[:max_chars].strip()
-    return (artifact.transcription_text or "")[:max_chars].strip()
+    return load_document_source_text(settings, artifact)[:max_chars].strip()
 
 
 def _document_relevance_score(question: str, artifact: Artifact, raw_excerpt: str) -> float:
@@ -540,8 +577,11 @@ def _document_context_blocks(
             continue
         payload = load_document_payload(settings, art)
         parts = [f"Документ «{art.original_filename}» (artifact_id={art.artifact_id}):"]
-        if payload.summary:
-            parts.append(f"Выжимка: {payload.summary.strip()}")
+        doc_summary = load_document_summary_md(settings, art)
+        if doc_summary:
+            parts.append(f"Выжимка документа:\n{doc_summary.strip()[:2500]}")
+        elif payload.summary:
+            parts.append(f"Выжимка: {payload.summary.strip()[:1500]}")
         if payload.participants:
             people = ", ".join(
                 f"{p.name} ({p.role or 'роль не указана'})" for p in payload.participants if p.name.strip()
@@ -660,6 +700,16 @@ def _answer_chat_body(
         project_id=project_id,
         user_id=user_id,
         role="user",
+        content=question.strip(),
+    )
+    from app.app.services.user_activity import ACTION_QUESTION
+
+    _log_chat_activity(
+        db,
+        project_id=project_id,
+        user_id=user_id,
+        action=ACTION_QUESTION,
+        title="Вопрос в чате",
         content=question.strip(),
     )
 
@@ -788,7 +838,46 @@ def _answer_chat_inner(
             seen_artifacts.add(art.id)
             hit_artifacts.append(art)
 
-    if not context_lines:
+    entity_hits = search_entities(
+        db,
+        q_vecs[0],
+        project_id=project_id,
+        limit=ENTITY_SEARCH_LIMIT,
+        min_score=threshold,
+    )
+    entity_hit_ids = {h["entity_id"] for h in entity_hits}
+    if entity_hits:
+        context_lines.append("=== Сущности проекта по вопросу ===")
+        for h in entity_hits:
+            context_lines.append(
+                f"- [{h['entity_type']}] {h['text'][:400]} ({h['filename']}, artifact_id={h['artifact_id']})"
+            )
+            art = db.get(Artifact, h["artifact_db_id"])
+            if not art:
+                continue
+            key = (art.artifact_id, art.original_filename)
+            if key not in seen_source_keys:
+                seen_source_keys.add(key)
+                sources.append(
+                    {
+                        "artifact_id": art.artifact_id,
+                        "filename": art.original_filename,
+                        "score": weighted_score(h["score"], art.priority_weight),
+                        "priority_weight": art.priority_weight,
+                        "kind": "entity",
+                    }
+                )
+            hit_artifact_db_ids.add(art.id)
+            if art.id not in seen_artifacts:
+                seen_artifacts.add(art.id)
+                hit_artifacts.append(art)
+
+    from app.app.services.user_activity import build_chat_user_memory
+
+    memory = build_chat_user_memory(db, project_id=project_id, user_id=user_id)
+    tz_excerpt = _project_tz_excerpt(settings, project_id)
+
+    if not context_lines and not memory and not tz_excerpt:
         answer = "В материалах проекта ответа нет."
         finalize_chat_message(
             db,
@@ -799,47 +888,60 @@ def _answer_chat_inner(
         )
         return {"answer": answer, "sources": [], "waiting": False}
 
-    ambiguity = detect_chat_ambiguity(
-        db,
-        project_id=project_id,
-        question=question,
-        hit_artifacts=hit_artifacts,
-        guidance_texts=guidance_texts,
-    )
-    if ambiguity and not guidance_reply:
-        answer = _build_clarification_answer(question, ambiguity)
-        meta = {
-            "kind": "clarification",
-            "topic": ambiguity.get("reason"),
-            "original_question": question,
-            "ambiguity": ambiguity,
-        }
-        finalize_chat_message(
+    if context_lines:
+        ambiguity = detect_chat_ambiguity(
             db,
-            pending,
-            content=answer,
-            sources=sources,
-            waiting=False,
-            meta=meta,
+            project_id=project_id,
+            question=question,
+            hit_artifacts=hit_artifacts,
+            guidance_texts=guidance_texts,
         )
-        return {"answer": answer, "sources": sources, "waiting": False, "clarification": True}
+        if ambiguity and not guidance_reply:
+            answer = _build_clarification_answer(question, ambiguity)
+            meta = {
+                "kind": "clarification",
+                "topic": ambiguity.get("reason"),
+                "original_question": question,
+                "ambiguity": ambiguity,
+            }
+            finalize_chat_message(
+                db,
+                pending,
+                content=answer,
+                sources=sources,
+                waiting=False,
+                meta=meta,
+            )
+            return {"answer": answer, "sources": sources, "waiting": False, "clarification": True}
 
-    entities = _entities_for_artifacts(db, hit_artifact_db_ids)
-    entity_ids = [e.id for e in entities]
-    graph_part = _graph_snippet(db, project_id, entity_ids)
-    supplement = _supplement_context(db, settings, project_id, hit_artifacts, entities)
-    context = "\n---\n".join(context_lines)
+        entities = [
+            e for e in _entities_for_artifacts(db, hit_artifact_db_ids) if e.id not in entity_hit_ids
+        ]
+        entity_ids = [e.id for e in entities] + list(entity_hit_ids)
+        graph_part = _graph_snippet(db, project_id, entity_ids)
+        supplement = _supplement_context(db, settings, project_id, hit_artifacts, entities)
+        context = "\n---\n".join(context_lines)
+    else:
+        graph_part = ""
+        supplement = ""
+        context = (
+            "(по этому вопросу новых фрагментов в материалах не найдено. "
+            "Если вопрос — отсылка к предыдущему диалогу, ответь по нему; "
+            "новые факты по проекту не выдумывай.)"
+        )
+
     system = _load_prompt()
-    user = f"Вопрос: {question}\n\nКонтекст (найденные фрагменты по всему проекту):\n{context}"
+    user = f"Вопрос: {question}\n\n"
+    if memory:
+        user += memory + "\n\n"
+    user += f"Контекст (найденные фрагменты по всему проекту):\n{context}"
     if guidance_texts:
         joined = "\n".join(f"- {line}" for line in guidance_texts[:8])
         user += f"\n\nУказания пользователя из чата (приоритетнее созвонов при расхождении):\n{joined}"
     if supplement:
         user += f"\n\nДополнительно из БД проекта:\n{supplement}"
-    if _question_about_project_priority(question):
-        tz_excerpt = _project_tz_excerpt(settings, project_id)
-        if tz_excerpt:
-            user += f"\n\nАктуальная выжимка проекта (current_tz.md):\n{tz_excerpt}"
+    if tz_excerpt:
+        user += f"\n\nАктуальная выжимка проекта (current_tz.md):\n{tz_excerpt}"
     if graph_part:
         user += f"\n\n{graph_part}"
     if settings.dry_run:
