@@ -59,19 +59,18 @@ def test_s06_user_cannot_create_project(client, user_token):
     assert r.status_code == 403
 
 
-def test_s07_manager_creates_and_user_lists(client, manager_token, user_token):
+def test_s07_user_does_not_see_manager_project(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "Общий")
     r = client.get("/projects", headers=_auth(user_token))
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()]
-    assert pid in ids
+    assert pid not in ids
 
 
-def test_s08_user_opens_project_html(client, manager_token, user_token):
+def test_s08_user_cannot_open_foreign_project_html(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "Страница")
     r = client.get(f"/projects/{pid}", headers=_auth(user_token), follow_redirects=False)
-    assert r.status_code == 200
-    assert "text/html" in r.headers.get("content-type", "")
+    assert r.status_code == 404
 
 
 def test_s09_anonymous_project_html_redirects(anon_client, client, manager_token):
@@ -81,7 +80,7 @@ def test_s09_anonymous_project_html_redirects(anon_client, client, manager_token
     assert r.status_code in {302, 401}
 
 
-def test_s10_upload_note_and_list_artifacts(client, manager_token, user_token):
+def test_s10_user_cannot_upload_to_foreign_project(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "Заметки")
     r = client.post(
         f"/projects/{pid}/upload",
@@ -89,26 +88,39 @@ def test_s10_upload_note_and_list_artifacts(client, manager_token, user_token):
         data={"source_type": "note"},
         files=[("files", ("hello.txt", io.BytesIO(b"hello world"), "text/plain"))],
     )
+    assert r.status_code == 404
+    listed = client.get(f"/projects/{pid}/artifacts", headers=_auth(user_token))
+    assert listed.status_code == 404
+
+
+def test_s10b_manager_upload_note_and_list_artifacts(client, manager_token):
+    pid = _create_project(client, manager_token, "Заметки свои")
+    r = client.post(
+        f"/projects/{pid}/upload",
+        headers=_auth(manager_token),
+        data={"source_type": "note"},
+        files=[("files", ("hello.txt", io.BytesIO(b"hello world"), "text/plain"))],
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body[0]["status"] == "uploaded"
-    listed = client.get(f"/projects/{pid}/artifacts", headers=_auth(user_token))
+    listed = client.get(f"/projects/{pid}/artifacts", headers=_auth(manager_token))
     assert listed.status_code == 200
     assert listed.json()[0]["artifact_id"] == body[0]["artifact_id"]
 
 
-def test_s11_dry_run_job_completes(client, manager_token, user_token):
+def test_s11_dry_run_job_completes(client, manager_token):
     from app.app.workers.gpu_worker import run_once
 
     pid = _create_project(client, manager_token, "Очередь")
     client.post(
         f"/projects/{pid}/upload",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         data={"source_type": "note"},
         files=[("files", ("q.txt", io.BytesIO(b"queue"), "text/plain"))],
     )
     assert run_once()
-    arts = client.get(f"/projects/{pid}/artifacts", headers=_auth(user_token)).json()
+    arts = client.get(f"/projects/{pid}/artifacts", headers=_auth(manager_token)).json()
     assert arts[0]["status"] == "done"
 
 
@@ -138,7 +150,7 @@ def test_s16_search_limit_over_max_422(client, manager_token, user_token):
     r = client.get(
         f"/projects/{pid}/search",
         params={"q": "бюджет", "limit": 51},
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert r.status_code == 422
 
@@ -149,7 +161,7 @@ def test_s17_search_ok_empty_index(client, manager_token, user_token):
         r = client.get(
             f"/projects/{pid}/search",
             params={"q": "бюджет", "limit": 5},
-            headers=_auth(user_token),
+            headers=_auth(manager_token),
         )
     assert r.status_code == 200, r.text
     assert r.json()["results"] == []
@@ -160,7 +172,7 @@ def test_s18_create_note(client, manager_token, user_token):
     r = client.post(
         f"/projects/{pid}/notes",
         json={"text": "Нужно уточнить поставщика", "refs": []},
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert r.status_code == 200, r.text
     assert r.json()["id"]
@@ -177,7 +189,7 @@ def test_s19_create_link_missing_entity_404(client, manager_token, user_token):
             "link_type": "RELATED",
             "description": "нет таких сущностей",
         },
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert r.status_code == 404
 
@@ -201,7 +213,7 @@ def test_s21_mcp_info_manager_ok_user_403(client, manager_token, user_token):
 
 def test_s22_graph_data_empty(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "Граф")
-    r = client.get(f"/projects/{pid}/graph/data", headers=_auth(user_token))
+    r = client.get(f"/projects/{pid}/graph/data", headers=_auth(manager_token))
     assert r.status_code == 200
     data = r.json()
     assert "nodes" in data and "edges" in data
@@ -209,13 +221,13 @@ def test_s22_graph_data_empty(client, manager_token, user_token):
 
 def test_s23_tz_content_empty_ok(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "ТЗ")
-    r = client.get(f"/projects/{pid}/tz/content", headers=_auth(user_token))
+    r = client.get(f"/projects/{pid}/tz/content", headers=_auth(manager_token))
     assert r.status_code in {200, 404}
 
 
 def test_s24_deadlines_empty(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "Сроки")
-    r = client.get(f"/projects/{pid}/deadlines", headers=_auth(user_token))
+    r = client.get(f"/projects/{pid}/deadlines", headers=_auth(manager_token))
     assert r.status_code == 200
 
 
@@ -226,7 +238,7 @@ def test_s25_chat_without_index(client, manager_token, user_token):
             r = client.post(
                 "/chat",
                 json={"project_id": pid, "question": "Кто поставщик серверов?"},
-                headers=_auth(user_token),
+                headers=_auth(manager_token),
             )
     assert r.status_code == 200, r.text
     assert r.json().get("answer")
@@ -240,7 +252,7 @@ def test_s26_chat_409_when_gpu_busy(client, manager_token, user_token, monkeypat
     pid = _create_project(client, manager_token, "GPU")
     up = client.post(
         f"/projects/{pid}/upload",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         data={"source_type": "note"},
         files=[("files", ("busy.txt", io.BytesIO(b"x"), "text/plain"))],
     )
@@ -256,7 +268,7 @@ def test_s26_chat_409_when_gpu_busy(client, manager_token, user_token, monkeypat
     r = client.post(
         "/chat",
         json={"project_id": pid, "question": "Что в стенограмме?"},
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert r.status_code == 409
     assert "GPU" in (r.json().get("detail") or "")
@@ -285,22 +297,22 @@ def test_s31_user_can_delete_one_artifact(client, manager_token, user_token):
     pid = _create_project(client, manager_token, "Два файла")
     first = client.post(
         f"/projects/{pid}/upload",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         data={"source_type": "note"},
         files=[("files", ("a.txt", io.BytesIO(b"aaa"), "text/plain"))],
     ).json()[0]
     second = client.post(
         f"/projects/{pid}/upload",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         data={"source_type": "note"},
         files=[("files", ("b.txt", io.BytesIO(b"bbb"), "text/plain"))],
     ).json()[0]
     r = client.delete(
         f"/projects/{pid}/artifacts/{first['artifact_id']}",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert r.status_code == 204
-    listed = client.get(f"/projects/{pid}/artifacts", headers=_auth(user_token)).json()
+    listed = client.get(f"/projects/{pid}/artifacts", headers=_auth(manager_token)).json()
     ids = [row["artifact_id"] for row in listed]
     assert first["artifact_id"] not in ids
     assert second["artifact_id"] in ids

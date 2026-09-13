@@ -17,10 +17,10 @@ def _project(client, manager_token, name="Purge art"):
     ).json()["id"]
 
 
-def _upload(client, user_token, pid: int, filename: str, payload: bytes):
+def _upload(client, token, pid: int, filename: str, payload: bytes):
     r = client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {token}"},
         data={"source_type": "note"},
         files=[("files", (filename, io.BytesIO(payload), "text/plain"))],
     )
@@ -39,7 +39,7 @@ def test_delete_artifact_unknown_404(client, manager_token, user_token):
     pid = _project(client, manager_token)
     r = client.delete(
         f"/projects/{pid}/artifacts/art_missing",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     )
     assert r.status_code == 404
 
@@ -47,23 +47,23 @@ def test_delete_artifact_unknown_404(client, manager_token, user_token):
 def test_delete_artifact_wrong_project_404(client, manager_token, user_token, tmp_data):
     pid_a = _project(client, manager_token, "A")
     pid_b = _project(client, manager_token, "B")
-    art = _upload(client, user_token, pid_a, "keep.txt", b"keep-a")
+    art = _upload(client, manager_token, pid_a, "keep.txt", b"keep-a")
     r = client.delete(
         f"/projects/{pid_b}/artifacts/{art['artifact_id']}",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     )
     assert r.status_code == 404
     listed = client.get(
         f"/projects/{pid_a}/artifacts",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     ).json()
     assert [row["artifact_id"] for row in listed] == [art["artifact_id"]]
 
 
 def test_user_can_purge_one_artifact_and_keep_the_other(client, manager_token, user_token, tmp_data):
     pid = _project(client, manager_token)
-    gone = _upload(client, user_token, pid, "gone.txt", b"remove-me")
-    keep = _upload(client, user_token, pid, "keep.txt", b"stay-here")
+    gone = _upload(client, manager_token, pid, "gone.txt", b"remove-me")
+    keep = _upload(client, manager_token, pid, "keep.txt", b"stay-here")
     settings = get_settings()
     gone_id = gone["artifact_id"]
     keep_id = keep["artifact_id"]
@@ -110,7 +110,7 @@ def test_user_can_purge_one_artifact_and_keep_the_other(client, manager_token, u
 
     r = client.delete(
         f"/projects/{pid}/artifacts/{gone_id}",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     )
     assert r.status_code == 204
     assert not raw_gone.exists()
@@ -123,7 +123,7 @@ def test_user_can_purge_one_artifact_and_keep_the_other(client, manager_token, u
 
     listed = client.get(
         f"/projects/{pid}/artifacts",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     ).json()
     ids = [row["artifact_id"] for row in listed]
     assert gone_id not in ids
@@ -144,8 +144,8 @@ def test_user_can_purge_one_artifact_and_keep_the_other(client, manager_token, u
 
 def test_delete_artifact_clears_graph_links(client, manager_token, user_token, tmp_data):
     pid = _project(client, manager_token)
-    gone = _upload(client, user_token, pid, "gone.txt", b"remove-me")
-    keep = _upload(client, user_token, pid, "keep.txt", b"stay-here")
+    gone = _upload(client, manager_token, pid, "gone.txt", b"remove-me")
+    keep = _upload(client, manager_token, pid, "keep.txt", b"stay-here")
 
     from app.app.db import SessionLocal
     from app.app.models.entity import Entity, Link, Resolution
@@ -199,7 +199,7 @@ def test_delete_artifact_clears_graph_links(client, manager_token, user_token, t
 
     r = client.delete(
         f"/projects/{pid}/artifacts/{gone['artifact_id']}",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     )
     assert r.status_code == 204
 
@@ -215,7 +215,7 @@ def test_delete_artifact_clears_graph_links(client, manager_token, user_token, t
 
 def test_project_page_has_artifact_delete_column(client, manager_token, user_token):
     pid = _project(client, manager_token)
-    r = client.get(f"/projects/{pid}", headers={"Authorization": f"Bearer {user_token}"})
+    r = client.get(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"})
     assert r.status_code == 200
     html = r.text
     assert 'id="deleteArtifactModal"' in html

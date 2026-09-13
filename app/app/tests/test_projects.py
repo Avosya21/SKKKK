@@ -56,7 +56,7 @@ def test_manager_purge_removes_files_and_db(client, manager_token, user_token, t
     marker.write_text("wipe", encoding="utf-8")
     client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "note"},
         files=[("files", ("hello.txt", io.BytesIO(b"hello"), "text/plain"))],
     )

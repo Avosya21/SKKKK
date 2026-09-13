@@ -58,6 +58,7 @@ def test_stop_worker_kills_the_whole_process_tree():
 def test_all_mode_does_not_start_anything_when_a_check_fails(monkeypatch):
     spawned: list[str] = []
     monkeypatch.setattr(main_module, "_preflight", lambda *a, **k: 2)
+    monkeypatch.setattr(main_module, "_ensure_edge", lambda: spawned.append("edge"))
     monkeypatch.setattr(main_module, "_spawn_worker", lambda: spawned.append("worker"))
     monkeypatch.setattr(main_module, "_serve", lambda *a, **k: spawned.append("api"))
 
@@ -72,17 +73,19 @@ def test_all_mode_starts_worker_and_api(monkeypatch):
         pid = 4242
 
     monkeypatch.setattr(main_module, "_preflight", lambda *a, **k: 0)
+    monkeypatch.setattr(main_module, "_ensure_edge", lambda: started.append("edge"))
     monkeypatch.setattr(main_module, "_spawn_worker", lambda: (started.append("worker"), _FakeProcess())[1])
     monkeypatch.setattr(main_module, "_serve", lambda *a, **k: started.append("api"))
     monkeypatch.setattr(main_module, "_stop_worker", lambda p: started.append("stop"))
 
     assert main_module.main(["all"]) == 0
-    assert started == ["worker", "api", "stop"]
+    assert started == ["edge", "worker", "api", "stop"]
 
 
 def test_all_mode_is_noop_when_server_already_running(monkeypatch):
     started: list[str] = []
     monkeypatch.setattr(main_module, "_preflight", lambda *a, **k: 1)
+    monkeypatch.setattr(main_module, "_ensure_edge", lambda: started.append("edge"))
     monkeypatch.setattr(main_module, "_spawn_worker", lambda: started.append("worker"))
     monkeypatch.setattr(main_module, "_serve", lambda *a, **k: started.append("api"))
     assert main_module.main(["all"]) == 0
@@ -99,6 +102,7 @@ def test_worker_is_stopped_even_if_api_crashes(monkeypatch):
         raise RuntimeError("uvicorn упал")
 
     monkeypatch.setattr(main_module, "_preflight", lambda *a, **k: 0)
+    monkeypatch.setattr(main_module, "_ensure_edge", lambda: None)
     monkeypatch.setattr(main_module, "_spawn_worker", _FakeProcess)
     monkeypatch.setattr(main_module, "_serve", _boom)
     monkeypatch.setattr(main_module, "_stop_worker", lambda p: stopped.append(p.pid))
@@ -131,9 +135,19 @@ def test_default_mode_is_all(monkeypatch):
     assert calls == ["all"]
 
 
+def test_api_mode_starts_edge_then_portal(monkeypatch):
+    started: list[str] = []
+    monkeypatch.setattr(main_module, "_preflight", lambda *a, **k: 0)
+    monkeypatch.setattr(main_module, "_ensure_edge", lambda: started.append("edge"))
+    monkeypatch.setattr(main_module, "_serve", lambda *a, **k: started.append("api"))
+    assert main_module.main(["api"]) == 0
+    assert started == ["edge", "api"]
+
+
 def test_skip_checks_bypasses_preflight(monkeypatch):
     ran: list[str] = []
     monkeypatch.setattr("app.app.preflight.run_preflight", lambda *a, **k: ran.append("checked") or [])
+    monkeypatch.setattr(main_module, "_ensure_edge", lambda: None)
     monkeypatch.setattr(main_module, "_spawn_worker", lambda: None)
     monkeypatch.setattr(main_module, "_serve", lambda *a, **k: None)
     monkeypatch.setattr(main_module, "_stop_worker", lambda p: None)

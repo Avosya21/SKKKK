@@ -1105,7 +1105,7 @@ def reaudit_voices_and_reindex(db: Session, *, project_id: int, artifact_id: str
 
 
 def rebuild_artifact_call_summary(db: Session, *, project_id: int, artifact_id: str) -> dict:
-    """Пересобрать call_summary.md + call_brief.md и обновить HTML (LLM)."""
+    """Пересобрать выжимку созвона или документа и обновить HTML (LLM)."""
     from app.app.config import get_settings
     from app.app.llm_labels import llm_unavailable_hint
     from app.app.models.artifact import Artifact
@@ -1120,7 +1120,15 @@ def rebuild_artifact_call_summary(db: Session, *, project_id: int, artifact_id: 
     if artifact is None:
         raise FileNotFoundError("Artifact not found")
     if artifact.file_type != "audio":
-        raise ValueError("Call summary rebuild is for audio artifacts only")
+        from app.app.services.artifact_reports import load_document_payload, write_document_report
+        from app.app.services.summarize_document import load_document_source_text, run_document_summary
+
+        if not run_document_summary(settings, artifact):
+            raise RuntimeError(f"Не удалось собрать выжимку ({llm_unavailable_hint(settings.llm_provider)})")
+        payload = load_document_payload(settings, artifact)
+        text = load_document_source_text(settings, artifact) or (artifact.transcription_text or "")
+        write_document_report(settings, artifact, payload, text)
+        return {"ok": True, "artifact_id": artifact_id, "kind": "document"}
     from app.app.services.artifact_lab import latest_run_id  # noqa: PLC0415
 
     if latest_run_id(settings, artifact):
@@ -1654,8 +1662,6 @@ SPEAKER_MATCH_UI_STATUSES = frozenset(
     {
         "speakers_pending",
         "speakers_confirmed",
-        "preprocessing",
-        "asr_running",
         "asr_completed",
         "transcript_ready",
         "entities_extracted",
@@ -1664,6 +1670,41 @@ SPEAKER_MATCH_UI_STATUSES = frozenset(
         "done",
     }
 )
+
+
+def speaker_action_flags(
+    db: Session,
+    *,
+    project_id: int,
+    artifact_id: str,
+    status: str,
+    file_type: str,
+) -> dict[str, bool]:
+    """Флаги кнопок таблицы: match только когда есть метки, confirm — когда все названы."""
+    empty = {
+        "speakers_match_available": False,
+        "speakers_match_ready": False,
+        "speakers_confirm_ready": False,
+    }
+    if file_type != "audio":
+        return empty
+    labels = canonical_match_labels(project_id, artifact_id)
+    if not labels:
+        return empty
+    if status not in SPEAKER_MATCH_UI_STATUSES:
+        return empty
+    if status != "speakers_pending":
+        return {
+            "speakers_match_available": True,
+            "speakers_match_ready": True,
+            "speakers_confirm_ready": False,
+        }
+    ready = bool(speakers_confirm_status(db, project_id=project_id, artifact_id=artifact_id)["ready"])
+    return {
+        "speakers_match_available": True,
+        "speakers_match_ready": ready,
+        "speakers_confirm_ready": ready,
+    }
 
 
 def artifact_speakers_match_ready(
@@ -1675,11 +1716,16 @@ def artifact_speakers_match_ready(
     file_type: str,
 ) -> bool | None:
     """None — кнопка match ещё не показывается; иначе все спикеры заполнены."""
-    if file_type != "audio" or status not in SPEAKER_MATCH_UI_STATUSES:
+    flags = speaker_action_flags(
+        db,
+        project_id=project_id,
+        artifact_id=artifact_id,
+        status=status,
+        file_type=file_type,
+    )
+    if not flags["speakers_match_available"]:
         return None
-    if status != "speakers_pending":
-        return True
-    return bool(speakers_confirm_status(db, project_id=project_id, artifact_id=artifact_id)["ready"])
+    return flags["speakers_match_ready"]
 
 
 def confirm_speakers_and_enqueue(db: Session, settings, artifact: Artifact) -> dict:

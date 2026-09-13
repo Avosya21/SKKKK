@@ -17,6 +17,10 @@ def test_login_sets_httponly_session_cookie(anon_client):
     header = r.headers.get("set-cookie", "")
     assert "HttpOnly" in header or "httponly" in header.lower()
     assert "Secure" not in header  # TestClient is http
+    from app.app.config import get_settings
+
+    max_age = int(get_settings().jwt_expire_minutes) * 60
+    assert f"Max-Age={max_age}" in header or f"max-age={max_age}" in header.lower()
 
 
 def test_projects_ok_with_cookie_and_no_bearer(cookie_auth_client):

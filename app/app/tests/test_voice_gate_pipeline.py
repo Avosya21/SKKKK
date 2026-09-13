@@ -14,6 +14,30 @@ class _Art:
             self.id = 1
 
 
+def test_process_artifact_reruns_meeting_when_done(tmp_path):
+    from app.app.workers.pipeline import process_artifact
+
+    settings = Settings(secret_key="x" * 16, data_dir=tmp_path)
+    artifact = _Art(
+        artifact_id="art_meet_done",
+        project_id=1,
+        file_type="audio",
+        source_type="call",
+        status="done",
+        original_filename="встреча-1.wav",
+        asr_engines_json='{"kind":"meeting","meeting_id":1}',
+    )
+    db = MagicMock()
+    with patch(
+        "app.app.services.pipeline_meeting.process_meeting_artifact", return_value="ok"
+    ) as meet_mock:
+        with patch("app.app.workers.pipeline.try_resume_transcript") as resume_mock:
+            with patch("app.app.workers.pipeline.run_knowledge_pipeline"):
+                process_artifact(db, settings, artifact)
+    meet_mock.assert_called_once_with(db, settings, artifact)
+    resume_mock.assert_not_called()
+
+
 def test_process_artifact_runs_lab_on_upload(tmp_path):
     from app.app.workers.pipeline import process_artifact
 

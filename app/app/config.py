@@ -29,9 +29,20 @@ class Settings(BaseSettings):
     web_port: int = 1111
     # Публичный URL для ссылок и MCP (если портал доступен из интернета).
     web_public_url: str = ""
+    # HTTPS / ACME (Caddy). Публичный :80 приходит в портал, не в Apache.
+    skkkk_public_host: str = ""
+    skkkk_https_port: int = 777
+    skkkk_acme_http_port: int = 8088
+    skkkk_acme_tls_port: int = 8443
+    skkkk_acme_email: str = ""
+    skkkk_acme_ca: str = ""
+    skkkk_tls_cert: str = ""
+    skkkk_tls_key: str = ""
+    skkkk_tls_renew_hours: int = 48
+    skkkk_tls_issue_timeout_sec: int = 120
 
     lmstudio_base_url: str = "http://127.0.0.1:1234/v1"
-    lmstudio_model: str = "google/gemma-4-31b-qat"
+    lmstudio_model: str = "qwen/qwen3.8-27b"
     lmstudio_api_key: str = "lm-studio"
 
     llm_provider: str = "lmstudio"
@@ -69,13 +80,22 @@ class Settings(BaseSettings):
     search_min_score: float = 0.35
     tz_rebuild_every_n: int = 3
     dry_run: bool = False
-    jwt_expire_minutes: int = 720
+    jwt_expire_minutes: int = 43_200
     job_max_attempts: int = 3
+    login_allowlist_path: Path = ROOT / "Login_up.txt"
+
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    meeting_voice_dfn3: bool = False
+    meeting_voice_loudness: bool = True
+    meeting_voice_server: bool = True
+    livekit_rtc_internal: str = "ws://127.0.0.1:7880"
 
     # Пауза после lab-стенограммы: имена спикеров, затем knowledge
     voice_gate_before_asr: bool = True
 
-    @field_validator("data_dir", mode="before")
+    @field_validator("data_dir", "login_allowlist_path", mode="before")
     @classmethod
     def _path(cls, v: str | Path) -> Path:
         return Path(v)

@@ -185,17 +185,23 @@
       min-height: 360px;
     }
   }
-  .mcp-access-card .card-header .mcp-toggle-btn {
+  .mcp-access-card .card-header .mcp-toggle-btn,
+  .meetings-card .card-header .meetings-toggle-btn,
+  .grant-access-card .card-header .grant-toggle-btn {
     border: 0;
     background: transparent;
     color: inherit;
     text-align: left;
     flex: 1 1 auto;
   }
-  .mcp-access-card .card-header .mcp-toggle-btn:hover {
+  .mcp-access-card .card-header .mcp-toggle-btn:hover,
+  .meetings-card .card-header .meetings-toggle-btn:hover,
+  .grant-access-card .card-header .grant-toggle-btn:hover {
     color: #0d6efd;
   }
-  .mcp-access-card .mcp-toggle-hint {
+  .mcp-access-card .mcp-toggle-hint,
+  .meetings-card .meetings-toggle-hint,
+  .grant-access-card .grant-toggle-hint {
     font-weight: normal;
     color: #6c757d;
   }
@@ -622,7 +628,9 @@
     <div class="card shadow-sm h-100 w-100 insights-card">
       <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
         <strong>Итоговая выжимка по проекту</strong>
+        {% if current_role == 'admin' %}
         <button type="button" id="tz-refresh" class="btn btn-sm btn-outline-secondary skkkk-action-btn" data-idle-label="Пересобрать" aria-label="Пересобрать">Пересобрать</button>
+        {% endif %}
       </div>
       <div class="card-body d-flex flex-column insights-panel">
         <div id="tz-status" class="text-muted small mb-2 flex-shrink-0" aria-live="polite">Загрузка...</div>
@@ -740,6 +748,75 @@
   </div>
 </div>
 
+{% if current_role != 'user' %}
+<div class="card shadow-sm mb-4 meetings-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="meetings-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#meetings-panel"
+            aria-expanded="false"
+            aria-controls="meetings-panel">
+      <strong>Встречи</strong>
+      <span id="meetings-toggle-hint" class="small meetings-toggle-hint">(развернуть)</span>
+    </button>
+  </div>
+  <div id="meetings-panel" class="collapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Гостевая ссылка ведёт на отдельную страницу без доступа к проекту.
+        Ссылку можно отозвать. Камера у гостя выключена; записываются голос и экран.
+      </p>
+      <div id="meetings-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="meetings-create" data-idle-label="Создать встречу">Создать встречу</button>
+      </div>
+      <div id="meetings-new-link" class="alert alert-warning d-none small py-2" role="alert">
+        <strong>Гостевая ссылка (один раз):</strong>
+        <code id="meetings-new-link-value" class="user-select-all d-block mt-1 text-break"></code>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="meetings-copy-link" data-idle-label="Копировать ссылку">Копировать ссылку</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Статус</th>
+              <th>Ссылка</th>
+              <th>Проанализировать</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="meetings-body">
+            <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="deleteMeetingModal" tabindex="-1" aria-labelledby="delete-meeting-title" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="delete-meeting-title">Подтверждение удаления</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Удалить созвон «<strong id="delete-meeting-name"></strong>»?</p>
+        <p class="text-muted small mb-3">Будут стёрты запись комнаты, расшифровка и задания в очереди. Отменить нельзя.</p>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="delete-meeting-ack">
+          <label class="form-check-label" for="delete-meeting-ack">Подтверждаю полное удаление созвона</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-meeting-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="card shadow-sm mb-4 mcp-access-card">
   <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
     <button type="button"
@@ -801,6 +878,64 @@
   </div>
   </div>
 </div>
+{% endif %}
+
+{% if can_grant_access %}
+<div class="card shadow-sm mb-4 grant-access-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="grant-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#grant-access-panel"
+            aria-expanded="false"
+            aria-controls="grant-access-panel">
+      <strong>Выдать доступ</strong>
+      <span id="grant-toggle-hint" class="small grant-toggle-hint">(развернуть)</span>
+    </button>
+  </div>
+  <div id="grant-access-panel" class="collapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Выберите пользователя и роль в этом проекте. Админскую роль назначить нельзя.
+        Кто в списке — видит проект и работает по своей роли: менеджер (match, выжимки) или участник (просмотр и чат).
+      </p>
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold mb-1" for="grant-user">Пользователь</label>
+          <select id="grant-user" class="form-select form-select-sm" aria-label="Пользователь для доступа">
+            <option value="">Загрузка…</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1" for="grant-role">Роль</label>
+          <select id="grant-role" class="form-select form-select-sm" aria-label="Роль в проекте">
+            <option value="manager">Менеджер</option>
+            <option value="user">Участник</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="button" class="btn btn-sm btn-primary skkkk-action-btn w-100" id="grant-add" data-idle-label="Добавить">Добавить</button>
+        </div>
+      </div>
+      <div id="grant-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Пользователь</th>
+              <th>Роль</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="grant-members-body">
+            <tr><td colspan="3" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}
 
@@ -810,6 +945,8 @@
 <script>
 if (!SKKKK.requireAuth()) throw new Error('auth');
 const projectId = {{ project_id }};
+const currentRole = {{ current_role|tojson }};
+window.SKKKK_ROLE = currentRole;
 const TERMINAL = new Set(['done', 'error']);
 const STATUS_LABEL = {
   uploaded:           'В очереди',
@@ -1191,26 +1328,47 @@ function artifactReportBtn(href, label, title, btnClass = 'btn-outline-secondary
     `title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}">${escapeHtml(label)}</a>`;
 }
 
+function isSpeakersMatchAvailable(a) {
+  if (typeof a.speakers_match_available === 'boolean') return a.speakers_match_available;
+  return ['speakers_pending', 'speakers_confirmed', 'asr_completed', 'transcript_ready',
+    'entities_extracted', 'indexed', 'graph_seeded', 'done'].includes(a.status);
+}
+
 function isSpeakersMatchReady(a) {
   if (typeof a.speakers_match_ready === 'boolean') return a.speakers_match_ready;
   return a.status !== 'speakers_pending';
 }
 
+function isSpeakersConfirmReady(a) {
+  if (typeof a.speakers_confirm_ready === 'boolean') return a.speakers_confirm_ready;
+  return a.status === 'speakers_pending' && isSpeakersMatchReady(a);
+}
+
 function speakerMatchLink(a) {
-  if (a.file_type !== 'audio') return '';
-  const ok = ['speakers_pending', 'speakers_confirmed', 'preprocessing', 'asr_running', 'asr_completed',
-    'transcript_ready', 'entities_extracted', 'indexed', 'graph_seeded', 'done']
-    .includes(a.status);
-  if (!ok) return '';
+  if (currentRole === 'user') return '';
+  if (a.file_type !== 'audio' || !isSpeakersMatchAvailable(a)) return '';
   const href = escapeAttr(`/artifacts/${a.artifact_id}/report-speaker-match`);
   const ready = isSpeakersMatchReady(a);
   const btnClass = ready ? 'btn-outline-success' : 'btn-outline-warning';
-  const title = ready ? 'Все спикеры подтверждены' : 'Заполните и подтвердите спикеров';
+  const title = ready
+    ? 'Спикеры сопоставлены — открыть страницу голосов'
+    : 'Есть дорожки спикеров — сопоставить с базой голосов и назвать';
   return artifactReportBtn(href, 'match', title, btnClass);
 }
 
 function labReportLink(a) {
-  if (a.file_type !== 'audio' || !a.lab_runs) return '';
+  if (currentRole !== 'admin') return '';
+  if (a.file_type !== 'audio') return '';
+  if (a.meeting_lab) {
+    const href = escapeAttr(`/artifacts/${a.artifact_id}/report-meeting-lab`);
+    return artifactReportBtn(
+      href,
+      'лаб встречи',
+      'Дорожки созвона: стадии и итоговая расшифровка',
+      'btn-outline-primary',
+    );
+  }
+  if (!a.lab_runs) return '';
   const href = escapeAttr(`/artifacts/${a.artifact_id}/report-lab`);
   return artifactReportBtn(href, 'лаб', `Лабораторных прогонов: ${a.lab_runs}`, 'btn-outline-primary');
 }
@@ -1226,9 +1384,12 @@ function artifactReportActions(a) {
 }
 
 function speakerConfirmCell(a) {
-  if (a.file_type !== 'audio' || a.status !== 'speakers_pending') return '';
+  if (currentRole === 'user') return '';
+  if (a.file_type !== 'audio' || a.status !== 'speakers_pending' || !isSpeakersConfirmReady(a)) return '';
   return `<button type="button" class="btn btn-sm btn-warning speaker-confirm-btn" ` +
-    `data-artifact-id="${escapeAttr(a.artifact_id)}" title="Все спикеры подтверждены — подставить имена и собрать выжимку">` +
+    `data-artifact-id="${escapeAttr(a.artifact_id)}" ` +
+    `title="Все спикеры названы — запустить выжимку и индекс" ` +
+    `aria-label="Подтвердить спикеров и собрать выжимку">` +
     `Подтвердить спикеров</button>`;
 }
 
@@ -1261,7 +1422,7 @@ function findTzTask(tasks) {
 function lockTzRebuildButton(label) {
   tzRebuildRunning = true;
   tzStatus.textContent = label;
-  SKKKK.setButtonBusy(tzRefreshBtn, true, { label: 'Пересборка…' });
+  if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, true, { label: 'Пересборка…' });
 }
 
 async function syncTzTaskUi() {
@@ -1275,7 +1436,7 @@ async function syncTzTaskUi() {
     }
     const justFinished = tzRebuildRunning;
     tzRebuildRunning = false;
-    SKKKK.setButtonBusy(tzRefreshBtn, false);
+    if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
     if (justFinished) await loadTz();
     return false;
   } catch (err) {
@@ -1284,7 +1445,7 @@ async function syncTzTaskUi() {
 }
 
 async function rebuildTz() {
-  if (tzRebuildRunning || tzRefreshBtn.disabled || tzRefreshBtn.dataset.busy === '1') return;
+  if (!tzRefreshBtn || tzRebuildRunning || tzRefreshBtn.disabled || tzRefreshBtn.dataset.busy === '1') return;
   if (await syncTzTaskUi()) return;
   lockTzRebuildButton('Пересборка итоговой выжимки...');
   try {
@@ -1297,13 +1458,13 @@ async function rebuildTz() {
     }
     if (!r.ok) throw new Error('rebuild failed');
     tzRebuildRunning = false;
-    SKKKK.setButtonBusy(tzRefreshBtn, false);
+    if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
     await loadTz();
   } catch (err) {
     tzStatus.textContent = 'Не удалось пересобрать выжимку';
     if (!(await syncTzTaskUi())) {
       tzRebuildRunning = false;
-      SKKKK.setButtonBusy(tzRefreshBtn, false);
+      if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
     }
   }
 }
@@ -1322,7 +1483,8 @@ function renderChatSources(sources) {
   return `<div class="small text-muted mt-2">Источники: ${escapeHtml(names.join(', '))}</div>`;
 }
 
-document.getElementById('tz-refresh').onclick = rebuildTz;
+const tzRefreshEl = document.getElementById('tz-refresh');
+if (tzRefreshEl) tzRefreshEl.onclick = rebuildTz;
 chatSend.onclick = askProjectChat;
 autoGrowFields();
 chatQuestion.addEventListener('keydown', (e) => {
@@ -1778,6 +1940,7 @@ keepChatVisibleOnKeyboard();
 setInterval(async () => {
   await refreshArtifacts();
   await syncTzTaskUi();
+  if (meetingsPanel?.classList.contains('show')) await loadMeetings();
 }, 3000);
 
 const mcpStatus = document.getElementById('mcp-status');
@@ -1801,7 +1964,7 @@ function mcpCursorConfig(url, tokenPlaceholder) {
 
 async function loadMcpPanel() {
   if (!mcpStatus) return;
-  const role = localStorage.getItem('skkkk_role');
+  const role = currentRole || localStorage.getItem('skkkk_role');
   const card = document.querySelector('.mcp-access-card');
   if (role === 'user') {
     if (card) card.classList.add('d-none');
@@ -2175,6 +2338,211 @@ if (deadlinesPanel && deadlinesToggleHint) {
   });
 }
 
+const meetingsPanel = document.getElementById('meetings-panel');
+const meetingsToggleHint = document.getElementById('meetings-toggle-hint');
+const meetingsStatus = document.getElementById('meetings-status');
+const meetingsBody = document.getElementById('meetings-body');
+const meetingsNewLink = document.getElementById('meetings-new-link');
+const meetingsNewLinkValue = document.getElementById('meetings-new-link-value');
+const deleteMeetingModalEl = document.getElementById('deleteMeetingModal');
+const deleteMeetingNameEl = document.getElementById('delete-meeting-name');
+const deleteMeetingAck = document.getElementById('delete-meeting-ack');
+const deleteMeetingConfirmBtn = document.getElementById('delete-meeting-confirm');
+let pendingMeetingDelete = null;
+const MEETING_DELETE_LABEL = 'Удалить созвон';
+const MEETING_DELETE_DONE = 'Удалён созвон';
+const MEETING_DELETE_BUSY = 'Удаляю…';
+const MEETING_DELETE_FAIL = 'Не удалось удалить созвон';
+const MEETING_DELETE_FORBIDDEN = 'Недостаточно прав';
+const MEETING_STATUS = { created: 'создана', live: 'идёт', ended: 'завершена' };
+const MEETING_RETRY = 'Повторить';
+const MEETING_ANALYZE = {
+  ready: 'Проанализировать',
+  queued: 'В очереди',
+  running: 'Идёт…',
+  done: 'Готово',
+  error: MEETING_RETRY,
+};
+const MEETINGS_COLSPAN = 5;
+
+function meetingStatusLabel(status) {
+  return MEETING_STATUS[status] || status || '—';
+}
+
+function meetingParentArtifactId(m) {
+  const jobs = m.analyze_jobs || [];
+  return (jobs[0] && jobs[0].artifact_id) || '';
+}
+
+function meetingLabLink(m) {
+  if (currentRole !== 'admin') return '';
+  const aid = meetingParentArtifactId(m);
+  if (!aid) return '';
+  const href = escapeAttr(`/artifacts/${aid}/report-meeting-lab`);
+  return artifactReportBtn(href, 'лаб встречи', 'Дорожки созвона: стадии и итоговая расшифровка', 'btn-outline-primary');
+}
+
+function meetingAnalyzeCell(m) {
+  const lab = meetingLabLink(m);
+  if (m.status !== 'ended') return lab;
+  if (!m.track_count) {
+    const empty = '<span class="text-muted small">нет записи</span>';
+    return lab ? `${empty} ${lab}` : empty;
+  }
+  const status = m.analyze_status || 'ready';
+  const label = MEETING_ANALYZE[status] || MEETING_ANALYZE.ready;
+  const retryBtn = `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(MEETING_RETRY)}</button>`;
+  let main = `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(label)}</button>`;
+  if (status === 'queued' || status === 'running') {
+    main = `<span class="small">${escapeHtml(label)}</span>`;
+  } else if (status === 'done') {
+    main = `<span class="small">${escapeHtml(label)}</span> ${retryBtn}`;
+  }
+  return lab ? `${main} ${lab}` : main;
+}
+
+function showMeetingLink(url, meetingId) {
+  if (!meetingsNewLink || !meetingsNewLinkValue || !url) return;
+  meetingsNewLinkValue.textContent = url;
+  meetingsNewLink.classList.remove('d-none');
+  if (meetingId) sessionStorage.setItem('skkkk-meeting-invite-' + meetingId, url);
+}
+
+function syncMeetingDeleteConfirmEnabled() {
+  if (!deleteMeetingConfirmBtn || !deleteMeetingAck) return;
+  deleteMeetingConfirmBtn.disabled = !deleteMeetingAck.checked || !pendingMeetingDelete;
+}
+
+function resetMeetingDeleteDialog() {
+  if (deleteMeetingAck) deleteMeetingAck.checked = false;
+  syncMeetingDeleteConfirmEnabled();
+}
+
+async function loadMeetings() {
+  if (!meetingsBody) return;
+  if (deleteMeetingModalEl && deleteMeetingModalEl.classList.contains('show')) return;
+  try {
+    const rows = await SKKKK.apiJson(`/projects/${projectId}/meetings`);
+    if (!rows.length) {
+      meetingsBody.innerHTML = `<tr><td colspan="${MEETINGS_COLSPAN}" class="text-muted small">Встреч пока нет</td></tr>`;
+      return;
+    }
+    meetingsBody.innerHTML = rows.map((m) => {
+      const linkState = m.public_revoked ? 'отозвана' : 'активна';
+      const startBtn = m.status === 'created' || m.status === 'live'
+        ? (m.status === 'created'
+          ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
+          : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>
+             <button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`)
+        : '';
+      const linkBtns = m.status !== 'ended'
+        ? `<button type="button" class="btn btn-sm btn-outline-danger meeting-revoke" data-id="${m.id}">Отозвать</button>
+           <button type="button" class="btn btn-sm btn-outline-secondary meeting-regen" data-id="${m.id}">Новая ссылка</button>`
+        : '';
+      const delLabel = `${MEETING_DELETE_LABEL} ${m.id}`;
+      const delBtn = `<button type="button" class="btn btn-sm btn-outline-secondary meeting-delete d-inline-flex align-items-center" data-id="${m.id}" data-bs-toggle="modal" data-bs-target="#deleteMeetingModal" title="${escapeAttr(delLabel)}" aria-label="${escapeAttr(delLabel)}">${deleteIconSvg()}</button>`;
+      return `<tr>
+        <td>${m.id}</td>
+        <td>${escapeHtml(meetingStatusLabel(m.status))}</td>
+        <td class="small">${escapeHtml(linkState)}</td>
+        <td>${meetingAnalyzeCell(m)}</td>
+        <td class="text-end text-nowrap">${startBtn} ${linkBtns} ${delBtn}</td>
+      </tr>`;
+    }).join('');
+    meetingsBody.querySelectorAll('.meeting-start').forEach((btn) => {
+      btn.addEventListener('click', () => meetingAction(btn, 'start', 'Начинаю…'));
+    });
+    meetingsBody.querySelectorAll('.meeting-end').forEach((btn) => {
+      btn.addEventListener('click', () => meetingAction(btn, 'end', 'Завершаю…'));
+    });
+    meetingsBody.querySelectorAll('.meeting-revoke').forEach((btn) => {
+      btn.addEventListener('click', () => meetingAction(btn, 'revoke-link', 'Отзываю…'));
+    });
+    meetingsBody.querySelectorAll('.meeting-regen').forEach((btn) => {
+      btn.addEventListener('click', () => meetingAction(btn, 'regenerate-link', 'Обновляю…', true));
+    });
+    meetingsBody.querySelectorAll('.meeting-analyze').forEach((btn) => {
+      btn.addEventListener('click', () => meetingAction(btn, 'analyze', 'Ставлю в очередь…'));
+    });
+    meetingsBody.querySelectorAll('.meeting-delete').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        pendingMeetingDelete = { id: btn.dataset.id };
+        if (deleteMeetingNameEl) deleteMeetingNameEl.textContent = String(btn.dataset.id || '');
+        resetMeetingDeleteDialog();
+      });
+    });
+  } catch {
+    meetingsBody.innerHTML = `<tr><td colspan="${MEETINGS_COLSPAN}" class="text-muted small">Не удалось загрузить встречи</td></tr>`;
+  }
+}
+
+async function meetingAction(btn, action, label, showLink) {
+  const mid = btn.dataset.id;
+  await SKKKK.guardButton(btn, async () => {
+    try {
+      const data = await SKKKK.apiJson(`/projects/${projectId}/meetings/${mid}/${action}`, { method: 'POST' });
+      if (showLink && data.public_url) showMeetingLink(data.public_url, data.id || mid);
+      if (meetingsStatus) {
+        if (action === 'analyze') meetingsStatus.textContent = 'Расшифровка спикеров поставлена в очередь';
+        else meetingsStatus.textContent = showLink && data.public_url ? 'Новая ссылка показана один раз' : '';
+      }
+      await loadMeetings();
+    } catch (err) {
+      if (meetingsStatus) meetingsStatus.textContent = err.message || 'Не удалось выполнить действие';
+    }
+  }, { label });
+}
+
+document.getElementById('meetings-create')?.addEventListener('click', async () => {
+  const btn = document.getElementById('meetings-create');
+  await SKKKK.guardButton(btn, async () => {
+    const data = await SKKKK.apiJson(`/projects/${projectId}/meetings`, { method: 'POST' });
+    showMeetingLink(data.public_url, data.id);
+    if (meetingsStatus) meetingsStatus.textContent = 'Ссылка показана один раз';
+    await loadMeetings();
+  }, { label: 'Создаю…' });
+});
+
+document.getElementById('meetings-copy-link')?.addEventListener('click', async () => {
+  if (!meetingsNewLinkValue?.textContent) return;
+  await navigator.clipboard.writeText(meetingsNewLinkValue.textContent);
+  if (meetingsStatus) meetingsStatus.textContent = 'Ссылка скопирована';
+});
+
+deleteMeetingAck?.addEventListener('change', syncMeetingDeleteConfirmEnabled);
+deleteMeetingModalEl?.addEventListener('hidden.bs.modal', () => {
+  pendingMeetingDelete = null;
+  resetMeetingDeleteDialog();
+});
+deleteMeetingConfirmBtn?.addEventListener('click', async () => {
+  if (!pendingMeetingDelete || !deleteMeetingAck?.checked) return;
+  const target = pendingMeetingDelete;
+  await SKKKK.guardButton(deleteMeetingConfirmBtn, async () => {
+    const r = await SKKKK.api(`/projects/${projectId}/meetings/${target.id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      if (meetingsStatus) {
+        meetingsStatus.textContent = r.status === 403 ? MEETING_DELETE_FORBIDDEN : MEETING_DELETE_FAIL;
+      }
+      return;
+    }
+    pendingMeetingDelete = null;
+    bootstrap.Modal.getOrCreateInstance(deleteMeetingModalEl).hide();
+    if (meetingsStatus) meetingsStatus.textContent = `${MEETING_DELETE_DONE} ${target.id}`;
+    await loadMeetings();
+    if (typeof refreshArtifacts === 'function') await refreshArtifacts();
+  }, { label: MEETING_DELETE_BUSY });
+});
+
+if (meetingsPanel && meetingsToggleHint) {
+  meetingsPanel.addEventListener('show.bs.collapse', () => {
+    meetingsToggleHint.textContent = '(свернуть)';
+    loadMeetings();
+  });
+  meetingsPanel.addEventListener('hide.bs.collapse', () => {
+    meetingsToggleHint.textContent = '(развернуть)';
+  });
+}
+
 const mcpAccessPanel = document.getElementById('mcp-access-panel');
 const mcpToggleHint = document.getElementById('mcp-toggle-hint');
 if (mcpAccessPanel && mcpToggleHint) {
@@ -2184,6 +2552,106 @@ if (mcpAccessPanel && mcpToggleHint) {
   mcpAccessPanel.addEventListener('hide.bs.collapse', () => {
     mcpToggleHint.textContent = '(развернуть)';
   });
+}
+
+const grantAccessPanel = document.getElementById('grant-access-panel');
+const grantToggleHint = document.getElementById('grant-toggle-hint');
+const grantUserSel = document.getElementById('grant-user');
+const grantRoleSel = document.getElementById('grant-role');
+const grantAddBtn = document.getElementById('grant-add');
+const grantStatus = document.getElementById('grant-status');
+const grantMembersBody = document.getElementById('grant-members-body');
+
+function renderGrantPayload(data) {
+  if (grantUserSel) {
+    const opts = ['<option value="">Выберите пользователя</option>']
+      .concat((data.candidates || []).map((u) => (
+        `<option value="${escapeAttr(u.login || u.name || '')}">${escapeHtml(u.name || u.login)}</option>`
+      )));
+    grantUserSel.innerHTML = opts.join('');
+  }
+  if (grantRoleSel && data.roles) {
+    grantRoleSel.innerHTML = data.roles.map((r) => (
+      `<option value="${escapeHtml(r.id)}">${escapeHtml(r.label)}</option>`
+    )).join('');
+  }
+  if (!grantMembersBody) return;
+  const rows = data.members || [];
+  if (!rows.length) {
+    grantMembersBody.innerHTML = '<tr><td colspan="3" class="text-muted small">Пока никого не добавили</td></tr>';
+    return;
+  }
+  grantMembersBody.innerHTML = rows.map((m) => (
+    `<tr>
+      <td>${escapeHtml(m.name)}</td>
+      <td>${escapeHtml(m.role_label || m.role)}</td>
+      <td class="text-end">
+        <button type="button" class="btn btn-sm btn-outline-danger grant-remove" data-user-id="${m.user_id}" aria-label="${escapeAttr('Убрать доступ: ' + (m.name || ''))}">Убрать</button>
+      </td>
+    </tr>`
+  )).join('');
+}
+
+async function loadGrantPanel() {
+  if (!grantMembersBody) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/members`);
+    if (!r.ok) throw new Error('members failed');
+    renderGrantPayload(await r.json());
+    if (grantStatus) grantStatus.textContent = '';
+  } catch (err) {
+    if (grantStatus) grantStatus.textContent = 'Не удалось загрузить список доступа';
+  }
+}
+
+if (grantAccessPanel && grantToggleHint) {
+  grantAccessPanel.addEventListener('show.bs.collapse', () => {
+    grantToggleHint.textContent = '(свернуть)';
+  });
+  grantAccessPanel.addEventListener('hide.bs.collapse', () => {
+    grantToggleHint.textContent = '(развернуть)';
+  });
+}
+if (grantAddBtn) {
+  grantAddBtn.addEventListener('click', async () => {
+    const login = grantUserSel && grantUserSel.value;
+    const role = grantRoleSel && grantRoleSel.value;
+    if (!login || !role) {
+      if (grantStatus) grantStatus.textContent = 'Выберите пользователя и роль';
+      return;
+    }
+    await SKKKK.guardButton(grantAddBtn, async () => {
+      const r = await SKKKK.api(`/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, role }),
+      });
+      if (!r.ok) throw new Error('add failed');
+      renderGrantPayload(await r.json());
+      if (grantStatus) grantStatus.textContent = 'Доступ выдан';
+    }, { label: 'Добавление…' }).catch(() => {
+      if (grantStatus) grantStatus.textContent = 'Не удалось выдать доступ';
+    });
+  });
+}
+if (grantMembersBody) {
+  grantMembersBody.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.grant-remove');
+    if (!btn) return;
+    const userId = Number(btn.getAttribute('data-user-id'));
+    if (!userId) return;
+    btn.disabled = true;
+    try {
+      const r = await SKKKK.api(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('remove failed');
+      await loadGrantPanel();
+      if (grantStatus) grantStatus.textContent = 'Доступ убран';
+    } catch (err) {
+      if (grantStatus) grantStatus.textContent = 'Не удалось убрать доступ';
+      btn.disabled = false;
+    }
+  });
+  loadGrantPanel();
 }
 </script>
 {% endblock %}

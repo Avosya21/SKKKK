@@ -132,9 +132,11 @@ def run_once() -> bool:
                     artifact.status = "transcript_ready"
             else:
                 artifact.status = "error"
-            artifact.error_message = str(exc)
+            from app.app.services.lab_errors import sanitize_lab_error
+
+            artifact.error_message = sanitize_lab_error(str(exc))
             db.commit()
-            finish_job(db, job, ok=False, error=str(exc))
+            finish_job(db, job, ok=False, error=sanitize_lab_error(str(exc)))
             log_event(
                 logger,
                 "job.failed",

@@ -43,16 +43,21 @@ _EMBED_AUDIO_CSS = """
 _EMBED_DOCUMENT_CSS = """
 <style id="skkkk-embed">
   html, body { background: transparent !important; margin: 0 !important; padding: 0 !important; }
-  h1, .meta { display: none !important; }
-  .card {
+  header > h1 { display: none !important; }
+  header, main { max-width: none !important; padding: 0 !important; }
+  .summary {
     border: none !important;
     border-radius: 0 !important;
-    padding: 0 !important;
-    margin: 0 0 18px !important;
+    padding: 0 0 16px !important;
+    margin: 0 0 16px !important;
     background: transparent !important;
     box-shadow: none !important;
   }
-  h2 { font-size: 1.05rem !important; margin-top: 0 !important; }
+  .export-panel, .source-collapse {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
 </style>
 """
 
@@ -62,3 +67,16 @@ def apply_embed_mode(html: str, *, kind: str) -> str:
     if "</head>" in html:
         return html.replace("</head>", css + "</head>", 1)
     return css + html
+
+
+def apply_role_chrome(html: str, role: str) -> str:
+    snippet = f"<script>window.SKKKK_ROLE={role!r};</script>"
+    if role == "user":
+        snippet += (
+            '<style id="skkkk-role-chrome">'
+            "#rebuild-summary,#recalc,#reindex{display:none!important}"
+            "</style>"
+        )
+    if "</head>" in html:
+        return html.replace("</head>", snippet + "</head>", 1)
+    return snippet + html

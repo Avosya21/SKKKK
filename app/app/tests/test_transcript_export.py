@@ -98,7 +98,7 @@ def test_resolve_summary_docx(tmp_data, db_engine):
         db.close()
 
 
-def test_transcript_download_endpoint(client, tmp_data, db_engine, user_token):
+def test_transcript_download_endpoint(client, tmp_data, db_engine, admin_token):
     db = db_mod.SessionLocal()
     try:
         _seed_audio(db, tmp_data, "art_export_http")
@@ -106,14 +106,14 @@ def test_transcript_download_endpoint(client, tmp_data, db_engine, user_token):
         db.close()
     r = client.get(
         "/artifacts/art_export_http/download/transcript.txt",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("text/plain")
     assert "Иван: Привет" in r.text
 
 
-def test_summary_download_endpoint(client, tmp_data, db_engine, user_token):
+def test_summary_download_endpoint(client, tmp_data, db_engine, admin_token):
     db = db_mod.SessionLocal()
     try:
         _seed_audio(db, tmp_data, "art_export_doc")
@@ -121,7 +121,7 @@ def test_summary_download_endpoint(client, tmp_data, db_engine, user_token):
         db.close()
     r = client.get(
         "/artifacts/art_export_doc/download/summary.docx",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200, r.text
     assert "wordprocessingml" in r.headers["content-type"]
@@ -148,7 +148,7 @@ def test_resolve_brief_docx(tmp_data, db_engine):
         db.close()
 
 
-def test_brief_download_endpoint(client, tmp_data, db_engine, user_token):
+def test_brief_download_endpoint(client, tmp_data, db_engine, admin_token):
     db = db_mod.SessionLocal()
     try:
         _seed_audio(db, tmp_data, "art_export_brief")
@@ -156,7 +156,7 @@ def test_brief_download_endpoint(client, tmp_data, db_engine, user_token):
         db.close()
     r = client.get(
         "/artifacts/art_export_brief/download/brief.docx",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200, r.text
     assert "wordprocessingml" in r.headers["content-type"]

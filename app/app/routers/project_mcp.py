@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings, external_base_url, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user, require_role
+from app.app.services.project_access import require_project
 from app.app.mcp.project_protocol import dispatch_mcp_body
 from app.app.models.project import Project
 from app.app.models.user import User
@@ -34,6 +35,10 @@ def _project_or_404(db: Session, project_id: int) -> Project:
     return project
 
 
+def _owned_project(db: Session, user: User, project_id: int) -> Project:
+    return require_project(db, user, project_id)
+
+
 def _bearer_token(request: Request) -> str | None:
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
     if not auth:
@@ -55,9 +60,9 @@ def _require_mcp_auth(db: Session, project_id: int, request: Request) -> None:
 def list_tokens(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(require_role("admin", "manager"))],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
-    _project_or_404(db, project_id)
+    _owned_project(db, user, project_id)
     return {"tokens": list_project_mcp_tokens(db, project_id=project_id)}
 
 
@@ -68,7 +73,7 @@ def create_token(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
-    _project_or_404(db, project_id)
+    _owned_project(db, user, project_id)
     row, plain = create_project_mcp_token(db, project_id=project_id, label=body.label, user_id=user.id)
     return {
         "id": row.id,
@@ -84,9 +89,9 @@ def revoke_token(
     project_id: int,
     token_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _user: Annotated[User, Depends(require_role("admin", "manager"))],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
-    _project_or_404(db, project_id)
+    _owned_project(db, user, project_id)
     if not revoke_project_mcp_token(db, project_id=project_id, token_id=token_id):
         raise HTTPException(status_code=404, detail="Token not found")
     return None
@@ -98,9 +103,9 @@ def mcp_connection_info(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    _user: Annotated[User, Depends(require_role("admin", "manager"))],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
-    project = _project_or_404(db, project_id)
+    project = _owned_project(db, user, project_id)
     base = external_base_url(settings, str(request.base_url))
     mcp_url = f"{base}/mcp/projects/{project_id}"
     return {

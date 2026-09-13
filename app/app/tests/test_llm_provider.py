@@ -63,6 +63,55 @@ def test_sdk_image_from_data_url():
     assert img.data == "QQ=="
 
 
+def test_ensure_lmstudio_accepts_configured_qwen(monkeypatch, tmp_path):
+    settings = Settings(
+        secret_key="test-secret-key-32chars!!",
+        data_dir=tmp_path,
+        llm_provider="lmstudio",
+        lmstudio_model="qwen/qwen3.8-27b",
+    )
+    monkeypatch.setattr(
+        llm,
+        "lmstudio_models",
+        lambda _settings, timeout=10: ["qwen/qwen3.8-27b@q4_k_m"],
+    )
+    llm.ensure_lmstudio_gemma_loaded(settings)
+
+
+def test_ensure_lmstudio_rejects_missing_configured_model(monkeypatch, tmp_path):
+    settings = Settings(
+        secret_key="test-secret-key-32chars!!",
+        data_dir=tmp_path,
+        llm_provider="lmstudio",
+        lmstudio_model="qwen/qwen3.8-27b",
+    )
+    monkeypatch.setattr(
+        llm,
+        "lmstudio_models",
+        lambda _settings, timeout=10: ["google/gemma-4-31b-qat"],
+    )
+    with pytest.raises(RuntimeError, match="qwen/qwen3.8-27b"):
+        llm.ensure_lmstudio_gemma_loaded(settings)
+
+
+def test_check_llm_lmstudio_matches_quantized_id(monkeypatch, tmp_path):
+    settings = Settings(
+        secret_key="test-secret-key-32chars!!",
+        data_dir=tmp_path,
+        llm_provider="lmstudio",
+        lmstudio_model="qwen/qwen3.8-27b",
+    )
+    monkeypatch.setattr(
+        llm,
+        "lmstudio_models",
+        lambda _settings, timeout=5: ["qwen/qwen3.8-27b@q4_k_m"],
+    )
+    result = llm.check_llm_provider(settings)
+    assert result.status == "ok"
+    assert "qwen/qwen3.8-27b" in result.detail
+    assert "Gemma" not in result.detail
+
+
 def test_check_llm_cursor_without_key(tmp_path):
     settings = Settings(
         secret_key="test-secret-key-32chars!!",

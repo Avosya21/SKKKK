@@ -96,12 +96,12 @@ def _write_checklist(ws: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def init_lab_checklist(ws: Path) -> None:
+def init_lab_checklist(ws: Path, *, steps: tuple[tuple[str, str], ...] | None = None) -> None:
     payload = _read_checklist(ws)
     payload["phase"] = "lab"
-    steps = payload.setdefault("steps", {})
-    for step_id, _label in LAB_STEPS:
-        steps.setdefault(step_id, {"status": "pending"})
+    rows = payload.setdefault("steps", {})
+    for step_id, _label in steps or LAB_STEPS:
+        rows.setdefault(step_id, {"status": "pending"})
     _write_checklist(ws, payload)
 
 
@@ -150,8 +150,11 @@ def _run_cmd(
                 tail = stdout_path.read_text(encoding="utf-8", errors="replace")[-2000:]
         except OSError:
             tail = ""
-        log_event(logger, "lab.step.failed", artifact=artifact_id, step=step, error=tail[-400:])
-        raise RuntimeError(f"{step} failed: {tail}")
+        from app.app.services.lab_errors import sanitize_lab_error
+
+        message = sanitize_lab_error(tail, step=step)
+        log_event(logger, "lab.step.failed", artifact=artifact_id, step=step, error=message)
+        raise RuntimeError(message)
     log_event(logger, "lab.step.ok", artifact=artifact_id, step=step, seconds=elapsed)
     try:
         return stdout_path.read_text(encoding="utf-8", errors="replace")
@@ -426,9 +429,9 @@ def process_lab_artifact(db: Session, settings: Settings, artifact: Artifact) ->
         raise RuntimeError("lab_pipeline не оставил run_id в latest.json")
     mark_lab_step(ws, "lab_onnx", "ok", detail=run_id)
 
-    from app.app.services.docker_runtime import ensure_container  # noqa: PLC0415
+    from app.app.services.docker_runtime import ensure_gigaam_ready  # noqa: PLC0415
 
-    ensure_container("skkkk-gigaam", restart=False)
+    ensure_gigaam_ready(settings.gigaam_url)
 
     for step_id, rel, timeout in OVERLAY_SCRIPTS:
         if overlay_output_ready(settings, artifact, run_id, step_id):
@@ -449,11 +452,19 @@ def process_lab_artifact(db: Session, settings: Settings, artifact: Artifact) ->
         _run_cmd(cmd, env, timeout=timeout, artifact_id=artifact.artifact_id, step=step_id)
         mark_lab_step(ws, step_id, "ok")
 
+    from app.app.services.meeting_analyze import inject_known_speaker_into_lab_match
+
+    known_speaker = inject_known_speaker_into_lab_match(settings, artifact, run_id)
     text = publish_lab_to_prod(db, settings, artifact, run_id)
     if not text:
         artifact.error_message = "речь не обнаружена"
         set_status(db, artifact, "done", reason="речь не обнаружена")
         return ""
+
+    if known_speaker:
+        set_status(db, artifact, "transcript_ready")
+        notify_artifact_user(db, settings, artifact, f"Стенограмма готова: {artifact.original_filename}")
+        return text
 
     if settings.voice_gate_before_asr:
         mark_lab_step(ws, "speakers_confirm", "running", detail="ожидание пользователя")

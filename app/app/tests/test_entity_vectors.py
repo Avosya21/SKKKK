@@ -312,3 +312,62 @@ def test_review_edit_upserts_one(tmp_data, db_engine, client, admin_token, monke
         assert ent.id in stored
     finally:
         db.close()
+
+
+def _unit(axis: int) -> list[float]:
+    vec = [0.0] * EMBED_DIM
+    vec[axis] = 1.0
+    return vec
+
+
+def test_search_entities_finds_fact_and_skips_mention(tmp_data, db_engine, client, admin_token):
+    from app.app.db import SessionLocal
+    from app.app.services.retrieval import search_entities
+    from app.app.services.vector_index import upsert_entity_vectors
+
+    _prepare_vec(db_engine)
+    db = SessionLocal()
+    try:
+        project, call = _project_artifact(db)
+        other = Artifact(
+            artifact_id="art_vec_other",
+            project_id=project.id,
+            user_id=call.user_id,
+            original_filename="budget.docx",
+            stored_filename="budget.docx",
+            file_path="budget.docx",
+            file_type="docx",
+            source_type="document",
+            status="done",
+            sha256="ccc",
+        )
+        db.add(other)
+        db.flush()
+        mention = Entity(
+            artifact_id=call.id,
+            entity_type="mention",
+            value_json='{"text": "упомянули бюджет вскользь"}',
+            confidence=0.8,
+            is_active=True,
+            needs_review=True,
+        )
+        fact = Entity(
+            artifact_id=other.id,
+            entity_type="fact",
+            value_json='{"text": "бюджет 500 тысяч на лицензии 1С"}',
+            confidence=0.9,
+            is_active=True,
+            needs_review=True,
+        )
+        db.add_all([mention, fact])
+        db.flush()
+        upsert_entity_vectors(db, [(mention.id, _unit(1)), (fact.id, _unit(0))])
+        db.commit()
+
+        hits = search_entities(db, _unit(0), project_id=project.id, min_score=0.35)
+        assert [h["entity_id"] for h in hits] == [fact.id]
+        assert hits[0]["entity_type"] == "fact"
+        assert "бюджет 500 тысяч" in hits[0]["text"]
+        assert hits[0]["filename"] == "budget.docx"
+    finally:
+        db.close()

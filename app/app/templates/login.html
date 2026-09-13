@@ -7,12 +7,14 @@
         <h1 class="h4 mb-3">Вход</h1>
         <form id="login-form">
           <div class="mb-3">
-            <label class="form-label" for="login-name">Имя</label>
-            <input class="form-control" id="login-name" name="name" required autocomplete="username" enterkeyhint="next">
+            <label class="form-label" for="login-name">Имя (логин)</label>
+            <input class="form-control" id="login-name" name="name" required autocomplete="username" enterkeyhint="next" autocapitalize="none" spellcheck="false">
+            <div class="form-text">Как в списке допущенных: почта или имя. Регистр не важен. Одинаковый логин — одна учётка.</div>
           </div>
           <div class="mb-3">
             <label class="form-label" for="login-telegram">Telegram ID</label>
             <input class="form-control" id="login-telegram" name="telegram_id" required autocomplete="nickname" enterkeyhint="next">
+            <div class="form-text">Просто сохраняется у вашей учётки. На вход не влияет.</div>
           </div>
           <div class="mb-3">
             <label class="form-label" for="login-password">Пароль роли</label>

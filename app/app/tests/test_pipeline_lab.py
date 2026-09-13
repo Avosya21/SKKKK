@@ -174,6 +174,58 @@ def test_speakers_confirm_status_uses_speaker_n(tmp_path, monkeypatch):
     assert status["ready"] is False
 
 
+def test_speaker_action_flags_hide_buttons_until_labels_and_names(tmp_path, monkeypatch):
+    from app.app.services.speaker_profiles import speaker_action_flags
+
+    match_path = tmp_path / "sortformer_speaker_match.json"
+    monkeypatch.setattr(
+        "app.app.services.speaker_profiles.match_json_path",
+        lambda *_a, **_k: match_path,
+    )
+    db = MagicMock()
+    db.query.return_value.filter.return_value = []
+
+    hidden = speaker_action_flags(
+        db, project_id=1, artifact_id="art_x", status="asr_running", file_type="audio"
+    )
+    assert hidden == {
+        "speakers_match_available": False,
+        "speakers_match_ready": False,
+        "speakers_confirm_ready": False,
+    }
+
+    match_path.write_text(
+        json.dumps(
+            {
+                "merge_map": {},
+                "matches": {"speaker_0": {"diar_label": "speaker_0", "status": "new"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pending = speaker_action_flags(
+        db, project_id=1, artifact_id="art_x", status="speakers_pending", file_type="audio"
+    )
+    assert pending["speakers_match_available"] is True
+    assert pending["speakers_confirm_ready"] is False
+
+    db.query.return_value.filter.return_value = [
+        type("Link", (), {"diar_label": "speaker_0", "status": "confirmed", "profile_id": 7})()
+    ]
+    named = speaker_action_flags(
+        db, project_id=1, artifact_id="art_x", status="speakers_pending", file_type="audio"
+    )
+    assert named["speakers_match_available"] is True
+    assert named["speakers_confirm_ready"] is True
+    assert named["speakers_match_ready"] is True
+
+    after = speaker_action_flags(
+        db, project_id=1, artifact_id="art_x", status="done", file_type="audio"
+    )
+    assert after["speakers_match_available"] is True
+    assert after["speakers_confirm_ready"] is False
+
+
 def test_resumable_lab_run_id_resumes_matching_hash(tmp_data: Path):
     from app.app.services.pipeline_lab import resumable_lab_run_id
     from app.app.services.storage import artifact_audio_path

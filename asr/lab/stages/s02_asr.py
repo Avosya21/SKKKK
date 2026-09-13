@@ -111,9 +111,13 @@ def run(
 
         words = stitch_window_words(window_rows, overlap=WINDOW_OVERLAP_SEC)
         if not words:
-            raise RuntimeError(
-                "onnx-asr не собрал ни одного слова — покрасить спикерами будет нечем"
-            )
+            from .s03_diar import known_speaker_doc
+
+            if not known_speaker_doc(lab_run.artifact_root):
+                raise RuntimeError(
+                    "onnx-asr не собрал ни одного слова — покрасить спикерами будет нечем"
+                )
+            ctx.log("native track: слов нет, дорожка без речи")
 
         payload = {
             "run_id": lab_run.run_id,
@@ -139,8 +143,8 @@ def run(
             "windows": len(spans),
             "speech_sec": round(speech, 2),
             "speech_ratio": round(speech / total, 3) if total else 0.0,
-            "first_word_at": round(words[0].start, 2),
-            "last_word_end": round(words[-1].end, 2),
+            "first_word_at": round(words[0].start, 2) if words else None,
+            "last_word_end": round(words[-1].end, 2) if words else None,
         }
         ctx.log(f"{len(words)} слов, {len(spans)} окон, речь {speech:.1f} с из {total:.1f} с")
 

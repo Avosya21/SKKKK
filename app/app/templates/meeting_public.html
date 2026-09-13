@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ title }} — Primary Analytics</title>
+  <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/app.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-dark mb-3 mb-md-4 meeting-lobby">
+  <div class="container py-1">
+    <span class="navbar-brand mb-0">Встреча</span>
+  </div>
+</nav>
+<main class="container pb-5 meeting-lobby">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h1 class="h4 mb-3">Гостевой вход</h1>
+          <p class="text-muted small meeting-lobby-lead">Эта страница только для участия во встрече. Проект и материалы портала отсюда недоступны.</p>
+          <div class="alert alert-warning small" role="status">
+            Встреча записывается: голос, камера и демонстрация экрана.
+          </div>
+          <div id="meeting-status" class="text-muted small mb-3" aria-live="polite">Проверяю статус…</div>
+          <form id="guest-join-form">
+            <div class="mb-3">
+              <label class="form-label" for="guest-name">Как вас представить</label>
+              <input class="form-control" id="guest-name" name="display_name" required maxlength="128" autocomplete="name" enterkeyhint="go">
+            </div>
+            <fieldset class="mb-3">
+              <legend class="form-label fs-6 mb-2">Проверка устройств</legend>
+              <p class="small text-muted" id="guest-devices-status" aria-live="polite">Нажмите проверку и выберите микрофон и камеру.</p>
+              <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="guest-devices-check">Проверить микрофон и камеру</button>
+              <div class="mb-3">
+                <label class="form-label" for="guest-mic">Микрофон</label>
+                <select class="form-select" id="guest-mic" disabled>
+                  <option value="">Сначала проверка</option>
+                </select>
+                <div class="progress meeting-mic-meter mt-2" id="guest-mic-meter-wrap" role="meter" aria-label="Уровень микрофона" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <div class="progress-bar" id="guest-mic-meter" style="width: 0%"></div>
+                </div>
+                <p class="small text-muted mb-0 mt-1" id="guest-mic-status"></p>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="guest-cam">Камера</label>
+                <select class="form-select" id="guest-cam" disabled>
+                  <option value="">Сначала проверка</option>
+                </select>
+                <video id="guest-cam-preview" class="meeting-preview-video mt-2" muted playsinline webkit-playsinline autoplay></video>
+                <p class="small text-muted mb-0 mt-1" id="guest-cam-status"></p>
+              </div>
+            </fieldset>
+            <div class="alert alert-danger d-none" id="guest-error" role="alert"></div>
+            <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="guest-join" data-idle-label="Войти во встречу" disabled>Войти во встречу</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+<div id="meeting-stage" class="meeting-stage" hidden>
+  <div class="meeting-stage-top">
+    <div id="meeting-room-status" aria-live="polite">Подключаюсь…</div>
+    <div id="meeting-people"></div>
+  </div>
+  <div id="meeting-tiles" class="meeting-tiles" role="list" aria-label="Участники комнаты"></div>
+  <div id="meeting-toast" class="meeting-toast" hidden role="status"></div>
+  <div id="meeting-roster-backdrop" class="meeting-roster-backdrop" hidden></div>
+  <aside id="meeting-roster-panel" class="meeting-roster" hidden>
+    <div class="meeting-roster-head">
+      <h2>Участники</h2>
+      <button type="button" class="meeting-roster-close" id="meeting-roster-close" aria-label="Закрыть список">×</button>
+    </div>
+    <div id="meeting-roster-list" class="meeting-roster-list"></div>
+  </aside>
+  <div id="meeting-dock" class="meeting-dock" role="toolbar" aria-label="Управление комнатой">
+    <button type="button" class="meeting-dock-btn is-on" id="meeting-mic" aria-pressed="true" aria-label="Выключить микрофон" title="Микрофон"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2z"/></svg><span class="visually-hidden meeting-dock-label">Микрофон</span></button>
+    <button type="button" class="meeting-dock-btn is-on" id="meeting-sound" aria-pressed="true" aria-label="Выключить звук" title="Звук"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.2v7.6A4.5 4.5 0 0 0 16.5 12zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg><span class="visually-hidden meeting-dock-label">Звук</span></button>
+    <button type="button" class="meeting-dock-btn is-off" id="meeting-cam" aria-pressed="false" aria-label="Включить камеру" title="Камера"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3.5l4 4v-11l-4 4z"/></svg><span class="visually-hidden meeting-dock-label">Камера</span></button>
+    <button type="button" class="meeting-dock-btn is-off" id="meeting-screen" aria-pressed="false" aria-label="Включить экран" title="Экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-5v2h2v2H7v-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg><span class="visually-hidden meeting-dock-label">Экран</span></button>
+    <button type="button" class="meeting-dock-btn meeting-more" id="meeting-more" aria-expanded="false" aria-controls="meeting-more-tray" aria-label="Ещё" title="Ещё"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 10a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm6 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm6 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2z"/></svg><span class="visually-hidden">Ещё</span></button>
+    <div id="meeting-more-tray" class="meeting-more-tray">
+    <button type="button" class="meeting-dock-btn" id="meeting-layout" aria-pressed="false" aria-label="Спикер" title="Спикер"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 4h8v4h-8v-4z"/></svg><span class="visually-hidden">Сетка</span></button>
+    <button type="button" class="meeting-dock-btn" id="meeting-roster" aria-pressed="false" aria-label="Участники" title="Участники"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zM8 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm8 2c-3 0-8 1.5-8 4.5V21h16v-2.5C24 15.5 19 14 16 14zM8 14c-.7 0-1.4.1-2 .2C3.6 15 2 16.2 2 18v3h6v-3c0-.7.2-1.3.5-1.9A11 11 0 0 1 8 14z"/></svg><span class="visually-hidden">Участники</span></button>
+    <button type="button" class="meeting-dock-btn" id="meeting-copy" aria-label="Скопировать ссылку" title="Скопировать ссылку"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 1H4a2 2 0 0 0-2 2v12h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg><span class="visually-hidden">Скопировать ссылку</span></button>
+    <div class="meeting-dock-speaker" id="meeting-speaker-wrap" hidden>
+      <button type="button" class="meeting-dock-btn" id="meeting-speaker-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="meeting-speaker-menu" aria-label="Динамик" title="Динамик"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.2v7.6A4.5 4.5 0 0 0 16.5 12zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg><span class="visually-hidden">Динамик</span></button>
+      <div id="meeting-speaker-menu" class="meeting-speaker-menu" hidden role="listbox" aria-label="Динамик"></div>
+      <select id="meeting-speaker" class="visually-hidden" aria-hidden="true" tabindex="-1"></select>
+    </div>
+    <button type="button" class="meeting-dock-btn" id="meeting-fs" aria-pressed="false" aria-label="На весь экран" title="На весь экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm12 5h-5v-2h3v-3h2v5zM7 7h3V5H5v5h2V7zm12 3h-2V7h-3V5h5v5z"/></svg><span class="visually-hidden meeting-dock-label">На весь экран</span></button>
+    <button type="button" class="meeting-dock-btn meeting-denoise is-on" id="meeting-denoise" aria-pressed="true" aria-label="Выключить шумодав" title="Шумодав"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3c-1.5 3-4 5-7 6 3 1 5.5 3 7 6 1.5-3 4-5 7-6-3-1-5.5-3-7-6zm-6 12c-.8 1.6-2.2 2.7-4 3.2 1.8.5 3.2 1.6 4 3.2.8-1.6 2.2-2.7 4-3.2-1.8-.5-3.2-1.6-4-3.2zm12 0c-.8 1.6-2.2 2.7-4 3.2 1.8.5 3.2 1.6 4 3.2.8-1.6 2.2-2.7 4-3.2-1.8-.5-3.2-1.6-4-3.2z"/></svg><span class="visually-hidden meeting-dock-label">Шумодав</span></button>
+    </div>
+    <button type="button" class="meeting-dock-btn meeting-dock-btn-leave" id="meeting-leave" aria-label="Выйти из комнаты" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 17l1.4-1.4L8.8 13H20v-2H8.8l2.6-2.6L10 7l-5 5 5 5zM4 19h6v2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6v2H4v14z"/></svg><span class="visually-hidden">Выйти</span></button>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+<script src="/static/vendor/livekit/livekit-client.umd.js"></script>
+<script src="/static/meeting_room.js?v=voice8"></script>
+<script>
+window.SKKKK_MEETING_VOICE = {{ meeting_voice | tojson }};
+const token = {{ token|tojson }};
+const statusEl = document.getElementById('meeting-status');
+const form = document.getElementById('guest-join-form');
+const joinBtn = document.getElementById('guest-join');
+const err = document.getElementById('guest-error');
+const stageEl = document.getElementById('meeting-stage');
+let pollTimer = null;
+
+function showError(text) {
+  err.textContent = text;
+  err.classList.toggle('d-none', !text);
+}
+
+function setJoinEnabled(on) {
+  joinBtn.disabled = !on;
+}
+
+async function loadStatus() {
+  const r = await fetch('/api/meetings/public/' + encodeURIComponent(token));
+  if (r.status === 404) {
+    statusEl.textContent = 'Ссылка недействительна.';
+    setJoinEnabled(false);
+    return null;
+  }
+  if (!r.ok) {
+    statusEl.textContent = 'Не удалось проверить статус.';
+    setJoinEnabled(false);
+    return null;
+  }
+  const data = await r.json();
+  if (data.ended) {
+    statusEl.textContent = 'Встреча завершена.';
+    setJoinEnabled(false);
+    return data;
+  }
+  if (data.started) {
+    statusEl.textContent = 'Встреча идёт. Введите имя и войдите.';
+    setJoinEnabled(true);
+    return data;
+  }
+  statusEl.textContent = 'Встреча ещё не началась. Страница обновит статус сама.';
+  setJoinEnabled(false);
+  return data;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  showError('');
+  const name = document.getElementById('guest-name').value.trim();
+  await SKKKK.guardSubmit(form, async () => {
+    const storeKey = 'skkkk-guest-' + token;
+    let guestId = localStorage.getItem(storeKey);
+    if (!guestId) {
+      guestId = crypto.randomUUID();
+      localStorage.setItem(storeKey, guestId);
+    }
+    const r = await fetch('/api/meetings/public/' + encodeURIComponent(token) + '/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: name, guest_id: guestId }),
+    });
+    if (r.status === 409) {
+      showError('Встреча ещё не началась.');
+      await loadStatus();
+      return;
+    }
+    if (!r.ok) {
+      let detail = '';
+      try {
+        const payload = await r.json();
+        detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail);
+      } catch {
+        detail = await r.text();
+      }
+      showError(detail || 'Не удалось войти.');
+      return;
+    }
+    const data = await r.json();
+    const devices = SKKKKMeeting.selectedDevices();
+    await SKKKKMeeting.stopPreview();
+    document.body.classList.add('meeting-is-live');
+    stageEl.hidden = false;
+    stageEl.classList.add('is-open');
+    const livekit = data.livekit || {};
+    if (pollTimer) clearInterval(pollTimer);
+    await SKKKKMeeting.connect(livekit, {
+      statusEl: document.getElementById('meeting-room-status'),
+      peopleEl: document.getElementById('meeting-people'),
+      tilesEl: document.getElementById('meeting-tiles'),
+      stageEl: stageEl,
+      micBtn: document.getElementById('meeting-mic'),
+      camBtn: document.getElementById('meeting-cam'),
+      screenBtn: document.getElementById('meeting-screen'),
+      fsBtn: document.getElementById('meeting-fs'),
+      moreBtn: document.getElementById('meeting-more'),
+      soundBtn: document.getElementById('meeting-sound'),
+      denoiseBtn: document.getElementById('meeting-denoise'),
+      moreTray: document.getElementById('meeting-more-tray'),
+      rosterBackdrop: document.getElementById('meeting-roster-backdrop'),
+      rosterClose: document.getElementById('meeting-roster-close'),
+      layoutBtn: document.getElementById('meeting-layout'),
+      rosterBtn: document.getElementById('meeting-roster'),
+      rosterPanel: document.getElementById('meeting-roster-panel'),
+      rosterList: document.getElementById('meeting-roster-list'),
+      copyBtn: document.getElementById('meeting-copy'),
+      speakerWrap: document.getElementById('meeting-speaker-wrap'),
+      speakerBtn: document.getElementById('meeting-speaker-btn'),
+      speakerMenu: document.getElementById('meeting-speaker-menu'),
+      speakerSelect: document.getElementById('meeting-speaker'),
+      toastEl: document.getElementById('meeting-toast'),
+      publicToken: token,
+      inviteUrl: window.location.href,
+      leaveUrl: window.location.href,
+    }, devices);
+  }, { busyText: 'Вхожу…' });
+});
+
+document.getElementById('meeting-mic').addEventListener('click', () => {
+  SKKKKMeeting.toggleMic(document.getElementById('meeting-mic'));
+});
+document.getElementById('meeting-cam').addEventListener('click', () => {
+  SKKKKMeeting.toggleCam(document.getElementById('meeting-cam'));
+});
+document.getElementById('meeting-screen').addEventListener('click', () => {
+  SKKKKMeeting.toggleScreen(document.getElementById('meeting-screen'));
+});
+document.getElementById('meeting-fs').addEventListener('click', () => {
+  SKKKKMeeting.toggleStageFullscreen();
+});
+document.getElementById('meeting-leave').addEventListener('click', () => {
+  SKKKKMeeting.leaveRoom();
+});
+
+function previewEls() {
+  return {
+    audioSelect: document.getElementById('guest-mic'),
+    videoSelect: document.getElementById('guest-cam'),
+    videoEl: document.getElementById('guest-cam-preview'),
+    meterEl: document.getElementById('guest-mic-meter'),
+    meterWrap: document.getElementById('guest-mic-meter-wrap'),
+    statusEl: document.getElementById('guest-devices-status'),
+    micStatusEl: document.getElementById('guest-mic-status'),
+    camStatusEl: document.getElementById('guest-cam-status'),
+  };
+}
+
+document.getElementById('guest-devices-check').addEventListener('click', () => {
+  SKKKKMeeting.startPreview(previewEls());
+});
+
+loadStatus().then((data) => {
+  if (data && !data.started && !data.ended) {
+    pollTimer = setInterval(loadStatus, 3000);
+  }
+});
+</script>
+</body>
+</html>

@@ -88,8 +88,8 @@ python -m app.app.main api --host 127.0.0.1 --port 1111 --reload
 |---|---|---|
 | Старт | Открыть `http://127.0.0.1:1111/login` | Форма из трёх полей |
 | Вход админом | Имя, Telegram ID, пароль admin | Редирект на список проектов, в шапке роль |
-| Повторный вход | Тот же Telegram ID, тот же пароль | Вход, новый пользователь **не** создан |
-| Чужой пароль | Тот же Telegram ID, пароль manager | 401, роль в БД не изменилась |
+| Повторный вход | То же **имя**, любой Telegram ID, тот же пароль | Вход, новый пользователь **не** создан, Telegram ID обновлён |
+| Другой пароль роли | То же имя, пароль manager | 200, роль в БД стала manager |
 | Создание проекта менеджером | Форма нового проекта | Проект создан, на диске появилось дерево `data\projects\{id}\raw_inputs\calls` и остальные |
 | Создание проекта сотрудником | Тот же запрос под `user` | 403 |
 | Удаление проекта менеджером | `DELETE /projects/{id}` | 403 |
@@ -100,9 +100,9 @@ python -m app.app.main api --host 127.0.0.1 --port 1111 --reload
 
 `app/app/tests/test_auth.py`
 
-- `test_login_creates_user_with_admin_role` — новый Telegram ID + admin-пароль → пользователь с ролью `admin`.
+- `test_login_creates_user_with_admin_role` — новое **имя** + admin-пароль → пользователь с ролью `admin`.
 - `test_login_existing_user_wrong_password_401` — существующий ID, другой пароль → 401.
-- `test_login_existing_user_role_not_escalated` — пользователь `user` вводит пароль `admin` → 401, роль в БД прежняя.
+- `test_login_existing_user_takes_role_from_password` — пользователь `user` вводит пароль `admin` → 200, роль стала admin.
 - `test_token_contains_role_and_expiry`.
 - `test_expired_token_rejected` — токен с истёкшим `exp` → 401.
 - `test_tampered_token_rejected`.

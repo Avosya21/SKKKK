@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import time
+import urllib.request
 from pathlib import Path
 
 from app.app.logging_setup import log_event
@@ -17,6 +18,9 @@ COMPOSE_FILE = ROOT / "asr" / "docker-compose.yml"
 ENV_FILE = ROOT / ".env"
 
 ASR_CONTAINERS: tuple[str, ...] = ("skkkk-gigaam",)
+GIGAAM_CONTAINER = "skkkk-gigaam"
+GIGAAM_HEALTH_WAIT_SEC = 180
+GIGAAM_HEALTH_POLL_SEC = 3
 
 
 def docker_daemon_running() -> bool:
@@ -187,3 +191,16 @@ def ensure_container(name: str, *, restart: bool = False) -> None:
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "")[-500:]
         raise RuntimeError(f"docker {action} {name}: {tail}")
+
+
+def ensure_gigaam_ready(base_url: str, *, timeout_sec: float = GIGAAM_HEALTH_WAIT_SEC) -> None:
+    ensure_container(GIGAAM_CONTAINER, restart=False)
+    health = base_url.rstrip("/") + "/health"
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(health, timeout=5).read()
+            return
+        except Exception:
+            time.sleep(GIGAAM_HEALTH_POLL_SEC)
+    raise RuntimeError(f"GigaAM не запущен — контейнер {GIGAAM_CONTAINER} ({base_url})")

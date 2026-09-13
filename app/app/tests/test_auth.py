@@ -24,12 +24,13 @@ def test_login_existing_user_wrong_password_401(client, admin_token):
     assert r.status_code == 401
 
 
-def test_login_existing_user_role_not_escalated(client, user_token):
+def test_login_existing_user_takes_role_from_password(client, user_token):
     r = client.post(
         "/auth/login",
         json={"name": "User", "telegram_id": "tg-user", "password": "admin-pass"},
     )
-    assert r.status_code == 401
+    assert r.status_code == 200
+    assert r.json()["role"] == "admin"
 
 
 def test_token_contains_role_and_expiry(client, admin_token):
@@ -39,6 +40,11 @@ def test_token_contains_role_and_expiry(client, admin_token):
     payload = jwt.decode(admin_token, settings.secret_key, algorithms=["HS256"])
     assert payload["role"] == "admin"
     assert "exp" in payload
+    exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    delta = exp - datetime.now(timezone.utc)
+    expected = timedelta(minutes=settings.jwt_expire_minutes)
+    assert abs(delta - expected) < timedelta(minutes=2)
+    assert settings.jwt_expire_minutes == 43_200
 
 
 def test_expired_token_rejected(client):

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small mb-2">
+  <a href="/projects/{{ project_id }}">← к проекту</a>
+</p>
+<h1 class="h3 mb-1">Лаборатория созвона</h1>
+<p class="text-muted mb-4">{{ lab.filename }} · {{ lab.artifact_id }}</p>
+
+{% if not lab.complete %}
+<p class="small text-muted" aria-live="polite">Прогон ещё идёт — страница обновляется сама.</p>
+{% endif %}
+
+{% for track in lab.tracks %}
+<section class="card shadow-sm mb-4" aria-labelledby="track-{{ loop.index }}">
+  <div class="card-header">
+    <h2 class="h5 mb-0" id="track-{{ loop.index }}">Дорожка {{ loop.index }} — {{ track.speaker }}</h2>
+    <p class="small text-muted mb-0">{{ track.identity }}{% if track.run_id %} · {{ track.run_id }}{% endif %}</p>
+  </div>
+  <div class="card-body">
+    {% if not track.stages %}
+    <p class="text-muted small mb-0">Прогон дорожки ещё не начался.</p>
+    {% endif %}
+    {% for stage in track.stages %}
+    <article class="border rounded p-3 mb-3">
+      <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+        <h3 class="h6 mb-0">{{ stage.title }}</h3>
+        <span class="badge text-bg-{% if stage.status == 'ok' %}success{% elif stage.status == 'fail' %}danger{% elif stage.status == 'running' %}warning{% else %}secondary{% endif %}">
+          {{ stage.status_label }}
+        </span>
+      </div>
+      {% if stage.error %}<p class="text-danger small mb-2">{{ stage.error }}</p>{% endif %}
+      {% if stage.metrics %}
+      <p class="small text-muted mb-2">метрики: {{ stage.metrics }}</p>
+      {% endif %}
+      <div class="row small">
+        <div class="col-md-6">
+          <strong>Вход</strong>
+          <ul class="mb-2">
+            {% for item in stage.inputs %}
+            <li>{% if item.url %}<a href="{{ item.url }}">{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}</li>
+            {% else %}
+            <li class="text-muted">нет</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="col-md-6">
+          <strong>Выход</strong>
+          <ul class="mb-2">
+            {% for item in stage.outputs %}
+            <li>{% if item.url %}<a href="{{ item.url }}">{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}</li>
+            {% else %}
+            <li class="text-muted">нет</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      {% if stage.preview %}
+      <pre class="small bg-light border rounded p-2 mb-0" style="white-space: pre-wrap">{{ stage.preview }}</pre>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<p class="text-muted">Дорожек в meeting.json пока нет.</p>
+{% endfor %}
+
+<section class="card shadow-sm mb-4" aria-labelledby="checks-title">
+  <div class="card-header">
+    <h2 class="h5 mb-0" id="checks-title">Проверки шкалы</h2>
+  </div>
+  <div class="card-body">
+    {% if lab.checks %}
+    <ul class="list-unstyled mb-0">
+      {% for check in lab.checks %}
+      <li class="mb-2">
+        <span class="badge text-bg-{% if check.status == 'PASS' %}success{% elif check.status == 'WARN' %}warning{% elif check.status == 'FAIL' %}danger{% else %}secondary{% endif %}">
+          {{ check.status }}
+        </span>
+        <strong>{{ check.title }}</strong>
+        <span class="small text-muted">{{ check.detail }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted small mb-0">Проверок ещё нет.</p>
+    {% endif %}
+  </div>
+</section>
+
+{% if lab.leaks %}
+<section class="card shadow-sm mb-4" aria-labelledby="leaks-title">
+  <div class="card-header">
+    <h2 class="h5 mb-0" id="leaks-title">Протечки</h2>
+  </div>
+  <div class="card-body">
+    <ul class="mb-0">
+      {% for leak in lab.leaks %}
+      <li>
+        {% if leak.status == 'CONFLICT' %}
+        CONFLICT — {{ leak.left }} / {{ leak.right }}: «{{ leak.text }}»
+        ({{ leak.start }}–{{ leak.end }})
+        <button type="button" class="btn btn-sm btn-outline-warning" data-leak-start="{{ leak.start }}">Проверить участок</button>
+        {% else %}
+        {{ leak.from_speaker }}: исходное · {{ leak.speaker }}: удалено «{{ leak.text }}»
+        ({{ leak.start }}–{{ leak.end }}, метод {{ leak.by }})
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+{% endif %}
+
+<section class="card shadow-sm mb-4" aria-labelledby="merge-title">
+  <div class="card-header">
+    <h2 class="h5 mb-0" id="merge-title">Сборка одной стенограммы</h2>
+  </div>
+  <div class="card-body">
+    <p class="small text-muted">Статус: {{ lab.merge.status_label or lab.merge.status }}</p>
+    {% if lab.merge.preview %}
+    <pre class="small bg-light border rounded p-2 mb-0" style="white-space: pre-wrap">{{ lab.merge.preview }}</pre>
+    {% else %}
+    <p class="text-muted small mb-0">Склейка по таймкодам ещё не записана.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card shadow-sm mb-4" aria-labelledby="final-title">
+  <div class="card-header">
+    <h2 class="h5 mb-0" id="final-title">Итоговая расшифровка</h2>
+  </div>
+  <div class="card-body">
+    <p class="small text-muted">Шкала встречи: кто заговорил и в какую секунду. Имя — с дорожки LiveKit.</p>
+    {% if lab.merge.replicas %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead>
+          <tr>
+            <th scope="col">Время</th>
+            <th scope="col">Кто</th>
+            <th scope="col">Текст</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in lab.merge.replicas %}
+          <tr>
+            <td><time>{{ row.clock }}</time></td>
+            <td>{{ row.speaker }}</td>
+            <td>{{ row.text }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">Итоговой расшифровки ещё нет — дорожки идут по очереди.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+{% if not lab.complete %}
+<script>
+setTimeout(function () { location.reload(); }, {{ reload_ms }});
+</script>
+{% endif %}
+{% endblock %}

@@ -17,7 +17,7 @@ def _upload(client, manager_token, user_token):
     ).json()["id"]
     client.post(
         f"/projects/{pid}/upload",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
         data={"source_type": "note"},
         files=[("files", ("q.txt", io.BytesIO(b"queue"), "text/plain"))],
     )
@@ -141,7 +141,7 @@ def test_dry_run_walks_all_statuses(client, manager_token, user_token):
     assert run_once()
     arts = client.get(
         f"/projects/{pid}/artifacts",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     ).json()
     assert arts[0]["status"] == "done"
 
@@ -158,7 +158,7 @@ def test_failed_job_sets_error_status_and_message(client, manager_token, user_to
     run_once()
     arts = client.get(
         f"/projects/{pid}/artifacts",
-        headers={"Authorization": f"Bearer {user_token}"},
+        headers={"Authorization": f"Bearer {manager_token}"},
     ).json()
     assert arts[0]["status"] == "error"
     assert "boom" in (arts[0]["error_message"] or "")

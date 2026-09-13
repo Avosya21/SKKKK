@@ -55,6 +55,7 @@ def _summary_md_candidates(settings: Settings, artifact: Artifact) -> list[Path]
         ws / "asr" / "call_summary.md",
         ws / "reports" / "call_summary.md",
         parsed / f"{base}_call_summary.md",
+        parsed / f"{base}_doc_summary.md",
     ]
 
 
@@ -434,7 +435,9 @@ def build_summary_docx_bytes(
 
 
 def resolve_transcript_txt(settings: Settings, artifact: Artifact) -> tuple[str, str] | None:
-    """Текст стенограммы и имя файла для скачивания."""
+    """Текст стенограммы или нормализованного документа и имя файла для скачивания."""
+    if artifact.file_type != "audio":
+        return resolve_document_source_txt(settings, artifact)
     for path in _speakers_json_candidates(settings, artifact):
         if path.is_file():
             turns = _load_turns(path)
@@ -450,6 +453,17 @@ def resolve_transcript_txt(settings: Settings, artifact: Artifact) -> tuple[str,
                 name = f"{Path(artifact.original_filename).stem}_стенограмма.txt"
                 return body if body.endswith("\n") else body + "\n", name
     return None
+
+
+def resolve_document_source_txt(settings: Settings, artifact: Artifact) -> tuple[str, str] | None:
+    """Нормализованный текст документа для скачивания."""
+    from app.app.services.summarize_document import load_document_source_text
+
+    body = load_document_source_text(settings, artifact)
+    if not body:
+        return None
+    name = f"{Path(artifact.original_filename).stem}_текст.txt"
+    return body if body.endswith("\n") else body + "\n", name
 
 
 def _first_nonempty_md(paths: list[Path]) -> str:
@@ -468,7 +482,12 @@ def resolve_summary_docx(settings: Settings, artifact: Artifact) -> tuple[bytes,
 
     title = Path(artifact.original_filename).stem or artifact.artifact_id
     filename = f"{title}_выжимка.docx"
-    return build_summary_docx_bytes(summary_md, artifact), filename
+    heading = (
+        "Итоговое резюме документа"
+        if artifact.file_type != "audio"
+        else "Итоговая выжимка созвона"
+    )
+    return build_summary_docx_bytes(summary_md, artifact, heading=heading), filename
 
 
 def resolve_brief_docx(settings: Settings, artifact: Artifact) -> tuple[bytes, str] | None:

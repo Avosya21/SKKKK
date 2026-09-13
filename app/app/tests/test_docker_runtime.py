@@ -116,6 +116,27 @@ def test_asr_containers_prod_is_gigaam_only():
     assert dr.ASR_CONTAINERS == ("skkkk-gigaam",)
 
 
+def test_ensure_gigaam_ready_starts_container_and_waits(monkeypatch):
+    calls: list[str] = []
+    hits = {"n": 0}
+
+    def fake_ensure(name, *, restart=False):
+        calls.append(name)
+
+    def fake_urlopen(url, timeout=5):
+        hits["n"] += 1
+        if hits["n"] < 2:
+            raise OSError("down")
+        return MagicMock(read=lambda: b"ok")
+
+    monkeypatch.setattr(dr, "ensure_container", fake_ensure)
+    monkeypatch.setattr(dr.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(dr.time, "sleep", lambda _s: None)
+    dr.ensure_gigaam_ready("http://127.0.0.1:18102", timeout_sec=30)
+    assert calls == ["skkkk-gigaam"]
+    assert hits["n"] == 2
+
+
 def test_compose_up_starts_gigaam_service(monkeypatch, tmp_path):
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services:\n  gigaam: {}\n", encoding="utf-8")

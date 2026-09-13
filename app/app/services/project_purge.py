@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -17,15 +18,21 @@ from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import AsrRun, Changelog, Chunk, Entity, Link, NoteRef, Resolution, UserNote
 from app.app.models.job import Job
+from app.app.models.meeting import Meeting, MeetingParticipant
 from app.app.models.project import Project
+from app.app.models.project_member import ProjectMember
 from app.app.models.project_mcp_token import ProjectMcpToken
 from app.app.models.project_task import ProjectTask
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+from app.app.models.user_activity_log import UserActivityLog
 from app.app.services.graph import delete_entities_with_deps
+from app.app.services.meeting_recordings import remove_room_recordings
 from app.app.services.storage import parsed_dir, project_root, raw_input_dir, structured_dir
 from app.app.services.vector_index import delete_vectors_for_chunks, delete_vectors_for_entities
 
 logger = logging.getLogger("skkkk.project")
+
+CHILD_DIR_SEP = "__"
 
 
 def remove_project_tree(settings: Settings, project_id: int) -> None:
@@ -89,6 +96,7 @@ def remove_artifact_files(settings: Settings, artifact: Artifact | SimpleNamespa
     aid = artifact.artifact_id
     root = project_root(settings, pid)
     _rmtree_named_child(root / "artifacts", aid)
+    _rmtree_child_workspaces(root / "artifacts", aid)
     _rmtree_named_child(root / "tmp", aid)
     parsed = parsed_dir(settings, pid, artifact.source_type)
     _unlink_prefixed(parsed, aid)
@@ -189,10 +197,129 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     db.execute(delete(SpeakerProfile).where(SpeakerProfile.project_id == pid))
     db.execute(delete(ChatMessage).where(ChatMessage.project_id == pid))
     db.execute(delete(ChatGuidance).where(ChatGuidance.project_id == pid))
+    db.execute(delete(UserActivityLog).where(UserActivityLog.project_id == pid))
     db.execute(delete(Changelog).where(Changelog.project_id == pid))
+    db.execute(delete(ProjectMember).where(ProjectMember.project_id == pid))
     db.execute(delete(ProjectMcpToken).where(ProjectMcpToken.project_id == pid))
+    meeting_ids = list(db.scalars(select(Meeting.id).where(Meeting.project_id == pid)))
+    meeting_rooms = list(db.scalars(select(Meeting.room_name).where(Meeting.project_id == pid)))
+    if meeting_ids:
+        db.execute(delete(MeetingParticipant).where(MeetingParticipant.meeting_id.in_(meeting_ids)))
+    db.execute(delete(Meeting).where(Meeting.project_id == pid))
     db.execute(delete(Artifact).where(Artifact.project_id == pid))
     db.delete(project)
     db.commit()
+    for room_name in meeting_rooms:
+        try:
+            remove_room_recordings(settings.data_dir, room_name)
+        except ValueError:
+            pass
     remove_project_tree(settings, pid)
     log_event(logger, "project.purged", project_id=pid, name=name, artifacts=len(art_pks))
+
+
+def purge_meeting(db: Session, settings: Settings, meeting: Meeting) -> None:
+    """Стереть созвон: очередь, артефакт расшифровки, дорожки комнаты."""
+    mid = meeting.id
+    pid = meeting.project_id
+    room = meeting.room_name
+    pks = [row.id for row in _meeting_artifacts(db, settings, meeting)]
+    job_ids = _analyze_job_ids(settings, room)
+    for pk in pks:
+        _purge_artifact_if_present(db, settings, pk)
+    row = db.get(Meeting, mid)
+    if row is None:
+        return
+    _delete_jobs(db, job_ids, pks)
+    db.execute(delete(MeetingParticipant).where(MeetingParticipant.meeting_id == mid))
+    db.delete(row)
+    db.commit()
+    _remove_meeting_room(settings, room)
+    log_event(logger, "meeting.purged", project_id=pid, meeting_id=mid, room=room)
+
+
+def _rmtree_child_workspaces(parent: Path, artifact_id: str) -> None:
+    if not parent.is_dir() or not artifact_id:
+        return
+    prefix = f"{artifact_id}{CHILD_DIR_SEP}"
+    names = [path.name for path in parent.iterdir() if path.is_dir() and path.name.startswith(prefix)]
+    for name in names:
+        _rmtree_named_child(parent, name)
+
+
+def _artifact_meeting_id(artifact: Artifact) -> int | None:
+    from app.app.services.meeting_analyze import MEETING_KIND
+
+    raw = artifact.asr_engines_json or ""
+    if MEETING_KIND not in raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or data.get("kind") != MEETING_KIND:
+        return None
+    mid = data.get("meeting_id")
+    return int(mid) if mid is not None else None
+
+
+def _meeting_artifacts(db: Session, settings: Settings, meeting: Meeting) -> list[Artifact]:
+    found: dict[int, Artifact] = {}
+    for art in db.scalars(select(Artifact).where(Artifact.project_id == meeting.project_id)):
+        if _artifact_meeting_id(art) == meeting.id:
+            found[art.id] = art
+    for key in _analyze_artifact_ids(settings, meeting.room_name):
+        art = db.scalar(
+            select(Artifact).where(Artifact.project_id == meeting.project_id, Artifact.artifact_id == key)
+        )
+        if art is None:
+            continue
+        owner = _artifact_meeting_id(art)
+        if owner is not None and owner != meeting.id:
+            continue
+        found[art.id] = art
+    return list(found.values())
+
+
+def _analyze_payload(settings: Settings, room_name: str) -> dict:
+    from app.app.services.meeting_analyze import read_analyze
+
+    return read_analyze(settings.data_dir, room_name) or {}
+
+
+def _analyze_job_ids(settings: Settings, room_name: str) -> list[int]:
+    ids: list[int] = []
+    for row in _analyze_payload(settings, room_name).get("jobs") or []:
+        job_id = row.get("job_id")
+        if job_id is None:
+            continue
+        ids.append(int(job_id))
+    return ids
+
+
+def _analyze_artifact_ids(settings: Settings, room_name: str) -> list[str]:
+    keys: list[str] = []
+    for row in _analyze_payload(settings, room_name).get("jobs") or []:
+        key = str(row.get("artifact_id") or "")
+        if key:
+            keys.append(key)
+    return keys
+
+
+def _purge_artifact_if_present(db: Session, settings: Settings, pk: int) -> None:
+    art = db.get(Artifact, pk)
+    if art is not None:
+        purge_artifact(db, settings, art)
+
+
+def _delete_jobs(db: Session, job_ids: list[int], artifact_pks: list[int]) -> None:
+    if not job_ids or not artifact_pks:
+        return
+    db.execute(delete(Job).where(Job.id.in_(job_ids), Job.artifact_id.in_(artifact_pks)))
+
+
+def _remove_meeting_room(settings: Settings, room_name: str) -> None:
+    try:
+        remove_room_recordings(settings.data_dir, room_name)
+    except ValueError:
+        pass

@@ -119,3 +119,33 @@ def test_worker_mode_checks_the_queue_slot_but_not_the_port(tmp_path):
 def test_api_modes_check_the_port(tmp_path, mode):
     plan = dict(preflight._plan(_settings(tmp_path), mode))
     assert "port" in plan
+    assert "meeting_voice" in plan
+
+
+def test_worker_mode_skips_meeting_voice(tmp_path):
+    plan = dict(preflight._plan(_settings(tmp_path), "worker"))
+    assert "meeting_voice" not in plan
+
+
+def test_meeting_voice_ok_when_venv_exists(tmp_path, monkeypatch):
+    py = tmp_path / "python.exe"
+    py.write_text("", encoding="utf-8")
+    monkeypatch.setattr("app.app.services.edge_runtime.VOICE_PY", py)
+    monkeypatch.setattr("app.app.services.edge_runtime.voice_venv_ready", lambda: True)
+    result = preflight.check_meeting_voice(_settings(tmp_path, meeting_voice_server=True, dry_run=False))
+    assert result.status == OK
+
+
+def test_meeting_voice_warns_without_venv(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.app.services.edge_runtime.VOICE_PY", tmp_path / "missing.exe")
+    result = preflight.check_meeting_voice(_settings(tmp_path, meeting_voice_server=True, dry_run=False))
+    assert result.status == WARN
+
+
+def test_meeting_voice_warns_if_deps_missing(tmp_path, monkeypatch):
+    py = tmp_path / "python.exe"
+    py.write_text("", encoding="utf-8")
+    monkeypatch.setattr("app.app.services.edge_runtime.VOICE_PY", py)
+    monkeypatch.setattr("app.app.services.edge_runtime.voice_venv_ready", lambda: False)
+    result = preflight.check_meeting_voice(_settings(tmp_path, meeting_voice_server=True, dry_run=False))
+    assert result.status == WARN

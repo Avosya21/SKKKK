@@ -16,6 +16,7 @@ from app.app.services.graph import seed_graph
 from app.app.services.indexing import index_artifact
 from app.app.services.pipeline_audio import run_call_summary
 from app.app.services.notify import notify_artifact_user
+from app.app.services.summarize_document import run_document_summary
 from app.app.services.status import set_status
 from app.app.services.tz import maybe_auto_rebuild_tz
 
@@ -83,6 +84,19 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
 
     if artifact.file_type == "audio" and not settings.dry_run:
         run_call_summary(settings, artifact)
+    elif artifact.file_type != "audio" and not settings.dry_run:
+        run_document_summary(settings, artifact)
+        report_path = write_document_report(settings, artifact, payload, text)
+        artifact.transcript_html_url = document_report_url(artifact)
+        db.commit()
+        log_event(
+            logger,
+            "document.report.ready",
+            artifact=artifact.artifact_id,
+            file=report_path.name,
+            url=artifact.transcript_html_url,
+            after="doc_summary",
+        )
 
     if settings.dry_run:
         log_event(logger, "graph.skipped", artifact=artifact.artifact_id, reason="dry_run")

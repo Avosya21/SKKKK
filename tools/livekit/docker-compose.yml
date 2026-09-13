@@ -1,0 +1,16 @@
+name: skkkk-livekit
+
+services:
+  livekit:
+    image: livekit/livekit-server:v1.8.4
+    container_name: skkkk-livekit
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "50000-50011:50000-50011/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro

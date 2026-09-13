@@ -39,6 +39,19 @@ def giga_tokens(text: str) -> list[str]:
     return [token for token in (text or "").split() if norm_token(token)]
 
 
+def spread_tokens(tokens: list[str], slots: int) -> list[str]:
+    """Раскладывает токены GigaAM по слотам Parakeet. Времена не трогает."""
+    if slots <= 0:
+        return []
+    if not tokens:
+        return [""] * slots
+    buckets: list[list[str]] = [[] for _ in range(slots)]
+    count = len(tokens)
+    for index, token in enumerate(tokens):
+        buckets[index * slots // count].append(token)
+    return [" ".join(bucket) for bucket in buckets]
+
+
 def flat_giga(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Реплики GigaAM в один поток слов: у каждого слова помним, из какой реплики."""
     flat: list[dict[str, Any]] = []
@@ -161,12 +174,23 @@ def apply_picks(
         indexes = [i for i in range(int(first), int(last) + 1) if i in by_index]
         if not indexes:
             continue
-        head = by_index[indexes[0]]
-        head["final"] = giga_text
-        head["proof"] = "giga" if giga_text else "giga_delete"
-        for i in indexes[1:]:
-            by_index[i]["final"] = ""
-            by_index[i]["proof"] = "giga_merged"
+        parts = spread_tokens(giga_tokens(giga_text), len(indexes))
+        for slot, index in enumerate(indexes):
+            target = by_index[index]
+            target["final"] = parts[slot]
+            if not giga_text:
+                target["proof"] = "giga_delete"
+            elif parts[slot]:
+                target["proof"] = "giga"
+            else:
+                target["proof"] = "giga_merged"
+        if giga_text:
+            by_index[indexes[0]]["proof_distribution"] = {
+                "tokens": giga_tokens(giga_text),
+                "slots": len(indexes),
+                "strategy": "uniform",
+                "source": "giga",
+            }
     return result
 
 
@@ -212,7 +236,7 @@ def final_replicas(
                 "from_giga": sum(1 for word in replica["words"] if word.get("proof")),
                 "words": [
                     {
-                        "i": word["i"],
+                        "i": word.get("i"),
                         "word": word["word"],
                         "final": word.get("final"),
                         "start": word["start"],

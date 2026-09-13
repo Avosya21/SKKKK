@@ -25,7 +25,7 @@ def test_resumable_upload_full_flow(client, manager_token, user_token, monkeypat
     payload = b"a" * 2048  # 2 chunks
     init = client.post(
         f"/projects/{pid}/uploads/init",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         json={
             "filename": "clip.bin",
             "size": len(payload),
@@ -42,7 +42,7 @@ def test_resumable_upload_full_flow(client, manager_token, user_token, monkeypat
 
     r0 = client.put(
         f"/projects/{pid}/uploads/{upload_id}/chunks/0",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         content=payload[:1024],
     )
     assert r0.status_code == 200
@@ -50,7 +50,7 @@ def test_resumable_upload_full_flow(client, manager_token, user_token, monkeypat
 
     r1 = client.put(
         f"/projects/{pid}/uploads/{upload_id}/chunks/1",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         content=payload[1024:],
     )
     assert r1.status_code == 200
@@ -58,7 +58,7 @@ def test_resumable_upload_full_flow(client, manager_token, user_token, monkeypat
 
     done = client.post(
         f"/projects/{pid}/uploads/{upload_id}/complete",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert done.status_code == 200, done.text
     body = done.json()
@@ -76,7 +76,7 @@ def test_resumable_upload_resumes_by_client_key(client, manager_token, user_toke
     key = "movie.mp4:2048:99"
     init1 = client.post(
         f"/projects/{pid}/uploads/init",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         json={"filename": "movie.mp4", "size": 2048, "source_type": "call", "client_key": key},
     )
     assert init1.status_code == 200, init1.text
@@ -84,12 +84,12 @@ def test_resumable_upload_resumes_by_client_key(client, manager_token, user_toke
     upload_id = init1["upload_id"]
     client.put(
         f"/projects/{pid}/uploads/{upload_id}/chunks/0",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         content=payload[:1024],
     )
     init2 = client.post(
         f"/projects/{pid}/uploads/init",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         json={"filename": "movie.mp4", "size": 2048, "source_type": "call", "client_key": key},
     ).json()
     assert init2["upload_id"] == upload_id
@@ -98,12 +98,12 @@ def test_resumable_upload_resumes_by_client_key(client, manager_token, user_toke
 
     client.put(
         f"/projects/{pid}/uploads/{upload_id}/chunks/1",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         content=payload[1024:],
     )
     done = client.post(
         f"/projects/{pid}/uploads/{upload_id}/complete",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert done.status_code == 200
 
@@ -114,7 +114,7 @@ def test_resumable_complete_rejects_missing_chunks(client, manager_token, user_t
     pid = _project(client, manager_token)
     init = client.post(
         f"/projects/{pid}/uploads/init",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         json={"filename": "a.bin", "size": 2048, "source_type": "note"},
     )
     assert init.status_code == 200, init.text
@@ -122,12 +122,12 @@ def test_resumable_complete_rejects_missing_chunks(client, manager_token, user_t
     upload_id = init["upload_id"]
     client.put(
         f"/projects/{pid}/uploads/{upload_id}/chunks/0",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         content=b"1" * 1024,
     )
     r = client.post(
         f"/projects/{pid}/uploads/{upload_id}/complete",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
     )
     assert r.status_code == 409
     assert r.json()["detail"]["missing"] == [1]
@@ -139,7 +139,7 @@ def test_resumable_rejects_oversized_init(client, manager_token, user_token, mon
     pid = _project(client, manager_token)
     r = client.post(
         f"/projects/{pid}/uploads/init",
-        headers=_auth(user_token),
+        headers=_auth(manager_token),
         json={"filename": "big.bin", "size": 20, "source_type": "note"},
     )
     assert r.status_code == 413

@@ -12,6 +12,13 @@ def test_login_page_is_public(anon_client):
     assert r.status_code == 200
 
 
+def test_html_shell_includes_logout_button(cookie_auth_client):
+    r = cookie_auth_client.get("/", follow_redirects=True)
+    assert r.status_code == 200
+    assert 'id="nav-logout"' in r.text
+    assert 'aria-label="Выйти"' in r.text
+
+
 def test_anonymous_audio_is_401(anon_client, tmp_data, db_engine):
     r = anon_client.get("/artifacts/art_missing/audio")
     assert r.status_code == 401

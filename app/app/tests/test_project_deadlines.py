@@ -296,7 +296,7 @@ def test_reextract_entities_dry_run_and_roles(client, manager_token, user_token,
         f"/projects/{pid}/reextract-entities",
         headers={"Authorization": f"Bearer {user_token}"},
     )
-    assert forbidden.status_code == 403
+    assert forbidden.status_code == 404
 
     ok = client.post(
         f"/projects/{pid}/reextract-entities",

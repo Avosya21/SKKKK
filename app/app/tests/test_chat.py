@@ -122,12 +122,14 @@ def test_chat_history_isolated_per_user(client, db_engine, admin_token, user_tok
     from sqlalchemy import select
 
     db = SessionLocal()
-    p = Project(name="IsoProj", description="", created_by=1, is_active=True)
+    admin = db.scalar(select(User).where(User.telegram_id == "tg-admin"))
+    regular = db.scalar(select(User).where(User.telegram_id == "tg-user"))
+    admin_id = admin.id
+    regular_id = regular.id
+    p = Project(name="IsoProj", description="", created_by=regular_id, is_active=True)
     db.add(p)
     db.commit()
     db.refresh(p)
-    admin = db.scalar(select(User).where(User.telegram_id == "tg-admin"))
-    regular = db.scalar(select(User).where(User.telegram_id == "tg-user"))
     pid = p.id
     db.close()
 
@@ -136,8 +138,8 @@ def test_chat_history_isolated_per_user(client, db_engine, admin_token, user_tok
             db2 = SessionLocal()
             from app.app.config import get_settings
 
-            answer_chat(db2, get_settings(), pid, admin.id, "Вопрос админа")
-            answer_chat(db2, get_settings(), pid, regular.id, "Вопрос пользователя")
+            answer_chat(db2, get_settings(), pid, admin_id, "Вопрос админа")
+            answer_chat(db2, get_settings(), pid, regular_id, "Вопрос пользователя")
             db2.close()
 
     admin_hist = client.get(
@@ -364,6 +366,79 @@ def test_chat_includes_director_document_when_vector_search_misses(client, db_en
     assert "Вопрос 19 08 2026.txt" in captured["user"]
     assert "Загруженные документы проекта" in captured["user"]
     assert any(s["filename"] == "Вопрос 19 08 2026.txt" for s in out["sources"])
+
+
+def test_chat_prompt_includes_document_summary_file(client, db_engine, admin_token, tmp_data):
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.storage import parsed_dir
+    from sqlalchemy import select
+
+    db = SessionLocal()
+    admin = db.scalar(select(User).limit(1))
+    p = Project(name="DocSumChat", description="", created_by=admin.id, is_active=True)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    doc = Artifact(
+        project_id=p.id,
+        user_id=admin.id,
+        artifact_id="art_doc_sum_chat",
+        original_filename="Вопрос директора.txt",
+        stored_filename="q.txt",
+        file_path="/tmp/q.txt",
+        sha256="docsumhash",
+        file_type="txt",
+        source_type="document",
+        status="done",
+        priority_weight=0.8,
+        transcription_text="сырой текст без протокола",
+    )
+    db.add(doc)
+    db.commit()
+    pid, uid = p.id, admin.id
+    db.close()
+
+    settings = get_settings()
+    parsed = parsed_dir(settings, pid, "document")
+    parsed.mkdir(parents=True, exist_ok=True)
+    (parsed / "art_doc_sum_chat_clean.txt").write_text(
+        "Вопрос от директора: нужна ли плавающая длина номенклатуры?",
+        encoding="utf-8",
+    )
+    (parsed / "art_doc_sum_chat_doc_summary.md").write_text(
+        "## Суть документа\n\nМАРКЕР-ВЫЖИМКИ-ДОКУМЕНТА: плавающая длина.\n",
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+
+    def fake_completion(settings, *, system, user, max_tokens, temperature=0.2):
+        captured["user"] = user
+        return "по выжимке документа"
+
+    with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
+        with patch("app.app.services.chat.search_vectors", return_value=[]):
+            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                db2 = SessionLocal()
+                settings.dry_run = False
+                out = answer_chat(
+                    db2,
+                    settings,
+                    pid,
+                    uid,
+                    "какой последний вопрос от директора?",
+                )
+                db2.close()
+
+    prompt = captured["user"]
+    assert "МАРКЕР-ВЫЖИМКИ-ДОКУМЕНТА" in prompt
+    assert "плавающая длина номенклатуры" in prompt
+    assert "Выжимка документа:" in prompt
+    assert any(s["filename"] == "Вопрос директора.txt" for s in out["sources"])
 
 
 def test_chat_asks_clarification_on_source_split(client, db_engine, admin_token, tmp_data):
@@ -647,3 +722,135 @@ def test_chat_guidance_reply_reanswers_original_question(client, db_engine, admi
     assert "Указания пользователя из чата" in captured["user"]
     assert "берём протокол" in captured["user"]
     assert "Ответ с учётом" in out["answer"]
+
+
+def _chat_unit(axis: int) -> list[float]:
+    vec = [0.0] * 1024
+    vec[axis] = 1.0
+    return vec
+
+
+def test_chat_uses_entity_hit_when_chunks_miss(client, db_engine, admin_token, tmp_data):
+    from sqlalchemy import event
+
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Entity
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.ollama_client import EMBED_DIM
+    from app.app.services.vector_index import (
+        init_vector_store,
+        load_sqlite_vec,
+        upsert_entity_vectors,
+    )
+
+    @event.listens_for(db_engine, "connect")
+    def _on_connect(dbapi_conn, _record):
+        load_sqlite_vec(dbapi_conn)
+
+    init_vector_store(db_engine)
+
+    db = SessionLocal()
+    admin = db.scalar(select(User).limit(1))
+    p = Project(name="EntityChat", description="", created_by=admin.id, is_active=True)
+    db.add(p)
+    db.flush()
+    other = Artifact(
+        project_id=p.id,
+        user_id=admin.id,
+        artifact_id="art_budget_other",
+        original_filename="budget.docx",
+        stored_filename="budget.docx",
+        file_path="budget.docx",
+        sha256="entbudget",
+        file_type="docx",
+        source_type="document",
+        status="done",
+        priority_weight=0.8,
+    )
+    db.add(other)
+    db.flush()
+    fact = Entity(
+        artifact_id=other.id,
+        entity_type="fact",
+        value_json='{"text": "бюджет 500 тысяч на лицензии 1С"}',
+        confidence=0.9,
+        is_active=True,
+        needs_review=True,
+    )
+    db.add(fact)
+    db.flush()
+    upsert_entity_vectors(db, [(fact.id, _chat_unit(0))])
+    db.commit()
+    pid, uid = p.id, admin.id
+    db.close()
+
+    captured: dict = {}
+
+    def fake_completion(settings, *, system, user, max_tokens, temperature=0.2):
+        captured["user"] = user
+        return "бюджет из сущности"
+
+    with patch("app.app.services.chat.embed_texts", return_value=[_chat_unit(0)]):
+        with patch("app.app.services.chat.search_vectors", return_value=[]):
+            with patch("app.app.services.chat._document_context_blocks", return_value=[]):
+                with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                    db2 = SessionLocal()
+                    from app.app.config import get_settings
+
+                    settings = get_settings()
+                    settings.dry_run = False
+                    out = answer_chat(db2, settings, pid, uid, "какой бюджет на лицензии?")
+                    db2.close()
+
+    prompt = captured["user"]
+    assert "Сущности проекта по вопросу" in prompt
+    assert "бюджет 500 тысяч" in prompt
+    assert any(s.get("kind") == "entity" and s["filename"] == "budget.docx" for s in out["sources"])
+    assert EMBED_DIM == 1024
+
+
+def test_chat_always_injects_tz_excerpt_when_file_exists(client, db_engine, admin_token, tmp_data):
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.storage import project_root
+
+    db = SessionLocal()
+    admin = db.scalar(select(User).limit(1))
+    p = Project(name="TzChat", description="", created_by=admin.id, is_active=True)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    pid, uid = p.id, admin.id
+    db.close()
+
+    settings = get_settings()
+    tz_dir = project_root(settings, pid) / "project_state"
+    tz_dir.mkdir(parents=True, exist_ok=True)
+    (tz_dir / "current_tz.md").write_text(
+        "МАРКЕР-ВЫЖИМКИ-ПРОЕКТА: приоритет — интеграция с Bitrix24.",
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+
+    def fake_completion(settings, *, system, user, max_tokens, temperature=0.2):
+        captured["user"] = user
+        return "по выжимке проекта"
+
+    with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
+        with patch("app.app.services.chat.search_vectors", return_value=[]):
+            with patch("app.app.services.chat._document_context_blocks", return_value=[]):
+                with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                    db2 = SessionLocal()
+                    settings.dry_run = False
+                    out = answer_chat(db2, settings, pid, uid, "что сейчас главное в проекте?")
+                    db2.close()
+
+    prompt = captured["user"]
+    assert "Актуальная выжимка проекта (current_tz.md)" in prompt
+    assert "МАРКЕР-ВЫЖИМКИ-ПРОЕКТА" in prompt
+    assert "нет" not in out["answer"].lower()
