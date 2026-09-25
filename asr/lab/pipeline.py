@@ -25,11 +25,13 @@ class LabOptions:
     device: str = "auto"
     asr_model: str = s02_asr.DEFAULT_MODEL
     quantization: str | None = None
-    onset: float = 0.64
-    offset: float = 0.74
+    # None — пороги модели диаризации (asr/lab/diar_models.py), у Nemotron и Sortformer они разные.
+    diar_model: str | None = None
+    onset: float | None = None
+    offset: float | None = None
     compare_with_source: bool = False
-    min_prob: float = 0.35
-    min_margin: float = 0.15
+    min_prob: float | None = None
+    min_margin: float | None = None
     voice: bool = True
     per_speaker_clips: int = 3
     replica_gap: float = 1.2
@@ -52,6 +54,7 @@ def stage_runner(stage: str, run: LabRun, options: LabOptions, *, force: bool) -
         return s03_diar.run(
             run,
             device=options.device,
+            model=options.diar_model,
             onset=options.onset,
             offset=options.offset,
             compare_with_source=options.compare_with_source,

@@ -1,3 +1,5 @@
+"""Модель ChatGuidance — указания пользователя чату по теме проекта (важнее созвонов при расхождении)."""
+
 from __future__ import annotations
 
 from datetime import datetime

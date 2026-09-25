@@ -1,3 +1,5 @@
+"""Модель Job — задача очереди обработки (таблица jobs)."""
+
 from __future__ import annotations
 
 from datetime import datetime

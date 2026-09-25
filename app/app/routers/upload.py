@@ -1,3 +1,5 @@
+"""Загрузка файлов (в том числе частями с докачкой) и список артефактов проекта, удаление артефакта."""
+
 from __future__ import annotations
 
 import logging
@@ -33,6 +35,7 @@ from app.app.services.upload import (
     create_artifact_record,
     default_priority,
     detect_file_type,
+    reconcile_source_type,
     ffprobe_duration,
     find_duplicate,
     hash_file,
@@ -77,6 +80,23 @@ def _session_out(session: resumable.UploadSession) -> UploadSessionOut:
     )
 
 
+def _reject_unsupported(original: str, content_type: str | None = None, dest: Path | None = None) -> None:
+    """Неизвестный формат — отказ 415 при загрузке, а не «no text extracted» потом в очереди."""
+    from app.app.services.agent_gateway import is_exchange_filename
+
+    if detect_file_type(original, content_type) != "other" or is_exchange_filename(original):
+        return
+    if dest is not None:
+        dest.unlink(missing_ok=True)
+    ext = Path(original).suffix.lower() or "без расширения"
+    log_event(logger, "upload.rejected", file=original, reason="unsupported format", ext=ext)
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail=f"Формат «{ext}» не поддерживается. Документы: PDF, Word, Excel/CSV, PowerPoint, HTML, текст; "
+        "а также аудио/видео и изображения.",
+    )
+
+
 def _register_file_on_disk(
     db: Session,
     settings: Settings,
@@ -97,6 +117,10 @@ def _register_file_on_disk(
         return ArtifactOut.model_validate(dup).model_copy(update={"duplicate": True})
 
     file_type = detect_file_type(original, content_type)
+    fixed_source = reconcile_source_type(source_type, file_type)
+    if fixed_source != source_type:
+        log_event(logger, "upload.source_type_corrected", file=original, was=source_type, now=fixed_source)
+        source_type = fixed_source
     duration = None
     if file_type == "audio":
         duration = ffprobe_duration(dest)
@@ -110,6 +134,10 @@ def _register_file_on_disk(
 
     weight = default_priority(source_type, project.settings())
     stored = dest.name
+    from app.app.services.agent_gateway import handle_exchange_upload, is_exchange_filename
+
+    exchange = is_exchange_filename(original)
+    _reject_unsupported(original, content_type, dest)
     art, job = create_artifact_record(
         db,
         project_id=project.id,
@@ -122,7 +150,11 @@ def _register_file_on_disk(
         sha256=sha256,
         priority_weight=weight,
         duration_sec=duration,
+        queue_job=not exchange,
     )
+    if exchange:
+        decision = handle_exchange_upload(db, settings, art, dest, source=f"user:{user.id}", filename=original)
+        log_event(logger, "agent_exchange.upload", artifact=art.artifact_id, file=original, decision=decision.status, risk=decision.risk)
     log_event(
         logger,
         "artifact.created",
@@ -133,7 +165,8 @@ def _register_file_on_disk(
         duration_sec=duration,
         bytes=size,
     )
-    log_event(logger, "job.queued", job_id=job.id, artifact=art.artifact_id, priority=weight)
+    if job is not None:
+        log_event(logger, "job.queued", job_id=job.id, artifact=art.artifact_id, priority=weight)
     log_activity(
         db,
         user_id=user.id,
@@ -250,6 +283,7 @@ def init_resumable_upload(
     user: Annotated[User, Depends(get_current_user)],
 ):
     project = require_project(db, user, project_id)
+    _reject_unsupported(body.filename)
     try:
         session = resumable.create_session(
             settings,

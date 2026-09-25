@@ -1,3 +1,5 @@
+"""Фоновые задачи API (пересборка ТЗ, переиндексация и т.п.): запись и статусы в таблице project_tasks, защита от параллельного запуска, очистка зависших задач при старте."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager

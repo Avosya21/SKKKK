@@ -13,8 +13,9 @@ from app.app.services.artifact_lab import latest_run_id, resolve_run
 from app.app.services.meeting_analyze import meeting_manifest_path, track_child_id
 from app.app.services.meeting_checks import run_checks
 from app.app.services.meeting_merge import format_meeting_clock, word_text
-from app.app.services.meeting_recordings import read_events
+from app.app.services.meeting_recordings import SOURCE_SCREEN_VIDEO, read_events
 from app.app.services.pipeline_lab import overlay_output_ready
+from app.app.services.storage import artifact_dir
 from asr.lab.paths import LabRun
 
 CHILD_SEP = "__"
@@ -63,7 +64,12 @@ def build_meeting_lab(settings: Settings, artifact: Artifact) -> dict[str, Any]:
     tracks = [_track_snapshot(settings, artifact, row) for row in (meeting.get("tracks") or [])]
     merge = _merge_snapshot(settings, artifact)
     events = _meeting_events(settings, meeting)
-    checks = run_checks(meeting, events, merge.get("words") or [], merge.get("leaks") or [])
+    leaks = _leaks_snapshot(merge.get("leaks") or [])
+    conflict_text = {str(row.get("text") or "") for row in leaks if row.get("status") == "CONFLICT"}
+    for replica in merge.get("replicas") or []:
+        replica["conflict"] = bool(replica.get("text") and replica.get("text") in conflict_text)
+    checks = run_checks(meeting, events, merge.get("words") or [], merge.get("leaks") or [],
+                        replicas=merge.get("replicas") or [], coverage=_coverage_snapshot(settings, artifact))
     return {
         "artifact_id": artifact.artifact_id,
         "filename": getattr(artifact, "original_filename", "") or artifact.artifact_id,
@@ -71,10 +77,20 @@ def build_meeting_lab(settings: Settings, artifact: Artifact) -> dict[str, Any]:
         "tracks": tracks,
         "merge": merge,
         "checks": checks,
-        "leaks": merge.get("leaks") or [],
-        "conflicts": [row for row in (merge.get("leaks") or []) if row.get("status") == "CONFLICT"],
+        "leaks": leaks,
+        "conflicts": [row for row in leaks if row.get("status") == "CONFLICT"],
+        "events": str(meeting.get("events") or ""),
         "complete": bool(merge.get("replicas")),
     }
+
+
+def _coverage_snapshot(settings: Settings, artifact: Artifact) -> list[dict]:
+    path = artifact_dir(settings, artifact.project_id, artifact.artifact_id) / "reports" / "track_coverage.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [row for row in (data.get("tracks") or []) if isinstance(row, dict)]
 
 
 def _meeting_doc(settings: Settings, artifact: Artifact) -> dict:
@@ -101,17 +117,35 @@ def _meeting_events(settings: Settings, meeting: dict) -> list[dict]:
 
 def _track_snapshot(settings: Settings, parent: Artifact, row: dict) -> dict[str, Any]:
     identity = str(row.get("identity") or "")
+    source = str(row.get("source") or "")
     child_id = str(row.get("child_id") or track_child_id(parent.artifact_id, identity))
     child = SimpleNamespace(project_id=parent.project_id, artifact_id=child_id)
-    run_id = latest_run_id(settings, child)
-    stages = _track_stages(settings, parent.artifact_id, child, run_id) if run_id else []
+    is_video = source == SOURCE_SCREEN_VIDEO
+    run_id = None if is_video else latest_run_id(settings, child)
+    stages = [] if is_video else (_track_stages(settings, parent.artifact_id, child, run_id) if run_id else [])
     return {
         "identity": identity,
         "speaker": str(row.get("speaker") or identity),
         "child_id": child_id,
         "run_id": run_id,
         "stages": stages,
+        "silent": bool(row.get("silent")),
+        "source": source,
+        "duration_sec": row.get("duration_sec"),
+        "fps": row.get("fps"),
+        "src": str(row.get("src") or ""),
+        "track_sid": row.get("track_sid"),
     }
+
+
+def _leaks_snapshot(rows: list[dict]) -> list[dict]:
+    out = []
+    for row in rows:
+        item = dict(row)
+        start = float(item.get("start") or 0.0)
+        item["clock"] = format_meeting_clock(start)
+        out.append(item)
+    return out
 
 
 def _track_stages(settings: Settings, parent_id: str, child, run_id: str) -> list[dict[str, Any]]:

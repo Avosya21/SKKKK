@@ -121,11 +121,7 @@ def shift_replicas(replicas: list[dict], offset_sec: float, speaker: str) -> lis
 
 
 def merge_track_replicas(*groups: list[dict]) -> list[dict]:
-    replicas: list[dict] = []
-    for group in groups:
-        replicas.extend(replicas_from_words(group))
-    replicas.sort(key=lambda row: (float(row.get("start") or 0.0), str(row.get("speaker") or "")))
-    return replicas
+    return replicas_from_words(merge_words(*groups))
 
 
 def merge_replicas(*groups: list[dict]) -> list[dict]:

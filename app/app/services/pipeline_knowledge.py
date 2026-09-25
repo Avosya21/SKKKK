@@ -1,3 +1,5 @@
+"""Конвейер знаний после получения текста артефакта: сущности, индекс и граф (`run_knowledge_pipeline`)."""
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +25,37 @@ from app.app.services.tz import maybe_auto_rebuild_tz
 logger = logging.getLogger("skkkk.knowledge")
 
 
+def _enqueue_auto_review(db: Session, settings: Settings, artifact: Artifact) -> None:
+    """Фоновая автопроверка требований и конфликтов артефакта (низкий приоритет в очереди). Сбой постановки знания не ломает."""
+    if settings.dry_run:
+        return
+    from app.app.services.auto_review import MODE_OFF, review_mode
+    from app.app.services.queue import enqueue_auto_review
+
+    try:
+        mode = review_mode(settings, artifact.project)
+        if mode == MODE_OFF:
+            return
+        for scope in ("artifact", "conflicts"):
+            job = enqueue_auto_review(db, artifact.id, scope=scope, mode=mode)
+            if job is not None:
+                log_event(logger, "review.queued", artifact=artifact.artifact_id, job_id=job.id, scope=scope, mode=mode)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("auto review enqueue failed for %s", artifact.artifact_id)
+
+
+def _suggest_speaker_names(db: Session, settings: Settings, artifact: Artifact) -> None:
+    """Подсказки имён неназванных голосов (модель уже загружена для знаний). Сбой подсказки знания не ломает."""
+    from app.app.services.speaker_auto import refresh_speaker_hints
+
+    try:
+        refresh_speaker_hints(db, settings, artifact)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("speaker name hints failed for %s", artifact.artifact_id)
+
+
 def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, text: str) -> None:
     log_event(
         logger,
@@ -39,6 +72,8 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
         payload = stub_entities(artifact, text)
     else:
         prepare_for_llm(settings.lmstudio_model, settings=settings)
+        # Закрыть транзакцию: извлечение идёт минутами, соединение из пула всё это время было бы занято.
+        db.commit()
         payload = extract_entities_llm(settings, artifact, text)
     log_event(
         logger,
@@ -84,6 +119,7 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
 
     if artifact.file_type == "audio" and not settings.dry_run:
         run_call_summary(settings, artifact)
+        _suggest_speaker_names(db, settings, artifact)
     elif artifact.file_type != "audio" and not settings.dry_run:
         run_document_summary(settings, artifact)
         report_path = write_document_report(settings, artifact, payload, text)
@@ -107,6 +143,7 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
     # Документы теперь всегда инициируют пересборку ТЗ после полного завершения
     # обработки; для аудио оставляем прежнюю пакетную логику по счётчику done.
     set_status(db, artifact, "done")
+    _enqueue_auto_review(db, settings, artifact)
     maybe_auto_rebuild_tz(db, settings, artifact)
     log_event(
         logger,

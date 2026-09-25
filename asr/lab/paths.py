@@ -32,7 +32,7 @@ STAGES: tuple[str, ...] = (
 STAGE_TITLES: dict[str, str] = {
     "01_audio": "Рабочий WAV 16 кГц",
     "02_asr": "Распознавание (Parakeet-TDT v3)",
-    "03_diar": "Диаризация (Sortformer v2.1)",
+    "03_diar": "Диаризация (Nemotron 3 / Sortformer)",
     "04_paint": "Покраска слов спикерами",
     "05_voice": "Слепки голосов (WeSpeaker)",
     "06_transcript": "Сборка стенограммы",

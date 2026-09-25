@@ -1,8 +1,9 @@
+"""Граф знаний проекта: тексты сущностей, автосвязи по косинусной близости, пересборка графа, удаление сущностей с зависимостями, чистка «осиротевших» связей и автоматическое разрешение конфликтов."""
+
 from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select
@@ -13,6 +14,7 @@ from app.app.db import get_engine
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Link, NoteRef, Resolution
+from app.app.services.conflict_rules import CANCEL_PATTERNS as _CANCEL_PATTERNS
 from app.app.services.ollama_client import embed_texts
 from app.app.services.vector_index import (
     init_vector_store,
@@ -22,20 +24,43 @@ from app.app.services.vector_index import (
 
 logger = logging.getLogger("skkkk.graph")
 
-CANCEL_PATTERNS = re.compile(
-    r"(отменяем|вместо\s+пункта|исправляем|отменяем\s+прежн)",
-    re.I,
+# Шаблон явной отмены — в conflict_rules (общий с проверкой конфликтов моделью); здесь реэкспорт для старых вызовов.
+CANCEL_PATTERNS = _CANCEL_PATTERNS
+
+
+CONFLICT_ENTITY_TYPES = frozenset({"decision", "task", "fact"})
+
+# Ключи «кто / когда / откуда» в value_json. В строку для эмбеддинга и сравнения «то же ли решение» не входят:
+# иначе одинаковое решение из двух созвонов (разные говорящий и время) стало бы POTENTIAL_CONFLICT.
+PROVENANCE_KEYS = frozenset(
+    {
+        "speaker",
+        "speaker_source",
+        "decided_by",
+        "start_sec",
+        "end_sec",
+        "turns",
+        "source_span_id",
+        "text_hash",
+        "recorded_at",
+        "source_status",
+        "artifact_id",
+        "source_type",
+        "needs_review",
+        "human_review",
+        "model_review",
+    }
 )
 
 
 def entity_text(value_json: str) -> str:
-    """Канон строки для bge-m3. Persist и seed должны считать одно и то же."""
+    """Канон строки для bge-m3: только смысловые поля. Persist и seed должны считать одно и то же."""
     try:
         data = json.loads(value_json)
     except json.JSONDecodeError:
         return value_json
     if isinstance(data, dict):
-        return " ".join(str(v) for v in data.values())
+        return " ".join(str(v) for k, v in data.items() if k not in PROVENANCE_KEYS)
     return str(data)
 
 
@@ -100,6 +125,9 @@ def rebuild_project_graph(db: Session, settings: Settings, project_id: int) -> d
             select(Link.id).where(Link.project_id == project_id, Link.is_automatic.is_(True))
         ).all()
     )
+    # Связи, разрешённые человеком, переживают пересборку: иначе проигравший остаётся выключенным, а причина пропадает.
+    human_links = select(Resolution.link_id).where(Resolution.resolved_by.is_not(None))
+    auto_ids = list(db.scalars(select(Link.id).where(Link.id.in_(auto_ids), Link.id.not_in(human_links))).all()) if auto_ids else []
     if auto_ids:
         db.execute(delete(Resolution).where(Resolution.link_id.in_(auto_ids)))
         db.execute(delete(Link).where(Link.id.in_(auto_ids)))
@@ -119,6 +147,64 @@ def rebuild_project_graph(db: Session, settings: Settings, project_id: int) -> d
     db.commit()
     left = db.scalar(select(func.count()).select_from(Link).where(Link.project_id == project_id)) or 0
     return {"purged_orphans": purged, "artifacts_seeded": seeded, "links": int(left)}
+
+
+LEGACY_AUTO_REASON = "auto: explicit cancellation phrase in newer artifact"
+
+
+def repair_conflict_links(db: Session, project_id: int, *, apply: bool = False, release_legacy: bool = False) -> dict[str, Any]:
+    """Разовая чистка последствий ошибок О1–О5 (CONFLICT-AUTONOMY-PLAN этап 1). Без ``apply`` — только отчёт.
+
+    - Обратные дубли A→B / B→A одной пары: остаётся связь с решением (человека — в первую очередь), иначе с меньшим id.
+    - ``release_legacy``: снять старые авторазрешения ``_try_auto_resolve`` (фраза отмены в любом месте текста, победитель —
+      по направлению связи) и включить проигравшего, если его не подтверждал человек и он не проиграл в другом решении.
+      Конфликт возвращается в очередь и проходит новую проверку (правила + модель).
+    """
+    report: dict[str, Any] = {"project_id": project_id, "duplicate_pairs": 0, "duplicate_links_removed": 0,
+                              "legacy_auto": [], "legacy_released": 0, "applied": apply}
+    links = db.scalars(select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT").order_by(Link.id)).all()
+    groups: dict[tuple[int, int], list[Link]] = {}
+    for link in links:
+        key = tuple(sorted((link.source_entity_id, link.target_entity_id)))
+        groups.setdefault(key, []).append(link)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        report["duplicate_pairs"] += 1
+        res = {lk.id: db.scalar(select(Resolution).where(Resolution.link_id == lk.id)) for lk in group}
+        keep = sorted(group, key=lambda lk: (res[lk.id] is None, not (res[lk.id] and res[lk.id].resolved_by), lk.id))[0]
+        for lk in group:
+            if lk.id == keep.id:
+                continue
+            report["duplicate_links_removed"] += 1
+            if apply:
+                if res[lk.id] is not None:
+                    db.delete(res[lk.id])
+                db.delete(lk)
+    legacy = db.scalars(
+        select(Resolution).join(Link, Link.id == Resolution.link_id)
+        .where(Link.project_id == project_id, Resolution.reason == LEGACY_AUTO_REASON)
+    ).all()
+    for res in legacy:
+        loser = db.get(Entity, res.losing_entity_id)
+        try:
+            human = bool(json.loads(loser.value_json or "{}").get("human_review")) if loser else False
+        except (json.JSONDecodeError, AttributeError):
+            human = False
+        other_loss = db.scalar(select(func.count()).select_from(Resolution).where(
+            Resolution.losing_entity_id == res.losing_entity_id, Resolution.id != res.id)) or 0
+        report["legacy_auto"].append({"link_id": res.link_id, "winner": res.winning_entity_id, "loser": res.losing_entity_id,
+                                      "loser_human": human, "loser_lost_elsewhere": bool(other_loss)})
+        if apply and release_legacy:
+            db.delete(res)
+            if loser is not None and not human and not other_loss:
+                loser.is_active = True
+            report["legacy_released"] += 1
+    if apply:
+        db.flush()
+    log_event(logger, "graph.conflicts.repaired", project=project_id, dupes=report["duplicate_links_removed"],
+              legacy=len(report["legacy_auto"]), released=report["legacy_released"], applied=apply)
+    return report
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -174,15 +260,20 @@ def seed_graph(db: Session, settings: Settings, artifact: Artifact, source_text:
                 continue
             same_type = ent.entity_type == old.entity_type
             same_value = _entity_text(ent).strip().lower() == _entity_text(old).strip().lower()
-            if same_type and not same_value:
+            # Противоречить могут только решения, задачи и факты. Пары участников / упоминаний с разными именами
+            # раньше давали половину всех конфликтов (30 из 59 на 2026-09-24) — это не противоречие.
+            if same_type and not same_value and ent.entity_type in CONFLICT_ENTITY_TYPES:
                 link_type = "POTENTIAL_CONFLICT"
             else:
                 link_type = "SEMANTICALLY_RELATED"
+            # Связь без направления: при пересборке пара A↔B встречается дважды (A сравнивается с B и B с A).
             exists = db.scalar(
                 select(Link.id).where(
                     Link.project_id == artifact.project_id,
-                    Link.source_entity_id == ent.id,
-                    Link.target_entity_id == old.id,
+                    or_(
+                        (Link.source_entity_id == ent.id) & (Link.target_entity_id == old.id),
+                        (Link.source_entity_id == old.id) & (Link.target_entity_id == ent.id),
+                    ),
                     Link.link_type == link_type,
                 )
             )
@@ -219,39 +310,48 @@ def seed_graph(db: Session, settings: Settings, artifact: Artifact, source_text:
     # Сессия работает с autoflush=False, поэтому только что добавленные связи
     # не попадут в выборку авторазрешения без явного flush.
     db.flush()
-    _try_auto_resolve(db, artifact, source_text)
+    _try_auto_resolve(db, settings, artifact, source_text)
 
 
-def _try_auto_resolve(db: Session, artifact: Artifact, source_text: str) -> None:
-    if not CANCEL_PATTERNS.search(source_text):
+def _try_auto_resolve(db: Session, settings: Settings, artifact: Artifact, source_text: str) -> None:
+    """Явная отмена без модели (правило ``explicit_cancel``, CONFLICT-AUTONOMY-PLAN этап 1).
+
+    Только конфликты этого артефакта; «новее» — по дате материала и таймкоду, не по направлению связи; фраза отмены —
+    в источнике более нового пункта (реплики вокруг него / абзац), а не где угодно в тексте; отменяющий пункт не слабее
+    отменяемого (Р1); сторону, подтверждённую человеком, не трогает (проверка в ``apply_conflict_verdict``).
+    Решение отличимо от человеческого и отменяется «Вернуть», как решение модели.
+    """
+    if not CANCEL_PATTERNS.search(source_text or ""):
         return
-    resolved = 0
+    from app.app.services.auto_review import MODE_LIVE
+    from app.app.services.review_conflicts import _pair, apply_conflict_verdict, effective_mode, rule_before_model
+
+    mode = effective_mode(artifact.project, MODE_LIVE)
+    ids = select(Entity.id).where(Entity.artifact_id == artifact.id)
     conflicts = db.scalars(
         select(Link).where(
             Link.project_id == artifact.project_id,
             Link.link_type == "POTENTIAL_CONFLICT",
             Link.is_automatic.is_(True),
+            or_(Link.source_entity_id.in_(ids), Link.target_entity_id.in_(ids)),
         )
     ).all()
+    resolved = 0
+    cache: dict = {}
     for link in conflicts:
         if db.scalar(select(Resolution.id).where(Resolution.link_id == link.id)):
             continue
-        newer = link.source_entity_id
-        older = link.target_entity_id
-        old_ent = db.get(Entity, older)
-        if old_ent:
-            old_ent.is_active = False
-        db.add(
-            Resolution(
-                link_id=link.id,
-                winning_entity_id=newer,
-                losing_entity_id=older,
-                reason="auto: explicit cancellation phrase in newer artifact",
-                resolved_by=None,
-                status="resolved",
-            )
+        pair = _pair(db, settings, link, cache)
+        if pair is None or not pair["material"] or pair["newer"]["artifact_id"] != artifact.id:
+            continue
+        decided = rule_before_model(pair)
+        if decided is None:
+            continue
+        verdict = apply_conflict_verdict(
+            db, settings, pair, verdict=decided["verdict"], confidence=1.0, mode=mode, model=decided["rule"],
+            rule=decided["rule"], reason=decided["reason"], relation=decided["relation"],
         )
-        resolved += 1
+        resolved += verdict == "newer_wins"
 
     if resolved:
         log_event(
@@ -259,6 +359,7 @@ def _try_auto_resolve(db: Session, artifact: Artifact, source_text: str) -> None
             "graph.conflicts.auto_resolved",
             artifact=artifact.artifact_id,
             resolved=resolved,
+            mode=mode,
         )
 
 

@@ -1,9 +1,14 @@
-"""03_diar — Sortformer 4spk v2.1, сырые вероятности плюс своя бинаризация.
+"""03_diar — диаризация: сырые вероятности плюс своя бинаризация.
 
-Матрица T x 4 сохраняется целиком: именно по ней потом видно, что в спорном
+Модель — ``diar_models.selected_model()``: Nemotron 3 (8 спикеров) по умолчанию,
+Sortformer 4spk v2.1 для отката (``DIAR_MODEL=sortformer4``). Обе отдают
+матрицу T x S с шагом 80 мс, S — число каналов модели.
+
+Матрица сохраняется целиком: именно по ней потом видно, что в спорном
 месте модель сомневалась (0.5/0.5), а не «уверенно ошиблась». Пороги хранятся
 в параметрах стадии, поэтому перебинаризовать прогон можно без повторного
-инференса — достаточно поменять пороги и перезапустить стадию.
+инференса — достаточно поменять пороги и перезапустить стадию. Пороги покраски
+слов для ``04_paint`` модель кладёт в ``diar.json`` → ``paint_defaults``.
 
 Прогон по второму WAV (``--compare-source``) — отладочная сверка, не часть
 нормального пути: денойза больше нет, сравнивать нечего.
@@ -19,16 +24,14 @@ from typing import Any
 
 import numpy as np
 
-from ..onnx_env import providers_for, runtime_info
+from ..diar_models import NEMOTRON, NEMOTRON_PRECISION, NEMOTRON_SHA256, diarize, selected_model
 from ..paths import LabRun
 from ..run import StageContext, execute_stage, source_audio
 from ..sortformer import (
     FRAME_DURATION,
     NUM_SPEAKERS,
     Binarization,
-    SortformerOnnx,
     binarize,
-    resolve_model,
 )
 from .s01_audio import clean_wav
 
@@ -126,31 +129,40 @@ def run(
     lab_run: LabRun,
     *,
     device: str = "auto",
-    onset: float = 0.64,
-    offset: float = 0.74,
-    pad_onset: float = 0.06,
-    pad_offset: float = 0.0,
-    min_duration_on: float = 0.10,
-    min_duration_off: float = 0.15,
+    model: str | None = None,
+    onset: float | None = None,
+    offset: float | None = None,
+    pad_onset: float | None = None,
+    pad_offset: float | None = None,
+    min_duration_on: float | None = None,
+    min_duration_off: float | None = None,
     compare_with_source: bool = False,
     force: bool = False,
 ) -> dict[str, Any]:
+    """Пороги, не заданные явно, берутся у модели (``diar_models.MODELS``)."""
     audio = clean_wav(lab_run)
     original = source_audio(lab_run)
+    spec = selected_model(model)
+    base = spec.binarization
     rules = Binarization(
-        onset=onset,
-        offset=offset,
-        pad_onset=pad_onset,
-        pad_offset=pad_offset,
-        min_duration_on=min_duration_on,
-        min_duration_off=min_duration_off,
+        onset=base.onset if onset is None else onset,
+        offset=base.offset if offset is None else offset,
+        pad_onset=base.pad_onset if pad_onset is None else pad_onset,
+        pad_offset=base.pad_offset if pad_offset is None else pad_offset,
+        min_duration_on=base.min_duration_on if min_duration_on is None else min_duration_on,
+        min_duration_off=base.min_duration_off if min_duration_off is None else min_duration_off,
     )
+    paint_defaults = {"min_prob": spec.min_prob, "min_margin": spec.min_margin}
     params: dict[str, Any] = {
-        "model": "diar_streaming_sortformer_4spk-v2.1",
+        "model": spec.key,
+        "model_label": spec.label,
         "device": device,
         "binarization": rules.as_dict(),
         "compare_with_source": bool(compare_with_source),
     }
+    if spec.key == NEMOTRON:
+        params["model_sha256"] = NEMOTRON_SHA256
+        params["model_precision"] = NEMOTRON_PRECISION
 
     inputs = {"clean_16k": audio}
     if compare_with_source:
@@ -159,6 +171,9 @@ def run(
     known = known_speaker_doc(lab_run.artifact_root)
     if known and (known.get("skip_sortformer") or known.get("speaker")):
         params["model"] = NATIVE_MODEL
+        params.pop("model_label", None)
+        params.pop("model_sha256", None)
+        params.pop("model_precision", None)
         params["skip_sortformer"] = True
         params["speaker"] = known.get("speaker")
 
@@ -179,6 +194,7 @@ def run(
                 "audio_duration_sec": round(duration, 2),
                 "max_speakers": NUM_SPEAKERS,
                 "binarization": rules.as_dict(),
+                "paint_defaults": paint_defaults,
                 "speakers": speakers,
                 "segment_count": len(segments),
                 "overlap_sec": 0.0,
@@ -206,13 +222,8 @@ def run(
         )
 
     def work(ctx: StageContext) -> None:
-        providers = providers_for(device)
-        model_path = resolve_model()
-        ctx.log(f"Sortformer {model_path.name}, провайдеры {providers}")
-        engine = SortformerOnnx(model_path, providers)
-
-        ctx.log("инференс по рабочему WAV")
-        clean = engine.diarize_file(audio)
+        ctx.log(f"инференс по рабочему WAV: {spec.label}")
+        clean, tool = diarize(spec, audio, device=device, workdir=ctx.out(PROBS_CLEAN).parent, log=ctx.log)
         np.save(ctx.out(PROBS_CLEAN), clean.probabilities)
         ctx.add_output(ctx.out(PROBS_CLEAN))
 
@@ -222,15 +233,18 @@ def run(
             "run_id": lab_run.run_id,
             "stage": STAGE,
             "audio": ctx.inputs["clean_16k"].as_dict(),
-            "model": model_path.name,
+            "model": clean.model_path.name,
+            "model_key": spec.key,
+            "model_label": spec.label,
             "frame_sec": FRAME_DURATION,
             "frames": clean.frames,
             "audio_duration_sec": round(clean.audio_duration, 2),
-            "max_speakers": NUM_SPEAKERS,
+            "max_speakers": int(clean.probabilities.shape[1]),
             "binarization": rules.as_dict(),
+            "paint_defaults": paint_defaults,
             "speakers": speakers,
             "segment_count": len(segments),
-            "overlap_sec": _overlap_seconds(clean.probabilities, onset),
+            "overlap_sec": _overlap_seconds(clean.probabilities, rules.onset),
             "segments": segments,
         }
         ctx.write_json(DIAR_JSON, payload)
@@ -246,7 +260,7 @@ def run(
 
         if compare_with_source:
             ctx.log("контрольный инференс по исходному WAV")
-            dirty = engine.diarize_file(original)
+            dirty, _ = diarize(spec, original, device=device, workdir=ctx.out(PROBS_CLEAN).parent, log=ctx.log)
             np.save(ctx.out(PROBS_SOURCE), dirty.probabilities)
             ctx.add_output(ctx.out(PROBS_SOURCE))
             dirty_segments = binarize(
@@ -283,7 +297,7 @@ def run(
                     f"внимание: спикеров на рабочем WAV {len(speakers)}, на исходном {len(dirty_speakers)}"
                 )
 
-        ctx.tool = {"name": "sortformer-onnx", "providers": engine.providers, **runtime_info()}
+        ctx.tool = tool
         ctx.log(f"{len(segments)} сегментов, спикеров {len(speakers)}")
 
     return execute_stage(

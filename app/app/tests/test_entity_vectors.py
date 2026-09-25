@@ -65,6 +65,45 @@ def _project_artifact(db):
     return project, art
 
 
+def test_graph_conflicts_only_for_decision_task_fact(tmp_data, db_engine, client, admin_token, monkeypatch):
+    """Разные участники — не противоречие (раньше давали половину всех конфликтов), разные решения — конфликт."""
+    from app.app.db import SessionLocal
+    from app.app.models.entity import Link
+
+    _prepare_vec(db_engine)
+    fake = _fake_embed([])  # одинаковые векторы: сходство 1.0, выше любого порога
+    monkeypatch.setattr("app.app.services.entities.embed_texts", fake)
+    monkeypatch.setattr("app.app.services.graph.embed_texts", fake)
+    settings = _settings(tmp_data, dry_run=False)
+    db = SessionLocal()
+    try:
+        project, art_a = _project_artifact(db)
+        art_b = Artifact(artifact_id="art_vec_c", project_id=project.id, user_id=art_a.user_id, original_filename="c.docx",
+                         stored_filename="c.docx", file_path="c.docx", file_type="docx", source_type="document",
+                         status="text_extracted", sha256="ccc")
+        db.add(art_b)
+        db.flush()
+        from app.app.services.entities import ParticipantItem
+
+        persist_entities(db, settings, art_a, EntitiesPayload(decisions=["мастер-система Битрикс"], participants=[ParticipantItem(name="Компания-2")]))
+        persist_entities(db, settings, art_b, EntitiesPayload(decisions=["мастер-система 1С"], participants=[ParticipantItem(name="Компания-7")]))
+        db.commit()
+        db.refresh(art_b)
+        seed_graph(db, settings, art_b, "текст")
+        db.commit()
+        links = db.scalars(select(Link).where(Link.project_id == project.id)).all()
+        by_type = {}
+        for link in links:
+            src = db.get(Entity, link.source_entity_id)
+            tgt = db.get(Entity, link.target_entity_id)
+            if src.entity_type == tgt.entity_type:
+                by_type[src.entity_type] = link.link_type
+        assert by_type["decision"] == "POTENTIAL_CONFLICT"
+        assert by_type["participant"] == "SEMANTICALLY_RELATED"
+    finally:
+        db.close()
+
+
 def test_entity_text_matches_entity_wrapper():
     raw = '{"text": "Решение"}'
     ent = Entity(

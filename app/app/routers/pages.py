@@ -1,5 +1,8 @@
+"""HTML-страницы портала и отчёты: вход, проекты, встречи, отчёты артефактов, отдача аудио и скачивание."""
+
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated
@@ -12,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user, require_html_user
+from app.app.services.meeting_recordings import recording_enabled, screen_recording_enabled
 from app.app.services.meetings import get_meeting, meeting_by_token, require_meeting_staff
 from app.app.services.project_access import (
     can_grant_access,
@@ -48,6 +52,10 @@ from fastapi.templating import Jinja2Templates
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
+MANIFEST_MEDIA = "application/manifest+json"
+MANIFEST_NAME = "Встреча SKKKK"
+MANIFEST_DISPLAY = "standalone"
+MANIFEST_ICON = "/static/meeting-icon.svg"
 
 
 def _page_role(db: Session, user: User, project: Project) -> str:
@@ -61,7 +69,16 @@ def _artifact_role(db: Session, user: User, artifact: Artifact) -> str:
     return _page_role(db, user, project)
 
 
+REPORT_THEME_LINKS = (
+    '<link rel="stylesheet" href="/static/design.css?v=6">'
+    '<link rel="stylesheet" href="/static/report-theme.css?v=1">'
+)
+
+
 def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None) -> HTMLResponse:
+    # Единая дизайн-система для отчётов: подключается при отдаче, сохранённые файлы не меняются.
+    if "</head>" in html and "report-theme.css" not in html:
+        html = html.replace("</head>", REPORT_THEME_LINKS + "</head>", 1)
     html = apply_role_chrome(html, role or user.role)
     if embed:
         html = apply_embed_mode(html, kind=kind)
@@ -85,6 +102,25 @@ def meeting_voice_flags(settings: Settings) -> dict[str, bool]:
     }
 
 
+def _manifest_start(raw: str) -> str:
+    path = (raw or "/").strip() or "/"
+    if not path.startswith("/") or "//" in path or "\\" in path:
+        return "/"
+    return path
+
+
+@router.get("/meeting.webmanifest")
+def meeting_webmanifest(start: str = "/"):
+    payload = {
+        "name": MANIFEST_NAME,
+        "short_name": MANIFEST_NAME,
+        "display": MANIFEST_DISPLAY,
+        "start_url": _manifest_start(start),
+        "icons": [{"src": MANIFEST_ICON, "sizes": "any", "type": "image/svg+xml"}],
+    }
+    return Response(json.dumps(payload, ensure_ascii=False), media_type=MANIFEST_MEDIA)
+
+
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     return templates.TemplateResponse(request, "login.html", {"title": "Вход"})
@@ -104,6 +140,8 @@ def public_meeting_page(
             "title": "Встреча",
             "token": token,
             "meeting_voice": meeting_voice_flags(get_settings()),
+            "record_audio": recording_enabled(),
+            "record_screen": screen_recording_enabled(),
         },
     )
 
@@ -152,10 +190,20 @@ def project_page(
     project = require_project(db, user, project_id)
     title = f"Проект {project_id} — {project.name}"
     role = _page_role(db, user, project)
+    # число материалов нужно странице, чтобы заранее зарезервировать высоту списка (иначе всё ниже «уезжает» после загрузки)
+    import re
+
+    from sqlalchemy import select
+
+    from app.app.models.artifact import Artifact
+
+    names = db.scalars(select(Artifact.original_filename).where(Artifact.project_id == project_id)).all()
+    artifact_count = sum(1 for n in names if not re.match(r"^analysis_(reply|request|question)_\d+\.json$", n or "", re.IGNORECASE))
     return templates.TemplateResponse(
         request,
         "project.html",
         {
+            "artifact_count": artifact_count,
             "title": title,
             "project_id": project_id,
             "project_name": project.name,
@@ -506,6 +554,37 @@ def artifact_lab_file(
         path,
         media_type=LAB_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
         filename=path.name,
+        content_disposition_type="inline",
+        headers={"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=300"},
+    )
+
+
+@router.get("/artifacts/{artifact_id}/lab/{run_id}/frame/{relative:path}")
+def artifact_lab_frame(
+    artifact_id: str,
+    run_id: str,
+    relative: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(require_html_user)],
+):
+    """Кадр экрана для стенограммы: только .jpg внутри frames/ прогона.
+
+    Права такие же, как у отчёта (не только админ): картинки экрана видны
+    всем, кто смотрит расшифровку. Выход за ``frames/`` или не-jpg — 404.
+    """
+    if not relative.lower().endswith(".jpg") or not relative.replace("\\", "/").startswith("frames/"):
+        raise HTTPException(status_code=404, detail="Frame not found")
+    artifact = require_artifact_project(db, user, artifact_id)
+    if artifact.file_type != "audio":
+        raise HTTPException(status_code=404, detail="Frames are for audio artifacts only")
+    try:
+        path = lab_file(settings, artifact, run_id, relative)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
         content_disposition_type="inline",
         headers={"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=300"},
     )

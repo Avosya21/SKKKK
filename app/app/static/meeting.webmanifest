@@ -1,0 +1,13 @@
+{
+  "name": "Встреча SKKKK",
+  "short_name": "Встреча",
+  "display": "standalone",
+  "start_url": ".",
+  "icons": [
+    {
+      "src": "/static/meeting-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

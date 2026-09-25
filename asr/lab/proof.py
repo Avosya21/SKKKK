@@ -224,10 +224,10 @@ def final_replicas(
 
     rows = []
     for replica in replicas:
+        first_word = replica["words"][0]
         pieces = [str(word.get("final") or "") for word in replica["words"]]
         text = " ".join(piece for piece in pieces if piece)
-        rows.append(
-            {
+        row = {
                 "speaker": replica["speaker"],
                 "speaker_index": replica["speaker_index"],
                 "start": round(replica["start"], 3),
@@ -244,9 +244,14 @@ def final_replicas(
                         "verdict": word.get("verdict"),
                         "sense": word.get("sense"),
                         "proof": word.get("proof"),
+                        "track_id": word.get("track_id"),
+                        "identity": word.get("identity"),
                     }
                     for word in replica["words"]
                 ],
             }
-        )
+        for field in ("track_id", "identity"):
+            if first_word.get(field):
+                row[field] = first_word[field]
+        rows.append(row)
     return rows

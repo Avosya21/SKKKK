@@ -1,3 +1,5 @@
+"""Текст из изображений: проверка слабого OCR и распознавание через vision-модель LLM."""
+
 from __future__ import annotations
 
 import base64
@@ -8,6 +10,7 @@ from pathlib import Path
 
 from app.app.config import ROOT, Settings
 from app.app.services.llm import chat_completion_vision
+from app.app.services.prompts import load_prompt_block
 
 logger = logging.getLogger("skkkk.documents")
 
@@ -45,9 +48,8 @@ def ocr_text_is_weak(text: str, *, min_useful_chars: int = OCR_MIN_USEFUL_CHARS)
 
 
 def _load_vision_prompt() -> str:
-    raw = PROMPT_PATH.read_text(encoding="utf-8")
-    blocks = [b.strip() for b in raw.split("```") if b.strip()]
-    return blocks[0] if blocks else raw
+    """Первый ограждённый блок промпта (не заголовок файла) — см. services/prompts.py."""
+    return load_prompt_block(PROMPT_PATH)
 
 
 def image_to_data_url(path: Path, *, max_side: int = VISION_MAX_SIDE) -> str:

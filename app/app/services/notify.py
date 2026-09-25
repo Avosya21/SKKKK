@@ -1,3 +1,5 @@
+"""Уведомления в Telegram через HTTPS Bot API: о готовности файла и событиях для пользователя."""
+
 from __future__ import annotations
 
 import logging

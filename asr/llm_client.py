@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from app.app.config import Settings  # noqa: E402
 from app.app.llm_labels import llm_runtime_label, llm_short_name  # noqa: E402
 from app.app.llm_settings import uses_local_gemma  # noqa: E402
-from app.app.services.llm import chat_from_env, ensure_lmstudio_gemma_loaded  # noqa: E402
+from app.app.services.llm import chat_from_env_no_think, ensure_lmstudio_gemma_loaded  # noqa: E402
 
 logger = logging.getLogger("skkkk.llm.asr")
 
@@ -43,7 +43,7 @@ def chat(
         len(user),
     )
     try:
-        text, meta = chat_from_env(
+        text, meta = chat_from_env_no_think(
             system,
             user,
             max_tokens=max_tokens,

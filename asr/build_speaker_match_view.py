@@ -1,4 +1,10 @@
-"""Тестовая страница: Sortformer + match/запоминание голосов (Bootstrap 5)."""
+"""Страница голосов созвона: диаризация + match/запоминание голосов (Bootstrap 5).
+
+Какая модель разметила спикеров (Nemotron 3 до 8 голосов или Sortformer 4spk
+до 4), сколько говорил каждый — из ``lab/runs/{run_id}/03_diar/diar.json``
+того прогона, на который ссылается match JSON. Старые прогоны без поля
+``model_key`` распознаются по имени файла модели.
+"""
 
 from __future__ import annotations
 
@@ -25,8 +31,18 @@ STATUS_BADGE = {
 BOOTSTRAP = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
 FONTS = "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap"
 
-# Приглушённая палитра (Swiss / enterprise)
-COLORS = ("#5B7FA6", "#A67B7B", "#6B9080", "#B08968", "#7C6B9E", "#9B8AA5")
+# Приглушённая палитра (Swiss / enterprise); 8 цветов — Nemotron даёт до 8 спикеров
+COLORS = ("#5B7FA6", "#A67B7B", "#6B9080", "#B08968", "#7C6B9E", "#4F8FA0", "#A6906B", "#9B8AA5")
+
+# Меньше этого — слепок голоса ненадёжен: человек реальный, но подсказку имени проверять на слух.
+LOW_SPEECH_SEC = 15.0
+SHORT_CLIP_SEC = 8.0
+
+DIAR_MODELS = {
+    "nemotron3": {"label": "Nemotron 3 Diarization", "short": "Nemotron 3", "max": 8},
+    "sortformer4": {"label": "Sortformer 4spk v2.1", "short": "Sortformer", "max": 4},
+    "native_track": {"label": "дорожка участника комнаты", "short": "дорожка", "max": 1},
+}
 
 TOKENS = {
     "primary": "#8B7355",
@@ -83,13 +99,71 @@ def _build_palette(keys: list[str]) -> dict[str, str]:
     return {k: COLORS[i % len(COLORS)] for i, k in enumerate(uniq)}
 
 
+def diar_info(match_json: Path, payload: dict) -> dict | None:
+    """Модель и время речи из diar.json прогона. None — прогона нет (старый контур)."""
+    run_id = str(payload.get("run_id") or "").strip()
+    if not run_id or "/" in run_id or "\\" in run_id or ".." in run_id:
+        return None
+    diar_path = match_json.parent.parent / "lab" / "runs" / run_id / "03_diar" / "diar.json"
+    try:
+        doc = json.loads(diar_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    key = str(doc.get("model_key") or "").strip()
+    if not key:
+        model = str(doc.get("model") or "").lower()
+        key = "native_track" if model == "native_track" else "nemotron3" if "nemotron" in model else "sortformer4"
+    spec = DIAR_MODELS.get(key, {"label": str(doc.get("model") or key), "short": key, "max": None})
+    seconds = {
+        str(row.get("speaker")): float(row.get("seconds") or 0.0)
+        for row in doc.get("speakers") or []
+        if row.get("speaker")
+    }
+    return {
+        "key": key,
+        "label": spec["label"],
+        "short": spec["short"],
+        "max_speakers": int(doc.get("max_speakers") or spec["max"] or 0) or None,
+        "seconds": seconds,
+        "found": len(seconds),
+    }
+
+
+def _speech_text(seconds: float, total: float) -> str:
+    minutes, sec = divmod(int(round(seconds)), 60)
+    spoken = f"{minutes} мин {sec:02d} с" if minutes else f"{sec} с"
+    ratio = seconds / total if total > 0 else 0.0
+    share = (" · <1%" if ratio < 0.005 else f" · {ratio:.0%}") if total > 0 else ""
+    return f"{spoken}{share}"
+
+
+def _diar_summary(info: dict | None) -> str:
+    """Строка под заголовком: чья разметка, сколько голосов, упёрлась ли модель в потолок."""
+    if not info:
+        return ""
+    found, cap = info["found"], info.get("max_speakers")
+    text = f"Кто говорит: <strong>{html.escape(info['label'])}</strong>"
+    if cap and info["key"] != "native_track":
+        text += f", до {cap} голосов"
+    text += f". Найдено голосов: <strong>{found}</strong>."
+    out = f'<p class="diar-summary small mt-3 mb-0">{text}</p>'
+    if info["key"] == "sortformer4" and cap and found >= cap:
+        out += (
+            '<div class="alert alert-warning small mt-3 mb-0 py-2" role="status">'
+            f"Заняты все {cap} канала Sortformer: людей на созвоне могло быть больше, и тогда их голоса "
+            "слиты с этими. Пересчёт на Nemotron 3 разделит до 8 голосов."
+            "</div>"
+        )
+    return out
+
+
 def _badge(status: str) -> str:
     css, label = STATUS_BADGE.get(status, ("bg-secondary", status))
     return f'<span class="badge {css}">{html.escape(label)}</span>'
 
 
 def _speaker_card_groups(matches: dict, merge_map: dict) -> list[dict]:
-    """Одна карточка на каждый Sortformer ID — не скрывать voice-merge alias."""
+    """Одна карточка на каждый speaker_N диаризации — не скрывать voice-merge alias."""
     groups: list[dict] = []
     for sp in sorted(matches.keys()):
         m = matches.get(sp) or {}
@@ -134,8 +208,15 @@ def _merge_target_options(primary: str, labels: list[str], groups: list[dict]) -
 
 
 def _speaker_cards(
-    groups: list[dict], palette: dict[str, str], matches: dict, merge_map: dict
+    groups: list[dict],
+    palette: dict[str, str],
+    matches: dict,
+    merge_map: dict,
+    speech: dict[str, float] | None = None,
 ) -> str:
+    """Карточка на каждый speaker_N; ``speech`` — секунды речи из diar.json (если прогон найден)."""
+    speech = speech or {}
+    total_speech = sum(speech.values())
     parts: list[str] = []
     for group in groups:
         sp = group["primary"]
@@ -146,9 +227,18 @@ def _speaker_cards(
         ck = f"p{pid}" if pid else _resolve_color_key(sp, matches, merge_map)
         color = palette.get(ck, TOKENS["muted_fg"])
         st = m.get("status") or "new"
+        spoken = speech.get(sp)
+        clip_len = float(m.get("clip_duration") or 0.0)
+        low_speech = (spoken is not None and spoken < LOW_SPEECH_SEC) or (0 < clip_len < SHORT_CLIP_SEC)
         pname = (m.get("profile_name") or "").strip()
+        weak_suggestion = ""
         if not pname and st == "new":
-            pname = (m.get("suggested_profile_name") or "").strip()
+            suggested = (m.get("suggested_profile_name") or "").strip()
+            # По короткому образцу подсказка ненадёжна: не подставлять её в поле, чтобы «Запомнить» не записал чужое имя.
+            if low_speech:
+                weak_suggestion = suggested
+            else:
+                pname = suggested
         score = m.get("score")
         sug_score = m.get("suggested_score")
         cs, ce = m.get("clip_start"), m.get("clip_end")
@@ -177,6 +267,45 @@ def _speaker_cards(
                 else ""
             )
         )
+        auto = m.get("auto") if st == "confirmed" else None
+        if auto:
+            score_txt += (
+                f'<p class="small text-muted mb-2">Узнан автоматически по голосу '
+                f'({int(float(auto.get("score") or 0) * 100)}%, отрыв {int(float(auto.get("margin") or 0) * 100)}%). '
+                f"Если это не он — введите имя и нажмите «Обновить».</p>"
+            )
+        hint = m.get("llm_hint") if st == "new" else None
+        if hint and not (m.get("profile_name") or "").strip():
+            quote = html.escape(str(hint.get("quote") or ""))
+            score_txt += (
+                f'<p class="small mb-2"><span class="text-muted">Подсказка модели:</span> '
+                f"<strong>{html.escape(str(hint.get('name') or ''))}</strong>"
+                + (f' <span class="text-muted">— «{quote}»</span>' if quote else "")
+                + "</p>"
+            )
+            if not pname:
+                pname = str(hint.get("name") or "").strip()
+        speech_txt = (
+            f'<p class="speaker-speech small mb-2"><span class="text-muted">Говорил</span> '
+            f"{html.escape(_speech_text(spoken, total_speech))}</p>"
+            if spoken is not None
+            else ""
+        )
+        if low_speech:
+            speech_txt += (
+                '<p class="small mb-2 low-speech"><span class="badge text-bg-warning">мало речи</span> '
+                '<span class="text-muted">Это реальный участник, но образец голоса короткий — '
+                "подсказку имени проверьте на слух.</span></p>"
+            )
+            if weak_suggestion:
+                weak_score = m.get("suggested_score")
+                weak_pct = f" ({int(float(weak_score) * 100)}%)" if weak_score is not None else ""
+                speech_txt += (
+                    f'<p class="small text-muted mb-2">Похож на <strong>{html.escape(weak_suggestion)}</strong>'
+                    f"{weak_pct} — в поле не подставлено.</p>"
+                )
+                score_txt = ""
+        score_txt = speech_txt + score_txt
         confirmed_icon = f'<span class="speaker-check" aria-hidden="true">{ICON_CHECK}</span>' if st == "confirmed" else ""
         merge_opts = _merge_target_options(sp, labels, groups)
         merge_block = ""
@@ -228,8 +357,12 @@ def _speaker_cards(
     return "".join(parts)
 
 
-def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dict]) -> str:
+def render_html(
+    *, title: str, audio_url: str, payload: dict, profiles: list[dict], diar: dict | None = None
+) -> str:
     matches = payload.get("matches") or {}
+    diar_short = diar["short"] if diar else "Sortformer"
+    diar_summary = _diar_summary(diar)
     merge_map = payload.get("merge_map") or {}
     is_lab = payload.get("source") == "lab"
     voices_title = "Голоса встречи" if is_lab else "Голоса Sortformer"
@@ -491,7 +624,7 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
 <nav class="navbar navbar-dark app-nav mb-0">
   <div class="container-fluid px-3 px-lg-4" style="max-width: 1320px">
     <a class="navbar-brand fw-semibold" href="/">Primary Analytics</a>
-    <span class="navbar-text text-white-50 small d-none d-sm-inline">Speaker Match · Sortformer</span>
+    <span class="navbar-text text-white-50 small d-none d-sm-inline">Голоса · {html.escape(diar_short)}</span>
   </div>
 </nav>
 
@@ -504,6 +637,7 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
         <p class="mb-0" style="color:var(--color-muted-fg);max-width:42rem">
           Подпишите голоса встречи и сверьте с общей базой.
         </p>
+        {diar_summary}
       </div>
       <div class="col-lg-4">
         <div class="text-lg-end">
@@ -543,10 +677,10 @@ def render_html(*, title: str, audio_url: str, payload: dict, profiles: list[dic
       <section class="panel" aria-labelledby="speakers-heading">
         <div class="panel-header d-flex justify-content-between align-items-center" id="speakers-heading">
           <span>{html.escape(voices_title)}</span>
-          <span class="badge rounded-pill text-bg-light border fw-normal">{total_n} ID</span>
+          <span class="badge rounded-pill text-bg-light border fw-normal">голосов: {total_n}</span>
         </div>
         <div class="panel-body">
-          <div class="row g-3">{_speaker_cards(card_groups, palette, matches, merge_map)}</div>
+          <div class="row g-3">{_speaker_cards(card_groups, palette, matches, merge_map, (diar or {}).get("seconds"))}</div>
         </div>
       </section>
     </div>
@@ -714,11 +848,22 @@ document.getElementById("recalc").addEventListener("click", async () => {{
 """
 
 
-def build(*, match_json: Path, out_html: Path, audio_url: str, profiles: list[dict], title: str) -> None:
+PAGE_TITLE = "Голоса созвона"
+
+
+def build(
+    *, match_json: Path, out_html: Path, audio_url: str, profiles: list[dict], title: str = PAGE_TITLE
+) -> None:
     payload = json.loads(match_json.read_text(encoding="utf-8"))
     out_html.parent.mkdir(parents=True, exist_ok=True)
     out_html.write_text(
-        render_html(title=title, audio_url=audio_url, payload=payload, profiles=profiles),
+        render_html(
+            title=title,
+            audio_url=audio_url,
+            payload=payload,
+            profiles=profiles,
+            diar=diar_info(match_json, payload),
+        ),
         encoding="utf-8",
     )
     print("wrote", out_html)
@@ -748,7 +893,6 @@ def main() -> int:
         out_html=args.out,
         audio_url=args.audio_url,
         profiles=[],
-        title="Sortformer + запоминание голосов",
     )
     return 0
 

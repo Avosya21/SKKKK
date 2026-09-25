@@ -1,6 +1,9 @@
+"""Индексация артефакта для поиска по смыслу (фрагменты и векторы в sqlite-vec) и сверка индекса проекта (`audit_project_index`)."""
+
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -11,12 +14,14 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Chunk
 from app.app.models.project import Project
-from app.app.services.chunking import chunk_plain_text, chunk_transcript
+from app.app.services.chunk_fts import upsert_chunk_fts
+from app.app.services.chunking import chunk_document, chunk_transcript
 from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import artifact_knowledge_text
 from app.app.services.vector_index import delete_vectors_for_chunks, init_vector_store, upsert_vectors
 
 logger = logging.getLogger("skkkk.index")
+_TABLE_CHUNK_RE = re.compile(r"^(?:\| --- |Строка \d+: )", re.M)
 
 
 def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: str) -> int:
@@ -29,7 +34,7 @@ def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: st
             body = canon
         chunks = chunk_transcript(body)
     else:
-        chunks = chunk_plain_text(body)
+        chunks = chunk_document(body)  # таблицы — целыми строками с шапкой, проза — абзацами с разделом
 
     # Эмбеддинги считаются до первой записи: иначе блокировка записи в SQLite
     # удерживается всё время сетевого вызова Ollama.
@@ -50,11 +55,14 @@ def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: st
             text=c.text,
             speaker=c.speaker,
             token_estimate=c.token_estimate,
+            start_sec=c.start_sec,
+            end_sec=c.end_sec,
         )
         db.add(row)
         stored.append(row)
     db.flush()
     upsert_vectors(db, [(row.id, vec) for row, vec in zip(stored, vectors, strict=True)])
+    upsert_chunk_fts(db, [(row.id, row.text) for row in stored])
     speakers = sorted({row.speaker for row in stored if row.speaker})
     log_event(
         logger,
@@ -62,11 +70,16 @@ def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: st
         artifact=artifact.artifact_id,
         project_id=artifact.project_id,
         chunks=len(stored),
+        table_chunks=sum(1 for row in stored if _TABLE_CHUNK_RE.search(row.text or "")),
         with_speaker=sum(1 for row in stored if row.speaker),
         speakers=",".join(speakers[:12]),
         chars=len(body),
         model=settings.ollama_embed_model,
     )
+    if artifact.file_type == "audio":
+        from app.app.services.entities import rebind_call_entities
+
+        rebind_call_entities(db, settings, artifact)
     return len(stored)
 
 
@@ -115,9 +128,13 @@ def audit_project_index(db: Session, settings: Settings, project_id: int) -> dic
             select(Chunk).where(Chunk.artifact_id == art.id).order_by(Chunk.chunk_index)
         ).all()
         speakers = sorted({c.speaker for c in chunk_rows if c.speaker})
+        timed = sum(1 for c in chunk_rows if c.start_sec is not None)
         aligned = True
         if art.file_type == "audio" and canon and chunk_rows:
-            aligned = any((c.text or "")[:40] in canon for c in chunk_rows[:5])
+            # Строки чанка — строки канона (окно реплик), поэтому сверяем построчно.
+            aligned = any(
+                line[:40] in canon for c in chunk_rows[:5] for line in (c.text or "").splitlines() if line.strip()
+            )
         items.append(
             {
                 "artifact_id": art.artifact_id,
@@ -127,6 +144,7 @@ def audit_project_index(db: Session, settings: Settings, project_id: int) -> dic
                 "chunks": stats["chunks"],
                 "vectors": stats["vectors"],
                 "speakers": speakers,
+                "timed_chunks": timed,
                 "canon_chars": len(canon or ""),
                 "aligned_with_final": aligned,
             }
@@ -155,6 +173,7 @@ def audit_project_index(db: Session, settings: Settings, project_id: int) -> dic
             and item["file_type"] == "audio"
             and item["chunks"]
             and not item["speakers"]
+            and not item["timed_chunks"]  # окна реплик: имена в тексте, speaker только у окна одного говорящего
         ):
             problems.append(f"{item['artifact_id']}: чанки без speaker")
         if item["chunks"] and not item["aligned_with_final"]:

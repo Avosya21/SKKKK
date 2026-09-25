@@ -27,7 +27,8 @@
   <input id="q" class="form-control" placeholder="Вопрос по материалам проекта" enterkeyhint="send"/>
   <button id="send" class="btn btn-primary skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
 if (!SKKKK.requireAuth()) throw new Error('auth');
 
@@ -172,5 +173,4 @@ sendBtn.onclick = async () => {
 
 loadChatHistory();
 </script>
-
 {% endblock %}

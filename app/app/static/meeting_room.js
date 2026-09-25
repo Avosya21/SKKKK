@@ -38,6 +38,33 @@ const KIND_AUDIO_OUT = "audiooutput";
 const ICE_TIMEOUT_MS = 45000;
 const ICE_HINT =
   "Сигналинг есть, медиа не проходит. На роутере нужны TCP 7881, UDP 50000 и UDP 3478.";
+const TEXT_SOUND_OFF = "Звук выключен: вы никого не слышите";
+const TEXT_MIC_SILENT = "Микрофон молчит. Проверьте устройство";
+const TEXT_MIC_RESTART = "Перезапустить";
+const TEXT_NO_MIC = "нет микрофона";
+const TEXT_NO_CAM = "нет камеры";
+const TEXT_MIC_OFF = "Микрофон выключен";
+const TEXT_CAM_OFF = "Камера выключена";
+const TEXT_MIC_ON = "Микрофон включён";
+const TEXT_CAM_ON = "Камера включена";
+const TEXT_MIC_SILENT_CHIP = "молчит";
+// Индикатор связи в виде палочек (как сотовая сеть): 4 зелёные — отлично, 3 зелёные — хорошо, 1 красная — плохо, 0 — нет связи.
+// Ухудшение до «плохо» и возврат из «плохо» подтверждаются задержкой, чтобы палочки не дёргались от кратких скачков.
+const SIGNAL_LEVELS = { excellent: 4, good: 3, poor: 1, lost: 0 };
+const SIGNAL_LABELS = { 4: "отличное", 3: "хорошее", 1: "плохое", 0: "нет связи" };
+const SIGNAL_POOR_DELAY_MS = 2000;
+const SIGNAL_RECOVER_DELAY_MS = 3000;
+const LINK_TOAST_GAP_MS = 60000;
+const LINK_BACK_MIN_SHOWN_MS = 8000;
+const TEXT_LINK_POOR_HINT = "Слабая связь. Если голос прерывается, выключите камеру.";
+const TEXT_LINK_BETTER = "Связь наладилась.";
+const TEXT_SCREEN_PREFIX = "Экран — ";
+const TEXT_PWA_HINT = "Добавить на экран";
+const TEXT_INVITE_CARD =
+  "Ссылка гостя есть во вкладке, где встречу создали, или через «Новая ссылка».";
+const PWA_HINT_KEY = "skkkk-pwa-hint";
+const TOAST_MS = 4000;
+const SCREEN_TILE_PREFIX = "meeting-tile-screen-";
 const KIND_AUDIO_IN = "audioinput";
 const KIND_VIDEO_IN = "videoinput";
 const METER_FFT_SIZE = 2048;
@@ -61,6 +88,38 @@ function deviceLabel(device, index, kind) {
 function canSetSink() {
   return Boolean(HTMLMediaElement.prototype.setSinkId);
 }
+
+// Зеркалим своё изображение только с фронтальной камеры. Тыловая (facingMode "environment" или «задняя» в названии) показывается как есть.
+function isFrontCamera(mediaTrack) {
+  if (!mediaTrack) return true;
+  let st = {};
+  try {
+    st = mediaTrack.getSettings ? mediaTrack.getSettings() : {};
+  } catch (_) {
+    st = {};
+  }
+  if (st && st.facingMode) return st.facingMode !== "environment";
+  return !/back|rear|environment|задн|тыл/i.test(String(mediaTrack.label || ""));
+}
+
+// Ссылку часто открывают во встроенном браузере мессенджера или в старом браузере без WebRTC: вместо английской ошибки библиотеки
+// говорим по-русски, что делать.
+function noWebRtcText() {
+  const ua = String(navigator.userAgent || "");
+  const inApp = /Telegram|Instagram|FBAN|FBAV|Line\/|MicroMessenger|VKClient|; wv\)|GSA\//i.test(ua);
+  return (
+    "В этом браузере звонки не работают (нет WebRTC)." +
+    (inApp ? " Похоже, ссылка открыта внутри приложения. " : " ") +
+    "Откройте ссылку в Safari (iPhone) или Chrome (Android): нажмите «⋯» → «Открыть в браузере»."
+  );
+}
+
+const REJOIN_DELAYS_MS = [1000, 2000, 3000, 5000, 8000, 13000, 20000, 30000];
+const REJOIN_TOTAL_MS = 15 * 60 * 1000;
+const TEXT_LINK_LOST = "Связь пропала, восстанавливаю…";
+const TEXT_LINK_BACK = "Связь восстановлена.";
+const TEXT_SINK_UNSUPPORTED =
+  "Этот браузер не позволяет выбрать динамик со страницы. Переключите звук в настройках телефона или подключите наушники.";
 
 function isMobileLayout() {
   return Boolean(window.matchMedia && window.matchMedia(MOBILE_MQ).matches);
@@ -88,6 +147,27 @@ function applyPhoneGrid(tilesEl, count) {
   tilesEl.style.setProperty("--meeting-cols", String(phoneGridCols(count, isPhoneLandscape())));
 }
 
+const DESKTOP_GRID_GAP = 12;
+
+// Десктоп: колонки и размер плитки — по ширине И высоте сцены (SKKKKLayout.bestGrid); телефон и режимы
+// «фокус/экран сверху» живут на своих правилах CSS.
+function applyDesktopGrid(tilesEl, count) {
+  if (!tilesEl || !window.SKKKKLayout || !window.SKKKKLayout.bestGrid) return;
+  const auto =
+    !isPhoneStage() &&
+    !tilesEl.classList.contains("has-focus") &&
+    !tilesEl.querySelector(".meeting-tile-screen") &&
+    count > 1;
+  tilesEl.classList.toggle("is-auto-grid", auto);
+  if (!auto) {
+    tilesEl.style.removeProperty("--meeting-tile-w");
+    return;
+  }
+  const grid = window.SKKKKLayout.bestGrid(count, tilesEl.clientWidth, tilesEl.clientHeight, DESKTOP_GRID_GAP, 16 / 9);
+  tilesEl.style.setProperty("--meeting-cols", String(grid.cols));
+  tilesEl.style.setProperty("--meeting-tile-w", grid.tileW + "px");
+}
+
 function isDockMoreLayout() {
   return Boolean(window.matchMedia && window.matchMedia(DOCK_MORE_MQ).matches);
 }
@@ -113,6 +193,11 @@ function canUseDfn3() {
       window.WebAssembly &&
       window.AudioContext,
   );
+}
+
+function isHidden(person) {
+  const id = person && person.identity;
+  return Boolean(id && String(id).indexOf("skkkk-") === 0);
 }
 
 function isCleaner(person) {
@@ -160,12 +245,13 @@ function trackPublishName(track, pub) {
 }
 
 function decodeCleanIdentity(raw) {
-  return raw.replace(".", ":");
+  // Заменяем ВСЕ точки на двоеточия
+  return String(raw || "").replace(/\./g, ":");
 }
 
 function identitiesMatch(left, right) {
   if (!left || !right) return false;
-  return left === right || left.replace(":", ".") === right.replace(":", ".");
+  return left === right || String(left).replace(/:/g, ".") === String(right).replace(/:/g, ".");
 }
 
 function cleanSourceId(track, pub) {
@@ -175,13 +261,13 @@ function cleanSourceId(track, pub) {
 
 function findPerson(room, identity) {
   if (!room || !identity) return null;
-  if (room.localParticipant && room.localParticipant.identity === identity) {
+  if (identitiesMatch(room.localParticipant && room.localParticipant.identity, identity)) {
     return room.localParticipant;
   }
   let found = null;
   if (room.remoteParticipants && room.remoteParticipants.forEach) {
     room.remoteParticipants.forEach((person) => {
-      if (person.identity === identity) found = person;
+      if (identitiesMatch(person.identity, identity)) found = person;
     });
   }
   return found;
@@ -230,11 +316,18 @@ function fillDeviceSelect(select, devices, kind, selectedId) {
 }
 
 async function listInputDevices() {
-  const all = await navigator.mediaDevices.enumerateDevices();
-  return {
-    audio: all.filter((item) => item.kind === KIND_AUDIO_IN),
-    video: all.filter((item) => item.kind === KIND_VIDEO_IN),
-  };
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    return { audio: [], video: [] };
+  }
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return {
+      audio: all.filter((item) => item.kind === KIND_AUDIO_IN),
+      video: all.filter((item) => item.kind === KIND_VIDEO_IN),
+    };
+  } catch (err) {
+    return { audio: [], video: [] };
+  }
 }
 
 function withDeviceId(base, deviceId) {
@@ -278,12 +371,14 @@ function localMicTrack(room) {
     if (pub && pub.track) return pub.track;
   }
   let found = null;
-  room.localParticipant.trackPublications.forEach((pub) => {
-    const source = String(pub.source || "").toLowerCase();
-    if (!found && pub.kind === "audio" && pub.track && source.indexOf("screen") < 0) {
-      found = pub.track;
-    }
-  });
+  if (room.localParticipant.trackPublications) {
+    room.localParticipant.trackPublications.forEach((pub) => {
+      const source = String(pub.source || "").toLowerCase();
+      if (!found && pub.kind === "audio" && pub.track && source.indexOf("screen") < 0) {
+        found = pub.track;
+      }
+    });
+  }
   return found;
 }
 
@@ -343,8 +438,8 @@ function publishErrorText(kind, err) {
 function mediaErrorText(err, kind) {
   const name = err && err.name ? err.name : "";
   if (name === "NotAllowedError") return "Нет разрешения на " + kind + " в браузере.";
-  if (name === "NotFoundError") return kind + " не видна Windows. Проверьте Параметры → Конфиденциальность.";
-  if (name === "NotReadableError") return kind + " занята другим приложением. Закройте Zoom или Телемост.";
+  if (name === "NotFoundError") return kind + " не обнаружена. Проверьте подключение устройства.";
+  if (name === "NotReadableError") return kind + " занята другим приложением (Zoom, Teams, Телемост).";
   if (err && err.message) return err.message;
   return kind + " недоступна.";
 }
@@ -411,13 +506,20 @@ const SKKKKMeeting = {
   _pinLocked: false,
   _sinkId: "",
   _endedTimer: 0,
+  _heartbeatTimer: 0,
   _dfn3On: false,
   _dfn3: null,
   _serverDenoise: true,
   _soundOn: true,
+  _publishedAt: {},
+  _quality: {},
+  _raf: 0,
   _denoisePrefs: {},
   _playCtx: null,
   _playComp: null,
+  _silentMeterCtx: null,
+  _silentMeterTimer: 0,
+  _silentMeterSource: null,
   _preview: {
     stream: null,
     audioCtx: null,
@@ -466,6 +568,10 @@ const SKKKKMeeting = {
       cancelAnimationFrame(this._preview.meterTimer);
       this._preview.meterTimer = 0;
     }
+    if (this._meterSource) {
+      try { this._meterSource.disconnect(); } catch (_) {}
+      this._meterSource = null;
+    }
     if (this._preview.stream) {
       this._preview.stream.getTracks().forEach((track) => track.stop());
       this._preview.stream = null;
@@ -490,10 +596,37 @@ const SKKKKMeeting = {
       statusEl.textContent = "Не загрузился клиент комнаты.";
       return null;
     }
+    this._leaving = false;
+    this._rejoining = false;
+    this._lastCred = livekit;
+    if (typeof LK.isBrowserSupported === "function" && !LK.isBrowserSupported()) {
+      statusEl.textContent = noWebRtcText();
+      for (const btn of [els.micBtn, els.camBtn, els.screenBtn, els.soundBtn, els.camSwitchBtn]) {
+        if (btn) btn.disabled = true;
+      }
+      return null;
+    }
+    // Библиотека пишет в консоль как error безобидное «track for a participant that's not present» (серверный бот
+    // публикует трек раньше события входа). Оставляем лог только по флагу localStorage.skkkk_lk_debug=1.
+    try {
+      if (LK.setLogLevel && LK.LogLevel && localStorage.getItem("skkkk_lk_debug") !== "1") {
+        LK.setLogLevel(LK.LogLevel.silent);
+      }
+    } catch (_) {}
     const room = new LK.Room({
       adaptiveStream: true,
       dynacast: true,
       disconnectOnPageLeave: true,
+      videoCaptureDefaults: {
+        resolution: isPhoneClient() ? LK.VideoPresets.h360 : LK.VideoPresets.h540,
+      },
+      publishDefaults: {
+        simulcast: true,
+        videoSimulcastLayers: [LK.VideoPresets.h180, LK.VideoPresets.h360],
+        dtx: true,
+        red: true,
+        screenShareEncoding: LK.ScreenSharePresets.h720fps5.encoding,
+      },
       audioCaptureDefaults: {
         echoCancellation: true,
         autoGainControl: true,
@@ -503,32 +636,70 @@ const SKKKKMeeting = {
     this.room = room;
     this._bind(room, els);
     this._bindChrome(els);
-    if (els.screenBtn && !canShareScreen()) {
-      els.screenBtn.disabled = true;
-      els.screenBtn.title = SCREEN_HINT;
+    if (els.screenBtn) {
+      if (isPhoneClient()) {
+        els.screenBtn.hidden = true;
+      } else if (!canShareScreen()) {
+        els.screenBtn.disabled = true;
+        els.screenBtn.title = SCREEN_HINT;
+      }
     }
     statusEl.textContent = "Подключаюсь к комнате…";
+
+    let iceTimer = null;
     try {
-      await Promise.race([
-        room.connect(livekit.url, livekit.token, { peerConnectionTimeout: ICE_TIMEOUT_MS }),
-        new Promise((_, reject) => {
-          setTimeout(() => reject(new Error(ICE_HINT)), ICE_TIMEOUT_MS);
-        }),
-      ]);
+      const connectPromise = room.connect(livekit.url, livekit.token, { peerConnectionTimeout: ICE_TIMEOUT_MS });
+      const timeoutPromise = new Promise((_, reject) => {
+        iceTimer = setTimeout(() => reject(new Error(ICE_HINT)), ICE_TIMEOUT_MS);
+      });
+      await Promise.race([connectPromise, timeoutPromise]);
+      if (iceTimer) clearTimeout(iceTimer);
+
       this._joined = true;
+      this._startHeartbeat(els);
+      if (!this._deviceListener && navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+        this._deviceListener = () => this._onDeviceChange();
+        navigator.mediaDevices.addEventListener("devicechange", this._deviceListener);
+        window.addEventListener("online", () => {
+          if (this._rejoinWake) this._rejoinWake();
+        });
+        // Телефон: экран не должен гаснуть во время звонка, а звук после возврата из фона оживает
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState !== "visible" || this._leaving) return;
+          this._requestWakeLock();
+          this._ensureAudioContexts();
+          if (this.room && this.room.startAudio) Promise.resolve(this.room.startAudio()).catch(() => undefined);
+          if (this._rejoinWake) this._rejoinWake();
+        });
+      }
+      this._requestWakeLock();
       this._serverDenoise = true;
       this._soundOn = true;
       this._denoisePrefs = {};
       this._dfn3On = false;
+
+      // Безопасное подключение микрофона (не выбрасывает из комнаты при ошибке разрешений)
       const audioOpts = micCaptureOpts(devices && devices.audioDeviceId, this._dfn3On);
-      const videoOpts = devices && devices.videoDeviceId ? { deviceId: devices.videoDeviceId } : undefined;
-      await room.localParticipant.setMicrophoneEnabled(true, audioOpts);
-      if (this._dfn3On && !(await this._startDfn3())) {
-        this._dfn3On = false;
-        await this._restartMic(false);
-        this._toast(DFN3_HINT);
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true, audioOpts);
+        this._watchLocalMic();
+        if (this._dfn3On && !(await this._startDfn3())) {
+          this._dfn3On = false;
+          await this._restartMic(false);
+          this._toast(DFN3_HINT);
+        }
+      } catch (micErr) {
+        this._toast(mediaErrorText(micErr, "Микрофон"));
       }
-      await room.localParticipant.setCameraEnabled(Boolean(videoOpts), videoOpts);
+
+      // Безопасное подключение камеры
+      const videoOpts = devices && devices.videoDeviceId ? { deviceId: devices.videoDeviceId } : undefined;
+      try {
+        await room.localParticipant.setCameraEnabled(Boolean(videoOpts), videoOpts);
+      } catch (camErr) {
+        this._toast(mediaErrorText(camErr, "Камера"));
+      }
+
       statusEl.textContent = "Вы в комнате.";
       this._renderTiles(room, els);
       this._participants(room).forEach((person) => {
@@ -539,10 +710,20 @@ const SKKKKMeeting = {
       });
       this._bindPhoneGrid();
       this._syncControls(els);
+      this._ensureSignal();
       this.refreshSpeakers();
+      this.refreshMics();
       this.watchEnded(els);
+      this._maybePwaHint();
     } catch (err) {
-      statusEl.textContent = "Не удалось войти в комнату: " + (err && err.message ? err.message : err);
+      if (iceTimer) clearTimeout(iceTimer);
+      try { await room.disconnect(); } catch (_) {}
+      if (this.room === room) this.room = null;
+      this._joined = false;
+      const raw = err && err.message ? String(err.message) : String(err);
+      statusEl.textContent = /seem to be supported|webrtc/i.test(raw)
+        ? noWebRtcText()
+        : "Не удалось войти в комнату: " + raw;
     }
     return room;
   },
@@ -554,18 +735,26 @@ const SKKKKMeeting = {
       const picked = this.selectedDevices();
       await this.room.localParticipant.setMicrophoneEnabled(
         next,
-        next ? micCaptureOpts(picked.audioDeviceId, this._dfn3On) : undefined,
+        next ? micCaptureOpts(this._pickedMicId || picked.audioDeviceId, this._dfn3On) : undefined,
       );
-      if (next && this._dfn3On && !(await this._startDfn3())) {
-        this._dfn3On = false;
-        await this._restartMic(false);
-        this._toast(DFN3_HINT);
+      if (next) {
+        await this._ensureAudioContexts();
+        if (this._dfn3On && !(await this._startDfn3())) {
+          this._dfn3On = false;
+          await this._restartMic(false);
+          this._toast(DFN3_HINT);
+        }
+        this._watchLocalMic();
+      } else {
+        this._stopMicLevelWatch();
+        this._clearMicSilent();
       }
     } catch (err) {
       this._setStatus("Микрофон: " + (err && err.message ? err.message : err));
+    } finally {
+      this._syncControls(this._roomEls);
+      this._renderTiles(this.room, this._roomEls);
     }
-    this._syncControls(this._roomEls);
-    this._renderTiles(this.room, this._roomEls);
   },
 
   async toggleCam(btn) {
@@ -582,6 +771,46 @@ const SKKKKMeeting = {
     this._renderTiles(this.room, this._roomEls);
   },
 
+  async switchCamera() {
+    if (!this.room) return;
+    const local = this.room.localParticipant;
+    if (!local.isCameraEnabled) return;
+    try {
+      const cams = (await listInputDevices()).video.filter((item) => item.deviceId);
+      if (cams.length < 2) {
+        this._toast("Другая камера не найдена");
+        return;
+      }
+      const pub = local.getTrackPublication && local.getTrackPublication("camera");
+      const track = pub && pub.track && pub.track.mediaStreamTrack;
+      const current = track && track.getSettings ? track.getSettings().deviceId : "";
+      const idx = cams.findIndex((item) => item.deviceId === current);
+      const next = cams[(idx + 1) % cams.length];
+      await this.room.switchActiveDevice(KIND_VIDEO_IN, next.deviceId);
+      this._syncLocalMirror();
+      this._toast("Камера: " + (next.label || "следующая"));
+    } catch (err) {
+      this._setStatus(publishErrorText("Камера", err));
+    }
+    this._syncControls(this._roomEls);
+    this._renderTiles(this.room, this._roomEls);
+  },
+
+  async _refreshCamSwitch(retry = true) {
+    const btn = this._roomEls && this._roomEls.camSwitchBtn;
+    if (!btn) return;
+    const on = Boolean(this.room && this.room.localParticipant.isCameraEnabled);
+    let many = false;
+    if (on) many = (await listInputDevices()).video.length > 1;
+    btn.hidden = !(on && many);
+    // Chrome на Android сразу после включения камеры может отдать неполный список устройств: спросим ещё раз
+    if (on && !many && retry) {
+      setTimeout(() => {
+        if (this.room) this._refreshCamSwitch(false);
+      }, 1500);
+    }
+  },
+
   async toggleScreen(btn) {
     if (!this.room) return;
     const on = this.room.localParticipant.isScreenShareEnabled;
@@ -591,7 +820,7 @@ const SKKKKMeeting = {
       return;
     }
     try {
-      await this.room.localParticipant.setScreenShareEnabled(!on);
+      await this.room.localParticipant.setScreenShareEnabled(!on, { contentHint: "detail" });
     } catch (err) {
       const msg = err && err.message ? String(err.message) : "";
       this._setStatus(
@@ -605,22 +834,113 @@ const SKKKKMeeting = {
   },
 
   async leaveRoom() {
-    if (this._endedTimer) {
-      clearInterval(this._endedTimer);
-      this._endedTimer = 0;
-    }
+    this._leaving = true;
+    if (this._rejoinWake) this._rejoinWake();
+    this._releaseWakeLock();
+    this._stopAllTimers();
     await this._stopVoice();
+    const leaveApiUrl = this._roomEls && this._roomEls.leaveApiUrl;
+    const identity = this._roomEls && this._roomEls.identity;
+    if (leaveApiUrl && identity) {
+      try {
+        const body = JSON.stringify({ identity });
+        if (window.SKKKK && SKKKK.apiJson) await SKKKK.apiJson(leaveApiUrl, { method: "POST", body });
+        else await fetch(leaveApiUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+      } catch (_) {}
+    }
     if (this.room) {
-      await this.room.disconnect();
+      try { await this.room.disconnect(); } catch (_) {}
       this.room = null;
     }
     const url = this._roomEls && this._roomEls.leaveUrl;
     window.location.href = url || window.location.href;
   },
 
+  _showDuplicateSession(els) {
+    // Вы вошли в эту же комнату с другой вкладки/устройства: эту сессию LiveKit закрыл. Не переподключаемся сами
+    // (иначе две вкладки будут бесконечно выбивать друг друга) — даём явную кнопку.
+    for (const btn of [els.micBtn, els.camBtn, els.screenBtn, els.soundBtn, els.camSwitchBtn]) {
+      if (btn) btn.disabled = true;
+    }
+    if (!els.statusEl) return;
+    els.statusEl.textContent = "Вы вошли в эту комнату с другой вкладки. Здесь связь закрыта. ";
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "btn btn-sm btn-light ms-2";
+    back.id = "meeting-duplicate-return";
+    back.textContent = "Вернуться сюда";
+    back.addEventListener("click", () => window.location.reload());
+    els.statusEl.appendChild(back);
+  },
+
+  _stopAllTimers() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = 0;
+    }
+    if (this._endedTimer) {
+      clearInterval(this._endedTimer);
+      this._endedTimer = 0;
+    }
+    this._stopMicLevelWatch();
+  },
+
+  _startHeartbeat(els) {
+    if (this._heartbeatTimer || !els || !els.heartbeatUrl || !els.identity) return;
+    const beat = () => {
+      if (!this._joined) return;
+      const body = JSON.stringify({ identity: els.identity });
+      if (els.authedApi && window.SKKKK && SKKKK.apiJson) {
+        Promise.resolve(SKKKK.apiJson(els.heartbeatUrl, { method: "POST", body })).catch(() => undefined);
+        return;
+      }
+      fetch(els.heartbeatUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+    beat();
+    this._heartbeatTimer = setInterval(beat, 20000);
+  },
+
+  // Своё окно подтверждения вместо window.confirm: единый стиль, не блокирует медиа и не пропускается автотестами.
+  _confirm(message, okLabel) {
+    return new Promise((resolve) => {
+      const wrap = document.createElement("div");
+      wrap.className = "meeting-confirm";
+      wrap.setAttribute("role", "alertdialog");
+      wrap.setAttribute("aria-modal", "true");
+      wrap.innerHTML =
+        '<div class="meeting-confirm-box"><p class="meeting-confirm-text"></p>' +
+        '<div class="meeting-confirm-actions"><button type="button" class="btn btn-secondary" data-act="no">Отмена</button>' +
+        '<button type="button" class="btn btn-danger" data-act="yes"></button></div></div>';
+      wrap.querySelector(".meeting-confirm-text").textContent = message;
+      wrap.querySelector('[data-act="yes"]').textContent = okLabel || "Да";
+      const done = (value) => {
+        document.removeEventListener("keydown", onKey);
+        wrap.remove();
+        resolve(value);
+      };
+      const onKey = (ev) => {
+        if (ev.key === "Escape") done(false);
+      };
+      document.addEventListener("keydown", onKey);
+      wrap.addEventListener("click", (ev) => {
+        const act = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-act");
+        if (act === "yes") done(true);
+        else if (act === "no" || ev.target === wrap) done(false);
+      });
+      (this._roomEls && this._roomEls.stageEl ? this._roomEls.stageEl : document.body).appendChild(wrap);
+      wrap.querySelector('[data-act="no"]').focus();
+    });
+  },
+
   async endForAll() {
     const url = this._roomEls && this._roomEls.endUrl;
     if (!url) return;
+    if (!(await this._confirm("Завершить встречу для всех участников?", "Завершить для всех"))) return;
     try {
       if (window.SKKKK && SKKKK.apiJson) await SKKKK.apiJson(url, { method: "POST" });
       else await fetch(url, { method: "POST" });
@@ -633,12 +953,21 @@ const SKKKKMeeting = {
 
   watchEnded(els) {
     const token = els && els.publicToken;
-    if (!token || this._endedTimer) return;
+    const endUrl = els && (els.watchEndedUrl || (token ? "/api/meetings/public/" + encodeURIComponent(token) : null));
+    if (!endUrl || this._endedTimer) return;
     this._endedTimer = setInterval(async () => {
       try {
-        const res = await fetch("/api/meetings/public/" + encodeURIComponent(token));
+        const res = await fetch(endUrl);
+        if (res.status === 404 || res.status === 410) {
+          // Встречу удалили или ссылку отозвали: без этого клиент бесконечно переподключается по старому токену
+          // LiveKit, комната создаётся заново, и запись возобновляется в новом каталоге (находка аудита 4.9).
+          this._setStatus("Встреча недоступна: она удалена или ссылка отозвана.");
+          await this.leaveRoom();
+          return;
+        }
+        if (!res.ok) return;
         const data = await res.json();
-        if (data.ended) {
+        if (data.ended || data.status === "ended") {
           this._setStatus("Встреча завершена.");
           await this.leaveRoom();
         }
@@ -662,7 +991,7 @@ const SKKKKMeeting = {
   async copyInvite() {
     const url = this.inviteUrl();
     if (!url) {
-      this._toast("Ссылку гостя возьмите в карточке встречи.");
+      this._toast(TEXT_INVITE_CARD);
       return;
     }
     try {
@@ -733,7 +1062,16 @@ const SKKKKMeeting = {
     const select = this._roomEls && this._roomEls.speakerSelect;
     if (!wrap || !select) return;
     if (!canSetSink()) {
-      wrap.hidden = true;
+      wrap.hidden = false;
+      const menu = this._roomEls && this._roomEls.speakerMenu;
+      if (menu) {
+        menu.replaceChildren();
+        const info = document.createElement("div");
+        info.className = "meeting-speaker-item";
+        info.setAttribute("role", "note");
+        info.textContent = TEXT_SINK_UNSUPPORTED;
+        menu.appendChild(info);
+      }
       return;
     }
     wrap.hidden = false;
@@ -744,6 +1082,337 @@ const SKKKKMeeting = {
     if (!select.onchange) {
       select.onchange = () => this.setSink(select.value);
     }
+  },
+
+  // Выбор микрофона прямо в комнате (по аналогии с камерой и динамиком). Кнопка создаётся здесь, разметка страниц не меняется.
+  _ensureMicPicker() {
+    const els = this._roomEls;
+    if (!els || els.micPickWrap) return els && els.micPickWrap;
+    const anchor = els.speakerWrap || els.moreTray;
+    if (!anchor || !anchor.parentNode) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "meeting-dock-speaker";
+    wrap.id = "meeting-mic-pick-wrap";
+    wrap.hidden = true;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "meeting-dock-btn";
+    btn.id = "meeting-mic-pick-btn";
+    btn.setAttribute("aria-haspopup", "listbox");
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-label", "Выбрать микрофон");
+    btn.title = "Выбрать микрофон";
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><defs><mask id="mic-cfg-cut"><rect width="24" height="24" fill="#fff"/><circle cx="17.6" cy="17.4" r="6.9" fill="#000"/></mask></defs><g mask="url(#mic-cfg-cut)"><rect x="7" y="1.6" width="8" height="14" rx="4" fill="currentColor"/><path d="M4.6 11.4V13a6.1 6.1 0 0 0 6.1 6.1v2.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></g><path fill="currentColor" fill-rule="evenodd" stroke="currentColor" stroke-width=".6" stroke-linejoin="round" d="M16.56 13.23 L16.71 11.77 L18.49 11.77 L18.64 13.23 L20.69 14.41 L22.03 13.81 L22.92 15.36 L21.73 16.21 L21.73 18.59 L22.92 19.44 L22.03 20.99 L20.69 20.39 L18.64 21.57 L18.49 23.03 L16.71 23.03 L16.56 21.57 L14.51 20.39 L13.17 20.99 L12.28 19.44 L13.47 18.59 L13.47 16.21 L12.28 15.36 L13.17 13.81 L14.51 14.41ZM15.900000000000002 17.4a1.7 1.7 0 1 0 3.4 0a1.7 1.7 0 1 0 -3.4 0Z"/></svg>' +
+      '<span class="visually-hidden">Выбрать микрофон</span>';
+    const menu = document.createElement("div");
+    menu.id = "meeting-mic-pick-menu";
+    menu.className = "meeting-speaker-menu";
+    menu.hidden = true;
+    menu.setAttribute("role", "listbox");
+    menu.setAttribute("aria-label", "Микрофон");
+    wrap.appendChild(btn);
+    wrap.appendChild(menu);
+    anchor.parentNode.insertBefore(wrap, els.speakerWrap || anchor);
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = menu.hidden;
+      menu.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        this.toggleSpeakerMenu(false);
+        this.toggleRoster(false);
+      }
+    });
+    menu.addEventListener("click", (event) => event.stopPropagation());
+    document.addEventListener("click", () => {
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    });
+    els.micPickWrap = wrap;
+    els.micPickBtn = btn;
+    els.micPickMenu = menu;
+    return wrap;
+  },
+
+  _currentMicId() {
+    const pub = this.room && this.room.localParticipant && this.room.localParticipant.getTrackPublication("microphone");
+    const track = pub && pub.track && pub.track.mediaStreamTrack;
+    try {
+      return (track && track.getSettings && track.getSettings().deviceId) || "";
+    } catch (_) {
+      return "";
+    }
+  },
+
+  async refreshMics() {
+    const wrap = this._ensureMicPicker();
+    const els = this._roomEls;
+    if (!wrap || !els || !els.micPickMenu) return;
+    const mics = (await listInputDevices()).audio.filter((item) => item.deviceId && item.deviceId !== "communications");
+    wrap.hidden = mics.length < 2;
+    const current = this._pickedMicId || this._currentMicId();
+    els.micPickMenu.replaceChildren();
+    mics.forEach((device, index) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "meeting-speaker-item";
+      item.textContent = deviceLabel(device, index, KIND_AUDIO_IN);
+      if (device.deviceId === current) item.setAttribute("aria-current", "true");
+      item.addEventListener("click", () => {
+        els.micPickMenu.hidden = true;
+        this.setMic(device.deviceId, item.textContent);
+      });
+      els.micPickMenu.appendChild(item);
+    });
+  },
+
+  // Смена микрофона в комнате. Выбор запоминается: включение/выключение микрофона дальше идёт с этим устройством.
+  async setMic(deviceId, label) {
+    if (!this.room || !deviceId) return;
+    this._pickedMicId = deviceId;
+    const lobby = (this._preview && this._preview.els) || {};
+    if (lobby.audioSelect && Array.from(lobby.audioSelect.options).some((o) => o.value === deviceId)) {
+      lobby.audioSelect.value = deviceId;
+    }
+    const local = this.room.localParticipant;
+    if (!local.isMicrophoneEnabled) {
+      this._toast("Микрофон: " + (label || "выбран") + ". Он включится при включении звука.");
+      this.refreshMics();
+      return;
+    }
+    try {
+      if (this._dfn3On) {
+        await this._restartMic(true);
+      } else {
+        await this.room.switchActiveDevice(KIND_AUDIO_IN, deviceId);
+        this._watchLocalMic();
+      }
+      this._toast("Микрофон: " + (label || "выбран"));
+    } catch (err) {
+      this._toast(mediaErrorText(err, "Микрофон"));
+    }
+    this.refreshMics();
+  },
+
+  // Устройства подключили или отключили: обновить списки, а если пропал используемый микрофон, перейти на доступный.
+  async _onDeviceChange() {
+    if (!this.room) return;
+    this.refreshSpeakers();
+    this._refreshCamSwitch();
+    await this.refreshMics();
+    const local = this.room.localParticipant;
+    if (!local.isMicrophoneEnabled) return;
+    const mics = (await listInputDevices()).audio.filter((item) => item.deviceId);
+    const current = this._currentMicId();
+    const alive = this.room.localParticipant.getTrackPublication("microphone");
+    const ended = alive && alive.track && alive.track.mediaStreamTrack && alive.track.mediaStreamTrack.readyState === "ended";
+    if (mics.length && (ended || (current && !mics.some((item) => item.deviceId === current)))) {
+      try {
+        await this.room.switchActiveDevice(KIND_AUDIO_IN, mics[0].deviceId);
+        this._pickedMicId = mics[0].deviceId;
+        this._toast("Микрофон отключён, переключился на «" + (mics[0].label || "другой") + "»");
+        this.refreshMics();
+      } catch (err) {
+        this._toast(mediaErrorText(err, "Микрофон"));
+      }
+    }
+  },
+
+  async _requestWakeLock() {
+    if (this._leaving || this._wakeLock || !navigator.wakeLock || !navigator.wakeLock.request) return;
+    try {
+      const lock = await navigator.wakeLock.request("screen");
+      this._wakeLock = lock;
+      lock.addEventListener("release", () => {
+        if (this._wakeLock === lock) this._wakeLock = null;
+      });
+    } catch (_) {
+      this._wakeLock = null;
+    }
+  },
+
+  _releaseWakeLock() {
+    const lock = this._wakeLock;
+    this._wakeLock = null;
+    if (lock && lock.release) lock.release().catch(() => undefined);
+  },
+
+  // Индикатор своей связи: четыре палочки вверху комнаты (строку статуса не трогаем). Виден всегда, по наведению подсказка словами.
+  _ensureSignal() {
+    let box = document.getElementById("meeting-signal");
+    if (box) return box;
+    const top = this._roomEls && this._roomEls.stageEl && this._roomEls.stageEl.querySelector(".meeting-stage-top");
+    if (!top) return null;
+    box = document.createElement("div");
+    box.id = "meeting-signal";
+    box.className = "meeting-signal";
+    box.setAttribute("role", "img");
+    box.dataset.level = "unknown";
+    box.setAttribute("aria-label", "Качество связи: проверяется");
+    box.title = "Качество связи: проверяется";
+    for (let n = 0; n < 4; n += 1) box.appendChild(document.createElement("i"));
+    top.appendChild(box);
+    return box;
+  },
+
+  _paintSignal(level) {
+    const box = this._ensureSignal();
+    if (!box) return;
+    const text = level === "unknown" ? "проверяется" : SIGNAL_LABELS[level];
+    box.dataset.level = String(level);
+    box.setAttribute("aria-label", "Качество связи: " + text);
+    box.title = "Качество связи: " + text;
+  },
+
+  _linkQuality(quality) {
+    const key = String(quality && typeof quality === "object" ? quality.quality || quality.value || "" : quality || "").toLowerCase();
+    if (!(key in SIGNAL_LEVELS)) return;
+    const target = SIGNAL_LEVELS[key];
+    const current = this._sigLevel === undefined ? "unknown" : this._sigLevel;
+    if (target === current) {
+      clearTimeout(this._sigTimer);
+      this._sigTimer = null;
+      this._sigPending = null;
+      return;
+    }
+    // «Плохо» подтверждается 2 с, возврат из плохого 3 с; обрыв и колебания хорошо/отлично показываются сразу
+    let delay = 0;
+    if (target === 1) delay = SIGNAL_POOR_DELAY_MS;
+    else if (typeof current === "number" && current <= 1 && target >= 3) delay = SIGNAL_RECOVER_DELAY_MS;
+    if (delay === 0) {
+      this._applySignal(target);
+      return;
+    }
+    if (this._sigPending === target) return;
+    clearTimeout(this._sigTimer);
+    this._sigPending = target;
+    this._sigTimer = setTimeout(() => {
+      this._sigTimer = null;
+      this._sigPending = null;
+      this._applySignal(target);
+    }, delay);
+  },
+
+  _applySignal(level) {
+    clearTimeout(this._sigTimer);
+    this._sigTimer = null;
+    this._sigPending = null;
+    const before = this._sigLevel;
+    this._sigLevel = level;
+    this._paintSignal(level);
+    if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
+    const now = Date.now();
+    if (level === 1) {
+      this._sigBadAt = this._sigBadAt || now;
+      if (now - (this._qToastAt || 0) > LINK_TOAST_GAP_MS) {
+        this._qToastAt = now;
+        const camOn = Boolean(this.room && this.room.localParticipant && this.room.localParticipant.isCameraEnabled);
+        this._toast(TEXT_LINK_POOR_HINT, camOn ? { label: "Выключить камеру", run: () => this.toggleCam() } : undefined);
+      }
+    } else if (level >= 3) {
+      const badFor = this._sigBadAt ? now - this._sigBadAt : 0;
+      this._sigBadAt = 0;
+      if (typeof before === "number" && before <= 1 && badFor >= LINK_BACK_MIN_SHOWN_MS) this._toast(TEXT_LINK_BETTER);
+    }
+  },
+
+  _resetLinkQuality(level) {
+    clearTimeout(this._sigTimer);
+    this._sigTimer = null;
+    this._sigPending = null;
+    this._sigBadAt = 0;
+    this._sigLevel = level === undefined ? undefined : level;
+    if (document.getElementById("meeting-signal")) this._paintSignal(level === undefined ? "unknown" : level);
+  },
+
+  _netStatus(text, bad) {
+    const el = this._roomEls && this._roomEls.statusEl;
+    if (el) el.textContent = text;
+    if (bad) this._toast(text);
+  },
+
+  // Связь оборвалась насовсем (библиотека уже пробовала восстановить сама): возвращаемся в комнату с тем же именем участника,
+  // пока встреча идёт. Повторный вход с тем же identity вытесняет «зависшую» старую сессию, место в комнате сохраняется.
+  _beginRejoin(els) {
+    if (this._rejoining || this._leaving) return;
+    this._rejoining = true;
+    this._rejoinLoop(els).finally(() => {
+      this._rejoining = false;
+    });
+  },
+
+  _rejoinWait(ms) {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      this._rejoinWake = () => {
+        clearTimeout(t);
+        resolve();
+      };
+    });
+  },
+
+  async _rejoinLoop(els) {
+    const LK = window.LivekitClient;
+    const media = this._lastMedia || { mic: true, cam: false };
+    const started = Date.now();
+    this._netStatus(TEXT_LINK_LOST, false);
+    for (let attempt = 0; !this._leaving && Date.now() - started < REJOIN_TOTAL_MS; attempt += 1) {
+      await this._rejoinWait(REJOIN_DELAYS_MS[Math.min(attempt, REJOIN_DELAYS_MS.length - 1)]);
+      if (this._leaving || !this.room) return;
+      if (navigator.onLine === false) {
+        this._netStatus("Нет сети. Как только появится, вернусь в комнату…", false);
+        continue;
+      }
+      this._netStatus("Возвращаюсь в комнату… (попытка " + (attempt + 1) + ")", false);
+      try {
+        let cred = this._lastCred;
+        if (typeof els.refreshJoin === "function") {
+          const data = await els.refreshJoin();
+          if (data && data.livekit && data.livekit.token) {
+            cred = data.livekit;
+            if (data.identity) els.identity = data.identity;
+          }
+        }
+        if (!cred || !cred.token) continue;
+        this._lastCred = cred;
+        await this.room.connect(cred.url, cred.token, { peerConnectionTimeout: ICE_TIMEOUT_MS });
+      } catch (err) {
+        if (err && err.meetingGone) {
+          this._netStatus(err.message || "Встреча завершена или недоступна.", false);
+          return;
+        }
+        continue;
+      }
+      this._joined = true;
+      this._startHeartbeat(els);
+      this.watchEnded(els);
+      try {
+        if (media.mic) await this.room.localParticipant.setMicrophoneEnabled(true, micCaptureOpts(this._pickedMicId || this.selectedDevices().audioDeviceId, this._dfn3On));
+        if (media.cam) await this.room.localParticipant.setCameraEnabled(true, this.selectedDevices().videoDeviceId ? { deviceId: this.selectedDevices().videoDeviceId } : undefined);
+        if (media.mic) this._watchLocalMic();
+      } catch (mediaErr) {
+        this._toast(mediaErrorText(mediaErr, "Микрофон"));
+      }
+      this._renderTiles(this.room, els);
+      this._reattachAudio();
+      this._syncControls(els);
+      this._netStatus(TEXT_LINK_BACK, false);
+      this._toast(TEXT_LINK_BACK);
+      return;
+    }
+    if (this._leaving) return;
+    if (els.statusEl) {
+      els.statusEl.textContent = "Не удалось восстановить связь. ";
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "btn btn-sm btn-light ms-2";
+      back.id = "meeting-rejoin-reload";
+      back.textContent = "Войти снова";
+      back.addEventListener("click", () => window.location.reload());
+      els.statusEl.appendChild(back);
+    }
+    void LK;
   },
 
   toggleSpeakerMenu(force) {
@@ -778,15 +1447,28 @@ const SKKKKMeeting = {
 
   toggleSound() {
     this._soundOn = !this._soundOn;
-    this._applyOutputMute();
+    const pubs = this._remoteAudioPubs();
+    window.SKKKKLayout.soundPlan(this._soundOn, pubs).forEach((row) => {
+      if (row.pub && row.pub.setSubscribed) row.pub.setSubscribed(row.subscribed);
+    });
+    if (!this._soundOn) {
+      this._toast(TEXT_SOUND_OFF);
+    } else {
+      // КРИТИЧНО: При включении звука гарантированно прикрепляем аудиофайлы обратно в DOM
+      this._reattachAudio();
+    }
     this._syncControls(this._roomEls);
   },
 
-  _applyOutputMute() {
-    const root = (this._roomEls && this._roomEls.stageEl) || document;
-    root.querySelectorAll("audio").forEach((node) => {
-      node.muted = !this._soundOn;
+  _remoteAudioPubs() {
+    const out = [];
+    if (!this.room) return out;
+    this.room.remoteParticipants.forEach((person) => {
+      person.trackPublications.forEach((pub) => {
+        if (pub.kind === "audio") out.push(pub);
+      });
     });
+    return out;
   },
 
   async toggleDenoise() {
@@ -832,11 +1514,15 @@ const SKKKKMeeting = {
 
   async setSink(deviceId) {
     this._sinkId = deviceId || "";
+    let errorToastShown = false;
     if (this._playCtx && this._playCtx.setSinkId && this._sinkId) {
       try {
         await this._playCtx.setSinkId(this._sinkId);
       } catch (err) {
-        this._toast("Динамик недоступен");
+        if (!errorToastShown) {
+          this._toast("Динамик недоступен");
+          errorToastShown = true;
+        }
       }
     }
     const nodes = document.querySelectorAll("audio");
@@ -846,24 +1532,41 @@ const SKKKKMeeting = {
         try {
           await node.setSinkId(this._sinkId);
         } catch (err) {
-          this._toast("Динамик недоступен");
+          if (!errorToastShown) {
+            this._toast("Динамик недоступен");
+            errorToastShown = true;
+          }
         }
       }
     }
   },
 
-  _toast(text) {
+  _toast(text, action) {
     const box = this._roomEls && this._roomEls.toastEl;
     if (!box) {
       this._setStatus(text);
       return;
     }
-    box.textContent = text;
+    box.replaceChildren();
+    const msg = document.createElement("span");
+    msg.textContent = text;
+    box.appendChild(msg);
+    if (action && action.label && action.run) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "meeting-toast-action";
+      btn.textContent = action.label;
+      btn.addEventListener("click", () => {
+        box.hidden = true;
+        action.run();
+      });
+      box.appendChild(btn);
+    }
     box.hidden = false;
     clearTimeout(this._toastTimer);
     this._toastTimer = setTimeout(() => {
       box.hidden = true;
-    }, 2200);
+    }, TOAST_MS);
   },
 
   _speakingTile() {
@@ -1020,7 +1723,9 @@ const SKKKKMeeting = {
     if (!audioTrack || !els.meterEl) return;
     const ctx = this._preview.audioCtx || new AudioContext();
     this._preview.audioCtx = ctx;
-    if (this._meterSource) this._meterSource.disconnect();
+    if (this._meterSource) {
+      try { this._meterSource.disconnect(); } catch (_) {}
+    }
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = METER_FFT_SIZE;
@@ -1057,12 +1762,26 @@ const SKKKKMeeting = {
       await this.room.localParticipant.setMicrophoneEnabled(false);
       await this.room.localParticipant.setMicrophoneEnabled(
         true,
-        micCaptureOpts(picked.audioDeviceId, dfn3On),
+        micCaptureOpts(this._pickedMicId || picked.audioDeviceId, dfn3On),
       );
+      this._watchLocalMic();
       return dfn3On ? this._startDfn3() : true;
     } catch (err) {
       this._setStatus("Микрофон: " + (err && err.message ? err.message : err));
       return false;
+    }
+  },
+
+  async _ensureAudioContexts() {
+    const resumed = [];
+    if (this._playCtx && this._playCtx.state === "suspended") {
+      resumed.push(this._playCtx.resume());
+    }
+    if (this._preview && this._preview.audioCtx && this._preview.audioCtx.state === "suspended") {
+      resumed.push(this._preview.audioCtx.resume());
+    }
+    if (resumed.length) {
+      await Promise.all(resumed.map((p) => Promise.resolve(p).catch(() => undefined)));
     }
   },
 
@@ -1134,6 +1853,7 @@ const SKKKKMeeting = {
 
   async _stopVoice() {
     await this._stopDfn3();
+    this._stopMicLevelWatch();
     if (!this._playCtx) return;
     await this._playCtx.close().catch(() => undefined);
     this._playCtx = null;
@@ -1167,13 +1887,21 @@ const SKKKKMeeting = {
   _syncControls(els) {
     if (!els || !this.room) return;
     const local = this.room.localParticipant;
+    if (this._joined && !this._rejoining) {
+      this._lastMedia = { mic: local.isMicrophoneEnabled, cam: local.isCameraEnabled };
+    }
     this._markToggle(els.micBtn, local.isMicrophoneEnabled, "Микрофон");
     this._markToggle(els.camBtn, local.isCameraEnabled, "Камера");
+    this._refreshCamSwitch();
     this._markToggle(els.screenBtn, local.isScreenShareEnabled, "Экран");
     if (els.screenBtn) {
-      const allowed = canShareScreen() || local.isScreenShareEnabled;
-      els.screenBtn.disabled = !allowed;
-      els.screenBtn.title = allowed ? "" : SCREEN_HINT;
+      if (isPhoneClient()) {
+        els.screenBtn.hidden = true;
+      } else {
+        const allowed = canShareScreen() || local.isScreenShareEnabled;
+        els.screenBtn.disabled = !allowed;
+        els.screenBtn.title = allowed ? "" : SCREEN_HINT;
+      }
     }
     this._syncFsChrome();
     this._syncLayoutBtn();
@@ -1196,7 +1924,151 @@ const SKKKKMeeting = {
 
   _screenTile() {
     const box = this._roomEls && this._roomEls.tilesEl;
-    return box ? box.querySelector(".meeting-tile-screen") : null;
+    return box ? box.querySelector(".meeting-tile-screen.is-lead") || box.querySelector(".meeting-tile-screen") : null;
+  },
+
+  pinScreenLead() {
+    const lead = this._screenTile();
+    if (!lead) return;
+    this._pinLocked = false;
+    this._spotlightId = lead.id;
+    this._applySpotlight();
+    if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
+  },
+
+  _collectScreens(people) {
+    const screens = [];
+    people.forEach((person) => {
+      person.trackPublications.forEach((pub) => {
+        if (pub.kind !== "video" || !isScreenPub(pub)) return;
+        const sid = String(pub.trackSid || pub.sid || "");
+        if (!sid) return;
+        screens.push({ sid: sid, personId: tileKey(person), person: person, pub: pub });
+      });
+    });
+    return screens;
+  },
+
+  _ensureScreenTile(tilesEl, screen) {
+    const id = SCREEN_TILE_PREFIX + screen.sid;
+    let tile = document.getElementById(id);
+    if (tile) return tile;
+    tile = document.createElement("article");
+    tile.id = id;
+    tile.className = "meeting-tile meeting-tile-screen";
+    tile.setAttribute("role", "listitem");
+    tile.innerHTML =
+      '<div class="meeting-tile-stage"></div><div class="meeting-tile-meta"><span class="meeting-tile-name"></span><span class="meeting-tile-flags"></span></div><button type="button" class="meeting-tile-fs" data-tile-fs="1" aria-label="Развернуть окно" title="Развернуть">' +
+      ICON_EXPAND +
+      "</button>";
+    tilesEl.appendChild(tile);
+    return tile;
+  },
+
+  _fillScreenTile(tile, screen, lead) {
+    tile.classList.toggle("is-lead", Boolean(lead));
+    const nameEl = tile.querySelector(".meeting-tile-name");
+    nameEl.textContent = TEXT_SCREEN_PREFIX + this._label(screen.person);
+    const stage = tile.querySelector(".meeting-tile-stage");
+    const pub = screen.pub;
+    const key = pub && pub.track ? String(pub.track.sid || pub.trackSid || screen.sid) : "";
+    if (stage.dataset.videoKey === key) return;
+    stage.dataset.videoKey = key;
+    stage.replaceChildren();
+    if (!pub || !pub.track) {
+      const mark = document.createElement("div");
+      mark.className = "meeting-tile-placeholder";
+      mark.textContent = "Э";
+      stage.appendChild(mark);
+      return;
+    }
+    const node = pub.track.attach();
+    markInlineVideo(node);
+    node.muted = true;
+    node.className = "meeting-tile-stream is-screen";
+    stage.appendChild(node);
+  },
+
+  _onMicSilent() {
+    const local = this.room && this.room.localParticipant;
+    if (local && local.setAttributes) {
+      local.setAttributes({ mic_silent: "1" });
+    }
+    this._toast(TEXT_MIC_SILENT, {
+      label: TEXT_MIC_RESTART,
+      run: () => this._restartMic(this._dfn3On),
+    });
+    if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
+  },
+
+  _clearMicSilent() {
+    const local = this.room && this.room.localParticipant;
+    if (local && local.setAttributes) {
+      local.setAttributes({ mic_silent: "" });
+    }
+  },
+
+  _watchLocalMic() {
+    const track = localMicTrack(this.room);
+    const media = track && track.mediaStreamTrack;
+    if (!media) return;
+    // Используем addEventListener вместо прямой перезаписи onmute/onended
+    media.addEventListener("mute", () => this._onMicSilent());
+    media.addEventListener("ended", () => this._onMicSilent());
+    this._watchMicLevel(media);
+  },
+
+  _stopMicLevelWatch() {
+    if (this._silentMeterTimer) {
+      cancelAnimationFrame(this._silentMeterTimer);
+      this._silentMeterTimer = 0;
+    }
+    if (this._silentMeterSource) {
+      try { this._silentMeterSource.disconnect(); } catch (_) {}
+      this._silentMeterSource = null;
+    }
+    if (this._silentMeterCtx) {
+      try { this._silentMeterCtx.close(); } catch (_) {}
+      this._silentMeterCtx = null;
+    }
+  },
+
+  _watchMicLevel(media) {
+    this._stopMicLevelWatch();
+    try {
+      const ctx = new AudioContext();
+      this._silentMeterCtx = ctx;
+      const source = ctx.createMediaStreamSource(new MediaStream([media]));
+      this._silentMeterSource = source;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = METER_FFT_SIZE;
+      source.connect(analyser);
+      const buffer = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        if (!this.room || !this.room.localParticipant || !this.room.localParticipant.isMicrophoneEnabled) {
+          this._stopMicLevelWatch();
+          return;
+        }
+        if (meterRatio(analyser, buffer) >= METER_HEARD) {
+          this._clearMicSilent();
+        }
+        this._silentMeterTimer = requestAnimationFrame(tick);
+      };
+      this._silentMeterTimer = requestAnimationFrame(tick);
+    } catch (e) {
+      // Игнорируем в случае ограничений аудиоконтекста
+    }
+  },
+
+  _maybePwaHint() {
+    if (!isPhoneClient()) return;
+    try {
+      if (localStorage.getItem(PWA_HINT_KEY)) return;
+      localStorage.setItem(PWA_HINT_KEY, "1");
+    } catch (err) {
+      return;
+    }
+    this._toast(TEXT_PWA_HINT);
   },
 
   _bindChrome(els) {
@@ -1218,6 +2090,7 @@ const SKKKKMeeting = {
     }
     document.addEventListener("click", () => this.toggleSpeakerMenu(false));
     if (els.soundBtn) els.soundBtn.addEventListener("click", () => this.toggleSound());
+    if (els.screenLeadBtn) els.screenLeadBtn.addEventListener("click", () => this.pinScreenLead());
     if (els.denoiseBtn) {
       els.denoiseBtn.hidden = false;
       els.denoiseBtn.addEventListener("click", () => this.toggleDenoise());
@@ -1232,14 +2105,61 @@ const SKKKKMeeting = {
     const LK = window.LivekitClient;
     this._roomEls = els;
     const redraw = () => {
-      this._dropRawIfCleaner(room);
-      this._renderTiles(room, els);
+      if (this._raf) return;
+      this._raf = requestAnimationFrame(() => {
+        this._raf = 0;
+        this._dropRawIfCleaner(room);
+        this._renderTiles(room, els);
+        this._fillRoster(
+          this._participants(room).filter((person) => !isHidden(person)),
+          room,
+        );
+      });
+    };
+    const onPublished = (pub, person) => {
+      const sid = String((pub && (pub.trackSid || pub.sid)) || "");
+      if (sid) this._publishedAt[sid] = Date.now();
+      if (
+        !this._soundOn &&
+        pub &&
+        pub.kind === "audio" &&
+        person !== room.localParticipant &&
+        pub.setSubscribed
+      ) {
+        pub.setSubscribed(false);
+      }
+      if (pub && isScreenPub(pub)) {
+        this._pinLocked = false;
+        this._spotlightId = SCREEN_TILE_PREFIX + sid;
+      }
+      redraw();
     };
     room.on(LK.RoomEvent.ParticipantConnected, (person) => {
-      if (!isCleaner(person) && this._serverDenoise === false) this._publishDenoise(false);
+      if (!isHidden(person) && this._serverDenoise === false) this._publishDenoise(false);
       redraw();
     });
     room.on(LK.RoomEvent.ParticipantDisconnected, redraw);
+    if (LK.RoomEvent.TrackPublished) room.on(LK.RoomEvent.TrackPublished, onPublished);
+    if (LK.RoomEvent.TrackUnpublished) room.on(LK.RoomEvent.TrackUnpublished, redraw);
+    if (LK.RoomEvent.TrackStreamStateChanged) room.on(LK.RoomEvent.TrackStreamStateChanged, redraw);
+    if (LK.RoomEvent.ParticipantNameChanged) room.on(LK.RoomEvent.ParticipantNameChanged, redraw);
+    if (LK.RoomEvent.ParticipantAttributesChanged) {
+      room.on(LK.RoomEvent.ParticipantAttributesChanged, redraw);
+    }
+    if (LK.RoomEvent.ConnectionQualityChanged) {
+      room.on(LK.RoomEvent.ConnectionQualityChanged, (quality, person) => {
+        if (person && person.identity) this._quality[person.identity] = quality;
+        if (person === room.localParticipant) this._linkQuality(quality);
+        redraw();
+      });
+    }
+    // ВАЖНО: Не спамим предупреждением о сломанном микрофоне при обычном молчании пользователя
+    if (LK.RoomEvent.MediaDevicesError) {
+      room.on(LK.RoomEvent.MediaDevicesError, (err) => {
+        this._toast(mediaErrorText(err, "Микрофон"));
+        this._onMicSilent();
+      });
+    }
     if (LK.RoomEvent.ParticipantMetadataChanged) {
       room.on(LK.RoomEvent.ParticipantMetadataChanged, () => this._reattachAudio());
     }
@@ -1256,7 +2176,7 @@ const SKKKKMeeting = {
         this._reattachAudio();
       });
     }
-    room.on(LK.RoomEvent.LocalTrackPublished, redraw);
+    room.on(LK.RoomEvent.LocalTrackPublished, onPublished);
     room.on(LK.RoomEvent.LocalTrackUnpublished, redraw);
     room.on(LK.RoomEvent.TrackMuted, () => {
       this._syncControls(els);
@@ -1267,16 +2187,53 @@ const SKKKKMeeting = {
       this._renderTiles(room, els);
     });
     room.on(LK.RoomEvent.ActiveSpeakersChanged, () => this._syncSpeaking(room));
-    room.on(LK.RoomEvent.Disconnected, () => {
+    if (LK.RoomEvent.Reconnecting) {
+      room.on(LK.RoomEvent.Reconnecting, () => this._netStatus(TEXT_LINK_LOST, true));
+    }
+    if (LK.RoomEvent.Reconnected) {
+      room.on(LK.RoomEvent.Reconnected, () => {
+        this._resetLinkQuality();
+        this._netStatus(TEXT_LINK_BACK, false);
+        this._toast(TEXT_LINK_BACK);
+        this._reattachAudio();
+        redraw();
+      });
+    }
+    if (LK.RoomEvent.ActiveDeviceChanged) {
+      room.on(LK.RoomEvent.ActiveDeviceChanged, (kind) => {
+        if (kind === KIND_VIDEO_IN) this._syncLocalMirror();
+        if (kind === KIND_AUDIO_IN) this.refreshMics();
+      });
+    }
+    room.on(LK.RoomEvent.Disconnected, (reason) => {
       this._joined = false;
-      if (els.statusEl.textContent.startsWith("Не удалось войти")) {
+      this._resetLinkQuality(0);
+      this._stopAllTimers();
+      const R = LK.DisconnectReason || {};
+      const duplicate = R.DUPLICATE_IDENTITY !== undefined ? R.DUPLICATE_IDENTITY : 2;
+      if (reason === duplicate) {
+        this._showDuplicateSession(els);
         return;
       }
-      els.statusEl.textContent = "Связь с комнатой оборвалась.";
+      if (this._leaving || reason === (R.CLIENT_INITIATED !== undefined ? R.CLIENT_INITIATED : 1)) return;
+      const removed = R.PARTICIPANT_REMOVED !== undefined ? R.PARTICIPANT_REMOVED : 4;
+      const deleted = R.ROOM_DELETED !== undefined ? R.ROOM_DELETED : 5;
+      const closed = R.ROOM_CLOSED !== undefined ? R.ROOM_CLOSED : 10;
+      if (reason === removed) {
+        if (els.statusEl) els.statusEl.textContent = "Вас удалили из комнаты.";
+        return;
+      }
+      if (els.statusEl && els.statusEl.textContent.startsWith("Не удалось войти")) return;
+      // Комнату закрыли (встреча завершена) или связь пропала: возвращаемся, пока встреча идёт
+      if (reason === deleted || reason === closed) {
+        if (els.statusEl) els.statusEl.textContent = "Комната закрыта.";
+      }
+      this._beginRejoin(els);
     });
     room.on(LK.RoomEvent.TrackSubscribed, (track, pub, participant) => {
       if (participant === room.localParticipant && track.kind === "audio") return;
       this._attachTrack(els, participant, track, pub);
+      redraw();
     });
     room.on(LK.RoomEvent.TrackUnsubscribed, (track) => {
       track.detach().forEach((node) => {
@@ -1324,7 +2281,12 @@ const SKKKKMeeting = {
   },
 
   _participants(room) {
-    return [room.localParticipant].concat(Array.from(room.remoteParticipants.values()));
+    if (!room) return [];
+    const list = room.localParticipant ? [room.localParticipant] : [];
+    if (room.remoteParticipants && room.remoteParticipants.values) {
+      return list.concat(Array.from(room.remoteParticipants.values()));
+    }
+    return list;
   },
 
   _label(person) {
@@ -1333,27 +2295,59 @@ const SKKKKMeeting = {
 
   _renderTiles(room, els) {
     if (!els) return;
-    const people = this._participants(room).filter((person) => !isCleaner(person));
+    const people = this._participants(room).filter((person) => !isHidden(person));
     if (els.peopleEl) {
-      els.peopleEl.textContent = "В комнате: " + people.map((person) => this._label(person)).join(", ");
+      // Стабильный порядок по имени, длинный список — «первые + ещё N» с полным списком в подсказке.
+      const names = people.map((person) => this._label(person)).sort((a, b) => a.localeCompare(b, "ru"));
+      const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? " и ещё " + (names.length - 3) : "");
+      els.peopleEl.textContent = "В комнате (" + names.length + "): " + shown;
+      els.peopleEl.title = names.join(", ");
     }
     if (!els.tilesEl) return;
     this._bindTileClicks(els.tilesEl);
+    const screens = this._collectScreens(people);
+    const order = window.SKKKKLayout.tileOrder(
+      people.map((person) => ({ id: "meeting-tile-" + tileKey(person) })),
+      screens,
+      this._publishedAt,
+    );
     const seen = new Set();
-    people.forEach((person) => {
+    order.forEach((item) => {
+      if (item.kind === window.SKKKKLayout.KIND_SCREEN) {
+        const screen = screens.find((row) => SCREEN_TILE_PREFIX + row.sid === item.id);
+        if (!screen) return;
+        const tile = this._ensureScreenTile(els.tilesEl, screen);
+        seen.add(tile.id);
+        this._fillScreenTile(tile, screen, item.lead);
+        els.tilesEl.append(tile);
+        return;
+      }
+      const person = people.find((row) => "meeting-tile-" + tileKey(row) === item.id);
+      if (!person) return;
       const tile = this._ensureTile(els.tilesEl, person, person === room.localParticipant);
       seen.add(tile.id);
       this._fillTile(tile, person, room);
+      els.tilesEl.append(tile);
     });
     Array.from(els.tilesEl.children).forEach((node) => {
       if (!seen.has(node.id)) node.remove();
     });
     const hasScreen = Boolean(els.tilesEl.querySelector(".meeting-tile-screen"));
-    els.tilesEl.dataset.count = String(people.length);
-    els.tilesEl.classList.toggle("is-dense", people.length >= 5);
+    const lead = els.tilesEl.querySelector(".meeting-tile-screen.is-lead");
+    if (lead && !this._pinLocked) this._spotlightId = lead.id;
+    // Учитываем и людей, и экраны при расчете количества колонок сетки
+    const totalTilesCount = people.length + screens.length;
+    els.tilesEl.dataset.count = String(totalTilesCount);
+    els.tilesEl.classList.toggle("is-dense", totalTilesCount >= 5);
     els.tilesEl.classList.toggle("is-screen-lead", isPhoneStage() && hasScreen && this._layout === LAYOUT_GRID);
     els.tilesEl.classList.toggle("is-spotlight", isPhoneStage() && hasScreen && this._layout === LAYOUT_SPEAKER);
-    applyPhoneGrid(els.tilesEl, people.length);
+    applyPhoneGrid(els.tilesEl, totalTilesCount);
+    applyDesktopGrid(els.tilesEl, totalTilesCount);
+    this._gridCount = totalTilesCount;
+    if (!this._gridResizeBound) {
+      this._gridResizeBound = true;
+      window.addEventListener("resize", () => applyDesktopGrid(els.tilesEl, this._gridCount || 0));
+    }
     if (this._layout === LAYOUT_SPEAKER && !this._pinLocked && !hasScreen) {
       const follow = this._speakingTile();
       if (follow) this._spotlightId = follow.id;
@@ -1364,7 +2358,7 @@ const SKKKKMeeting = {
 
   _syncSpeaking(room) {
     this._participants(room)
-      .filter((person) => !isCleaner(person))
+      .filter((person) => !isHidden(person))
       .forEach((person) => {
         const tile = document.getElementById("meeting-tile-" + tileKey(person));
         if (tile) tile.classList.toggle("meeting-tile-speaking", Boolean(person.isSpeaking));
@@ -1391,10 +2385,7 @@ const SKKKKMeeting = {
         this._label(person) + (person === room.localParticipant ? " (вы)" : "");
       const flags = document.createElement("span");
       flags.className = "meeting-roster-flags";
-      flags.append(
-        flagChip("mic", person.isMicrophoneEnabled),
-        flagChip("cam", person.isCameraEnabled),
-      );
+      flags.append(flagChip("mic", micFlag(person)), flagChip("cam", camFlag(person)));
       row.append(name, flags);
       list.appendChild(row);
     });
@@ -1442,13 +2433,17 @@ const SKKKKMeeting = {
     const flagsEl = tile.querySelector(".meeting-tile-flags");
     const isLocal = person === room.localParticipant;
     nameEl.textContent = this._label(person) + (isLocal ? " (вы)" : "");
-    const micOn = person.isMicrophoneEnabled;
-    const camOn = person.isCameraEnabled;
+    const mic = micFlag(person);
+    const cam = camFlag(person);
     flagsEl.replaceChildren();
-    flagsEl.appendChild(flagChip("mic", micOn));
-    flagsEl.appendChild(flagChip("cam", camOn));
-    tile.classList.toggle("meeting-tile-mic-off", !micOn);
-    tile.classList.toggle("meeting-tile-cam-off", !camOn);
+    flagsEl.appendChild(flagChip("mic", mic));
+    flagsEl.appendChild(flagChip("cam", cam));
+    // Качество связи у всех участников одинаково: палочки, как у нашего индикатора вверху
+    const raw = this._quality[person.identity];
+    const level = person === (this.room && this.room.localParticipant) && typeof this._sigLevel === "number" ? this._sigLevel : signalLevelOf(raw);
+    if (level !== null) flagsEl.appendChild(signalBars(level));
+    tile.classList.toggle("meeting-tile-mic-off", mic !== window.SKKKKLayout.FLAG_ON);
+    tile.classList.toggle("meeting-tile-cam-off", cam !== window.SKKKKLayout.FLAG_ON);
     tile.classList.toggle("meeting-tile-speaking", Boolean(person.isSpeaking));
     this._paintVideo(stage, person);
   },
@@ -1458,9 +2453,16 @@ const SKKKKMeeting = {
     const key = pub && pub.track ? String(pub.track.sid || pub.trackSid || "") : "";
     if (stage.dataset.videoKey === key) return;
     stage.dataset.videoKey = key;
+
+    // Корректно отсоединяем предыдущие видеоэлементы
+    const existingVideo = stage.querySelector("video");
+    if (existingVideo && existingVideo.srcObject) {
+      existingVideo.srcObject = null;
+    }
     stage.replaceChildren();
+
     const tile = stage.closest(".meeting-tile");
-    if (tile) tile.classList.toggle("meeting-tile-screen", Boolean(pub && isScreenPub(pub)));
+    if (tile) tile.classList.toggle("meeting-tile-has-video", Boolean(pub && pub.track));
     if (!pub || !pub.track) {
       const mark = document.createElement("div");
       mark.className = "meeting-tile-placeholder";
@@ -1472,8 +2474,21 @@ const SKKKKMeeting = {
     markInlineVideo(node);
     node.muted = person === this.room.localParticipant;
     const isScreen = isScreenPub(pub);
-    node.className = "meeting-tile-stream" + (isScreen ? " is-screen" : "");
+    const mirror = person === this.room.localParticipant && !isScreen && isFrontCamera(pub.track.mediaStreamTrack);
+    node.className = "meeting-tile-stream" + (isScreen ? " is-screen" : "") + (mirror ? " is-mirror" : "");
     stage.appendChild(node);
+  },
+
+  // Камеру переключили без смены трека в комнате: пересчитать зеркало у своего видео.
+  _syncLocalMirror() {
+    const room = this.room;
+    if (!room || !room.localParticipant) return;
+    const pub = chosenVideoPub(room.localParticipant);
+    const track = pub && pub.track && pub.track.mediaStreamTrack;
+    const front = isFrontCamera(track);
+    document.querySelectorAll(".meeting-tile-local .meeting-tile-stream:not(.is-screen)").forEach((node) => {
+      node.classList.toggle("is-mirror", front);
+    });
   },
 
   _dropAttached(track) {
@@ -1509,7 +2524,7 @@ const SKKKKMeeting = {
     room.remoteParticipants.forEach((person) => {
       if (isCleaner(person)) {
         person.trackPublications.forEach((pub) => {
-          if (pub.kind !== "audio" || !pub.track) return;
+          if (pub.kind !== "audio" || !pub.isSubscribed) return;
           if (!playCleanTrack(pub.track, room, prefs, pub)) this._dropAttached(pub.track);
         });
         return;
@@ -1523,7 +2538,9 @@ const SKKKKMeeting = {
 
   _attachTrack(els, person, track, pub) {
     if (!els || !els.tilesEl) return;
+    if (isHidden(person) && !isCleaner(person)) return;
     if (person === this.room.localParticipant && track.kind === "audio") return;
+    if (track.kind === "audio" && !this._soundOn) return;
     if (isCleaner(person) && track.kind !== "audio") return;
     const prefs = this._denoisePrefs;
     if (track.kind === "audio" && isCleaner(person) && !playCleanTrack(track, this.room, prefs, pub)) return;
@@ -1544,7 +2561,6 @@ const SKKKKMeeting = {
     const node = track.attach();
     if (track.kind === "audio") {
       node.autoplay = true;
-      node.muted = !this._soundOn;
       node.className = "visually-hidden";
       host.appendChild(node);
       if (this._sinkId && node.setSinkId) node.setSinkId(this._sinkId).catch(() => undefined);
@@ -1555,7 +2571,8 @@ const SKKKKMeeting = {
 };
 
 function tileKey(person) {
-  return String(person.sid || person.identity || "unknown").replace(/[^A-Za-z0-9_-]/g, "-");
+  // Стабильный ключ: используем identity в первую очередь, чтобы ID плитки не прыгал после авторизации
+  return String(person.identity || person.sid || "unknown").replace(/[^A-Za-z0-9_-]/g, "-");
 }
 
 function isScreenPub(pub) {
@@ -1563,28 +2580,72 @@ function isScreenPub(pub) {
 }
 
 function chosenVideoPub(person) {
-  let screen = null;
   let camera = null;
   person.trackPublications.forEach((pub) => {
-    if (pub.kind !== "video" || !pub.track) return;
-    if (isScreenPub(pub)) {
-      if (!screen) screen = pub;
-      return;
-    }
+    if (pub.kind !== "video" || !pub.track || isScreenPub(pub)) return;
     if (!pub.isMuted && !camera) camera = pub;
   });
-  return screen || camera;
+  return camera;
 }
 
-function flagChip(kind, on) {
+function findKindPub(person, kind, screen) {
+  let found = null;
+  person.trackPublications.forEach((pub) => {
+    if (pub.kind !== kind || found) return;
+    if (screen && !isScreenPub(pub)) return;
+    if (!screen && isScreenPub(pub)) return;
+    found = pub;
+  });
+  return found;
+}
+
+function micPub(person) {
+  return findKindPub(person, "audio", false);
+}
+
+function camPub(person) {
+  return findKindPub(person, "video", false);
+}
+
+function micFlag(person) {
+  return window.SKKKKLayout.flagState(micPub(person), (person && person.attributes) || {});
+}
+
+function camFlag(person) {
+  return window.SKKKKLayout.flagState(camPub(person), {});
+}
+
+function flagChip(kind, state) {
   const chip = document.createElement("span");
-  chip.className = "meeting-chip" + (on ? " is-on" : " is-off");
-  const name = kind === "mic" ? "Микрофон" : "Камера";
-  const text = name + (on ? " включён" : " выключен");
+  chip.className = "meeting-chip is-" + state;
+  const isMic = kind === "mic";
+  let text = isMic ? TEXT_MIC_ON : TEXT_CAM_ON;
+  if (state === window.SKKKKLayout.FLAG_NONE) text = isMic ? TEXT_NO_MIC : TEXT_NO_CAM;
+  else if (state === window.SKKKKLayout.FLAG_OFF) text = isMic ? TEXT_MIC_OFF : TEXT_CAM_OFF;
+  else if (state === window.SKKKKLayout.FLAG_SILENT) text = TEXT_MIC_SILENT_CHIP;
   chip.setAttribute("aria-label", text);
   chip.title = text;
-  chip.innerHTML = kind === "mic" ? (on ? ICON_MIC : ICON_MIC_OFF) : on ? ICON_CAM : ICON_CAM_OFF;
+  const on = state === window.SKKKKLayout.FLAG_ON;
+  chip.innerHTML = isMic ? (on ? ICON_MIC : ICON_MIC_OFF) : on ? ICON_CAM : ICON_CAM_OFF;
   return chip;
+}
+
+function signalLevelOf(quality) {
+  const key = String(quality && typeof quality === "object" ? quality.quality || quality.value || "" : quality || "").toLowerCase();
+  return key in SIGNAL_LEVELS ? SIGNAL_LEVELS[key] : null;
+}
+
+// Те же палочки, что и вверху комнаты, но компактные, на плитке участника
+function signalBars(level) {
+  const box = document.createElement("span");
+  box.className = "meeting-signal is-tile";
+  box.dataset.level = String(level);
+  const text = "Качество связи: " + SIGNAL_LABELS[level];
+  box.setAttribute("role", "img");
+  box.setAttribute("aria-label", text);
+  box.title = text;
+  for (let n = 0; n < 4; n += 1) box.appendChild(document.createElement("i"));
+  return box;
 }
 
 window.SKKKKMeeting = SKKKKMeeting;

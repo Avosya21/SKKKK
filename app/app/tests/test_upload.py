@@ -123,3 +123,18 @@ def test_user_cannot_upload_to_foreign_project(client, manager_token, user_token
         files=[("files", ("n.txt", io.BytesIO(b"1"), "text/plain"))],
     )
     assert r.status_code == 404
+
+
+def test_reconcile_source_type_matches_content():
+    from app.app.services.upload import reconcile_source_type as r
+
+    assert r("call", "txt") == "document"          # документ при типе «Созвон» — не созвон
+    assert r("call", "pdf") == "document"
+    assert r("document", "audio") == "call"        # аудио при типе «Документ» — созвон
+    assert r("note", "audio") == "call"
+    assert r("call", "image") == "screenshot"
+    assert r("document", "image") == "screenshot"
+    assert r("note", "txt") == "note"              # заметку не трогаем
+    assert r("document", "txt") == "document"
+    assert r("call", "audio") == "call"
+    assert r("call", "other") == "call"            # неизвестное расширение — выбор пользователя

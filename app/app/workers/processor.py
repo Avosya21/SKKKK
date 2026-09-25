@@ -1,3 +1,5 @@
+"""Заглушка обработки для режима DRY_RUN: проходит статусы без моделей."""
+
 from __future__ import annotations
 
 import json

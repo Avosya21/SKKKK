@@ -1,3 +1,5 @@
+"""Проброс HTTP-01 проверки Let's Encrypt к Caddy: адрес проверки и прокси-ответ (`/.well-known/acme-challenge`)."""
+
 from __future__ import annotations
 
 import re

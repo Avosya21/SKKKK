@@ -61,6 +61,21 @@ def word_frames(start: float, end: float, total_frames: int) -> tuple[int, int]:
     return first, last
 
 
+LEGACY_PAINT_DEFAULTS = {"min_prob": 0.35, "min_margin": 0.15}
+
+
+def _paint_defaults(diar_file: Path) -> dict[str, float]:
+    """Прогоны до Nemotron не пишут ``paint_defaults`` — для них пороги Sortformer."""
+    try:
+        doc = json.loads(diar_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(LEGACY_PAINT_DEFAULTS)
+    found = doc.get("paint_defaults") if isinstance(doc, dict) else None
+    if not isinstance(found, dict):
+        return dict(LEGACY_PAINT_DEFAULTS)
+    return {key: float(found.get(key, value)) for key, value in LEGACY_PAINT_DEFAULTS.items()}
+
+
 def classify(
     means: np.ndarray,
     *,
@@ -82,13 +97,17 @@ def classify(
 def run(
     lab_run: LabRun,
     *,
-    min_prob: float = 0.35,
-    min_margin: float = 0.15,
+    min_prob: float | None = None,
+    min_margin: float | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
+    """Пороги, не заданные явно, — из ``diar.json`` → ``paint_defaults`` (у каждой модели свои)."""
     words_file = words_path(lab_run)
     probs_file = probs_path(lab_run)
     diar_file = diar_path(lab_run)
+    defaults = _paint_defaults(diar_file)
+    min_prob = defaults["min_prob"] if min_prob is None else min_prob
+    min_margin = defaults["min_margin"] if min_margin is None else min_margin
     params: dict[str, Any] = {
         "min_prob": min_prob,
         "min_margin": min_margin,

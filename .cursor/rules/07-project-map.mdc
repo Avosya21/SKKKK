@@ -7,11 +7,16 @@ alwaysApply: true
 
 Перед нетривиальной работой читай **`docs/PROJECT-MAP.md`** — §5 полная карта UI-кнопок; §7/§8 модули и пайплайны.
 
-Семантический поиск по карте (как NotebookLM по репозиторию):
+Индекс проекта (код, шаблоны, JS, документы, решения, связи, история; ответы с `путь:строка`). **Сначала он, потом grep.**
 
 ```powershell
-py scripts/search_project_map.py "ваш вопрос"
+venv\Scripts\python.exe scripts\search_project_map.py "ваш вопрос"        # по смыслу и по именам
+venv\Scripts\python.exe scripts\search_project_map.py --callers NAME      # кто вызывает
+venv\Scripts\python.exe scripts\search_project_map.py --route "GET /url"  # роут: права, вызовы, таблицы
+venv\Scripts\python.exe scripts\search_project_map.py --help              # все режимы
 ```
+
+Найденное проверяй в файле. После правок кода обнови индекс: `venv\Scripts\python.exe scripts\index_project_map.py` (только изменённые файлы). Проверка расхождений карты и кода: `scripts\check_map_drift.py`.
 
 Граф зависимостей (машиночитаемый): **`docs/project-map/manifest.yaml`**.
 

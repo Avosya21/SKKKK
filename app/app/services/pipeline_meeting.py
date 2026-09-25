@@ -13,7 +13,7 @@ from app.app.config import ROOT, Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.services.artifact_audio import _extract_wav_atomic
-from app.app.services.artifact_lab import latest_run_id
+from app.app.services.artifact_lab import latest_run_id, resolve_run
 from app.app.services.lab_errors import NO_SPEECH
 from app.app.services.meeting_analyze import (
     KNOWN_SPEAKER_FILE,
@@ -31,7 +31,13 @@ from app.app.services.meeting_merge import (
     shift_words,
     words_from_replicas,
 )
-from app.app.services.meeting_recordings import SOURCE_SCREEN, read_events, speaker_group_key
+from app.app.services.meeting_recordings import (
+    SOURCE_SCREEN,
+    SOURCE_SCREEN_VIDEO,
+    read_events,
+    speaker_group_key,
+)
+from app.app.services.meeting_track_repair import active_windows, repair_track_replicas, track_coverage
 from app.app.services.notify import notify_artifact_user
 from app.app.services.pipeline_lab import (
     APP_PYTHON,
@@ -83,6 +89,18 @@ def process_meeting_artifact(db: Session, settings: Settings, artifact: Artifact
     if not tracks:
         raise RuntimeError("нет дорожек встречи")
 
+    try:
+        return _process_meeting_tracks(db, settings, artifact, ws, tracks)
+    finally:
+        from app.app.services.docker_runtime import stop_gigaam
+
+        stop_gigaam()
+
+
+def _process_meeting_tracks(
+    db: Session, settings: Settings, artifact: Artifact, ws: Path, tracks: list[dict]
+) -> str:
+    manifest = _load_manifest(settings, artifact)
     set_status(db, artifact, "preprocessing")
     mark_lab_step(ws, "audio_prep", "running")
     db.commit()
@@ -106,7 +124,7 @@ def process_meeting_artifact(db: Session, settings: Settings, artifact: Artifact
     work = [
         row
         for row in prepared
-        if not row.get("silent") and row.get("source") != SOURCE_SCREEN
+        if not row.get("silent") and row.get("source") not in {SOURCE_SCREEN, SOURCE_SCREEN_VIDEO}
     ]
     for index, row in enumerate(work, start=1):
         mark_lab_step(
@@ -148,10 +166,51 @@ def process_meeting_artifact(db: Session, settings: Settings, artifact: Artifact
         artifact.artifact_id,
     )
     mixed = artifact_audio_path(settings, artifact.artifact_id, artifact.project_id)
-    if mix_inputs:
-        mix_track_wavs(mix_inputs, mixed)
+    to_mix = parent_mix_inputs(prepared, mix_inputs)
+    if to_mix:
+        mix_track_wavs(to_mix, mixed)
     artifact.file_path = str(mixed)
     _write_parent_proof(settings, artifact, merged, words=tape, leaks=leaks)
+    _write_track_coverage(settings, artifact, work, merged)
+    from app.app.services.meeting_frames import (
+        extract_meeting_screen_frames,
+        redescribe_existing_frames,
+        screen_vision_enabled,
+    )
+
+    try:
+        video_rows = extract_meeting_screen_frames(settings, artifact, manifest, replicas=merged)
+        log_event(
+            logger,
+            "meeting.video_context.ready",
+            artifact=artifact.artifact_id,
+            replicas=len(merged),
+            frames=len(video_rows),
+        )
+        if video_rows and screen_vision_enabled():
+            from app.app.services.artifact_lab import resolve_run
+
+            screen_run_id = latest_run_id(settings, artifact)
+            if screen_run_id:
+                run = resolve_run(settings, artifact, screen_run_id)
+                if run is not None:
+                    updated = redescribe_existing_frames(settings, run)
+                    log_event(
+                        logger,
+                        "meeting.video_vision.redescribed",
+                        artifact=artifact.artifact_id,
+                        frames=updated,
+                    )
+    except Exception as exc:
+        log_event(
+            logger,
+            "meeting.video_context.failed",
+            level=logging.ERROR,
+            artifact=artifact.artifact_id,
+            replicas=len(merged),
+            error=str(exc),
+        )
+        raise
     text = publish_lab_to_prod(db, settings, artifact, latest_run_id(settings, artifact) or "")
     if not text:
         artifact.error_message = NO_SPEECH
@@ -163,6 +222,22 @@ def process_meeting_artifact(db: Session, settings: Settings, artifact: Artifact
     notify_artifact_user(db, settings, artifact, f"Стенограмма готова: {artifact.original_filename}")
     log_event(logger, "meeting.merge.ok", artifact=artifact.artifact_id, replicas=len(merged))
     return text
+
+
+def parent_mix_inputs(
+    prepared: list[dict], spoken: list[tuple[Path, float]]
+) -> list[tuple[Path, float]]:
+    """Родительский WAV нужен lab даже если все микрофоны silent (экран без речи)."""
+    if spoken:
+        return spoken
+    rows: list[tuple[Path, float]] = []
+    for row in prepared:
+        if row.get("source") in {SOURCE_SCREEN, SOURCE_SCREEN_VIDEO}:
+            continue
+        path = Path(row.get("wav16") or "")
+        if path.is_file():
+            rows.append((path, float(row.get("offset_sec") or 0.0)))
+    return rows
 
 
 def _load_manifest(settings: Settings, artifact: Artifact) -> dict:
@@ -177,7 +252,7 @@ def _prepare_track(settings: Settings, artifact: Artifact, row: dict) -> dict:
     src = Path(row["src"])
     dest = artifact_dir(settings, artifact.project_id, child_id) / "audio" / "input_16k.wav"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if src.is_file():
+    if src.is_file() and row.get("source") != SOURCE_SCREEN_VIDEO:
         _extract_wav_atomic(src, dest)
     known = {
         "skip_sortformer": True,
@@ -190,6 +265,7 @@ def _prepare_track(settings: Settings, artifact: Artifact, row: dict) -> dict:
     )
     item = dict(row)
     item["child_id"] = child_id
+    item["track_id"] = str(row.get("track_id") or child_id)
     item["wav16"] = str(dest)
     return item
 
@@ -212,9 +288,8 @@ def _transcribe_track(settings: Settings, parent: Artifact, row: dict) -> tuple[
     run_id = latest_run_id(settings, child)
     if not run_id:
         raise RuntimeError("lab_pipeline не оставил run_id")
-    words = _track_word_count(settings, child, run_id)
-    if words == 0:
-        return [], wav, False
+    # Даже если Parakeet не нашёл слов, второй слух (GigaAM) мог услышать речь на тихом микрофоне: дорожку не отбрасываем.
+    lab_words = _track_word_count(settings, child, run_id)
     from app.app.services.docker_runtime import ensure_gigaam_ready
 
     ensure_gigaam_ready(settings.gigaam_url)
@@ -231,12 +306,48 @@ def _transcribe_track(settings: Settings, parent: Artifact, row: dict) -> tuple[
         ]
         _run_cmd(overlay, env, timeout=timeout, artifact_id=row["child_id"], step=step_id)
     replicas = _load_track_replicas(settings, child, run_id)
+    replicas, repairs = repair_track_replicas(replicas, _load_giga_turns(settings, child, run_id))
+    if repairs:
+        _write_track_repairs(settings, child, run_id, repairs)
+        log_event(
+            logger,
+            "meeting.track.repaired",
+            artifact=row["child_id"],
+            speaker=str(row.get("speaker") or ""),
+            lab_words=lab_words,
+            dropped=sum(1 for item in repairs if item["action"] == "dropped"),
+            added_from_giga=sum(1 for item in repairs if item["action"] == "added_from_giga"),
+        )
     named = shift_words(
         words_from_replicas(replicas),
         float(row.get("offset_sec") or 0.0),
         str(row["speaker"]),
     )
-    return named, wav, True
+    track_id = str(row.get("track_id") or row.get("child_id") or "")
+    identity = str(row.get("identity") or "")
+    for item in named:
+        item["track_id"] = track_id
+        item["identity"] = identity
+    return named, wav, bool(named)
+
+
+def _load_giga_turns(settings: Settings, artifact, run_id: str) -> list[dict]:
+    """Реплики второго слуха дорожки (время грубое, около 2 с, но верное)."""
+    path = resolve_run(settings, artifact, run_id).resolve("giga/giga.json")
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [turn for turn in payload.get("turns") or [] if isinstance(turn, dict)]
+
+
+def _write_track_repairs(settings: Settings, artifact, run_id: str, repairs: list[dict]) -> None:
+    """Аудит ремонта: что отброшено как недостоверное и что добавлено из второго слуха."""
+    path = resolve_run(settings, artifact, run_id).resolve("proof/meeting_repairs.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"repairs": repairs}, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _track_word_count(settings: Settings, artifact, run_id: str) -> int:
@@ -314,3 +425,21 @@ def _write_parent_proof(
     proof.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     leak_path = run.resolve("proof/leaks.json")
     leak_path.write_text(json.dumps(leaks or [], ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _write_track_coverage(settings: Settings, artifact: Artifact, work: list[dict], merged: list[dict]) -> None:
+    """Сверка: у кого на микрофоне есть звук, для которого в стенограмме нет реплик. Показывается проверкой на странице встречи."""
+    rows: list[dict] = []
+    for row in work:
+        wav = Path(row.get("wav16") or "")
+        speaker = str(row.get("speaker") or "")
+        if not speaker or not wav.is_file():
+            continue
+        windows = active_windows(wav, float(row.get("offset_sec") or 0.0))
+        rows.append(track_coverage(speaker, windows, merged))
+    path = artifact_dir(settings, artifact.project_id, artifact.artifact_id) / "reports" / "track_coverage.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"tracks": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+    flagged = [item for item in rows if item["uncovered_sec"] >= 3.0]
+    if flagged:
+        log_event(logger, "meeting.track.uncovered_audio", artifact=artifact.artifact_id, tracks=flagged)

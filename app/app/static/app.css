@@ -1,4 +1,161 @@
 /* Shared responsive tweaks for Primary Analytics portal */
+:root {
+  --sk-ink: #172033;
+  --sk-muted: #667085;
+  --sk-line: #e7eaf0;
+  --sk-surface: #ffffff;
+  --sk-canvas: #f5f7fa;
+  --sk-accent: #1769e0;
+  --sk-radius: 14px;
+  --sk-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .04);
+}
+
+html { background: var(--sk-canvas); }
+
+body.bg-light {
+  color: var(--sk-ink);
+  background: var(--sk-canvas) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: -0.005em;
+}
+
+main.container { max-width: 1180px; }
+
+.navbar-skkkk {
+  min-height: 56px;
+  background: #111827 !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,.08);
+}
+
+.navbar-skkkk .navbar-brand { font-weight: 650; letter-spacing: -0.02em; }
+
+.card {
+  border: 1px solid var(--sk-line);
+  border-radius: var(--sk-radius);
+  box-shadow: var(--sk-shadow);
+}
+
+.card-header {
+  border-bottom-color: var(--sk-line);
+  background: var(--sk-surface);
+  padding: .75rem 1rem;
+}
+
+.card-body { padding: .9rem 1rem; }
+
+.btn { border-radius: 9px; font-weight: 600; }
+.form-control, .form-select { border-radius: 9px; border-color: #d8dee9; }
+.form-control:focus, .form-select:focus, .btn:focus-visible {
+  border-color: var(--sk-accent);
+  box-shadow: 0 0 0 3px rgba(23,105,224,.16);
+}
+
+.projects-page-header { margin-top: 1rem; }
+.projects-page-header h1 { font-weight: 700; letter-spacing: -0.035em; }
+
+.project-list-item {
+  border-color: var(--sk-line);
+  background: var(--sk-surface);
+  transition: background .15s ease, transform .15s ease;
+}
+.project-list-item:hover { background: #fbfcfe; }
+.project-list-title { font-size: 1.02rem; }
+
+.empty-state {
+  padding: 4rem 1.5rem;
+  text-align: center;
+  border: 1px dashed #cfd6e2;
+  border-radius: var(--sk-radius);
+  background: rgba(255,255,255,.58);
+}
+.empty-state-icon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 1rem;
+  border-radius: 12px;
+  color: var(--sk-accent);
+  background: #eaf2ff;
+  font-size: 1.8rem;
+}
+
+.project-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: .5rem 0 .15rem;
+}
+.eyebrow {
+  color: var(--sk-accent);
+  font-size: .7rem;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.project-hero-title {
+  max-width: 44rem;
+  margin: .15rem 0 .35rem;
+  font-size: clamp(1.45rem, 3vw, 2.2rem);
+  line-height: 1.08;
+  letter-spacing: -.045em;
+}
+.project-page-lead { max-width: 46rem; line-height: 1.55; }
+.project-hero-note {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  flex: 0 0 auto;
+  padding: .55rem .75rem;
+  color: var(--sk-muted);
+  border: 1px solid var(--sk-line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.7);
+  font-size: .78rem;
+  white-space: nowrap;
+}
+.project-hero-note-dot {
+  width: .5rem;
+  height: .5rem;
+  border-radius: 50%;
+  background: #2fb344;
+  box-shadow: 0 0 0 4px #e6f7e9;
+}
+.section-title-wrap { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.section-title-subtitle { color: var(--sk-muted); font-size: .75rem; font-weight: 400; }
+
+.project-insights-row #tz-content {
+  color: #263247;
+  line-height: 1.68;
+}
+.project-insights-row #tz-content h3,
+.project-insights-row #tz-content h4 {
+  color: var(--sk-ink);
+  letter-spacing: -.015em;
+}
+.project-insights-row .chat-card {
+  background: #fbfcfe;
+}
+.project-insights-row .chat-card .card-header {
+  background: #fbfcfe;
+}
+.project-insights-row #chat-log {
+  border-radius: 10px !important;
+  background: #f1f4f8;
+}
+
+@media (max-width: 767.98px) {
+  .project-hero { display: block; padding-top: .25rem; }
+  .project-hero-note { margin-top: .9rem; }
+}
+
+.text-muted { color: var(--sk-muted) !important; }
+
+@media (max-width: 767.98px) {
+  .projects-page-header { margin-top: .5rem; }
+  .card-header, .card-body { padding: .75rem; }
+}
 
 .navbar-skkkk .navbar-brand {
   margin-right: 0;
@@ -281,6 +438,15 @@ body.meeting-is-live {
   grid-template-columns: minmax(0, 40rem);
 }
 
+.meeting-tiles.is-auto-grid {
+  width: 100%;
+  gap: 12px;
+  grid-template-columns: repeat(var(--meeting-cols, 2), var(--meeting-tile-w, 1fr));
+  grid-auto-rows: min-content;
+  justify-content: center;
+  align-content: center;
+}
+
 .meeting-tiles.has-focus {
   width: 100%;
   grid-template-columns: minmax(0, 1fr);
@@ -317,6 +483,11 @@ body.meeting-is-live {
   min-height: 0;
 }
 
+.meeting-tiles .meeting-tile-screen.is-lead {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
 .meeting-tile-stage {
   position: absolute;
   inset: 0;
@@ -339,7 +510,8 @@ body.meeting-is-live {
   background: #000;
 }
 
-.meeting-tile-local .meeting-tile-stream:not(.is-screen) {
+/* Зеркалим только своё изображение с фронтальной камеры (класс ставит meeting_room.js) */
+.meeting-tile-local .meeting-tile-stream.is-mirror:not(.is-screen) {
   transform: scaleX(-1);
 }
 
@@ -387,6 +559,15 @@ body.meeting-is-live {
 .meeting-chip.is-off {
   background: #b02a37;
 }
+
+.meeting-chip.is-none {
+  background: #6c757d;
+}
+
+.meeting-chip.is-silent {
+  background: #fd7e14;
+}
+
 
 .meeting-tile-name {
   min-width: 0;
@@ -436,6 +617,7 @@ body.meeting-is-live {
   backdrop-filter: blur(8px);
 }
 
+.meeting-dock-btn[hidden] { display: none !important; }
 .meeting-dock-btn {
   display: inline-flex;
   align-items: center;
@@ -588,12 +770,23 @@ body.meeting-is-live {
   top: 0.75rem;
   left: 50%;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.4rem 0.8rem;
   transform: translateX(-50%);
   color: #101214;
   background: #f3f5f7;
   border-radius: 999px;
   font-size: 0.875rem;
+}
+
+.meeting-toast-action {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  background: #1a1d21;
+  color: #fff;
 }
 
 .meeting-dock-btn.is-off {
@@ -605,7 +798,38 @@ body.meeting-is-live {
 }
 
 .meeting-dock-btn-leave {
-  background: #6c2b2b;
+  background: #3a3f45;
+}
+
+/* «Завершить для всех» — необратимое действие, визуально отличается от «Выйти» (пункт 3.13) */
+.meeting-dock-btn-end {
+  background: #b02a37;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.meeting-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.meeting-confirm-box {
+  max-width: 22rem;
+  margin: 1rem;
+  padding: 1.25rem;
+  color: #fff;
+  background: #1f2328;
+  border-radius: 0.75rem;
+}
+
+.meeting-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .meeting-stage:fullscreen,
@@ -786,6 +1010,13 @@ body.meeting-is-live {
     max-width: 100%;
     border-radius: 1rem;
   }
+
+  #meeting-denoise,
+  .meeting-denoise,
+  #meeting-screen,
+  .meeting-dock-btn-screen {
+    display: none !important;
+  }
 }
 
 @media (max-width: 896px) and (orientation: landscape) {
@@ -817,6 +1048,12 @@ body.meeting-is-live {
     min-height: 0;
   }
 
+  /* Ячейки сетки растянуты по высоте сцены: плитка заполняет ячейку, а не держит 16:9 (иначе вылезает). */
+  .meeting-tiles:not(.has-focus) .meeting-tile {
+    aspect-ratio: auto;
+    height: 100%;
+  }
+
   .meeting-dock-btn {
     width: 40px;
     min-width: 40px;
@@ -834,4 +1071,339 @@ body.meeting-is-live {
   .project-desc-actions {
     align-self: flex-end;
   }
+}
+
+/* Projects page + navbar: clean single-column layout on phones */
+@media (max-width: 575.98px) {
+  .navbar-skkkk .navbar-brand {
+    font-size: 1.1rem;
+  }
+
+
+  .projects-page-header {
+    row-gap: 0.5rem;
+  }
+
+  .projects-page-header .btn {
+    width: 100%;
+  }
+
+  /* Compact controls: the previous global 44px rule made every small
+     secondary action oversized and pushed card content below the fold. */
+  .btn-sm,
+  .btn-group-sm > .btn {
+    min-height: 2rem;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+  }
+
+  .skkkk-action-btn,
+  .artifact-action-btn,
+  .meeting-actions .btn,
+  .mobile-data-card .btn {
+    min-height: 2rem;
+  }
+
+  .mobile-data-card {
+    padding: 0.65rem !important;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+  }
+
+  /* Every mobile card uses the same visual order: title, facts, actions. */
+  .mobile-data-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+    align-items: stretch;
+    margin-top: 0.65rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--bs-border-color-translucent);
+  }
+
+  .mobile-data-actions .btn {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-data-actions .meeting-delete {
+    width: 2rem;
+    justify-self: end;
+    grid-column: 2;
+  }
+
+  .mobile-data-actions .meeting-delete:only-child {
+    grid-column: 2;
+  }
+
+  .artifact-card .artifact-name-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    width: 100%;
+  }
+
+  .artifact-card .artifact-name-line .file-name,
+  .artifact-card .artifact-name-line a {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .artifact-card .artifact-report-actions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+
+  .artifact-card .artifact-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .artifact-card .artifact-meta .artifact-delete {
+    margin-left: auto;
+  }
+
+  .mobile-data-card dl {
+    margin-top: 0.45rem !important;
+  }
+
+  .mobile-data-card dt,
+  .mobile-data-card dd {
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+  }
+
+  .artifact-card {
+    padding: 0.65rem !important;
+  }
+
+  .artifact-report-actions {
+    gap: 0.2rem;
+    margin-left: 0.15rem;
+  }
+
+  .artifact-meta {
+    margin-top: 0.4rem !important;
+  }
+
+  .meetings-card .card-body,
+  .deadlines-card .card-body {
+    padding: 0.55rem;
+  }
+
+  .meetings-card .card-header,
+  .deadlines-card .card-header {
+    padding: 0.55rem 0.65rem;
+  }
+
+  .meetings-card .card-header > *,
+  .deadlines-card .card-header > * {
+    min-width: 0;
+  }
+
+  #deadlines-reextract {
+    width: 100%;
+  }
+
+  #meetings-create {
+    width: auto;
+  }
+
+  /* Dense mobile data: keep each row scannable without card-in-card spacing. */
+  .meetings-card .table,
+  .deadlines-card .table {
+    margin-bottom: 0;
+    font-size: .76rem;
+  }
+  .meetings-card .table > :not(caption) > * > *,
+  .deadlines-card .table > :not(caption) > * > * {
+    padding: .42rem .3rem;
+    vertical-align: middle;
+  }
+  .meetings-card .mobile-data-card,
+  .deadlines-card .mobile-data-card {
+    padding: .5rem !important;
+    border-radius: 10px;
+  }
+  .meetings-card .vstack,
+  .deadlines-card .vstack {
+    gap: .45rem !important;
+  }
+  .meetings-card .meeting-actions {
+    gap: .25rem !important;
+    margin-top: .4rem !important;
+  }
+  .meetings-card .meeting-actions .btn,
+  .deadlines-card .mobile-data-actions .btn {
+    min-height: 1.85rem;
+    padding: .2rem .45rem;
+    font-size: .75rem;
+  }
+  .meetings-card .card-header strong,
+  .deadlines-card .card-header strong { font-size: .9rem; }
+
+  .chat-composer #chat-send {
+    min-width: 4.5rem;
+    min-height: 2rem;
+  }
+}
+
+/* Гостевой вход на телефоне в горизонтальном положении (низкий экран): без шапки и длинного вступления, имя и кнопка слева,
+   пояснение о записи справа, чтобы «Войти во встречу» была видна без прокрутки */
+@media (orientation: landscape) and (max-height: 500px) {
+  nav.meeting-lobby { display: none; }
+  main.meeting-lobby { padding-top: 0.5rem; padding-bottom: 0.5rem !important; }
+  main.meeting-lobby .col-md-8 { flex: 0 0 100%; max-width: 100%; }
+  main.meeting-lobby .card-body { padding: 0.75rem 1rem; }
+  main.meeting-lobby h1 { font-size: 1.1rem; margin-bottom: 0.25rem !important; }
+  .meeting-lobby-lead { display: none; }
+  #meeting-status { margin-bottom: 0.4rem !important; }
+  #guest-join-form { display: grid; grid-template-columns: 1fr 1fr; column-gap: 1rem; align-items: start; }
+  #guest-join-form > .mb-3:first-child { grid-column: 1; grid-row: 1; margin-bottom: 0.5rem !important; }
+  #guest-consent { grid-column: 2; grid-row: 1 / span 3; font-size: 0.72rem; margin-bottom: 0 !important; }
+  #guest-error { grid-column: 1; }
+  #guest-join { grid-column: 1; grid-row: 2; }
+  .guest-devices-details { grid-column: 1 / -1; }
+}
+
+/* Индикатор связи «палочки» (meeting_room.js): 4 зелёные — отлично, 3 — хорошо, 1 красная — плохо, 0 — нет связи */
+.meeting-signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+  padding: 1px 2px;
+  cursor: default;
+}
+.meeting-signal i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.28);
+}
+.meeting-signal i:nth-child(1) { height: 5px; }
+.meeting-signal i:nth-child(2) { height: 8px; }
+.meeting-signal i:nth-child(3) { height: 11px; }
+.meeting-signal i:nth-child(4) { height: 14px; }
+.meeting-signal[data-level="4"] i,
+.meeting-signal[data-level="3"] i:nth-child(-n + 3) { background: #22c55e; }
+.meeting-signal[data-level="1"] i:nth-child(1) { background: #ef4444; }
+.meeting-signal[data-level="0"] { position: relative; }
+.meeting-signal[data-level="0"]::after {
+  content: "×";
+  position: absolute;
+  right: -9px;
+  bottom: -1px;
+  color: #ef4444;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Палочки на плитке участника: те же цвета и правила, компактнее */
+.meeting-signal.is-tile {
+  height: 12px;
+  padding: 0;
+  gap: 1.5px;
+  vertical-align: middle;
+}
+.meeting-signal.is-tile i { width: 2.5px; }
+.meeting-signal.is-tile i:nth-child(1) { height: 4px; }
+.meeting-signal.is-tile i:nth-child(2) { height: 6px; }
+.meeting-signal.is-tile i:nth-child(3) { height: 9px; }
+.meeting-signal.is-tile i:nth-child(4) { height: 12px; }
+.meeting-signal.is-tile[data-level="0"]::after { right: -7px; font-size: 11px; }
+
+/* ---- Аудит вёрстки 20.09.2026 ---- */
+/* Заголовки сворачиваемых блоков: зона нажатия не меньше 36 px (было 22) */
+.deadlines-card .card-header .deadlines-toggle-btn,
+.meetings-card .card-header .meetings-toggle-btn,
+.mcp-access-card .card-header .mcp-toggle-btn,
+.grant-access-card .card-header .grant-toggle-btn,
+.px-card .card-header .px-toggle-btn {
+  min-height: 36px;
+  padding-block: 0.3rem !important;
+}
+/* Значки читаемы: не мельче 12 px */
+.badge { font-size: max(0.75rem, 0.75em); }
+/* Ссылки-названия файлов в карточках на телефоне: зона нажатия выше */
+@media (max-width: 767.98px) {
+  a.transcript-link.file-name { display: inline-block; padding-block: 0.4rem; }
+}
+/* Поле вопроса ассистенту: не тоньше 38 px */
+#chat-question { min-height: 2.4rem; }
+
+/* Телефон: кнопки и ссылки-действия не меньше 40 px (рекомендация платформ 44-48, WCAG 2.2 минимум 24) */
+@media (max-width: 767.98px) {
+  .btn.btn-sm { min-height: 40px; min-width: 40px; }
+  .navbar-skkkk .nav-logout { min-height: 40px; min-width: 40px; }
+  .navbar-skkkk .navbar-brand { min-height: 40px; display: inline-flex; align-items: center; }
+  a.transcript-link.file-name { min-height: 40px; display: inline-flex; align-items: center; padding-block: 0; }
+}
+/* Телефон: служебные значки (нужен перезапуск, провайдер LLM) не нужны в шапке: экономим высоту */
+@media (max-width: 575.98px) {
+  .navbar-skkkk #nav-stale, .navbar-skkkk #nav-llm { display: none !important; }
+}
+
+
+/* ---- Шапка (21.09.2026): одна сетка вместо переносов ---- */
+/* Компьютер и планшет от 768 px: одна строка. Слева знак, название и проект (обрезается многоточием), справа действия. Ширина = ширине контента страницы. */
+.navbar-skkkk .navbar-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  max-width: 1180px;
+  min-height: 56px;
+  padding-block: 0.25rem;
+}
+.navbar-skkkk.navbar { padding-block: 0; }
+.navbar-skkkk .navbar-brand-row { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.navbar-skkkk .navbar-actions-row { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; margin-left: auto; }
+.navbar-skkkk .navbar-brand.navbar-project { display: block; flex: 1 1 auto; min-width: 0; max-width: none; }
+.navbar-skkkk #nav-user { max-width: 14rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: end; }
+.navbar-skkkk .navbar-back { flex: 0 0 auto; }
+
+/* Планшет: служебные значки («Нужен перезапуск», провайдер LLM) не отнимают место у названия проекта */
+@media (max-width: 991.98px) {
+  .navbar-skkkk #nav-stale, .navbar-skkkk #nav-llm { display: none !important; }
+  .navbar-skkkk #nav-user { max-width: 9rem; }
+}
+
+/* Телефон до 768 px: две строки. 1) название слева, «Выйти» справа; 2) «к проектам» и проект (с многоточием). Высота строк фиксирована — ничего не «прыгает» после загрузки имени. */
+@media (max-width: 767.98px) {
+  .navbar-skkkk .navbar-inner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "brand brand session" "back project project";
+    column-gap: 0.5rem;
+    row-gap: 0;
+    align-items: center;
+    padding-block: 0.25rem;
+  }
+  .navbar-skkkk .navbar-brand-row, .navbar-skkkk .navbar-actions-row { display: contents; }
+  .navbar-skkkk .navbar-brand[href="/"] { grid-area: brand; font-size: 1.1rem; margin: 0; }
+  .navbar-skkkk #nav-session { grid-area: session; justify-self: end; }
+  .navbar-skkkk .navbar-back { grid-area: back; margin: 0.15rem 0 0.35rem; min-height: 36px !important; display: inline-flex; align-items: center; }
+  .navbar-skkkk .navbar-divider { display: none; }
+  .navbar-skkkk .navbar-brand.navbar-project {
+    grid-area: project;
+    display: block;
+    font-size: 0.95rem;
+    line-height: 36px;
+    min-height: 36px;
+    margin: 0.15rem 0 0.35rem;
+    padding-block: 0 !important;
+    max-width: 100%;
+  }
+  .navbar-skkkk #nav-user { max-width: 40vw; }
+}
+/* Совсем узкие экраны: имя пользователя не показываем (кнопка «Выйти» остаётся), чтобы строка не ломалась */
+@media (max-width: 479.98px) {
+  .navbar-skkkk #nav-user { display: none; }
 }

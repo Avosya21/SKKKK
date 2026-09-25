@@ -108,7 +108,7 @@ def test_followup_chat_reads_activity_log(client, db_engine, admin_token, tmp_da
 
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=[hit]):
-            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                 db2 = SessionLocal()
                 settings = get_settings()
                 settings.dry_run = False
@@ -121,7 +121,7 @@ def test_followup_chat_reads_activity_log(client, db_engine, admin_token, tmp_da
     captured.clear()
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=[]):
-            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                 db3 = SessionLocal()
                 settings = get_settings()
                 settings.dry_run = False
@@ -156,7 +156,7 @@ def test_chat_memory_keeps_early_turns(client, db_engine, admin_token, tmp_data)
 
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=[]):
-            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                 db2 = SessionLocal()
                 settings = get_settings()
                 settings.dry_run = False

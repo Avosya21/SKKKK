@@ -6,6 +6,8 @@
 {% if current_role == 'admin' %}
 <button type="button" id="rebuild" class="btn btn-primary mt-3 skkkk-action-btn" data-idle-label="Пересобрать ТЗ" aria-label="Пересобрать ТЗ">Пересобрать ТЗ</button>
 {% endif %}
+{% endblock %}
+{% block scripts %}
 <script>
 (async () => {
   if (!SKKKK.requireAuth()) return;

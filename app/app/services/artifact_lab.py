@@ -45,6 +45,36 @@ def latest_run_id(settings: Settings, artifact: Artifact) -> str | None:
     return runs[0] if runs else None
 
 
+def vision_run_id(settings: Settings, artifact: Artifact) -> str | None:
+    """Прогон с vision-описаниями экрана (если есть), иначе None.
+
+    Кадры на всех прогонах идентичны, поэтому экранные описания можно брать
+    из любого прогона; предпочитаем самый свежий с ``text_source == "vision"``.
+    """
+    import json
+
+    for run_id in list_run_ids(lab_root(settings, artifact)):
+        run = LabRun(lab_root(settings, artifact), run_id)
+        path = run.resolve("video_transcript.json")
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        segments = payload.get("segments") if isinstance(payload, dict) else None
+        if not isinstance(segments, list):
+            continue
+        if any(
+            isinstance(s, dict)
+            and s.get("text_source") == "vision"
+            and str(s.get("text") or "").strip()
+            for s in segments
+        ):
+            return run_id
+    return None
+
+
 def resolve_run(settings: Settings, artifact: Artifact, run_id: str | None) -> LabRun:
     root = lab_root(settings, artifact)
     chosen = run_id or latest_run_id(settings, artifact)

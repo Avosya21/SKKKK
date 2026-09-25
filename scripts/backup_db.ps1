@@ -3,7 +3,7 @@ param(
     [int]$Keep = 7
 )
 $ErrorActionPreference = "Stop"
-$Root = "C:\1C_NEW_SKKKK"
+$Root = (Split-Path -Parent $PSScriptRoot)
 $Db = Join-Path $Root "data\app.db"
 $BackupDir = Join-Path $Root "data\backups"
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null

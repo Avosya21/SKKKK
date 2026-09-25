@@ -290,7 +290,7 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 
 ### C1. Запись экрана
 
-**Выбор рекордера.** Два пути: (а) LiveKit Egress — отдельный Docker-сервис + Redis, track egress пишет `.mp4`/`.ivf` каждой видеопубликации; (б) `rtc.VideoStream` в отдельном Python-процессе `tools/livekit/screen_recorder.py` (participant `skkkk-rec`, `CUDA_VISIBLE_DEVICES=-1`), кадры → ffmpeg stdin → `data/meetings/{room}/tracks/{identity}-screen.mp4`, кадр раз в `MEETING_SCREEN_FPS` (1). Рекомендация — **(б)**: нет новой инфраструктуры (Redis), тот же паттерн, что `voice_cleaner`, 1 fps достаточно для текста и кадров; согласовать с пользователем (новый процесс, `install_meeting_voice.py` ставит `av`/ffmpeg уже есть).
+Канон и пошаговый разбор — [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md). Кратко: процесс `skkkk-rec` (не Egress), mp4 в той же `tracks/`, ключ `(identity, screen_video, track_sid)`, speaker = кто включил шаринг. C1 не ждёт этап B.
 
 **Контракт.** `manifest.json` дорожка `{identity, source: "screen_video", track_sid, path, started_epoch, frames, fps}`; `meeting.json` — та же строка + `offset_sec`. `remove_room_recordings` и `purge_meeting` удаляют mp4. `voice_cleaner` не трогается.
 
@@ -298,9 +298,9 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 
 ### C2. Кадры → vision
 
-`services/meeting_frames.py`: по `meeting.json` для каждой screen_video — кадры на смене содержимого (ffmpeg `select='gt(scene,0.3)'`, максимум `MEETING_FRAMES_MAX` 60) → `lab/runs/{run_id}/frames/{track_sid}/{ts_ms}.jpg`; `frames.json` `{frame_id, track_sid, t_rel, sha256}`. Vision — существующий провайдер `services/llm.py` (Cursor API, режим vision уже используется для документов) с промптом `docs/prompts/screen_frame.md`: «что на экране: система, форма, цифры, текст»; результат `frames/{frame_id}.md`. В knowledge кадры идут как чанки артефакта с `source_type=screen_frame`, `frame_id`, `t_rel`. Стоимость: только при `MEETING_SCREEN_VISION=1`.
+`services/meeting_frames.py`: по `meeting.json` для каждой screen_video — ярусы меток (края шаринга → речь издателя → сцена 0.15 → чужая речь → пол 15 с), потолок `MEETING_FRAMES_MAX` 60 на `track_sid` → `lab/runs/{run_id}/frames/{track_sid}/{ts_ms}.jpg`; `frames.json` + `speech_screen_links.json` (`own_share` / `over_others_share`). Vision — `services/llm.py` + `docs/prompts/screen_frame.md`. Чанк `source_type=screen_frame` — C3. Стоимость vision только при `MEETING_SCREEN_VISION=1`; jpg и `speech_screen_links.json` пишутся и без флага.
 
-**Тесты.** выбор кадров ограничен `MEETING_FRAMES_MAX`; `frames.json` контракт; чанк кадра несёт `frame_id`; без флага — ничего не запускается.
+**Тесты.** кластер 8 с; дедуп 2 с; кап режет пол раньше речи издателя; `own_share` vs `over_others_share`; без флага нет подписей.
 
 ### C3. Провенанс знаний — довести заготовку
 
@@ -350,12 +350,12 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 | C1 запись экрана | LiveKit `client-sdk-python` (`rtc.VideoStream`), LiveKit Egress | контракт кадров/трека; что дешевле для одного хоста |
 | Будущие native-клиенты (вне плана) | LiveKit Swift (`LKSampleHandler`, `Docs/ios-screen-sharing.md`), Android (`MediaProjection`), Jitsi issues | lifecycle screen share: фон, блокировка, revoke, reconnect — на будущее |
 
-## 8. Решения, нужные от пользователя
+## 8. Решения пользователя
 
-1. **Хранить ли публичный токен встречи** (A4 шаг 6). A — как есть (hash-only, ссылка один раз); B — `Meeting.public_token` шифрованно, `public_url` admin/manager, ссылка в комнате и карточке. Рекомендация — **B**: токен уже живёт в мессенджерах, отзыв/перевыпуск есть, встречи короткоживущие. Без решения шаг 6 делается в объёме манифеста PWA и текста тоста.
-2. **Второй Python-процесс для записи экрана** (C1, вариант б) вместо Egress+Redis. Рекомендация — процесс.
-3. **Параллельная сессия, пишущая v4.** A0 чинит её главный риск (фильтр knowledge). Дальше либо остановить её до закрытия A, либо принять, что B/C-заготовки растут параллельно, но не входят в DoD A и не трогают `Entity`-схему.
-4. Записать в `DECISIONS.md`: контракт §2; ветка B протечек; «provenance в `value_json`»; «Sortformer на native-дорожке — только окном».
+1. **Публичный токен** — **A** (как есть: hash-only, ссылка один раз). Закрыто 2026-09-13.
+2. **Запись экрана** — отдельный процесс `skkkk-rec`, не Egress. Закрыто 2026-09-13. План: [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md).
+3. **Параллельная сессия v4** — не актуальна. Закрыто 2026-09-13.
+4. В `DECISIONS.md` уже есть: контракт §2; ветка B протечек; provenance в `value_json`; Sortformer только окном; токен A; `skkkk-rec`.
 
 ## 9. Чего не делаем
 

@@ -20,10 +20,13 @@ if __name__ == "__main__":
 
 import logging  # noqa: E402
 import os  # noqa: E402
-import subprocess  # noqa: E402
+import asyncio  # noqa: E402
+import subprocess  # noqa: E4021
 from contextlib import asynccontextmanager  # noqa: E402
 
-from fastapi import Depends, FastAPI  # noqa: E402
+import json  # noqa: E402
+
+from fastapi import Depends, FastAPI, Request, Response  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from sqlalchemy import func, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
@@ -36,11 +39,13 @@ from app.app.models.job import Job  # noqa: E402
 from app.app.models.user import User  # noqa: E402
 from app.app.routers import (  # noqa: E402
     acme,
+    admin_map,
     auth,
     knowledge,
     meetings,
     pages,
     project_mcp,
+    requirement_review,
     project_members,
     projects,
     speaker_profiles,
@@ -105,7 +110,64 @@ async def lifespan(_app: FastAPI):
         dry_run=settings.dry_run,
         vector_store=vector_store,
     )
-    yield
+    from app.app.services.llm import announce_llm_and_selfcheck
+
+    announce_llm_and_selfcheck(settings, logger)
+
+    async def _stale_loop():
+        from app.app.models.meeting import STATUS_LIVE, Meeting
+        from app.app.services.meetings import mark_stale_participants
+        while True:
+            await asyncio.sleep(30)
+            def _cleanup() -> None:
+                # Синхронная работа с БД не должна блокировать event loop.
+                db = SessionLocal()
+                try:
+                    for meeting in db.query(Meeting).filter(Meeting.status == STATUS_LIVE).all():
+                        mark_stale_participants(db, meeting)
+                finally:
+                    db.close()
+
+            try:
+                await asyncio.to_thread(_cleanup)
+            except Exception as exc:
+                from app.app.db import describe_pool_holders
+
+                logger.warning("stale participant cleanup failed: %s\n%s", exc, describe_pool_holders())
+
+    async def _edge_watch_loop():
+        from app.app.services.edge_runtime import check_served_certificate, watch_edge_services
+
+        await asyncio.sleep(15)
+        tick = 0
+        while True:
+            await asyncio.sleep(30)
+            tick += 1
+            if tick % 10 == 1:  # раз в ~5 минут: отдаваемый :777 сертификат совпадает с файлом
+                try:
+                    state = await asyncio.to_thread(check_served_certificate, get_settings())
+                    if state in ("reloaded", "failed"):
+                        log_event(logger, "edge.tls.watch", state=state)
+                except Exception as exc:
+                    logger.warning("tls certificate check failed: %s", exc)
+            try:
+                statuses = watch_edge_services()
+                restarted = [name for name, state in statuses.items() if state == "started"]
+                if restarted:
+                    log_event(logger, "edge.watch.restarted", services=restarted)
+            except Exception as exc:
+                logger.warning("edge watchdog failed: %s", exc)
+
+    from app.app.services.edge_runtime import edge_disabled
+
+    stale_task = asyncio.create_task(_stale_loop())
+    edge_watch_task = asyncio.create_task(_edge_watch_loop()) if not edge_disabled() else asyncio.create_task(asyncio.sleep(0))
+    try:
+        yield
+    finally:
+        stale_task.cancel()
+        edge_watch_task.cancel()
+        await asyncio.gather(stale_task, edge_watch_task, return_exceptions=True)
     log_event(logger, "api.stopped")
 
 
@@ -115,6 +177,49 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Primary Analytics", lifespan=lifespan)
+
+
+from fastapi.exception_handlers import http_exception_handler  # noqa: E402
+from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
+
+_PAGE_ERRORS = {
+    403: ("Недостаточно прав", "У вас нет доступа к этой странице. Если он нужен, попросите администратора проекта выдать его."),
+    404: ("Страница не найдена", "Такой страницы нет, либо у вас нет к ней доступа. Проверьте адрес или вернитесь к списку проектов."),
+}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def html_error_pages(request: Request, exc: StarletteHTTPException):
+    """Браузеру, открывшему страницу, показываем понятную страницу вместо сырого JSON; запросы скриптов (fetch) получают JSON как раньше."""
+    if (
+        exc.status_code in _PAGE_ERRORS
+        and "text/html" in (request.headers.get("accept") or "")
+        and not request.url.path.startswith(("/api/", "/mcp/", "/static/"))
+    ):
+        from app.app.routers.pages import templates
+
+        heading, message = _PAGE_ERRORS[exc.status_code]
+        return templates.TemplateResponse(request, "error.html", {"title": heading, "code": exc.status_code, "heading": heading, "message": message}, status_code=exc.status_code)
+    return await http_exception_handler(request, exc)
+
+
+# Заголовки безопасности (пункт плана 4.7). Без HSTS (сертификат на IP живёт 6 дней — при сбое продления HSTS
+# заблокировал бы пользователей) и без CSP (страницы используют встроенные скрипты).
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    # Гостевая ссылка /m/{token} содержит секрет: не отдаём её во Referer внешним сайтам.
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "camera=(self), microphone=(self), display-capture=(self), geolocation=()",
+}
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
 
 
 static_dir = Path(__file__).resolve().parent / "static"
@@ -128,9 +233,36 @@ app.include_router(projects.router)
 app.include_router(upload.router)
 app.include_router(knowledge.router)
 app.include_router(project_mcp.router)
+app.include_router(requirement_review.router)
+app.include_router(admin_map.router)
 app.include_router(project_members.router)
 app.include_router(meetings.router)
 app.include_router(speaker_profiles.router)
+
+
+_CLIENT_LOG_LIMITER = None
+
+
+@app.post("/client-log", status_code=204)
+async def client_log(request: Request):
+    """Приём JS-ошибок из браузеров (пункт плана 5.2). Без входа (гость тоже): размер и частота ограничены."""
+    from app.app.services.rate_limit import FailureLimiter
+
+    global _CLIENT_LOG_LIMITER
+    if _CLIENT_LOG_LIMITER is None:
+        _CLIENT_LOG_LIMITER = FailureLimiter(limit=20, window_sec=60)
+    ip = "clog:" + (request.client.host if request.client else "?")
+    if _CLIENT_LOG_LIMITER.retry_after(ip):
+        return Response(status_code=204)
+    _CLIENT_LOG_LIMITER.fail(ip)
+    try:
+        body = json.loads((await request.body())[:4000] or b"{}")
+    except ValueError:
+        return Response(status_code=204)
+    clean = lambda v, n: " ".join(str(v or "").split())[:n]  # noqa: E731  (без переводов строк: защита от подделки записей лога)
+    log_event(logger, "client.js_error", page=clean(body.get("page"), 120), message=clean(body.get("message"), 300),
+              source=clean(body.get("source"), 160), ua=clean(request.headers.get("user-agent"), 80))
+    return Response(status_code=204)
 
 
 @app.get("/health")
@@ -169,7 +301,25 @@ def health_ready(
         "ollama": ollama_ok,
         "vram_mib": nvidia_memory_used_mib(),
         "queue": {"queued": queued, "running": running},
+        "build": _build_for(_user),
+        "llm_no_think": _no_think_for(_user),
     }
+
+
+def _no_think_for(user: User) -> dict:
+    from app.app.services.llm import no_think_status
+
+    data = no_think_status()
+    return data if user.role == "admin" else {"enabled": data["enabled"]}
+
+
+def _build_for(user: User) -> dict:
+    from app.app.services.build_info import build_status
+
+    data = build_status()
+    if user.role != "admin":  # имена файлов — только админу
+        data = {"stale": data["stale"]}
+    return data
 
 
 def _print_credentials(passwords: dict[str, str], *, host: str, port: int) -> None:

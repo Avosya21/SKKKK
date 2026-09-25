@@ -25,7 +25,8 @@ BOOTSTRAP = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min
 BOOTSTRAP_JS = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
 FONTS = "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap"
 
-SPEAKER_COLORS = ("#5B7FA6", "#A67B7B", "#6B9080", "#B08968")
+# 8 цветов: Nemotron даёт до 8 спикеров; с 5-го цвета при 4 повторялись.
+SPEAKER_COLORS = ("#5B7FA6", "#A67B7B", "#6B9080", "#B08968", "#7E6BA6", "#4F8FA0", "#A6906B", "#8A8A8A")
 
 REPORT_NAME = "report.html"
 

@@ -1,6 +1,6 @@
 # SKKKK — остановить API и GPU-воркер
 $ErrorActionPreference = "Stop"
-$Root = "C:\1C_NEW_SKKKK"
+$Root = (Split-Path -Parent $PSScriptRoot)
 $envFile = Join-Path $Root ".env"
 $port = 1111
 if (Test-Path $envFile) {

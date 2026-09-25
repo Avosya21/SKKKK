@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import app.app.db as db_mod
@@ -159,4 +160,75 @@ def test_audio_clip_query_serves_this_artifact_not_shared_work(
     assert without.status_code == 200
     assert with_clip.content == own
     assert with_clip.content == without.content
+
+
+def _seed_lab_run_frame(*, artifact_id: str, telegram_id: str, track: str = "TR_test") -> str:
+    """Создаёт аудио-артефакт с кадром в лабораторном прогоне; возвращает run_id."""
+    settings = get_settings()
+    db = db_mod.SessionLocal()
+    try:
+        user = User(name="U2", telegram_id=telegram_id, role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        project = Project(name="P2", created_by=user.id, is_active=True)
+        db.add(project)
+        db.flush()
+
+        wav = artifact_audio_path(settings, artifact_id, project.id)
+        wav.parent.mkdir(parents=True, exist_ok=True)
+        wav.write_bytes(b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt " + b"\x00" * 28)
+
+        art = Artifact(
+            artifact_id=artifact_id,
+            project_id=project.id,
+            user_id=user.id,
+            original_filename="call.wav",
+            stored_filename="call.wav",
+            file_path=str(wav),
+            file_type="audio",
+            source_type="call",
+            sha256="a" * 64,
+            status="done",
+        )
+        db.add(art)
+        db.commit()
+
+        from app.app.services.storage import artifact_dir
+        from asr.lab.paths import LabRun, new_run_id
+
+        root = artifact_dir(settings, project.id, artifact_id)
+        run = LabRun(root, new_run_id())
+        run.ensure()
+        run.run_json.write_text(json.dumps({"run_id": run.run_id}), encoding="utf-8")
+        frames = run.resolve("frames") / track
+        frames.mkdir(parents=True, exist_ok=True)
+        (frames / "0.jpg").write_bytes(b"fake-jpg-frame")
+        run_id = run.run_id
+        return run_id
+    finally:
+        db.close()
+
+
+def test_frame_endpoint_serves_jpg(client, tmp_data, db_engine, admin_token):
+    artifact_id = "art_frame_ok"
+    run_id = _seed_lab_run_frame(artifact_id=artifact_id, telegram_id="tg-frame-ok")
+    r = client.get(f"/artifacts/{artifact_id}/lab/{run_id}/frame/frames/TR_test/0.jpg")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("image/jpeg")
+    assert r.content == b"fake-jpg-frame"
+
+
+def test_frame_endpoint_rejects_non_jpg(client, tmp_data, db_engine, admin_token):
+    artifact_id = "art_frame_bad"
+    run_id = _seed_lab_run_frame(artifact_id=artifact_id, telegram_id="tg-frame-bad")
+    r = client.get(f"/artifacts/{artifact_id}/lab/{run_id}/frame/frames/TR_test/0.png")
+    assert r.status_code == 404, r.text
+
+
+def test_frame_endpoint_rejects_outside_frames(client, tmp_data, db_engine, admin_token):
+    artifact_id = "art_frame_esc"
+    run_id = _seed_lab_run_frame(artifact_id=artifact_id, telegram_id="tg-frame-esc")
+    settings = get_settings()
+    r = client.get(f"/artifacts/{artifact_id}/lab/{run_id}/frame/audio/clean_16k.wav")
+    assert r.status_code == 404, r.text
 

@@ -65,11 +65,50 @@ def _level(delta: float, ok_sec: float, warn_sec: float) -> str:
     return STATUS_FAIL
 
 
+REPLICA_MAX_CHARS_PER_SEC = 25.0  # обычная речь ~10–15 знаков/с: больше — текст не мог быть сказан за это время
+REPLICA_MIN_CHARS = 20
+REPLICA_MIN_SEC = 0.5
+COVERAGE_WARN_SEC = 3.0  # столько секунд звука на микрофоне без единой реплики — уже подозрительно
+COVERAGE_WARN_SHARE = 0.25
+
+
+def check_replica_density(replicas: list[dict]) -> dict:
+    """Реплика с невозможной плотностью текста — признак «схлопнутой» расшифровки (встреча: 5 реплик в 1,4 с)."""
+    if not replicas:
+        return _check("replica_density", STATUS_NO_DATA, "Плотность реплик", "нет реплик")
+    bad = []
+    for row in replicas:
+        text = str(row.get("text") or "")
+        span = max(float(row.get("end") or 0.0) - float(row.get("start") or 0.0), REPLICA_MIN_SEC)
+        if len(text) >= REPLICA_MIN_CHARS and len(text) / span > REPLICA_MAX_CHARS_PER_SEC:
+            bad.append(f"{row.get('speaker')} {float(row.get('start') or 0.0):.0f}с: {len(text)} знаков за {span:.1f} с")
+    if bad:
+        return _check("replica_density", STATUS_FAIL, "Плотность реплик", "схлопнутый текст: " + "; ".join(bad[:5]), count=len(bad))
+    return _check("replica_density", STATUS_PASS, "Плотность реплик", f"{len(replicas)} реплик в норме")
+
+
+def check_track_coverage(coverage: list[dict] | None) -> dict:
+    """Звук на микрофоне участника есть, а текста от него нет: речь потеряна или приписана другому."""
+    if not coverage:
+        return _check("track_coverage", STATUS_NO_DATA, "Звук без текста", "сверка не выполнялась (старая обработка)")
+    flagged = []
+    for row in coverage:
+        active = float(row.get("active_sec") or 0.0)
+        uncovered = float(row.get("uncovered_sec") or 0.0)
+        if uncovered >= COVERAGE_WARN_SEC and active > 0 and uncovered / active >= COVERAGE_WARN_SHARE:
+            flagged.append(f"{row.get('speaker')}: {uncovered:.0f} из {active:.0f} с звука без текста")
+    if flagged:
+        return _check("track_coverage", STATUS_WARN, "Звук без текста", "; ".join(flagged), speakers=len(flagged))
+    return _check("track_coverage", STATUS_PASS, "Звук без текста", "весь заметный звук покрыт текстом")
+
+
 def run_checks(
     meeting: dict,
     events: list[dict] | None = None,
     tape: list[dict] | None = None,
     leaks: list[dict] | None = None,
+    replicas: list[dict] | None = None,
+    coverage: list[dict] | None = None,
 ) -> list[dict]:
     rows = list(meeting.get("tracks") or [])
     log = list(events or [])
@@ -87,6 +126,8 @@ def run_checks(
         check_head_loss(meeting, rows),
         check_speaker_sync(meeting, log, words, ok_sec, warn_sec),
         check_clock_integrity(meeting, rows, ok_sec, warn_sec),
+        check_replica_density(list(replicas or [])),
+        check_track_coverage(coverage),
     ]
 
 

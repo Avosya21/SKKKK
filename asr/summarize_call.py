@@ -18,6 +18,8 @@ import json
 import os
 import sys
 import urllib.request
+import logging
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +30,8 @@ from speakers import Turn, format_turns_txt  # noqa: E402
 
 from paths import OUT  # noqa: E402
 from llm_client import chat, ensure_llm_ready, llm_name  # noqa: E402
+
+logger = logging.getLogger("skkkk.call_summary")
 
 PROMPT = ROOT / "docs" / "prompts" / "call_summary.md"
 BRIEF_PROMPT = ROOT / "docs" / "prompts" / "call_brief.md"
@@ -55,10 +59,60 @@ def _load_turns() -> list[Turn]:
     if not path.is_file():
         raise SystemExit(f"нет {path}: сначала python asr/build_transcript_view.py")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    return [
+    turns = [
         Turn(start=t["start"], end=t["end"], speaker=t["speaker"], text=t["text"])
         for t in payload.get("turns", [])
     ]
+    return _attach_video_context(turns)
+
+
+def _attach_video_context(turns: list[Turn]) -> list[Turn]:
+    """Add screen-share observations to the publisher's overlapping turns."""
+    latest = OUT.parent / "lab" / "latest.json"
+    if not latest.is_file():
+        return turns
+    try:
+        run_id = json.loads(latest.read_text(encoding="utf-8")).get("run_id")
+        path = OUT.parent / "lab" / "runs" / str(run_id) / "video_transcript.json"
+        segments = json.loads(path.read_text(encoding="utf-8")).get("segments", [])
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return turns
+    if not isinstance(segments, list):
+        return turns
+
+    enriched: list[Turn] = []
+    for turn in turns:
+        notes: list[str] = []
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            start = float(segment.get("start") or 0.0)
+            end = float(segment.get("end") or start)
+            if end < turn.start or start > turn.end:
+                continue
+            publisher = str(segment.get("speaker") or segment.get("identity") or "").strip()
+            if publisher and publisher != turn.speaker:
+                continue
+            text = str(segment.get("text") or "").strip()
+            if not text:
+                continue
+            frame_id = str(segment.get("frame_id") or "").strip()
+            note = f"На экране показывалось: {text}"
+            if frame_id:
+                note += f" [frame_id={frame_id}]"
+            if note not in notes:
+                notes.append(note)
+        context = "\n".join(notes)
+        enriched.append(
+            Turn(
+                start=turn.start,
+                end=turn.end,
+                speaker=turn.speaker,
+                text=f"{turn.text}\n{context}" if context else turn.text,
+            )
+        )
+    logger.info("meeting.video_context.attached turns=%s segments=%s", len(turns), len(segments))
+    return enriched
 
 
 def lab_proof_is_canonical(asr_out: Path) -> bool:
@@ -142,6 +196,7 @@ def _run_map_reduce(
 
 
 def main() -> int:
+    started = time.monotonic()
     turns = [t for t in _load_turns() if t.text.strip()]
     if not turns:
         raise SystemExit("нет реплик с текстом — нечего суммировать")
@@ -175,6 +230,7 @@ def main() -> int:
         print(f"brief summary skipped: {exc}", flush=True)
 
     if lab_proof_is_canonical(OUT):
+        logger.info("meeting.call_summary.done seconds=%.2f", time.monotonic() - started)
         print("lab proof canonical — skip build_transcript_view")
         return 0
 

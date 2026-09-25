@@ -1,8 +1,10 @@
+"""Встречи проекта и гостевой вход: создание, старт, завершение, отзыв ссылки, вход и выход гостя, присутствие."""
+
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,8 @@ from app.app.services.meetings import (
     get_meeting,
     join_guest,
     join_member,
+    leave_participant,
+    heartbeat_participant,
     list_meetings,
     meeting_by_token,
     member_payload,
@@ -38,6 +42,10 @@ MEETING_DELETE_TITLE = "Удалил созвон"
 class GuestJoinIn(BaseModel):
     display_name: str = Field(min_length=1, max_length=128)
     guest_id: str | None = None
+
+
+class LeaveIn(BaseModel):
+    identity: str = Field(min_length=1, max_length=128)
 
 
 def _staff_meeting(db: Session, user: User, project_id: int, meeting_id: int):
@@ -165,6 +173,38 @@ def delete_project_meeting(
     )
 
 
+def _own_member_identity(user: User, identity: str) -> None:
+    if identity != f"member:{user.id}":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+@router.post("/projects/{project_id}/meetings/{meeting_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+def staff_meeting_heartbeat(
+    project_id: int,
+    meeting_id: int,
+    body: LeaveIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    meeting = _staff_meeting(db, user, project_id, meeting_id)
+    _own_member_identity(user, body.identity)
+    if not heartbeat_participant(db, meeting, body.identity):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+
+
+@router.post("/projects/{project_id}/meetings/{meeting_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+def staff_meeting_leave(
+    project_id: int,
+    meeting_id: int,
+    body: LeaveIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    meeting = _staff_meeting(db, user, project_id, meeting_id)
+    _own_member_identity(user, body.identity)
+    leave_participant(db, meeting, body.identity)
+
+
 @router.post("/projects/{project_id}/meetings/{meeting_id}/analyze")
 def analyze_project_meeting(
     project_id: int,
@@ -194,3 +234,20 @@ def public_meeting_join(
 ):
     meeting = meeting_by_token(db, token)
     return join_guest(db, settings, meeting, body.display_name, guest_id=parse_guest_id(body.guest_id))
+
+
+@router.post("/api/meetings/public/{token}/leave", status_code=status.HTTP_204_NO_CONTENT)
+def public_meeting_leave(token: str, body: LeaveIn, db: Annotated[Session, Depends(get_db)]):
+    meeting = meeting_by_token(db, token)
+    if not body.identity.startswith("guest:"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    leave_participant(db, meeting, body.identity)
+
+
+@router.post("/api/meetings/public/{token}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+def public_meeting_heartbeat(token: str, body: LeaveIn, db: Annotated[Session, Depends(get_db)]):
+    meeting = meeting_by_token(db, token)
+    if not body.identity.startswith("guest:"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if not heartbeat_participant(db, meeting, body.identity):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")

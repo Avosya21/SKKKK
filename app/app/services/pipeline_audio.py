@@ -1,3 +1,5 @@
+"""Обработка аудио-артефакта: запуск лабораторного ASR-конвейера, стенограмма, сверка спикеров, аудит реплик и выжимка созвона (`process_audio_artifact`)."""
+
 from __future__ import annotations
 
 import json
@@ -147,6 +149,7 @@ def _asr_env(settings: Settings, artifact: Artifact) -> dict[str, str]:
     env["WHISPER_URL"] = settings.whisper_url
     env["GIGAAM_URL"] = settings.gigaam_url
     env["TONE_URL"] = settings.tone_url
+    env["DIAR_MODEL"] = settings.diar_model
     return env
 
 

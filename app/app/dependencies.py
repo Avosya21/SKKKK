@@ -6,7 +6,9 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
+from sqlalchemy import event
+from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
@@ -18,9 +20,13 @@ security = HTTPBearer(auto_error=False)
 SESSION_COOKIE_NAME = "skkkk_session"
 
 
-def create_access_token(settings: Settings, user: User) -> str:
+VALID_ROLES = frozenset({"admin", "manager", "user"})
+
+
+def create_access_token(settings: Settings, user: User, role: str | None = None) -> str:
+    """Роль сессии — из пароля при входе; в БД (общая учётка) она не перезаписывается."""
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": str(user.id), "role": user.role, "exp": expire}
+    payload = {"sub": str(user.id), "role": role or user.role, "exp": expire}
     token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
     return token if isinstance(token, str) else token.decode("utf-8")
 
@@ -91,7 +97,22 @@ def _user_from_access_token(db: Session, settings: Settings, token: str) -> User
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    session_role = payload.get("role")
+    if session_role in VALID_ROLES and session_role != user.role:
+        # Только на время запроса: committed_value не помечает поле изменённым.
+        set_committed_value(user, "role", session_role)
+        db.info.setdefault("session_roles", {})[user.id] = session_role
     return user
+
+
+@event.listens_for(User, "refresh")
+@event.listens_for(User, "load")
+def _reapply_session_role(target, *_args):
+    """commit() в середине запроса перечитывает User из БД — вернуть роль сессии."""
+    session = object_session(target)
+    role = session.info.get("session_roles", {}).get(target.id) if session is not None else None
+    if role and target.role != role:
+        set_committed_value(target, "role", role)
 
 
 def get_current_user(

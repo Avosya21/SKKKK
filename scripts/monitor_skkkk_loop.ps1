@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Continue"
-$root = "C:\1C_NEW_SKKKK"
+$root = (Split-Path -Parent $PSScriptRoot)
 $py = Join-Path $root "venv\Scripts\python.exe"
 $log = Join-Path $root "data\logs\monitor_loop.log"
 

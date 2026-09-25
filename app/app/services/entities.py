@@ -1,3 +1,5 @@
+"""Извлечение сущностей (задачи, упоминания, участники, решения, факты) из нормализованного текста через LLM: разбиение, промпт, разбор JSON и фильтры (оценки длительности, последовательности этапов)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,9 +21,10 @@ from app.app.models.entity import Entity
 from app.app.logging_setup import log_event
 from app.app.llm_labels import llm_runtime_label
 from app.app.services.graph import delete_entities_with_deps, entity_text
-from app.app.services.llm import chat_completion, strip_json_fence
+from app.app.services.llm import chat_completion_no_think, strip_json_fence
 from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import structured_dir
+from app.app.services.prompts import load_prompt_block
 from app.app.services.vector_index import (
     delete_vectors_for_entities,
     init_vector_store,
@@ -35,9 +38,26 @@ PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities.md"
 SOURCE_TYPE_CALL = "call"
 TEXT_HASH_LEN = 16
 CALL_BOUND_TYPES = {"decision", "task", "fact"}
-TURN_PROMPT_LIMIT = 120
 REPLICA_MATCH_WINDOW = 3
 TEXT_OVERLAP_MIN_RATIO = 0.35
+EXTRACT_PART_CHARS = 6000
+# «Утвердил» принимается, только если реплика согласия не дальше стольких реплик от реплики решения.
+DECIDED_BY_WINDOW = 5
+SPEAKER_SOURCE_TRACK = "track"  # комната: имя по дорожке микрофона — доказательство
+SPEAKER_SOURCE_VOICE = "voice"  # загруженная запись: имя по сопоставлению голоса — вывод
+
+
+def _turn_ids(raw: Any) -> list[int]:
+    """Номера реплик от LLM: 12, "12", "T12" → 12."""
+    if raw is None:
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[int] = []
+    for item in items:
+        m = re.search(r"\d+", str(item))
+        if m:
+            out.append(int(m.group(0)))
+    return out
 
 
 class TaskItem(BaseModel):
@@ -45,6 +65,44 @@ class TaskItem(BaseModel):
     assignee: str | None = None
     deadline: str | None = None
     status: str = "unknown"
+    turns: list[int] = Field(default_factory=list)
+
+    @field_validator("turns", mode="before")
+    @classmethod
+    def _coerce_turns(cls, value: Any) -> list[int]:
+        return _turn_ids(value)
+
+
+class DecidedBy(BaseModel):
+    name: str = ""
+    turn: int | None = None
+
+    @field_validator("turn", mode="before")
+    @classmethod
+    def _coerce_turn(cls, value: Any) -> int | None:
+        ids = _turn_ids(value)
+        return ids[0] if ids else None
+
+
+class DecisionItem(BaseModel):
+    """Решение: текст, реплики-источник (номера T<n>) и кто утвердил/согласился — не тот, кто только спросил."""
+
+    text: str = ""
+    turns: list[int] = Field(default_factory=list)
+    decided_by: list[DecidedBy] = Field(default_factory=list)
+
+    @field_validator("turns", mode="before")
+    @classmethod
+    def _coerce_turns(cls, value: Any) -> list[int]:
+        return _turn_ids(value)
+
+    @field_validator("decided_by", mode="before")
+    @classmethod
+    def _coerce_decided_by(cls, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        items = value if isinstance(value, list) else [value]
+        return [{"name": item} if isinstance(item, str) else item for item in items]
 
 
 class MentionItem(BaseModel):
@@ -62,17 +120,23 @@ class EntitiesPayload(BaseModel):
     source_type: str = ""
     timestamp: str | None = None
     summary: str = ""
-    decisions: list[str] = Field(default_factory=list)
+    decisions: list[DecisionItem] = Field(default_factory=list)
     tasks: list[TaskItem] = Field(default_factory=list)
     facts: dict[str, Any] = Field(default_factory=dict)
     mentions: list[MentionItem] = Field(default_factory=list)
     participants: list[ParticipantItem] = Field(default_factory=list)
 
+    @field_validator("decisions", mode="before")
+    @classmethod
+    def _coerce_decisions(cls, value: Any) -> list[Any]:
+        """Прежний формат (строки) и старые файлы structured/*_entities.json принимаются как есть."""
+        if value is None:
+            return []
+        return [{"text": item} if isinstance(item, str) else item for item in value]
+
 
 def _load_system_prompt() -> str:
-    raw = PROMPT_PATH.read_text(encoding="utf-8")
-    blocks = [b.strip() for b in raw.split("```") if b.strip() and not b.strip().startswith("#")]
-    return blocks[0] if blocks else raw
+    return load_prompt_block(PROMPT_PATH)
 
 
 def _split_for_extraction(text: str, max_chars: int = 6000) -> list[str]:
@@ -268,7 +332,8 @@ def normalize_entities_payload(payload: EntitiesPayload) -> EntitiesPayload:
             if inline:
                 task.deadline = inline
 
-    for decision in out.decisions:
+    for item in out.decisions:
+        decision = item.text
         deadline = _extract_deadline_phrase(decision)
         if not deadline:
             continue
@@ -291,6 +356,7 @@ def normalize_entities_payload(payload: EntitiesPayload) -> EntitiesPayload:
                     assignee=None,
                     deadline=deadline,
                     status="open",
+                    turns=list(item.turns),
                 )
             )
 
@@ -431,15 +497,15 @@ def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
     if not parts:
         return EntitiesPayload()
     base = parts[0].model_copy(deep=True)
-    seen_decisions = set(base.decisions)
+    seen_decisions = {d.text for d in base.decisions}
     merged_tasks: list[TaskItem] = list(base.tasks)
     for part in parts[1:]:
         if part.summary and len(part.summary) > len(base.summary):
             base.summary = part.summary
         for d in part.decisions:
-            if d not in seen_decisions:
+            if d.text not in seen_decisions:
                 base.decisions.append(d)
-                seen_decisions.add(d)
+                seen_decisions.add(d.text)
         for incoming in part.tasks:
             merged_tasks = _merge_task_into_list(merged_tasks, incoming)
         base.facts.update(part.facts)
@@ -455,6 +521,55 @@ def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
                 pnames.add(p.name)
     base.tasks = merged_tasks
     return normalize_entities_payload(base)
+
+
+def _material_timestamp(artifact: Artifact) -> str:
+    """Дата материала для LLM (дата созвона, а не момент обработки); неизвестна — пустая строка."""
+    from app.app.services.recorded_at import EXPLICIT_SOURCES, to_local
+
+    recorded = getattr(artifact, "recorded_at", None)
+    if recorded is not None and getattr(artifact, "recorded_at_source", None) in EXPLICIT_SOURCES:
+        return to_local(recorded).isoformat()
+    from app.app.services.project_deadlines import artifact_reference_date, reference_is_explicit
+
+    if reference_is_explicit(artifact):
+        ref = artifact_reference_date(artifact)
+        return ref.isoformat() if ref else ""
+    return ""
+
+
+def _turns_header() -> str:
+    return (
+        "Стенограмма разбита на пронумерованные реплики: «T<номер> [таймкод] Имя: текст». "
+        "Для decision/task/fact укажи номера реплик-источников в turns; для decision — decided_by "
+        "(кто утвердил или явно согласился, с номером его реплики).\n\n"
+    )
+
+
+def _numbered_turn_parts(settings: Settings, artifact: Artifact, max_chars: int = EXTRACT_PART_CHARS) -> list[str]:
+    """Созвон: реплики канона с номерами ``T<n>``, нарезанные на части по целым репликам. Не созвон — []."""
+    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL:
+        return []
+    from app.app.services.transcript_turns import format_timecode, load_turns
+
+    turns = load_turns(settings, artifact)
+    if not turns or all(t.start_sec is None for t in turns):
+        return []
+    out: list[str] = []
+    buf: list[str] = []
+    size = 0
+    for turn in turns:
+        stamp = f"[{format_timecode(turn.start_sec)}] " if turn.start_sec is not None else ""
+        who = f"{turn.speaker}: " if turn.speaker else ""
+        line = f"T{turn.index} {stamp}{who}{turn.text}"
+        if buf and size + len(line) + 1 > max_chars:
+            out.append("\n".join(buf))
+            buf, size = [], 0
+        buf.append(line)
+        size += len(line) + 1
+    if buf:
+        out.append("\n".join(buf))
+    return out
 
 
 def _parse_entities(raw: str) -> EntitiesPayload:
@@ -473,19 +588,21 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str) -> E
         llm=llm_runtime_label(settings.llm_provider),
         chars=len(text),
     )
-    turns = _turn_prompt(settings, artifact)
+    numbered = _numbered_turn_parts(settings, artifact)
+    pieces = numbered or _split_for_extraction(text)
+    header = _turns_header() if numbered else ""
     parts: list[EntitiesPayload] = []
-    for chunk in _split_for_extraction(text):
+    for chunk in pieces:
         user = (
             f"artifact_id={artifact.artifact_id}\n"
             f"source_type={artifact.source_type}\n"
-            f"timestamp={datetime.now(timezone.utc).isoformat()}\n\n"
-            f"{turns}{chunk}"
+            f"timestamp={_material_timestamp(artifact)}\n\n"
+            f"{header}{chunk}"
         )
         last_err = ""
         for attempt in range(2):
             try:
-                reply = chat_completion(settings, system=system, user=user, max_tokens=4096)
+                reply = chat_completion_no_think(settings, system=system, user=user, max_tokens=4096)
                 payload = _parse_entities(reply)
                 payload.artifact_id = artifact.artifact_id
                 payload.source_type = artifact.source_type
@@ -583,34 +700,16 @@ def load_meeting_proof(settings: Settings, artifact: Artifact) -> tuple[list[dic
     return list(data.get("replicas") or []), list(data.get("leaks") or [])
 
 
-def _turn_prompt(settings: Settings, artifact: Artifact) -> str:
-    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL:
-        return ""
-    replicas, _leaks = load_meeting_proof(settings, artifact)
-    lines = []
-    for row in replicas[:TURN_PROMPT_LIMIT]:
-        sid = str(row.get("source_span_id") or "").strip()
-        text = _replica_text(row)
-        if sid and text:
-            lines.append(f"{sid}\t{row.get('speaker')}\t{text}")
-    if not lines:
-        return ""
-    return (
-        "Реплики с source_span_id. decision/task/fact только из этого списка.\n"
-        + "\n".join(lines)
-        + "\n\n"
-    )
-
-
 def filter_call_payload(
     payload: EntitiesPayload,
     artifact: Artifact,
     replicas: list[dict],
     leaks: list[dict],
 ) -> EntitiesPayload:
+    """Только встреча из комнаты (DECISIONS 2026-09-13): текст из leaks.json в сущности не попадает."""
     data = payload.model_copy(deep=True)
     data.decisions = [
-        item for item in payload.decisions if bind_call_source({"text": item}, artifact, replicas, leaks)
+        item for item in payload.decisions if bind_call_source({"text": item.text}, artifact, replicas, leaks)
     ]
     data.tasks = [
         item for item in payload.tasks if bind_call_source(item.model_dump(), artifact, replicas, leaks)
@@ -623,33 +722,220 @@ def filter_call_payload(
     return data
 
 
+TURN_MATCH_MIN_COVERAGE = 0.4  # доля основ слов сущности, найденных в реплике (окне реплик)
+TURN_MATCH_HINTED_COVERAGE = 0.25  # порог, если на реплику указал сам LLM (номер T<n>)
+TURN_MATCH_MIN_SHARED = 2  # минимум общих основ: короткие «Да», «С» ничего не доказывают
+
+
+def _turn_score(need: set[str], window: list) -> tuple[float, int]:
+    from app.app.services.contract_text import coverage, stems
+
+    hay: set[str] = set()
+    for turn in window:
+        hay |= stems(turn.text)
+    return coverage(need, hay), len(need & hay)
+
+
+def _best_in_window(need: set[str], window: list):
+    """Внутри окна — реплика с наибольшим собственным совпадением (якорь «кто сказал»)."""
+    return max(window, key=lambda t: (_turn_score(need, [t])[1], -t.index))
+
+
+def _match_turn(text: str, turns: list, turn_ids: list[int]):
+    """Реплика-источник по совпадению основ слов (реплика или окно до 3 подряд).
+
+    Номер от LLM принимается при более мягком пороге, но тоже только при совпадении текста.
+    Берётся лучшая, а не первая подходящая: иначе однобуквенная реплика «С» «содержится» в любом тексте.
+    """
+    from app.app.services.contract_text import stems
+
+    need = stems(text)
+    if len(need) < TURN_MATCH_MIN_SHARED:
+        return None
+    speech = [t for t in turns if t.is_speech and t.start_sec is not None]
+    position = {t.index: pos for pos, t in enumerate(speech)}
+
+    def windows_from(pos: int):
+        for size in range(1, REPLICA_MATCH_WINDOW + 1):
+            window = speech[pos : pos + size]
+            if len(window) == size:
+                yield window
+
+    def pick(candidates, threshold: float):
+        best = None
+        for window in candidates:
+            cov, shared = _turn_score(need, window)
+            if cov < threshold or shared < TURN_MATCH_MIN_SHARED:
+                continue
+            key = (cov, -len(window))
+            if best is None or key > best[0]:
+                best = (key, window)
+        return _best_in_window(need, best[1]) if best else None
+
+    hinted = [w for idx in turn_ids if idx in position for w in windows_from(position[idx])]
+    found = pick(hinted, TURN_MATCH_HINTED_COVERAGE) if hinted else None
+    if found is not None:
+        return found
+    return pick((w for pos in range(len(speech)) for w in windows_from(pos)), TURN_MATCH_MIN_COVERAGE)
+
+
+def _same_person(claimed: str, actual: str) -> bool:
+    a, b = claimed.casefold().strip(), actual.casefold().strip()
+    if not a or not b:
+        return False
+    return a == b or a.split()[0] == b.split()[0]
+
+
+def _validated_decided_by(raw: list, turns: list, anchor, artifact: Artifact) -> list[dict]:
+    """«Утвердил»: только реальный говорящий реальной реплики речи рядом с решением (DECISIONS: имя не выдумывается)."""
+    by_index = {t.index: t for t in turns}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in raw or []:
+        data = item if isinstance(item, dict) else {"name": str(item)}
+        name = str(data.get("name") or "").strip()
+        ids = _turn_ids(data.get("turn"))
+        turn = by_index.get(ids[0]) if ids else None
+        reason = ""
+        if turn is None:
+            reason = "no_turn"
+        elif not turn.is_speech or turn.start_sec is None:
+            reason = "not_speech"
+        elif turn.known_speaker is None:
+            reason = "unknown_speaker"
+        elif anchor is not None and abs(turn.index - anchor.index) > DECIDED_BY_WINDOW:
+            reason = "too_far"
+        elif not _same_person(name, turn.known_speaker):
+            reason = "name_mismatch"
+        if reason:
+            log_event(logger, "entities.decided_by.rejected", artifact=artifact.artifact_id, name=name, turn=ids[:1], reason=reason)
+            continue
+        if turn.known_speaker in seen:
+            continue
+        seen.add(turn.known_speaker)
+        out.append({"name": turn.known_speaker, "start_sec": turn.start_sec})
+    return out
+
+
 def bind_call_source(
     value: dict,
     artifact: Artifact,
     replicas: list[dict],
     leaks: list[dict],
+    *,
+    turns: list | None = None,
+    recorded_at: str | None = None,
 ) -> dict | None:
+    """Привязать decision/task/fact созвона к реплике: кто сказал, когда, (для решения) кто утвердил.
+
+    Комната (есть реплики proof с ``source_span_id``): говорящий по дорожке, ``speaker_source=track``;
+    нет совпадения — ``needs_review`` (DECISIONS 2026-09-13). Загруженная запись: реплики канона ``_final.txt``,
+    ``speaker_source=voice`` (опознание по голосу, не доказательство); нет совпадения — ``source_status=unbound``.
+    """
     if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL:
         return value
     text = str(value.get("text") or value.get("description") or value.get("value") or "")
     if _leak_covers(text, leaks):
         return None
-    if not _has_span_replicas(replicas):
-        return value
-    replica = _match_replica(text, replicas)
+    turns = turns or []
     bound = dict(value)
-    if replica is None:
-        bound["source_span_id"] = None
-        bound["needs_review"] = True
+    turn_ids = _turn_ids(bound.pop("turns", None))
+    raw_decided = bound.pop("decided_by", None)
+    room = _has_span_replicas(replicas)
+    if not room and not turns:
         return bound
-    bound["artifact_id"] = artifact.artifact_id
-    bound["source_type"] = SOURCE_TYPE_CALL
-    bound["speaker"] = replica.get("speaker")
-    bound["start_sec"] = replica.get("start")
-    bound["end_sec"] = replica.get("end")
-    bound["source_span_id"] = replica.get("source_span_id")
-    bound["text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:TEXT_HASH_LEN]
+    anchor = None
+    if room:
+        replica = _match_replica(text, replicas)
+        if replica is None:
+            bound["source_span_id"] = None
+            bound["needs_review"] = True
+        else:
+            bound["artifact_id"] = artifact.artifact_id
+            bound["source_type"] = SOURCE_TYPE_CALL
+            bound["speaker"] = replica.get("speaker")
+            bound["speaker_source"] = SPEAKER_SOURCE_TRACK
+            bound["start_sec"] = replica.get("start")
+            bound["end_sec"] = replica.get("end")
+            bound["source_span_id"] = replica.get("source_span_id")
+            bound["text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:TEXT_HASH_LEN]
+            if turns:
+                from app.app.services.transcript_turns import turn_at
+
+                anchor = turn_at(turns, replica.get("start"))
+    else:
+        anchor = _match_turn(text, turns, turn_ids)
+        if anchor is None:
+            bound["source_status"] = "unbound"
+        else:
+            bound["artifact_id"] = artifact.artifact_id
+            bound["source_type"] = SOURCE_TYPE_CALL
+            bound["speaker"] = anchor.known_speaker
+            bound["speaker_source"] = SPEAKER_SOURCE_VOICE
+            bound["start_sec"] = anchor.start_sec
+            bound["end_sec"] = anchor.end_sec
+            bound["text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:TEXT_HASH_LEN]
+            if anchor.known_speaker is None:
+                bound["source_status"] = "speaker_unknown"
+    if recorded_at and bound.get("start_sec") is not None:
+        bound["recorded_at"] = recorded_at
+    if raw_decided is not None and turns:
+        bound["decided_by"] = _validated_decided_by(raw_decided, turns, anchor, artifact)
     return bound
+
+
+def _decision_value(item: DecisionItem) -> dict:
+    return {
+        "text": item.text,
+        "turns": list(item.turns),
+        "decided_by": [d.model_dump() for d in item.decided_by],
+    }
+
+
+def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) -> int:
+    """Обновить имена говорящих у привязанных по голосу сущностей после переименования спикеров. Без LLM, на месте.
+
+    Строки не пересоздаются (id, связи графа, разрешения, human_review целы). Якорь — ``start_sec``: номера реплик
+    сдвигаются после «Слить». Сущности без привязки (старые созвоны) и привязка по дорожке (комната) не трогаются.
+    """
+    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL or artifact.file_type != "audio":
+        return 0
+    from app.app.services.transcript_turns import load_turns, turn_at
+
+    turns = load_turns(settings, artifact)
+    if not turns:
+        return 0
+    rows = db.scalars(
+        select(Entity).where(Entity.artifact_id == artifact.id, Entity.entity_type.in_(CALL_BOUND_TYPES))
+    ).all()
+    changed = 0
+    for ent in rows:
+        try:
+            value = json.loads(ent.value_json)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict) or value.get("speaker_source") != SPEAKER_SOURCE_VOICE:
+            continue
+        before = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        turn = turn_at(turns, value.get("start_sec"))
+        if turn is not None:
+            value["speaker"] = turn.known_speaker
+            if turn.known_speaker is None:
+                value["source_status"] = "speaker_unknown"
+            elif value.get("source_status") == "speaker_unknown":
+                value.pop("source_status", None)
+        for item in value.get("decided_by") or []:
+            if isinstance(item, dict):
+                other = turn_at(turns, item.get("start_sec"))
+                if other is not None and other.known_speaker:
+                    item["name"] = other.known_speaker
+        if json.dumps(value, ensure_ascii=False, sort_keys=True) != before:
+            ent.value_json = json.dumps(value, ensure_ascii=False)
+            changed += 1
+    if changed:
+        db.flush()
+        log_event(logger, "entities.rebound", artifact=artifact.artifact_id, changed=changed)
+    return changed
 
 
 def persist_entities(
@@ -660,8 +946,15 @@ def persist_entities(
 ) -> Path:
     payload.tasks = merge_related_tasks(payload.tasks)
     replicas, leaks = ([], [])
+    turns: list = []
+    recorded_at = None
     if getattr(artifact, "source_type", "") == SOURCE_TYPE_CALL:
+        from app.app.services.transcript_turns import load_turns
+
         replicas, leaks = load_meeting_proof(settings, artifact)
+        turns = load_turns(settings, artifact)
+        stamp = _material_timestamp(artifact)
+        recorded_at = stamp or None
         if _has_span_replicas(replicas):
             payload = filter_call_payload(payload, artifact, replicas, leaks)
     drafts: list[tuple[str, str, float]] = []
@@ -669,13 +962,18 @@ def persist_entities(
     def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
         item = value
         if entity_type in CALL_BOUND_TYPES:
-            item = bind_call_source(value, artifact, replicas, leaks)
+            item = bind_call_source(value, artifact, replicas, leaks, turns=turns, recorded_at=recorded_at)
             if item is None:
                 return
+        if isinstance(item, dict):
+            item = dict(item)
+            item.pop("turns", None)  # номера реплик нестабильны (после «Слить»); якорь — start_sec
+            if not item.get("decided_by"):
+                item.pop("decided_by", None)
         drafts.append((entity_type, json.dumps(item, ensure_ascii=False), confidence))
 
     for d in payload.decisions:
-        draft("decision", {"text": d})
+        draft("decision", _decision_value(d))
     for t in payload.tasks:
         draft("task", t.model_dump())
     for k, v in payload.facts.items():
@@ -748,6 +1046,8 @@ def reextract_artifact_entities(db: Session, settings: Settings, artifact: Artif
         payload = stub_entities(artifact, text)
     else:
         prepare_for_llm(settings.lmstudio_model, settings=settings)
+        # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
+        db.commit()
         payload = extract_entities_llm(settings, artifact, text)
     persist_entities(db, settings, artifact, payload)
     db.commit()

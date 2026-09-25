@@ -1,3 +1,5 @@
+"""Подготовка звука артефакта: атомарное извлечение WAV из исходника с блокировкой и проверкой полноты, MP3 для скачивания, AAC для проигрывания в браузере и построение аудио-отчётов (стенограмма, Sortformer, сверка спикеров)."""
+
 from __future__ import annotations
 
 import logging
@@ -596,7 +598,7 @@ def ensure_two_voice_diar_report(settings: Settings, artifact: Artifact) -> Path
 
 
 def ensure_speaker_match_report(settings: Settings, artifact: Artifact, db: Session) -> Path:
-    """Тест: Sortformer + WeSpeaker match + запоминание голосов."""
+    """Голоса созвона: диаризация (Nemotron/Sortformer) + WeSpeaker match + запоминание голосов."""
     report = artifact_speaker_match_path(settings, artifact.artifact_id, artifact.project_id)
     match_json = (
         artifact_dir(settings, artifact.project_id, artifact.artifact_id)
@@ -627,7 +629,6 @@ def ensure_speaker_match_report(settings: Settings, artifact: Artifact, db: Sess
         out_html=report,
         audio_url=audio_url,
         profiles=profiles,
-        title="Sortformer + запоминание голосов",
     )
 
     html = _fix_audio_src(report.read_text(encoding="utf-8"), audio_url)

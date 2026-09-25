@@ -70,7 +70,7 @@ def test_rebuild_fires_on_every_nth_done_artifact(monkeypatch):
         def scalar(self, _stmt):
             return self._count
 
-    monkeypatch.setattr(tz_mod, "rebuild_tz", lambda db, s, pid, **kw: calls.append(pid))
+    monkeypatch.setattr(tz_mod, "rebuild_tz_fast", lambda db, s, pid, **kw: calls.append(pid))
     _patch_tz_task_guards(monkeypatch)
     settings = Settings(secret_key="x" * 16, tz_rebuild_every_n=3)
     artifact = type("ArtifactStub", (), {"file_type": "audio", "project_id": 7, "artifact_id": "art_audio"})()
@@ -87,17 +87,18 @@ def test_rebuild_always_runs_for_documents(monkeypatch):
     calls: list[tuple[int, str]] = []
 
     class _Db:
-        def scalar(self, _stmt):
-            return 99
+        def scalar(self, stmt):
+            # запрос ожидающих заданий (jobs) -> 0; прочие -> прежнее значение
+            return 0 if "jobs" in str(stmt) else 99
 
     monkeypatch.setattr(
         tz_mod,
-        "rebuild_tz",
+        "rebuild_tz_fast",
         lambda db, s, pid, **kw: calls.append((pid, kw.get("summary", ""))),
     )
     _patch_tz_task_guards(monkeypatch)
     settings = Settings(secret_key="x" * 16, tz_rebuild_every_n=3)
-    artifact = type("ArtifactStub", (), {"file_type": "docx", "project_id": 11, "artifact_id": "art_doc"})()
+    artifact = type("ArtifactStub", (), {"id": 1, "file_type": "docx", "project_id": 11, "artifact_id": "art_doc"})()
 
     tz_mod.maybe_auto_rebuild_tz(_Db(), settings, artifact)
 

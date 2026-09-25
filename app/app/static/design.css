@@ -1,0 +1,422 @@
+/* Единая дизайн-система Primary Analytics (v2, 2026-09-19).
+   Подключается ПОСЛЕ app.css и переопределяет Bootstrap и старые стили через токены --ds-*.
+   Откат: убрать <link> на этот файл в base.html и meeting_public.html.
+   Принципы: спокойный светлый рабочий стол, один акцент (индиго), мягкие статусы, единые радиусы (8/12/16),
+   тёмная тема комнаты на тех же токенах, цвет несёт смысл (акцент — действие, красный — необратимое/выключено). */
+
+:root {
+  /* поверхности и текст */
+  --ds-bg: #fafafa;
+  --ds-surface: #ffffff;
+  --ds-surface-2: #f4f4f5;
+  --ds-line: #e4e4e7;
+  --ds-line-strong: #d4d4d8;
+  --ds-text: #09090b;
+  --ds-text-2: #3f3f46;
+  --ds-muted: #71717a;
+  /* акцент и статусы */
+  /* главный цвет — почти чёрный (как shadcn/Vercel); цветными остаются только статусы */
+  --ds-accent: #18181b;
+  --ds-accent-hover: #3f3f46;
+  --ds-accent-active: #09090b;
+  --ds-accent-soft: #f4f4f5;
+  --ds-accent-border: #d4d4d8;
+  --ds-link: #1d4ed8;
+  --ds-ok: #067647;
+  --ds-ok-soft: #e7f6ee;
+  --ds-warn: #93370d;
+  --ds-warn-soft: #fef3e2;
+  --ds-danger: #b42318;
+  --ds-danger-soft: #fdeceb;
+  --ds-info: #175cd3;
+  --ds-info-soft: #e8f0fe;
+  /* форма */
+  --ds-r-sm: 8px;
+  --ds-r-md: 10px;
+  --ds-r-lg: 14px;
+  --ds-shadow: 0 1px 2px rgba(9, 9, 11, .04);
+  --ds-ring: 0 0 0 2px #fff, 0 0 0 4px rgba(24, 24, 27, .35);
+  --ds-font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  /* тёмная тема (комната) */
+  --ds-dark-bg: #09090b;
+  --ds-dark-surface: #18181b;
+  --ds-dark-surface-2: #27272a;
+  --ds-dark-line: #2f2f34;
+  --ds-dark-text: #fafafa;
+  --ds-dark-muted: #a1a1aa;
+  --ds-dark-on-ring: rgba(250, 250, 250, .35);
+  --ds-speaking: #3b82f6;
+  --ds-dark-off: #4a2530;
+  --ds-dark-off-text: #ff8a8a;
+
+  /* Bootstrap подхватывает те же значения */
+  --bs-primary: var(--ds-accent);
+  --bs-primary-rgb: 24, 24, 27;
+  --bs-link-color: var(--ds-text);
+  --bs-link-color-rgb: 9, 9, 11;
+  --bs-link-hover-color-rgb: 63, 63, 70;
+  --bs-link-hover-color: var(--ds-accent-hover);
+  --bs-body-font-family: var(--ds-font);
+  --bs-body-color: var(--ds-text);
+  --bs-border-color: var(--ds-line);
+  --bs-border-radius: var(--ds-r-sm);
+  --bs-border-radius-lg: var(--ds-r-md);
+}
+
+/* ---------- основа ---------- */
+html { background: var(--ds-bg); }
+
+body,
+body.bg-light {
+  color: var(--ds-text);
+  background: var(--ds-bg) !important;
+  font-family: var(--ds-font);
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { color: var(--ds-text); font-weight: 600; letter-spacing: -0.015em; }
+.text-muted, .form-text { color: var(--ds-muted) !important; }
+a { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 2px; }
+:focus-visible { outline: none; box-shadow: var(--ds-ring); border-radius: var(--ds-r-sm); }
+
+/* ---------- шапка: светлая, с тонкой линией ---------- */
+.navbar-skkkk {
+  min-height: 60px;
+  background: var(--ds-surface) !important;
+  box-shadow: none;
+  border-bottom: 1px solid var(--ds-line);
+}
+.navbar-skkkk .navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  color: var(--ds-text) !important;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.navbar-skkkk .navbar-brand[href="/"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--ds-accent);
+  box-shadow: 0 0 0 3px var(--ds-accent-soft);
+}
+.navbar-skkkk .navbar-text, .navbar-skkkk .text-white-50 { color: var(--ds-muted) !important; }
+.navbar-skkkk .navbar-divider, .navbar-skkkk .navbar-project { color: var(--ds-text-2) !important; border-color: var(--ds-line) !important; }
+.navbar-skkkk .navbar-project { font-weight: 500; }
+.navbar-skkkk .btn-outline-light, .navbar-skkkk .navbar-back {
+  color: var(--ds-text-2) !important;
+  background: var(--ds-surface) !important;
+  border: 1px solid var(--ds-line-strong) !important;
+  border-radius: var(--ds-r-sm) !important;
+  font-weight: 500;
+}
+.navbar-skkkk .btn-outline-light:hover, .navbar-skkkk .navbar-back:hover { background: var(--ds-surface-2) !important; }
+.navbar-skkkk .nav-logout { color: var(--ds-muted) !important; }
+.navbar-skkkk .nav-logout:hover { color: var(--ds-text) !important; background: var(--ds-surface-2) !important; }
+.navbar-skkkk .badge.text-bg-success { color: var(--ds-ok) !important; background: var(--ds-ok-soft) !important; border: 1px solid #b7e4cd; font-weight: 600; }
+.navbar-skkkk .badge.text-bg-secondary { color: var(--ds-muted) !important; background: var(--ds-surface-2) !important; border: 1px solid var(--ds-line); }
+.navbar-skkkk .badge.text-bg-warning { color: var(--ds-warn) !important; background: var(--ds-warn-soft) !important; border: 1px solid #f5d29a; }
+/* гостевая «шапка» без кнопок: тёмная полоса заменена на светлую */
+.navbar.navbar-dark.bg-dark { background: var(--ds-surface) !important; border-bottom: 1px solid var(--ds-line); }
+.navbar.navbar-dark .navbar-brand { color: var(--ds-text) !important; }
+
+/* ---------- карточки, формы, кнопки ---------- */
+.card, .list-group, .modal-content {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-md);
+  box-shadow: var(--ds-shadow);
+}
+.card-header { background: var(--ds-surface); border-bottom: 1px solid var(--ds-line); font-weight: 600; }
+.list-group { overflow: hidden; }
+.list-group-item { border-color: var(--ds-line); background: var(--ds-surface); }
+.list-group-item:hover { background: var(--ds-surface-2); }
+.modal-content { border-radius: var(--ds-r-lg); box-shadow: 0 24px 64px rgba(16, 24, 40, .22); }
+.modal-header, .modal-footer { border-color: var(--ds-line); }
+
+.form-control, .form-select {
+  min-height: 40px;
+  color: var(--ds-text);
+  background-color: var(--ds-surface);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-r-sm);
+}
+.form-control:focus, .form-select:focus { border-color: var(--ds-accent); box-shadow: var(--ds-ring); }
+.form-control::placeholder { color: #98a2b3; }
+.form-label { color: var(--ds-text-2); font-weight: 500; font-size: .9rem; margin-bottom: .35rem; }
+.form-check-input:checked { background-color: var(--ds-accent); border-color: var(--ds-accent); }
+
+.btn {
+  --bs-btn-border-radius: var(--ds-r-sm);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.btn:focus-visible { box-shadow: var(--ds-ring); }
+.btn-primary {
+  --bs-btn-bg: var(--ds-accent);
+  --bs-btn-border-color: var(--ds-accent);
+  --bs-btn-hover-bg: var(--ds-accent-hover);
+  --bs-btn-hover-border-color: var(--ds-accent-hover);
+  --bs-btn-active-bg: var(--ds-accent-active);
+  --bs-btn-active-border-color: var(--ds-accent-active);
+  --bs-btn-disabled-bg: var(--ds-accent);
+  --bs-btn-disabled-border-color: var(--ds-accent);
+  box-shadow: 0 1px 2px rgba(9, 9, 11, .12);
+}
+.btn-outline-secondary, .btn-secondary {
+  --bs-btn-color: var(--ds-text-2);
+  --bs-btn-border-color: var(--ds-line-strong);
+  --bs-btn-bg: var(--ds-surface);
+  --bs-btn-hover-color: var(--ds-text);
+  --bs-btn-hover-bg: var(--ds-surface-2);
+  --bs-btn-hover-border-color: var(--ds-line-strong);
+  --bs-btn-active-bg: var(--ds-line);
+  --bs-btn-active-color: var(--ds-text);
+  --bs-btn-active-border-color: var(--ds-line-strong);
+}
+.btn-outline-primary {
+  --bs-btn-color: var(--ds-accent);
+  --bs-btn-border-color: var(--ds-accent-border);
+  --bs-btn-hover-bg: var(--ds-accent-soft);
+  --bs-btn-hover-color: var(--ds-accent-hover);
+  --bs-btn-hover-border-color: var(--ds-accent);
+  --bs-btn-active-bg: var(--ds-accent-soft);
+  --bs-btn-active-color: var(--ds-accent-hover);
+}
+.btn-outline-danger, .btn-danger {
+  --bs-btn-color: var(--ds-danger);
+  --bs-btn-border-color: #f3c0bb;
+  --bs-btn-hover-bg: var(--ds-danger-soft);
+  --bs-btn-hover-color: var(--ds-danger);
+  --bs-btn-hover-border-color: var(--ds-danger);
+  --bs-btn-active-bg: var(--ds-danger-soft);
+  --bs-btn-active-color: var(--ds-danger);
+}
+.btn-danger { --bs-btn-bg: var(--ds-danger); --bs-btn-color: #fff; --bs-btn-hover-bg: #912018; --bs-btn-hover-color: #fff; --bs-btn-border-color: var(--ds-danger); }
+
+/* ---------- таблицы, бейджи, алерты ---------- */
+.table { --bs-table-bg: transparent; --bs-table-hover-bg: var(--ds-surface-2); color: var(--ds-text); }
+.table > :not(caption) > * > * { border-bottom-color: var(--ds-line); padding-top: .65rem; padding-bottom: .65rem; }
+.table thead th {
+  color: var(--ds-muted);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  background: var(--ds-surface-2);
+  border-bottom: 1px solid var(--ds-line);
+}
+.badge { font-weight: 600; letter-spacing: 0; border-radius: 999px; padding: .32em .7em; }
+.badge.text-bg-success { color: var(--ds-ok) !important; background: var(--ds-ok-soft) !important; }
+.badge.text-bg-danger { color: var(--ds-danger) !important; background: var(--ds-danger-soft) !important; }
+.badge.text-bg-warning { color: var(--ds-warn) !important; background: var(--ds-warn-soft) !important; }
+.badge.text-bg-primary, .badge.text-bg-info { color: var(--ds-info) !important; background: var(--ds-info-soft) !important; }
+.badge.text-bg-secondary, .badge.text-bg-light { color: var(--ds-muted) !important; background: #f2f4f7 !important; }
+.alert { border-radius: var(--ds-r-md); border: 1px solid var(--ds-line); }
+.alert-warning { color: var(--ds-warn); background: var(--ds-warn-soft); border-color: #f5d29a; }
+.alert-danger { color: var(--ds-danger); background: var(--ds-danger-soft); border-color: #f3c0bb; }
+.alert-info, .alert-primary { color: var(--ds-info); background: var(--ds-info-soft); border-color: #c8dcfb; }
+.alert-success { color: var(--ds-ok); background: var(--ds-ok-soft); border-color: #b7e4cd; }
+.progress { background: #eaecf0; border-radius: 999px; }
+.progress-bar { background: var(--ds-accent); }
+
+/* ---------- гость и вход ---------- */
+.meeting-lobby .card, main .col-md-8 > .card, main .col-md-6 > .card, main .col-md-5 > .card {
+  border-radius: var(--ds-r-lg);
+}
+#guest-consent {
+  color: var(--ds-text-2);
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-line);
+  border-left: 3px solid var(--ds-accent);
+  border-radius: var(--ds-r-sm);
+}
+#guest-consent strong { color: var(--ds-text); }
+#guest-join, #login-submit { min-height: 44px; font-size: 1rem; }
+.guest-devices-details summary { cursor: pointer; padding: .25rem 0; }
+.guest-devices-details summary:hover { color: var(--ds-text-2); }
+
+/* ---------- комната: тёмная тема на тех же токенах ---------- */
+.meeting-stage { color: var(--ds-dark-text); background: var(--ds-dark-bg); font-family: var(--ds-font); }
+.meeting-stage-top { color: var(--ds-dark-muted); opacity: 1; font-size: .85rem; padding: .15rem .35rem; }
+.meeting-tile { background: var(--ds-dark-surface); border: 1px solid var(--ds-dark-line); border-radius: var(--ds-r-md); }
+.meeting-tile-speaking { box-shadow: 0 0 0 2px var(--ds-speaking), 0 0 0 5px rgba(59, 130, 246, .25); border-color: var(--ds-speaking); }
+.meeting-tile-stage { background: var(--ds-dark-surface); }
+.meeting-dock {
+  background: rgba(23, 26, 34, .92);
+  border: 1px solid var(--ds-dark-line);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .45);
+}
+.meeting-dock-btn {
+  color: var(--ds-dark-text);
+  background: var(--ds-dark-surface-2);
+  transition: background-color .12s ease, transform .08s ease;
+}
+.meeting-dock-btn:hover { background: #2c3242; }
+.meeting-dock-btn:active { transform: scale(.96); }
+.meeting-dock-btn:focus-visible { box-shadow: var(--ds-ring); }
+/* включено = нейтрально с акцентным значком; выключено = красная подсказка «выключено»; действие = акцент */
+.meeting-dock-btn.is-on { background: var(--ds-dark-surface-2); color: #fff; box-shadow: inset 0 0 0 1.5px var(--ds-dark-on-ring); }
+.meeting-dock-btn.is-off { background: var(--ds-dark-off); color: var(--ds-dark-off-text); }
+.meeting-dock-btn.is-off:hover { background: #5a2b38; }
+.meeting-dock-btn-leave { background: var(--ds-dark-surface-2); color: var(--ds-dark-text); }
+.meeting-dock-btn-end { background: var(--ds-danger); color: #fff; box-shadow: none; }
+.meeting-dock-btn-end:hover { background: #912018; }
+.meeting-roster, .meeting-speaker-menu { background: rgba(23, 26, 34, .98); border: 1px solid var(--ds-dark-line); border-radius: var(--ds-r-md); }
+.meeting-speaker-item[aria-current="true"] { background: var(--ds-dark-surface-2); }
+.meeting-confirm-box { background: var(--ds-dark-surface); border: 1px solid var(--ds-dark-line); border-radius: var(--ds-r-lg); }
+.meeting-toast { background: var(--ds-dark-surface-2); color: var(--ds-dark-text); border: 1px solid var(--ds-dark-line); border-radius: var(--ds-r-md); }
+
+
+/* ---------- досборка по итогам первого просмотра ---------- */
+/* статусы вида <span class="badge bg-*"> (страница проекта) — мягкие, как text-bg-* */
+.badge.bg-success { color: var(--ds-ok) !important; background: var(--ds-ok-soft) !important; }
+.badge.bg-danger { color: var(--ds-danger) !important; background: var(--ds-danger-soft) !important; }
+.badge.bg-warning { color: var(--ds-warn) !important; background: var(--ds-warn-soft) !important; }
+.badge.bg-primary, .badge.bg-info { color: var(--ds-info) !important; background: var(--ds-info-soft) !important; }
+.badge.bg-secondary, .badge.bg-light, .badge.bg-dark { color: var(--ds-muted) !important; background: #f2f4f7 !important; }
+/* «создать» — тот же акцент, что у остальных главных действий */
+.btn-success {
+  --bs-btn-bg: var(--ds-accent);
+  --bs-btn-border-color: var(--ds-accent);
+  --bs-btn-hover-bg: var(--ds-accent-hover);
+  --bs-btn-hover-border-color: var(--ds-accent-hover);
+  --bs-btn-active-bg: var(--ds-accent-active);
+  --bs-btn-active-border-color: var(--ds-accent-active);
+  --bs-btn-color: #fff;
+}
+/* ссылки-имена файлов: без подчёркивания, подчёркивание при наведении */
+.table a:not(.btn), .list-group a:not(.btn) { text-decoration: none; font-weight: 500; }
+.table a:not(.btn):hover, .list-group a:not(.btn):hover { text-decoration: underline; }
+.project-list-title { color: var(--ds-text) !important; }
+.project-list-title:hover { color: var(--ds-accent) !important; }
+/* поле выбора файла: кнопка в стиле системы */
+.form-control::file-selector-button {
+  color: var(--ds-text-2);
+  background: var(--ds-surface-2);
+  border-right: 1px solid var(--ds-line-strong);
+}
+/* страница входа и гостя: воздух сверху */
+main > .row.justify-content-center { margin-top: clamp(0px, 5vh, 3rem); }
+/* карточка «Ассистент»: плейсхолдер чата в тон системы */
+#chat-log { background: var(--ds-surface-2); border: 1px solid var(--ds-line); border-radius: var(--ds-r-md); }
+.toast.text-bg-success { background: var(--ds-ok) !important; color: #fff !important; border-radius: var(--ds-r-md); }
+/* уважение к настройке «меньше движения» */
+@media (prefers-reduced-motion: reduce) { .btn, .meeting-dock-btn { transition: none; } }
+
+
+/* ---------- узкие экраны: структурные карточки (файлы, встречи, сроки) ----------
+   Раньше между 576 и 767 px действовали «крупные» правила (кнопки 44 px, шрифт 1rem), а компактные — только до 575 px;
+   поэтому кнопки были разного размера и занимали много места. Здесь единые правила для всей ширины до 768 px. */
+@media (max-width: 767.98px) {
+  .btn-sm, .ds-card .btn, .mobile-data-card .btn {
+    min-height: 34px;
+    padding: .3rem .7rem;
+    font-size: .85rem;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .ds-card { padding: .75rem .85rem !important; border-radius: var(--ds-r-md); font-size: .875rem; line-height: 1.4; }
+  .ds-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .ds-card-title { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .ds-card-title a { text-decoration: none; }
+  .ds-card-facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: .55rem 0 0; font-size: .85rem; }
+  .ds-card-facts > span:nth-child(odd) { color: var(--ds-muted); }
+  .ds-card-facts > span:nth-child(even) { min-width: 0; overflow-wrap: anywhere; }
+  .ds-analyze { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+  .ds-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+    margin-top: .65rem;
+    padding-top: .65rem;
+    border-top: 1px solid var(--ds-line);
+  }
+  .ds-card-actions:empty { display: none; }
+  .ds-card-actions .artifact-report-actions { display: contents; }
+  /* корзина всегда последняя и справа, квадратная */
+  .ds-card-actions .artifact-delete, .ds-card-actions .meeting-delete { margin-left: auto; width: 34px; min-width: 34px; padding: 0; justify-content: center; }
+  .ds-card-actions .artifact-delete svg, .ds-card-actions .meeting-delete svg { width: 16px; height: 16px; }
+  /* сроки и прочие карточки на dl: две колонки вместо «широких» col-5/col-7 */
+  .mobile-data-card dl.row { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin-left: 0; margin-right: 0; }
+  .mobile-data-card dl.row > dt, .mobile-data-card dl.row > dd { width: auto; max-width: none; padding: 0; margin: 0; }
+  .mobile-data-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .65rem; padding-top: .65rem; border-top: 1px solid var(--ds-line); }
+}
+
+
+/* ---------- характер «shadcn/Vercel»: нейтрально, тонкие линии, воздух ---------- */
+body, body.bg-light { font-size: 14.5px; }
+h1, .h1 { font-size: 1.6rem; letter-spacing: -0.03em; }
+.card, .list-group { box-shadow: none; }
+.navbar-skkkk { min-height: 56px; }
+.navbar-skkkk .navbar-brand[href="/"]::before { border-radius: 2px; box-shadow: none; }
+.btn-primary:focus-visible, .btn:focus-visible { box-shadow: var(--ds-ring); }
+.table thead th { background: transparent; }
+.summary-table th { background: transparent; }
+/* ссылки в текстах и таблицах: тёмные с подчёркиванием, чтобы читались как ссылки без цвета */
+.table a:not(.btn), .list-group a:not(.btn) { color: var(--ds-text); text-decoration: underline; text-decoration-color: var(--ds-line-strong); text-underline-offset: 3px; }
+.table a:not(.btn):hover, .list-group a:not(.btn):hover { text-decoration-color: currentColor; }
+a.file-name, .file-name a { color: var(--ds-text); }
+
+
+/* ---------- внутренняя сетка блоков: одинаковые высоты, отступы и выравнивание ----------
+   Правила общие для всех карточек: подписи, поля и кнопки в одном ряду имеют одну высоту и стоят по нижней линии,
+   заголовки колонок — одной высоты, первая ячейка таблицы начинается там же, где поля ввода. */
+:root { --ds-control-h: 38px; --ds-pad: 1.25rem; }
+.card-body { padding: var(--ds-pad); }
+.card-header { padding: .85rem var(--ds-pad); }
+.card-body > :last-child { margin-bottom: 0; }
+
+/* одна высота у полей, списков и кнопок (в том числе «маленьких») */
+.form-control, .form-select, .form-control-sm, .form-select-sm,
+.input-group-sm > .form-control, .input-group-sm > .btn, .input-group > .form-control, .input-group > .btn,
+.btn, .btn-sm { min-height: var(--ds-control-h); }
+.form-control-sm, .form-select-sm, .input-group-sm > .form-control, .input-group-sm > .form-select { font-size: .9rem; padding-top: .3rem; padding-bottom: .3rem; }
+.btn, .btn-sm { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .3rem .85rem; font-size: .9rem; line-height: 1.25; }
+.btn.btn-icon, .artifact-delete, .meeting-delete { padding: 0; width: var(--ds-control-h); }
+/* ряд «подпись — поле — кнопка»: выравнивание по нижней линии, подписи одной высоты */
+.row.align-items-end > [class*="col"] { display: flex; flex-direction: column; justify-content: flex-end; }
+.form-label { margin-bottom: .4rem; line-height: 1.3; font-size: .875rem; font-weight: 500; }
+.form-label.small { font-size: .875rem !important; }
+.row.align-items-end .btn.w-100 { height: var(--ds-control-h); }
+/* заголовок секции внутри колонки: высота как у поля, чтобы колонки стартовали на одной линии */
+.ds-section-head { display: flex; align-items: center; gap: .5rem; min-height: var(--ds-control-h); margin-bottom: .35rem; font-weight: 500; }
+.ds-section-head .form-label { font-size: .9rem; font-weight: 600; color: var(--ds-text); }
+/* блок кода */
+pre#mcp-config, .card-body pre {
+  margin: 0 0 .75rem;
+  padding: .9rem 1rem;
+  color: #e4e4e7;
+  background: var(--ds-accent);
+  border-radius: var(--ds-r-md);
+  font-size: .82rem;
+  line-height: 1.55;
+  max-height: 15rem;
+  overflow: auto;
+}
+/* таблицы внутри карточек: края совпадают с полями ввода, колонки — с колонками формы над ними */
+.card-body .table > :not(caption) > tr > :first-child,
+.card-body .table > tbody > tr > :first-child, .card-body .table > thead > tr > :first-child { padding-left: 0; }
+.card-body .table > tbody > tr > :last-child, .card-body .table > thead > tr > :last-child { padding-right: 0; }
+.table > :not(caption) > * > * { padding: .65rem .75rem; vertical-align: middle; }
+#grant-access-panel .table { table-layout: fixed; }
+#grant-access-panel .table th:nth-child(1) { width: 50%; }
+#grant-access-panel .table th:nth-child(2) { width: 25%; }
+#grant-access-panel .table th:nth-child(3) { width: 25%; text-align: right; }
+#grant-access-panel .table td:last-child { text-align: right; }
+.mcp-token-row { table-layout: auto; }
+/* описания и подсказки внутри блоков: один левый край и единый ритм */
+.card-body > p.text-muted, .card-body > .small.text-muted { max-width: 72ch; }
+.card-body .row.g-2, .card-body .row.g-3 { --bs-gutter-x: 1rem; }
+
+/* единый размер текста в ячейках таблиц (раньше отдельные колонки были помечены small и выглядели мельче) */
+.table td, .table th { font-size: .9rem; }
+.table td.small, .table td .small, .table th.small { font-size: .875rem; }
+.table td.text-muted, .table td .text-muted { font-size: .875rem; }

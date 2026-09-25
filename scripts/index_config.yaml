@@ -1,0 +1,59 @@
+# Конфигурация индекса проекта (app/app/services/project_index). Пути — от корня репозитория, синтаксис glob.
+# Меняете список — запустите: venv\Scripts\python.exe scripts\index_project_map.py
+
+include:
+  - "app/app/**/*.py"
+  - "app/app/static/*.js"
+  - "app/app/static/*.css"
+  - "app/app/templates/**/*.html"
+  - "app/requirements*.txt"
+  - "asr/*.py"
+  - "asr/lab/**/*.py"
+  - "asr/tests/**/*.py"
+  - "asr/*.md"
+  - "asr/docker-compose.yml"
+  - "scripts/*.py"
+  - "scripts/smoke/*.py"
+  - "scripts/*.ps1"
+  - "tools/*.py"
+  - "tools/livekit/**/*.py"
+  - "tools/caddy/Caddyfile"
+  - "tools/*/docker-compose.yml"
+  - "tools/*/README.md"
+  - "docs/**/*.md"
+  - "docs/project-map/manifest.yaml"
+  - ".env.example"
+  - "pytest.ini"
+  - "AGENTS.md"
+  - "README.md"
+  - ".cursor/rules/*.mdc"
+  - ".cursor/skills/**/SKILL.md"
+  - "tests/**/*.py"
+
+exclude:
+  - "**/__pycache__/**"
+  - "app/app/data/**"
+  - "docs/eval/**"
+  - "docs/agent-exchange/letters/**"
+  - "docs/agent-exchange/data/**"
+
+# Секреты: эти файлы никогда не индексируются, что бы ни попало под include.
+never_index:
+  - ".env"
+  - ".env.*"
+  - "Login_up.txt"
+  - "*.db"
+  - "*.pem"
+  - "*.key"
+  - "*.wav"
+  - "*.mp3"
+
+# Исключения из never_index: шаблон без значений, безопасен для индекса.
+always_allow:
+  - ".env.example"
+
+max_file_bytes: 1000000
+chunk:
+  max_lines: 120        # длиннее — делим на части
+  embed_chars: 800      # сколько символов фрагмента уходит в эмбеддинг
+  history_commits: 500

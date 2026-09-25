@@ -1,3 +1,5 @@
+"""Единый адаптер LLM (LM Studio или Cursor API): вызовы без reasoning (`*_no_think`), разбор JSON, самопроверка обхода reasoning при старте."""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +18,39 @@ from app.app.llm_settings import uses_local_gemma
 ensure_os_blocking_compat()
 
 logger = logging.getLogger("skkkk.llm")
+
+_HOLD_WARNED: set[str] = set()
+
+
+def _check_db_not_held(where: str) -> None:
+    """LLM отвечает десятки секунд. Если в этот момент поток держит соединение БД (открытая транзакция после чтения),
+    оно всё это время занято в пуле — при нескольких таких запросах пул исчерпывается и портал отвечает 500.
+    Перед вызовом LLM транзакцию нужно закрыть (`db.commit()`)."""
+    try:
+        from app.app.db import thread_held_connections
+    except Exception:  # noqa: BLE001
+        return
+    held = thread_held_connections()
+    if not held:
+        return
+    message = f"LLM-вызов ({where}) при открытой транзакции БД: соединение занято на всё время ответа модели"
+    if os.environ.get("SKKKK_STRICT_DB_HOLD") == "1":
+        raise RuntimeError(message + "\n" + held[0])
+    key = held[0][-400:]
+    if key not in _HOLD_WARNED:
+        _HOLD_WARNED.add(key)
+        logger.warning("%s; где взято:\n%s", message, held[0])
+
+
+def _no_open_db(fn):
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        _check_db_not_held(fn.__name__)
+        return fn(*args, **kwargs)
+
+    return wrapper
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -31,6 +66,13 @@ def provider_uses_lmstudio(settings: Settings) -> bool:
     return uses_local_gemma(settings.llm_provider)
 
 
+# LM Studio /v1/chat/completions принимает reasoning_effort только из этого
+# списка (проверено по валидации сервера LM Studio): иное значение даёт HTTP 400
+# "Invalid 'reasoning_effort' value", а вовсе не молчаливое отбрасывание.
+# Сервер сам маппит none->off, minimal->low, xhigh->high.
+_LMSTUDIO_REASONING_LEVELS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+
+
 def _lmstudio_chat_body(
     *,
     model: str,
@@ -38,7 +80,8 @@ def _lmstudio_chat_body(
     user: str,
     temperature: float,
     max_tokens: int,
-    reasoning_effort: str | None = "none",
+    reasoning_effort: str | None = None,
+    enable_thinking: bool | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "model": model,
@@ -49,12 +92,38 @@ def _lmstudio_chat_body(
             {"role": "user", "content": user},
         ],
     }
+    if enable_thinking is not None:
+        # Jinja-переменная шаблона Qwen: True -> модель думает перед ответом.
+        body["chat_template_kwargs"] = {"enable_thinking": bool(enable_thinking)}
     if reasoning_effort is not None:
-        body["reasoning_effort"] = reasoning_effort
-        body["chat_template_kwargs"] = {"enable_thinking": False}
+        level = reasoning_effort.strip().lower()
+        if level in _LMSTUDIO_REASONING_LEVELS:
+            body["reasoning_effort"] = level
+        else:
+            logger.warning(
+                "lmstudio: reasoning_effort=%r не поддерживается (допустимо: %s); поле не отправлено",
+                reasoning_effort,
+                ", ".join(sorted(_LMSTUDIO_REASONING_LEVELS)),
+            )
     return body
 
 
+def _reasoning_params(
+    settings: Settings,
+    reasoning_effort: str | None,
+    enable_thinking: bool | None,
+) -> tuple[str | None, bool | None]:
+    """Дефолты рассуждений из настроек; при выключенном мышлении усилие = none."""
+    if enable_thinking is None:
+        enable_thinking = settings.lmstudio_enable_thinking
+    if reasoning_effort is None:
+        reasoning_effort = settings.lmstudio_reasoning_effort
+    if not enable_thinking:
+        reasoning_effort = "none"
+    return reasoning_effort, enable_thinking
+
+
+@_no_open_db
 def lmstudio_chat_raw(
     *,
     base_url: str,
@@ -65,7 +134,8 @@ def lmstudio_chat_raw(
     temperature: float = 0.1,
     max_tokens: int = 4096,
     timeout: float = 600,
-    reasoning_effort: str | None = "none",
+    reasoning_effort: str | None = None,
+    enable_thinking: bool | None = None,
 ) -> tuple[str, dict[str, Any]]:
     url = f"{base_url.rstrip('/')}/chat/completions"
     body = _lmstudio_chat_body(
@@ -75,6 +145,7 @@ def lmstudio_chat_raw(
         temperature=temperature,
         max_tokens=max_tokens,
         reasoning_effort=reasoning_effort,
+        enable_thinking=enable_thinking,
     )
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     with httpx.Client(timeout=timeout) as client:
@@ -98,12 +169,184 @@ def lmstudio_chat_raw(
         "had_reasoning_content": bool(message.get("reasoning_content")),
     }
     logger.info(
-        "lmstudio.chat ok model=%s chars=%s completion_tokens=%s",
+        "lmstudio.chat ok model=%s chars=%s completion_tokens=%s reasoning_tokens=%s has_reasoning=%s",
         model,
         len(text),
         meta.get("completion_tokens"),
+        meta.get("reasoning_tokens"),
+        meta.get("had_reasoning_content"),
     )
     return text, meta
+
+
+@_no_open_db
+def lmstudio_completions_raw(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    system: str,
+    user: str,
+    temperature: float = 0.0,
+    max_tokens: int = 4096,
+    timeout: float = 600,
+) -> tuple[str, dict[str, Any]]:
+    """Raw /v1/completions с вручную закрытым пустым <think></think>.
+
+    Наш квант (swift-qwen3.8-27b-uncensored-dynamic-mtp) через /v1/chat/completions
+    игнорирует и enable_thinking, и reasoning_effort — шаблон безусловно открывает
+    <think> и тратит на него 10-15k токенов независимо от параметров (проверено:
+    identical usage при enable_thinking=True/False и reasoning_effort=none/medium).
+    Обход: собрать ChatML-промпт вручную и сразу передать закрытый пустой think-блок,
+    тогда генерация идёт прямо в контент. На реальных map/reduce-промптах даёт
+    ~6-9x меньше токенов и ~5-7x быстрее при том же качестве ответа.
+    """
+    prompt = (
+        f"<|im_start|>system\n{system}<|im_end|>\n"
+        f"<|im_start|>user\n{user}<|im_end|>\n"
+        f"<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    )
+    url = f"{base_url.rstrip('/')}/completions"
+    body = {
+        "model": model,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "prompt": prompt,
+        "stop": ["<|im_end|>", "<|im_start|>"],
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=body, headers=headers)
+        if response.status_code >= 400:
+            detail = response.text.strip()[:500]
+            raise RuntimeError(
+                f"LM Studio HTTP {response.status_code} for {url}: {detail or response.reason_phrase}"
+            )
+        data = response.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError("LM Studio returned empty choices")
+    text = (choices[0].get("text") or "").strip()
+    usage = data.get("usage") or {}
+    meta = {
+        "reasoning_tokens": 0,
+        "completion_tokens": usage.get("completion_tokens"),
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "had_reasoning_content": False,
+    }
+    logger.info(
+        "lmstudio.completions_raw ok model=%s chars=%s completion_tokens=%s prompt_tokens=%s",
+        model,
+        len(text),
+        meta.get("completion_tokens"),
+        meta.get("prompt_tokens"),
+    )
+    return text, meta
+
+
+NO_THINK_ENV = "LMSTUDIO_NO_THINK"
+# Резерв на рассуждения, если пришлось откатиться на обычный чат-эндпоинт (пункт 2.11).
+REASONING_FALLBACK_EXTRA_TOKENS = 8000
+_no_think_state: dict[str, Any] = {"ok": None, "detail": "не проверялось"}
+
+
+def no_think_enabled() -> bool:
+    """Обход reasoning включён, если не выключен env LMSTUDIO_NO_THINK=0 и самопроверка его не забраковала."""
+    if os.environ.get(NO_THINK_ENV, "1").strip().lower() in ("0", "false", "off"):
+        return False
+    return _no_think_state["ok"] is not False
+
+
+def announce_llm_and_selfcheck(settings: Settings, log) -> None:
+    """При старте процесса: записать активный провайдер/модель и проверить обход reasoning (в фоне)."""
+    import threading
+
+    from app.app.logging_setup import log_event
+
+    log_event(
+        log,
+        "llm.active",
+        provider=settings.llm_provider,
+        model=settings.lmstudio_model if provider_uses_lmstudio(settings) else "cursor",
+        no_think_env=os.environ.get(NO_THINK_ENV, "1"),
+    )
+    if os.environ.get("SKKKK_DISABLE_LLM_SELFCHECK") == "1":
+        return  # тесты не должны будить настоящий LM Studio: он заново загрузит 18-гигабайтную модель в GPU
+    if provider_uses_lmstudio(settings):
+        threading.Thread(target=lmstudio_no_think_selfcheck, args=(settings,), daemon=True, name="no-think-selfcheck").start()
+
+
+def no_think_status() -> dict[str, Any]:
+    return {"enabled": no_think_enabled(), "selfcheck_ok": _no_think_state["ok"], "detail": _no_think_state["detail"]}
+
+
+def lmstudio_no_think_selfcheck(settings: Settings) -> tuple[bool | None, str]:
+    """Короткий вызов обхода: ответ непустой, без <think> и служебных токенов ChatML.
+
+    True — обход работает; False — модель/шаблон другие, обход даёт мусор (переходим на chat-эндпоинт);
+    None — LM Studio недоступна, вывода нет (обход не отключаем)."""
+    try:
+        text, _meta = lmstudio_completions_raw(
+            base_url=settings.lmstudio_base_url,
+            api_key=settings.lmstudio_api_key,
+            model=settings.lmstudio_model,
+            system="Отвечай одним словом.",
+            user="Ответь словом: готово",
+            max_tokens=24,
+            timeout=60,
+        )
+    except Exception as exc:
+        _no_think_state.update(ok=None, detail=f"LM Studio недоступна для самопроверки: {exc}")
+        logger.warning("lmstudio.no_think_selfcheck unavailable: %s", exc)
+        return None, _no_think_state["detail"]
+    lowered = text.lower()
+    problems = []
+    if not text.strip():
+        problems.append("пустой ответ")
+    if "<think" in lowered or "</think" in lowered:
+        problems.append("в ответе есть <think>")
+    if "<|im_" in lowered:
+        problems.append("в ответе служебные токены ChatML")
+    ok = not problems
+    detail = "обход reasoning работает" if ok else "обход reasoning не подходит модели: " + ", ".join(problems)
+    _no_think_state.update(ok=ok, detail=detail)
+    (logger.info if ok else logger.warning)("lmstudio.no_think_selfcheck ok=%s %s model=%s", ok, detail, settings.lmstudio_model)
+    return ok, detail
+
+
+def chat_completion_no_think(
+    settings: Settings,
+    *,
+    system: str,
+    user: str,
+    temperature: float = 0.0,
+    max_tokens: int = 4096,
+    timeout: float = 600,
+) -> str:
+    """Как chat_completion, но для LM Studio обходит зависший reasoning (см. lmstudio_completions_raw).
+    Не-LM Studio провайдеры (Cursor) идут через обычный chat_completion."""
+    if not provider_uses_lmstudio(settings):
+        return cursor_chat_raw(settings, system=system, user=user, timeout=timeout)
+    if not no_think_enabled():
+        return chat_completion(
+            settings,
+            system=system,
+            user=user,
+            temperature=temperature,
+            max_tokens=max_tokens + REASONING_FALLBACK_EXTRA_TOKENS,
+            timeout=timeout,
+        )
+    text, _meta = lmstudio_completions_raw(
+        base_url=settings.lmstudio_base_url,
+        api_key=settings.lmstudio_api_key,
+        model=settings.lmstudio_model,
+        system=system,
+        user=user,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return text
 
 
 def _cursor_agent_options(settings: Settings):
@@ -156,6 +399,7 @@ def _cursor_user_message(
     return UserMessage(text=prompt, images=images)
 
 
+@_no_open_db
 def cursor_chat_raw(
     settings: Settings,
     *,
@@ -230,7 +474,8 @@ def chat_from_env(
     temperature: float = 0.1,
     max_tokens: int = 4096,
     timeout: float = 600,
-    reasoning_effort: str | None = "none",
+    reasoning_effort: str | None = None,
+    enable_thinking: bool | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Для ASR-скриптов: Settings из .env + переменные окружения subprocess."""
     settings = Settings()
@@ -238,6 +483,9 @@ def chat_from_env(
         text = cursor_chat_raw(settings, system=system, user=user, timeout=timeout)
         return text, {}
 
+    reasoning_effort, enable_thinking = _reasoning_params(
+        settings, reasoning_effort, enable_thinking
+    )
     return lmstudio_chat_raw(
         base_url=settings.lmstudio_base_url,
         api_key=settings.lmstudio_api_key,
@@ -248,6 +496,41 @@ def chat_from_env(
         max_tokens=max_tokens,
         timeout=timeout,
         reasoning_effort=reasoning_effort,
+        enable_thinking=enable_thinking,
+    )
+
+
+def chat_from_env_no_think(
+    system: str,
+    user: str,
+    *,
+    temperature: float = 0.0,
+    max_tokens: int = 4096,
+    timeout: float = 600,
+) -> tuple[str, dict[str, Any]]:
+    """chat_from_env, но для LM Studio обходит зависший reasoning (см. lmstudio_completions_raw).
+    Для ASR-скриптов (asr/llm_client.py) — те же subprocess-настройки из .env."""
+    settings = Settings()
+    if not provider_uses_lmstudio(settings):
+        text = cursor_chat_raw(settings, system=system, user=user, timeout=timeout)
+        return text, {}
+    if not no_think_enabled():
+        return chat_from_env(
+            system,
+            user,
+            temperature=temperature,
+            max_tokens=max_tokens + REASONING_FALLBACK_EXTRA_TOKENS,
+            timeout=timeout,
+        )
+    return lmstudio_completions_raw(
+        base_url=settings.lmstudio_base_url,
+        api_key=settings.lmstudio_api_key,
+        model=settings.lmstudio_model,
+        system=system,
+        user=user,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
     )
 
 
@@ -259,9 +542,14 @@ def chat_completion(
     temperature: float = 0.2,
     max_tokens: int = 4096,
     timeout: float = 600,
+    reasoning_effort: str | None = None,
+    enable_thinking: bool | None = None,
 ) -> str:
     if not provider_uses_lmstudio(settings):
         return cursor_chat_raw(settings, system=system, user=user, timeout=timeout)
+    reasoning_effort, enable_thinking = _reasoning_params(
+        settings, reasoning_effort, enable_thinking
+    )
     text, _meta = lmstudio_chat_raw(
         base_url=settings.lmstudio_base_url,
         api_key=settings.lmstudio_api_key,
@@ -271,7 +559,8 @@ def chat_completion(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
-        reasoning_effort="none",
+        reasoning_effort=reasoning_effort,
+        enable_thinking=enable_thinking,
     )
     return text
 
@@ -300,6 +589,9 @@ def chat_completion_vision(
         "model": settings.lmstudio_model,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        # Явно гасим мышление: vision-ответы (OCR/JSON кадров) разбираются
+        # парсером, а reasoning съел бы бюджет max_tokens (4096-6144).
+        "chat_template_kwargs": {"enable_thinking": False},
         "messages": [
             {"role": "system", "content": system},
             {

@@ -144,6 +144,22 @@ def delete_vectors_for_chunks(db: Session, chunk_ids: list[int]) -> None:
     conn = _prepare(db.connection())
     for cid in chunk_ids:
         conn.execute(text("DELETE FROM chunk_vectors WHERE chunk_id = :id"), {"id": cid})
+    from app.app.services.chunk_fts import delete_chunk_fts
+
+    delete_chunk_fts(db, chunk_ids)  # полнотекстовый индекс фрагментов живёт и умирает вместе с векторами
+
+
+def chunk_scores(db: Session, query_vec: list[float], chunk_ids: list[int]) -> dict[int, float]:
+    """Косинусная близость вопроса к заданным фрагментам (для находок полнотекстового поиска)."""
+    if not chunk_ids:
+        return {}
+    conn = _prepare(db.connection())
+    marks = ",".join(str(int(c)) for c in chunk_ids)
+    rows = conn.execute(
+        text(f"SELECT chunk_id, vec_distance_cosine(embedding, :q) AS d FROM chunk_vectors WHERE chunk_id IN ({marks})"),
+        {"q": serialize_float32(query_vec)},
+    ).all()
+    return {int(cid): 1.0 - float(d) for cid, d in rows}
 
 
 def search_vectors(
@@ -155,7 +171,7 @@ def search_vectors(
 ) -> list[dict[str, Any]]:
     sql = text(
         """
-        SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker,
+        SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker, c.start_sec, c.end_sec,
                vec_distance_cosine(v.embedding, :q) AS distance
         FROM chunk_vectors v
         JOIN chunks c ON c.id = v.chunk_id
@@ -179,6 +195,8 @@ def search_vectors(
                 "chunk_index": row["chunk_index"],
                 "text": row["text"],
                 "speaker": row["speaker"],
+                "start_sec": row["start_sec"],
+                "end_sec": row["end_sec"],
                 "score": 1.0 - float(row["distance"]),
             }
         )

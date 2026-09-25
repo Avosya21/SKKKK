@@ -1,3 +1,5 @@
+"""Маршрут HTTP-01 проверки Let's Encrypt (`/.well-known/acme-challenge`)."""
+
 from fastapi import APIRouter, Depends, Response
 
 from app.app.config import Settings, get_settings

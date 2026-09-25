@@ -93,10 +93,51 @@ def test_source_turn_id_is_stable():
     assert rows[0]["source_span_id"] == "turn:art_1:Анна:1500:0"
 
 
+def test_final_replica_has_source_span_and_track_identity():
+    from app.app.services.meeting_merge import attach_turn_ids
+
+    rows = attach_turn_ids(
+        merge_track_replicas(
+            [
+                {
+                    "word": "готово",
+                    "final": "готово",
+                    "start": 2.0,
+                    "end": 2.4,
+                    "speaker": "Анна",
+                    "track_id": "art__member-1",
+                    "identity": "member:1",
+                }
+            ]
+        ),
+        "art_1",
+    )
+    assert rows[0]["source_span_id"] == "turn:art_1:Анна:2000:0"
+    assert rows[0]["track_id"] == "art__member-1"
+    assert rows[0]["identity"] == "member:1"
+
+
 def test_word_text_keeps_empty_final():
     assert word_text({"final": "", "word": "один"}) == ""
     assert word_text({"final": None, "word": "один"}) == "один"
     assert word_text({"word": "один"}) == "один"
+
+
+def test_merge_track_replicas_reads_as_dialogue():
+    dasha = [
+        {"word": "Алло.", "final": "Алло.", "start": 171.7, "end": 174.9, "speaker": "Даша"},
+        {"word": "Подожди", "final": "Подожди", "start": 178.9, "end": 179.6, "speaker": "Даша"},
+        {"word": "слышно.", "final": "слышно.", "start": 180.0, "end": 180.4, "speaker": "Даша"},
+    ]
+    petya = [
+        {"word": "Я", "final": "Я", "start": 173.6, "end": 174.0, "speaker": "Петя"},
+        {"word": "слышу.", "final": "слышу.", "start": 174.4, "end": 177.2, "speaker": "Петя"},
+        {"word": "Алло", "final": "Алло", "start": 185.1, "end": 185.8, "speaker": "Петя"},
+    ]
+    rows = merge_track_replicas(dasha, petya)
+    assert [row["speaker"] for row in rows] == ["Даша", "Петя", "Даша", "Петя"]
+    assert rows[0]["text"] == "Алло."
+    assert "Подожди" in rows[2]["text"]
 
 
 def test_merge_track_replicas_keeps_overlap_phrases():
@@ -110,9 +151,29 @@ def test_merge_track_replicas_keeps_overlap_phrases():
         {"i": 1, "word": "два", "final": "два", "start": 10.7, "end": 11.0, "speaker": "B"},
     ]
     rows = merge_track_replicas(anna, ivan)
-    assert [row["speaker"] for row in rows] == ["A", "B"]
-    assert rows[0]["text"] == "один два три"
-    assert rows[1]["text"] == "раз два"
+    assert [row["speaker"] for row in rows] == ["A", "B", "A", "B", "A"]
+    assert rows[0]["text"] == "один"
+    assert rows[1]["text"] == "раз"
+
+
+def test_merge_track_replicas_preserves_track_provenance():
+    rows = merge_track_replicas(
+        [
+            {
+                "word": "привет",
+                "final": "привет",
+                "start": 1.0,
+                "end": 1.4,
+                "speaker": "Анна",
+                "track_id": "art__guest-aa",
+                "identity": "guest:aa",
+            }
+        ]
+    )
+    assert rows[0]["track_id"] == "art__guest-aa"
+    assert rows[0]["identity"] == "guest:aa"
+    assert rows[0]["words"][0]["track_id"] == "art__guest-aa"
+    assert rows[0]["words"][0]["identity"] == "guest:aa"
 
 
 def test_find_leaks_uses_speaker_rank():

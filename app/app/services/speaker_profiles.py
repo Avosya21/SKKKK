@@ -1,3 +1,5 @@
+"""Голоса и спикеры: профили и эмбеддинги голосов, сопоставление имён, подтверждение спикеров, слияние профилей и синхронизация подтверждённых в глобальные."""
+
 from __future__ import annotations
 
 import json
@@ -967,6 +969,8 @@ def sync_match_json_from_links(db: Session, *, project_id: int, artifact_id: str
             continue
         canon = merge_map.get(link.diar_label, link.diar_label)
         row = matches.setdefault(canon, {})
+        if row.get("auto") and row.get("profile_id") not in (None, prof.id):
+            row.pop("auto", None)  # человек переназвал автопринятый голос — это уже его решение
         row.update(
             {
                 "diar_label": canon,
@@ -1013,6 +1017,15 @@ def rebuild_transcript_report_html(db: Session, *, project_id: int, artifact_id:
             apply_confirmed_speaker_names(db, settings, artifact)
         except FileNotFoundError:
             logger.warning("lab transcript republish skipped for %s: no proof", artifact_id)
+            return
+        if artifact.status == "done":
+            # Знания уже построены: имена в сущностях обновил rebind, а индекс и выжимку пересоберёт фоновая задача.
+            from app.app.services.queue import KIND_REFRESH, enqueue_knowledge_refresh, running_worker_kinds  # noqa: PLC0415
+
+            if KIND_REFRESH in running_worker_kinds(settings.data_dir):
+                enqueue_knowledge_refresh(db, artifact.id)
+            else:
+                logger.warning("refresh_knowledge не поставлен для %s: запущенный воркер старой версии", artifact_id)
         return
     _rebuild_transcript_report(settings, artifact)
 
@@ -1198,7 +1211,6 @@ def rebuild_match_report_html(db: Session, *, project_id: int, artifact_id: str)
         out_html=report,
         audio_url=f"/artifacts/{artifact_id}/audio",
         profiles=list_profiles(db, project_id),
-        title="Sortformer + запоминание голосов",
     )
 
 
@@ -1693,13 +1705,14 @@ def speaker_action_flags(
         return empty
     if status not in SPEAKER_MATCH_UI_STATUSES:
         return empty
+    ready = bool(speakers_confirm_status(db, project_id=project_id, artifact_id=artifact_id)["ready"])
     if status != "speakers_pending":
+        # Мягкий шлагбаум: созвон разобран, но неназванные голоса остались — кнопка «Голоса» напоминает (оранжевая).
         return {
             "speakers_match_available": True,
-            "speakers_match_ready": True,
+            "speakers_match_ready": ready,
             "speakers_confirm_ready": False,
         }
-    ready = bool(speakers_confirm_status(db, project_id=project_id, artifact_id=artifact_id)["ready"])
     return {
         "speakers_match_available": True,
         "speakers_match_ready": ready,
@@ -1753,7 +1766,13 @@ def confirm_speakers_and_enqueue(db: Session, settings, artifact: Artifact) -> d
         )
         .all()
     )
+    from app.app.services.speaker_auto import auto_labels  # noqa: PLC0415
+
+    match_path = match_json_path(artifact.project_id, artifact.artifact_id)
+    auto = auto_labels(json.loads(match_path.read_text(encoding="utf-8")) if match_path.is_file() else None)
     for link in links:
+        if link.diar_label in auto:
+            continue  # принят автоматически по слепку: профиль уже существующий, в global не синхронизируем и не дообучаем
         prof = db.get(SpeakerProfile, link.profile_id)
         if prof is None:
             continue

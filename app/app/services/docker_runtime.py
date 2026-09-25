@@ -204,3 +204,22 @@ def ensure_gigaam_ready(base_url: str, *, timeout_sec: float = GIGAAM_HEALTH_WAI
         except Exception:
             time.sleep(GIGAAM_HEALTH_POLL_SEC)
     raise RuntimeError(f"GigaAM не запущен — контейнер {GIGAAM_CONTAINER} ({base_url})")
+
+
+def stop_gigaam() -> None:
+    """Остановить контейнер GigaAM после того, как он отработал, чтобы он не держал VRAM.
+
+    Ошибки молчаливо игнорируются: контейнер мог уже быть остановлен/удалён.
+    """
+    try:
+        proc = subprocess.run(
+            ["docker", "stop", GIGAAM_CONTAINER],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if proc.returncode == 0:
+            log_event(logger, "docker.asr.stopped", container=GIGAAM_CONTAINER)
+    except Exception:
+        pass

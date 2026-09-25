@@ -1,3 +1,5 @@
+"""Модель Project — проект и его настройки."""
+
 from __future__ import annotations
 
 import json

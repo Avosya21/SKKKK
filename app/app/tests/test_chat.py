@@ -267,7 +267,7 @@ def test_chat_uses_entities_from_hit_artifacts(client, db_engine, admin_token, t
 
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=[hit]):
-            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                 db2 = SessionLocal()
                 from app.app.config import get_settings
 
@@ -347,7 +347,7 @@ def test_chat_includes_director_document_when_vector_search_misses(client, db_en
         )
         with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
             with patch("app.app.services.chat.search_vectors", return_value=[call_hit]):
-                with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                     db2 = SessionLocal()
                     from app.app.config import get_settings
 
@@ -422,7 +422,7 @@ def test_chat_prompt_includes_document_summary_file(client, db_engine, admin_tok
 
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=[]):
-            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                 db2 = SessionLocal()
                 settings.dry_run = False
                 out = answer_chat(
@@ -611,7 +611,7 @@ def test_project_priority_question_does_not_ask_about_mention_conflicts(client, 
 
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=hits):
-            with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                 db2 = SessionLocal()
                 from app.app.config import get_settings
 
@@ -706,7 +706,7 @@ def test_chat_guidance_reply_reanswers_original_question(client, db_engine, admi
         with patch("app.app.services.chat.search_vectors", return_value=hits):
             with patch("app.app.services.chat.enrich_and_rerank_hits", side_effect=lambda db, h, limit=None: h):
                 with patch("app.app.services.chat._document_context_blocks", return_value=[]):
-                    with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                    with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                         db2 = SessionLocal()
                         from app.app.config import get_settings
 
@@ -795,7 +795,7 @@ def test_chat_uses_entity_hit_when_chunks_miss(client, db_engine, admin_token, t
     with patch("app.app.services.chat.embed_texts", return_value=[_chat_unit(0)]):
         with patch("app.app.services.chat.search_vectors", return_value=[]):
             with patch("app.app.services.chat._document_context_blocks", return_value=[]):
-                with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                     db2 = SessionLocal()
                     from app.app.config import get_settings
 
@@ -844,7 +844,7 @@ def test_chat_always_injects_tz_excerpt_when_file_exists(client, db_engine, admi
     with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
         with patch("app.app.services.chat.search_vectors", return_value=[]):
             with patch("app.app.services.chat._document_context_blocks", return_value=[]):
-                with patch("app.app.services.chat.chat_completion", side_effect=fake_completion):
+                with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
                     db2 = SessionLocal()
                     settings.dry_run = False
                     out = answer_chat(db2, settings, pid, uid, "что сейчас главное в проекте?")

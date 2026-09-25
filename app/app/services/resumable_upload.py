@@ -1,3 +1,5 @@
+"""Загрузка файлов частями с докачкой: сессии, части и сборка на диск."""
+
 from __future__ import annotations
 
 import json

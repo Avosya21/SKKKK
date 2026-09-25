@@ -1,5 +1,8 @@
+"""Знания проекта: поиск по смыслу, граф, сущности, заметки и связи, конфликты, ТЗ и его версии, чат, дедлайны."""
+
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated, Any
 
@@ -31,7 +34,7 @@ from app.app.services.project_tasks import (
     track_project_task,
 )
 from app.app.services.storage import project_notes_dir
-from app.app.services.tz import rebuild_tz, tz_paths
+from app.app.services.tz import rebuild_tz_fast, tz_paths
 from app.app.services.user_activity import (
     ACTION_NOTE,
     ACTION_REBUILD,
@@ -92,18 +95,20 @@ def semantic_search(
 ):
     from app.app.db import get_engine
     from app.app.services.ollama_client import embed_texts
-    from app.app.services.retrieval import enrich_and_rerank_hits
+    from app.app.services.chunk_fts import init_chunk_fts
+    from app.app.services.retrieval import fuse_chunk_hits
     from app.app.services.vector_index import init_vector_store, search_vectors
 
     project = require_project(db, user, project_id)
     if settings.dry_run:
         return {"query": q, "results": []}
     init_vector_store(get_engine())
+    init_chunk_fts(get_engine())
     vec = embed_texts(settings, [q])[0]
     hits = search_vectors(db, vec, project_id=project_id, limit=max(limit * 2, 10))
-    hits = enrich_and_rerank_hits(db, hits, limit=limit)
     threshold = project.settings().get("search_min_score", settings.search_min_score)
-    return {"query": q, "results": [h for h in hits if h["score"] >= threshold]}
+    hits = fuse_chunk_hits(db, q, vec, hits, project_id=project_id, limit=limit, min_score=threshold)
+    return {"query": q, "results": hits}
 
 
 @router.get("/projects/{project_id}/graph/data")
@@ -140,6 +145,23 @@ def list_entities(
     ]
 
 
+def _keep_provenance(old_json: str, new_json: str) -> str:
+    """Правка текста сущности не стирает «кто / когда / откуда»: ключи провенанса переносятся из старого значения."""
+    from app.app.services.graph import PROVENANCE_KEYS
+
+    try:
+        old, new = json.loads(old_json), json.loads(new_json)
+    except (json.JSONDecodeError, TypeError):
+        return new_json
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return new_json
+    merged = dict(new)
+    for key in PROVENANCE_KEYS:
+        if key in old and key not in merged:
+            merged[key] = old[key]
+    return json.dumps(merged, ensure_ascii=False)
+
+
 @router.post("/entities/{entity_id}/review")
 def review_entity(
     entity_id: int,
@@ -161,7 +183,7 @@ def review_entity(
         ent.is_active = False
         ent.needs_review = False
     elif body.action == "edit" and body.value_json:
-        ent.value_json = body.value_json
+        ent.value_json = _keep_provenance(ent.value_json, body.value_json)
         ent.needs_review = False
         if not settings.dry_run:
             init_vector_store(get_engine())
@@ -268,26 +290,39 @@ def list_conflicts(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     admin: Annotated[User, Depends(require_role("admin"))],
+    view: str = "pending",
 ):
+    """Конфликты проекта: pending — ждут человека (с вердиктом модели, если он теневой/неуверенный); model — решены моделью;
+    important — сводка: авторешения по деньгам и срокам, ещё не отменённые (CONFLICT-AUTONOMY-PLAN этап 6)."""
+    from app.app.services.review_conflicts import conflict_rows
+
     require_project(db, admin, project_id)
-    links = db.scalars(
-        select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT")
-    ).all()
-    out = []
-    for lnk in links:
-        if db.scalar(select(Resolution.id).where(Resolution.link_id == lnk.id)):
-            continue
-        src = db.get(Entity, lnk.source_entity_id)
-        tgt = db.get(Entity, lnk.target_entity_id)
-        out.append(
-            {
-                "link_id": lnk.id,
-                "source": {"id": src.id, "type": src.entity_type, "value": src.value_json} if src else None,
-                "target": {"id": tgt.id, "type": tgt.entity_type, "value": tgt.value_json} if tgt else None,
-                "score": lnk.similarity_score,
-            }
-        )
-    return out
+    if view not in ("pending", "model", "important"):
+        raise HTTPException(status_code=400, detail="Неизвестный вид списка конфликтов: нужен pending, model или important")
+    return conflict_rows(db, project_id, view=view)
+
+
+@router.post("/conflicts/{link_id}/undo-model")
+def undo_conflict_model(
+    link_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(require_role("admin"))],
+):
+    """«Вернуть»: отменить решение локальной модели по конфликту (снять разрешение, включить проигравшую сторону)."""
+    from app.app.services.review_conflicts import undo_conflict
+
+    link = db.get(Link, link_id)
+    if not link or link.link_type != "POTENTIAL_CONFLICT":
+        raise HTTPException(status_code=404, detail="Conflict not found")
+    require_project(db, admin, link.project_id)
+    try:
+        result = undo_conflict(db, link_id, user_name=admin.name, user_id=admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    log_activity(db, user_id=admin.id, project_id=link.project_id, block=BLOCK_KNOWLEDGE, action=ACTION_RESOLVE,
+                 title="Отменил решение модели по конфликту", content="", target_kind="link", target_id=link_id)
+    return result
 
 
 @router.post("/conflicts/{link_id}/resolve")
@@ -364,7 +399,7 @@ def rebuild_tz_endpoint(
             project_id=project_id,
             user_id=admin.id,
         ):
-            path = rebuild_tz(db, settings, project_id, manual=True)
+            path = rebuild_tz_fast(db, settings, project_id, manual=True)
     except TaskAlreadyRunning as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     log_activity(
@@ -525,7 +560,15 @@ def chat_endpoint(
     from app.app.models.job import Job
 
     if uses_local_gemma(settings.llm_provider):
-        running = db.scalar(select(func.count()).select_from(Job).where(Job.status == "running")) or 0
+        from app.app.services.queue import KIND_PROCESS
+
+        # Блокирует только расшифровка/знания: фоновая автопроверка делит с чатом ту же LLM, запросы просто идут по очереди.
+        running = (
+            db.scalar(
+                select(func.count()).select_from(Job).where(Job.status == "running", Job.kind == KIND_PROCESS)
+            )
+            or 0
+        )
         if running:
             raise HTTPException(status_code=409, detail="GPU занят расшифровкой")
     try:

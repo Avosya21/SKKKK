@@ -19,6 +19,7 @@ from app.app.services.meeting_merge import TIME_ROUND
 from app.app.services.meeting_recordings import (
     SOURCE_MICROPHONE,
     SOURCE_SCREEN,
+    SOURCE_SCREEN_VIDEO,
     events_rel,
     has_speech,
     is_human_identity,
@@ -109,6 +110,15 @@ def screen_tracks(data_dir: Path, room_name: str) -> list[dict]:
     return rows
 
 
+def screen_video_tracks(data_dir: Path, room_name: str) -> list[dict]:
+    rows: list[dict] = []
+    for track in tracks_for_meeting(data_dir, room_name):
+        item = _usable_track(data_dir, room_name, track, SOURCE_SCREEN_VIDEO)
+        if item:
+            rows.append(item)
+    return rows
+
+
 def dt_epoch(value: datetime | None) -> float | None:
     if value is None:
         return None
@@ -130,6 +140,14 @@ def analyze_state(settings: Settings, meeting: Meeting, db: Session | None = Non
     jobs = list((stored or {}).get("jobs") or [])
     if db is not None and jobs:
         jobs = _refresh_jobs(db, jobs)
+        live = _jobs_status(jobs)
+        if stored and stored.get("status") != live:
+            write_analyze(
+                settings.data_dir,
+                meeting.room_name,
+                {**stored, "status": live, "jobs": jobs},
+            )
+            stored = {**stored, "status": live, "jobs": jobs}
     status_name = STATUS_NONE
     if meeting.status == STATUS_ENDED and tracks and not stored:
         status_name = STATUS_READY
@@ -141,9 +159,16 @@ def analyze_state(settings: Settings, meeting: Meeting, db: Session | None = Non
     if meeting.status != STATUS_ENDED:
         status_name = STATUS_NONE
         can_analyze = False
+    problem = None
+    if meeting.status == STATUS_ENDED and not tracks:
+        # дорожки были в манифесте, но файлы пустые или отсутствуют: запись потеряна (например, оборван процесс записи)
+        listed = [t for t in tracks_for_meeting(settings.data_dir, meeting.room_name) if (t.get("source") or SOURCE_MICROPHONE) == SOURCE_MICROPHONE and is_human_identity(str(t.get("identity") or ""))]
+        if listed:
+            problem = "empty_tracks"
     return {
         "can_analyze": can_analyze,
         "analyze_status": status_name,
+        "recording_problem": problem,
         "track_count": len(tracks),
         "analyze_jobs": jobs,
     }
@@ -323,22 +348,34 @@ def _track_contract(db: Session, meeting: Meeting, track: dict) -> dict:
     sample_rate = int(track.get("sample_rate") or 0) or None
     duration = track.get("duration_sec")
     src = Path(track["abs_path"])
+    source = track.get("source") or SOURCE_MICROPHONE
+    fps = track.get("fps")
+    if duration is None and source == SOURCE_SCREEN_VIDEO and frames and fps:
+        duration = float(frames) / float(fps)
     if duration is None and frames and sample_rate:
         duration = float(frames) / float(sample_rate)
-    if duration is None:
+    if duration is None and source != SOURCE_SCREEN_VIDEO:
         duration = _wav_duration_sec(src)
-    return {
+    if duration is None and track.get("ended_epoch") and track.get("started_epoch"):
+        duration = float(track["ended_epoch"]) - float(track["started_epoch"])
+    row = {
         "identity": identity,
         "speaker": _speaker_name(db, meeting.id, identity),
-        "source": track.get("source") or SOURCE_MICROPHONE,
+        "source": source,
         "src": str(src),
         "started_epoch": track.get("started_epoch"),
         "offset_sec": _track_offset_sec(meeting, track, db),
         "frames": frames,
         "sample_rate": sample_rate,
         "duration_sec": round(float(duration or 0.0), TIME_ROUND),
-        "silent": not has_speech(src) if src.is_file() else True,
+        "silent": False if source == SOURCE_SCREEN_VIDEO else (not has_speech(src) if src.is_file() else True),
     }
+    if source == SOURCE_SCREEN_VIDEO:
+        row["track_sid"] = track.get("track_sid")
+        row["fps"] = fps
+        row["width"] = track.get("width")
+        row["height"] = track.get("height")
+    return row
 
 
 def _enqueue_meeting(db: Session, settings: Settings, meeting: Meeting, tracks: list[dict]) -> list[dict]:
@@ -355,6 +392,8 @@ def _enqueue_meeting(db: Session, settings: Settings, meeting: Meeting, tracks: 
         row = _track_contract(db, meeting, track)
         row["speaker"] = "external_or_unknown"
         track_rows.append(row)
+    for track in screen_video_tracks(settings.data_dir, meeting.room_name):
+        track_rows.append(_track_contract(db, meeting, track))
     duration = meeting_duration_sec(track_rows)
     art, job = create_artifact_record(
         db,
@@ -368,9 +407,15 @@ def _enqueue_meeting(db: Session, settings: Settings, meeting: Meeting, tracks: 
         sha256=sha256,
         priority_weight=default_priority(SOURCE_TYPE_CALL),
         duration_sec=duration,
+        meeting_started_at=meeting.started_at,
     )
     for row in track_rows:
-        row["child_id"] = track_child_id(art.artifact_id, row["identity"])
+        if row.get("source") == SOURCE_SCREEN_VIDEO:
+            row["child_id"] = track_child_id(
+                art.artifact_id, row["identity"] + ":" + str(row.get("track_sid") or "screen")
+            )
+        else:
+            row["child_id"] = track_child_id(art.artifact_id, row["identity"])
     art.asr_engines_json = json.dumps(
         {"kind": MEETING_KIND, "meeting_id": meeting.id, "skip_sortformer": True},
         ensure_ascii=False,
@@ -403,7 +448,7 @@ def _enqueue_meeting(db: Session, settings: Settings, meeting: Meeting, tracks: 
             "status": job.status,
         }
         for row in track_rows
-        if row.get("source") != SOURCE_SCREEN
+        if row.get("source") not in {SOURCE_SCREEN, SOURCE_SCREEN_VIDEO}
     ]
 
 

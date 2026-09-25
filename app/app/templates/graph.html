@@ -2,7 +2,9 @@
 {% block content %}
 <h1 class="h4 mb-3">Граф проекта {{ project_id }}</h1>
 <div id="cy" class="border bg-white rounded" style="width:100%;height:min(70vh, 600px);"></div>
-<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/cytoscape/cytoscape.min.js?v=3.30.2"></script>
 <script>
 (async () => {
   if (!SKKKK.requireAuth()) return;

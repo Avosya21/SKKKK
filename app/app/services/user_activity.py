@@ -53,7 +53,7 @@ BLOCK_LABELS = {
     BLOCK_PROJECT: "Проект",
     BLOCK_UPLOAD: "Файлы",
     BLOCK_CHAT: "Чат с ИИ",
-    BLOCK_TZ: "Выжимка проекта",
+    BLOCK_TZ: "Резюме проекта",
     BLOCK_SPEAKERS: "Спикеры",
     BLOCK_KNOWLEDGE: "Знания",
     BLOCK_REPORT: "Отчёт файла",

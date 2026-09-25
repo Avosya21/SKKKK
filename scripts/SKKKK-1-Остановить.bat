@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 title SKKKK — остановка
 
-set "ROOT=C:\1C_NEW_SKKKK"
+for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 
 echo.
 echo ========================================

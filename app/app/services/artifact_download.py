@@ -1,3 +1,5 @@
+"""Скачивание исходного файла артефакта: путь, имя и MIME (resolve_artifact_download), доступность и подпись кнопки «Скачать»."""
+
 from __future__ import annotations
 
 import mimetypes

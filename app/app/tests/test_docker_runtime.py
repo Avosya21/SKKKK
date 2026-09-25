@@ -154,3 +154,31 @@ def test_compose_up_starts_gigaam_service(monkeypatch, tmp_path):
     assert captured[0][-2:] == ["-d", "gigaam"]
     assert "whisper" not in captured[0]
     assert "tone" not in captured[0]
+
+
+def test_stop_gigaam_stops_container(monkeypatch):
+    captured: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        captured.append(list(cmd))
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(dr.subprocess, "run", fake_run)
+    dr.stop_gigaam()
+    assert captured[0][:3] == ["docker", "stop", "skkkk-gigaam"]
+
+
+def test_stop_gigaam_silent_when_container_missing(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        return MagicMock(returncode=1, stderr="No such container")
+
+    monkeypatch.setattr(dr.subprocess, "run", fake_run)
+    dr.stop_gigaam()
+
+
+def test_stop_gigaam_silent_on_subprocess_error(monkeypatch):
+    def boom(cmd, **kwargs):
+        raise OSError("nope")
+
+    monkeypatch.setattr(dr.subprocess, "run", boom)
+    dr.stop_gigaam()

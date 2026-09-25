@@ -1,26 +1,102 @@
 {% extends "base.html" %}
 {% block content %}
-<h1 class="h4 mb-3">Очередь конфликтов</h1>
+<h1 class="h4 mb-2">Очередь конфликтов</h1>
+<p class="text-muted small mb-3">Пары решений, которые похожи, но расходятся. Система разбирает их сама: модель называет, как пункты связаны, а какой в силе — решают правила (документ заказчика &gt; утверждённое решение &gt; высказывание &gt; вопрос, при равном весе — более позднее). Здесь — то, где она не уверена или работает в тени. Решённое — на вкладках «Важное» (деньги и сроки) и «Решены моделью», любое решение можно вернуть.</p>
+<div class="btn-group mb-3" role="group" aria-label="Вид">
+  <button type="button" class="btn btn-sm btn-outline-secondary active" data-view="pending">Ждут вас</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" data-view="important">Важное</button>
+</div>
+<div id="status" class="small text-muted mb-2" role="status"></div>
 <div id="list" class="vstack gap-2"></div>
+{% endblock %}
+{% block scripts %}
 <script>
-(async () => {
+(() => {
   if (!SKKKK.requireAuth()) return;
-  const projects = await (await SKKKK.api('/projects')).json();
   const root = document.getElementById('list');
-  for (const p of projects) {
-    const r = await SKKKK.api(`/projects/${p.id}/conflicts`);
-    if (r.status === 403) continue;
-    const rows = await r.json();
-    for (const c of rows) {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `<div class="card-body"><pre class="mb-0 small text-break">${JSON.stringify(c, null, 2)}</pre></div>`;
-      root.appendChild(card);
+  const status = document.getElementById('status');
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const VERDICT = { newer_wins: 'в силе более новое', older_wins: 'в силе более раннее', not_conflict: 'не конфликт', unsure: 'не уверена' };
+  const RULE = { 'rule:explicit_cancel': 'явная отмена', 'rule:source_weight': 'вес источника', 'rule:later_equal_weight': 'равный вес — более позднее', 'rule:not_a_decision': 'одно из двух — не решение', 'rule:misextracted': 'пункт извлечён неверно' };
+  let view = 'pending';
+
+  function modelNote(c) {
+    const m = c.model_review;
+    if (!m) return '';
+    const shadow = m.mode === 'live' ? '' : ' (тень)';
+    const undone = m.undone ? ' — отменено человеком' : '';
+    const who = String(m.model || '').startsWith('rule') ? 'Правило' : 'Модель';
+    const rule = m.rule ? `, правило: ${esc(RULE[m.rule] || m.rule)}` : '';
+    const important = m.important ? ' <span class="badge text-bg-warning">деньги/сроки</span>' : '';
+    return `<div class="small mt-2"><span class="text-muted">${who}${shadow}: ${esc(VERDICT[m.verdict] || m.verdict)}${rule}, уверенность ${Math.round((m.confidence || 0) * 100)}%${undone}:</span>${important} ${esc(m.reason || '')}</div>`;
+  }
+
+  function side(label, s, winner) {
+    if (!s) return '';
+    const mark = winner === s.id ? ' <span class="badge text-bg-success">в силе</span>' : (s.active ? '' : ' <span class="badge text-bg-secondary">выключено</span>');
+    return `<div class="mb-1"><span class="text-muted small">${label}</span>${mark}<div>${esc(s.line || s.value)}</div></div>`;
+  }
+
+  function card(p, c) {
+    const winner = c.resolution ? c.resolution.winner : null;
+    const acts = view === 'pending'
+      ? `<div class="d-flex flex-wrap gap-2 mt-2">
+           <input class="form-control form-control-sm w-auto flex-grow-1" placeholder="Причина (обязательна)" maxlength="500" data-reason="${c.link_id}">
+           <button type="button" class="btn btn-sm btn-outline-primary" data-resolve="${c.link_id}" data-win="${c.source && c.source.id}">В силе первое</button>
+           <button type="button" class="btn btn-sm btn-outline-primary" data-resolve="${c.link_id}" data-win="${c.target && c.target.id}">В силе второе</button>
+         </div>`
+      : `<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-undo="${c.link_id}">Вернуть решение модели</button></div>`;
+    return `<div class="card"><div class="card-body">
+      <div class="small text-muted mb-2">${esc(p.name)} · конфликт #${c.link_id}</div>
+      ${side('Первое', c.source, winner)}${side('Второе', c.target, winner)}
+      ${c.resolution ? `<div class="small text-muted">${esc(c.resolution.reason)}</div>` : ''}
+      ${modelNote(c)}${acts}</div></div>`;
+  }
+
+  async function load() {
+    root.innerHTML = '';
+    status.textContent = 'Загрузка…';
+    const projects = await (await SKKKK.api('/projects')).json();
+    let n = 0;
+    for (const p of projects) {
+      const r = await SKKKK.api(`/projects/${p.id}/conflicts?view=${view}`);
+      if (!r.ok) continue;
+      for (const c of await r.json()) { root.insertAdjacentHTML('beforeend', card(p, c)); n += 1; }
     }
+    status.textContent = '';
+    const EMPTY = { pending: 'Конфликтов, ждущих вас, нет.', important: 'Важных авторешений (деньги, сроки) нет.', model: 'Модель пока ничего не решила.' };
+    if (!n) root.innerHTML = `<p class="text-muted">${EMPTY[view]}</p>`;
   }
-  if (!root.children.length) {
-    root.innerHTML = '<p class="text-muted">Конфликтов нет.</p>';
-  }
+
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-view]').forEach((x) => x.classList.toggle('active', x === b));
+    view = b.dataset.view;
+    load();
+  }));
+
+  root.addEventListener('click', async (ev) => {
+    const res = ev.target.closest('[data-resolve]');
+    const undo = ev.target.closest('[data-undo]');
+    if (res) {
+      const reason = (document.querySelector(`[data-reason="${res.dataset.resolve}"]`).value || '').trim();
+      if (!reason) { status.textContent = 'Укажите причину'; return; }
+      await SKKKK.guardButton(res, async () => {
+        const r = await SKKKK.api(`/conflicts/${res.dataset.resolve}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winning_entity_id: Number(res.dataset.win), reason }) });
+        status.textContent = r.ok ? 'Конфликт разрешён.' : 'Не удалось разрешить конфликт.';
+        if (r.ok) load();
+      });
+    }
+    if (undo) {
+      await SKKKK.guardButton(undo, async () => {
+        const r = await SKKKK.api(`/conflicts/${undo.dataset.undo}/undo-model`, { method: 'POST' });
+        const body = r.ok ? await r.json() : {};
+        status.textContent = !r.ok ? 'Не удалось отменить.' : (body.rolled_back_to_shadow ? 'Решение отменено. Отмен стало много — автоматика по конфликтам этого проекта переведена в тень, решения снова ждут вас.' : 'Решение модели отменено — конфликт снова ждёт вас.');
+        if (r.ok) load();
+      });
+    }
+  });
+
+  load();
 })();
 </script>
 {% endblock %}

@@ -1,3 +1,5 @@
+"""Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал)."""
+
 from __future__ import annotations
 
 from datetime import datetime

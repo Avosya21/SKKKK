@@ -76,7 +76,7 @@ def test_run_document_summary_fail_open_on_llm_error(tmp_path, monkeypatch):
     def _boom(*_a, **_k):
         raise RuntimeError("llm down")
 
-    monkeypatch.setattr("app.app.services.summarize_document.chat_completion", _boom)
+    monkeypatch.setattr("app.app.services.summarize_document.chat_completion_no_think", _boom)
     assert run_document_summary(settings, artifact) is False
     assert not document_summary_path(settings, artifact).is_file()
 
@@ -85,7 +85,7 @@ def test_run_document_summary_writes_markdown(tmp_path, monkeypatch):
     settings = Settings(secret_key="test-secret-key", data_dir=tmp_path, dry_run=False)
     artifact = _artifact(tmp_path)
     monkeypatch.setattr(
-        "app.app.services.summarize_document.chat_completion",
+        "app.app.services.summarize_document.chat_completion_no_think",
         lambda *_a, **_k: "## Суть документа\n\nДокумент про обмен.\n",
     )
     assert run_document_summary(settings, artifact) is True

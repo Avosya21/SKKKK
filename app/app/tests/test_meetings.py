@@ -36,6 +36,21 @@ def test_guest_public_page_has_no_project_nav(client, manager_token):
     assert info.json()["project_id"] is None
 
 
+def test_guest_consent_text_matches_recording(client, manager_token, monkeypatch):
+    pid = client.post("/projects", json={"name": "Consent"}, headers=_auth(manager_token)).json()["id"]
+    token = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()["public_token"]
+    monkeypatch.setenv("MEETING_RECORD", "1")
+    monkeypatch.setenv("MEETING_SCREEN_RECORD", "1")
+    page = client.get(f"/m/{token}").text
+    assert "Камера не записывается" in page
+    assert "Демонстрация экрана" in page and "расшифровка" in page
+    assert "голос, камера и демонстрация экрана" not in page
+    monkeypatch.setenv("MEETING_SCREEN_RECORD", "0")
+    assert "Демонстрация экрана" not in client.get(f"/m/{token}").text
+    monkeypatch.setenv("MEETING_RECORD", "0")
+    assert "Запись этой встречи выключена" in client.get(f"/m/{token}").text
+
+
 def test_guest_cannot_open_project(client, manager_token, user_token):
     pid = client.post("/projects", json={"name": "Secret"}, headers=_auth(manager_token)).json()["id"]
     token = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()["public_token"]
@@ -88,6 +103,114 @@ def test_guest_join_same_id_reuses_identity(client, manager_token):
         assert rows[0].display_name == "Анна 2"
     finally:
         db.close()
+
+
+def test_guest_leave_marks_participant_left(client, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.meeting import Meeting, MeetingParticipant
+
+    pid = client.post("/projects", json={"name": "Leave"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    token, mid = created["public_token"], created["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    joined = client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Гость", "guest_id": "leave-1"}).json()
+    response = client.post(f"/api/meetings/public/{token}/leave", json={"identity": joined["identity"]})
+    assert response.status_code == 204
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=joined["identity"]).one()
+        assert row.left_at is not None
+    finally:
+        db.close()
+
+
+def test_guest_rejoin_clears_left_at(client, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.meeting import Meeting, MeetingParticipant
+    pid = client.post("/projects", json={"name": "Rejoin"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    token, mid = created["public_token"], created["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    joined = client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Гость", "guest_id": "rejoin"}).json()
+    client.post(f"/api/meetings/public/{token}/leave", json={"identity": joined["identity"]})
+    client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Гость", "guest_id": "rejoin"})
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=joined["identity"]).one()
+        assert row.left_at is None
+    finally:
+        db.close()
+
+
+def test_guest_heartbeat_restores_active_participant(client, manager_token):
+    pid = client.post("/projects", json={"name": "Heartbeat"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    token, mid = created["public_token"], created["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    guest = client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Гость", "guest_id": "hb"}).json()
+    client.post(f"/api/meetings/public/{token}/leave", json={"identity": guest["identity"]})
+    response = client.post(f"/api/meetings/public/{token}/heartbeat", json={"identity": guest["identity"]})
+    assert response.status_code == 204
+
+
+def test_staff_heartbeat_and_leave(client, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.meeting import MeetingParticipant
+    pid = client.post("/projects", json={"name": "StaffHb"}, headers=_auth(manager_token)).json()["id"]
+    mid = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    joined = client.post(f"/projects/{pid}/meetings/{mid}/join", headers=_auth(manager_token)).json()
+    base = f"/projects/{pid}/meetings/{mid}"
+    hb = client.post(f"{base}/heartbeat", json={"identity": joined["identity"]}, headers=_auth(manager_token))
+    assert hb.status_code == 204
+    foreign = client.post(f"{base}/heartbeat", json={"identity": "member:999999"}, headers=_auth(manager_token))
+    assert foreign.status_code == 403
+    client.cookies.clear()
+    assert client.post(f"{base}/heartbeat", json={"identity": joined["identity"]}).status_code == 401
+    client.headers.pop("Authorization", None)
+    assert client.post(f"{base}/leave", json={"identity": joined["identity"]}, headers=_auth(manager_token)).status_code == 204
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=joined["identity"]).one()
+        assert row.last_seen_at is not None and row.left_at is not None
+    finally:
+        db.close()
+
+
+def test_stale_participant_is_marked_left(client, manager_token):
+    from datetime import timedelta
+    from app.app.db import SessionLocal
+    from app.app.models.meeting import Meeting, MeetingParticipant
+    from app.app.services.meetings import mark_stale_participants
+    pid = client.post("/projects", json={"name": "Stale"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    token, mid = created["public_token"], created["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    guest = client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Гость", "guest_id": "stale"}).json()
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=guest["identity"]).one()
+        from datetime import datetime, timezone
+        row.last_seen_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        db.commit()
+        meeting = db.get(Meeting, mid)
+        assert mark_stale_participants(db, meeting, ttl_seconds=60) == 1
+        assert row.left_at is not None
+    finally:
+        db.close()
+
+
+def test_end_meeting_attempts_livekit_cleanup(client, manager_token, monkeypatch):
+    from app.app.services import meetings
+    calls = []
+    monkeypatch.setattr(meetings, "close_livekit_room", lambda room: calls.append(room) or True)
+    pid = client.post("/projects", json={"name": "Cleanup"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    mid = created["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    response = client.post(f"/projects/{pid}/meetings/{mid}/end", headers=_auth(manager_token))
+    assert response.status_code == 200
+    assert calls == [created["room_name"]]
 
 
 def test_guest_join_different_ids_differ(client, manager_token):
@@ -227,7 +350,9 @@ def test_meetings_templates_keep_guest_isolated():
     assert "Встреча" in guest
     assert "Выдать доступ" not in guest
     assert 'href="/projects"' not in guest
-    assert "meeting_room.js?v=voice8" in guest
+    assert "meeting_room.js?v=a54" in guest
+    assert "meeting_layout.js" in guest
+    assert 'rel="manifest"' in guest
     assert "meeting-room" in guest
     assert 'id="guest-mic"' in guest
     assert 'id="guest-cam"' in guest
@@ -240,7 +365,11 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-leave"' in guest
     assert 'id="meeting-fs"' in guest
     staff_room = (templates / "meeting_room.html").read_text(encoding="utf-8")
-    assert "meeting_room.js?v=voice8" in staff_room
+    assert "meeting_room.js?v=a54" in staff_room
+    assert "meeting_layout.js" in staff_room
+    assert 'rel="manifest"' in staff_room
+    assert 'id="meeting-screen-lead"' in staff_room
+    assert 'id="meeting-screen-lead"' in guest
     assert 'id="meeting-tiles"' in staff_room
     assert 'id="meeting-dock"' in staff_room
     assert 'id="meeting-roster"' in guest
@@ -262,8 +391,8 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-btn"' in staff_room
     assert 'id="meeting-speaker-menu"' in guest
     assert 'id="meeting-speaker-menu"' in staff_room
-    assert "meeting_room.js?v=voice8" in guest
-    assert "meeting_room.js?v=voice8" in staff_room
+    assert "meeting_room.js?v=a54" in guest
+    assert "meeting_room.js?v=a54" in staff_room
     assert "SKKKK_MEETING_VOICE" in guest
     assert "SKKKK_MEETING_VOICE" in staff_room
     assert "skkkk-guest-" in guest
@@ -279,6 +408,25 @@ def test_meetings_templates_keep_guest_isolated():
     assert "flex-wrap: nowrap" in css
     assert ".meeting-speaker-menu" in css
     assert ".meeting-chip svg" in css
+
+
+def test_meeting_layout_rules_and_manifest(client):
+    static = Path(__file__).resolve().parents[1] / "static"
+    layout = (static / "meeting_layout.js").read_text(encoding="utf-8")
+    check = (static / "meeting_layout.selfcheck.js").read_text(encoding="utf-8")
+    assert "function flagState" in layout
+    assert "FLAG_NONE" in layout
+    assert "function soundPlan" in layout
+    assert "function tileOrder" in layout
+    assert "function qualityBadge" in layout
+    assert "publication=null → none" in check
+    assert "fresh screen is lead" in check
+    page = client.get("/meeting.webmanifest")
+    assert page.status_code == 200
+    assert "application/manifest+json" in page.headers.get("content-type", "")
+    body = page.json()
+    assert body["display"] == "standalone"
+    assert body["name"]
 
 
 def test_meeting_room_js_waits_for_ice_tcp():
@@ -333,7 +481,24 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "toggleDenoise" in js
     assert "toggleSound" in js
     assert "_soundOn" in js
-    assert "node.muted = !this._soundOn" in js
+    assert "setSubscribed(false)" in js
+    assert "if (track.kind === \"audio\" && !this._soundOn) return" in js
+    assert "RoomEvent.TrackPublished" in js
+    assert "requestAnimationFrame" in js
+    assert "_silentMeterCtx" in js
+    assert "_onMicSilent" in js
+    assert "MediaDevicesError" in js
+    assert "mic_silent" in js
+    assert "setAttributes" in js
+    assert "ParticipantAttributesChanged" in js
+    assert "ConnectionQualityChanged" in js
+    assert "videoSimulcastLayers" in js
+    assert "VideoPresets.h360" in js
+    assert "meeting-tile-screen-" in js
+    assert "tileOrder" in js
+    assert "flagState" in js
+    assert "contentHint" in js
+    assert "ScreenSharePresets.h720fps5.encoding" in js
     assert "DENOISE_TOPIC" in js
     assert "publishData" in js
     assert "isOwnIdentity" in js
@@ -346,6 +511,7 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "CLEANER_ID" in js
     assert "hasCleaner" in js
     assert "isCleaner" in js
+    assert "function isHidden" in js
     assert "01_audio" not in js
     assert "function phoneGridCols" in js
     assert "_layout: LAYOUT_GRID" in js
@@ -360,9 +526,11 @@ def test_phone_meeting_grid_fits_all_tiles():
     js = (Path(__file__).resolve().parents[1] / "static" / "meeting_room.js").read_text(
         encoding="utf-8"
     )
+    outside = css.split("@media (max-width: 575.98px)")[0]
     phone = css.split("@media (max-width: 575.98px)")[1]
     assert "repeat(var(--meeting-cols" in phone
     assert "grid-auto-rows: minmax(0, 1fr)" in phone
+    assert ".meeting-tiles .meeting-tile-screen.is-lead" in outside
     assert ".meeting-tiles.is-screen-lead .meeting-tile-screen" in phone
     assert "display: none" not in phone.split(".meeting-tiles.has-focus .meeting-tile")[1][:180]
     assert "if (n <= 2) return landscape ? 2 : 1" in js
@@ -443,6 +611,19 @@ def test_project_meetings_table_has_analyze_column():
     assert "MEETINGS_COLSPAN = 5" in html
     assert "meetingAction(btn, 'analyze'" in html
     assert "MEETING_RETRY" in html
+
+
+def test_project_workspace_has_responsive_document_first_layout():
+    html = (Path(__file__).resolve().parents[1] / "templates" / "project.html").read_text(encoding="utf-8")
+    assert "project-hero-title" not in html
+    assert "Рабочее пространство проекта" not in html
+    assert 'id="upload-form"' in html
+    assert "Резюме проекта" in html
+    assert "Живой документ" not in html
+    assert "После завершения обработки выжимка проекта обновится автоматически" not in html
+    assert "Поручения со сроком извлечены из материалов проекта" not in html
+    assert "По материалам проекта" in html
+    assert "order: 1 !important" in html
 
 
 def _seed_room_track(room_name: str, identity: str) -> None:
@@ -703,6 +884,11 @@ def test_analyze_status_missing_job_is_retryable(client, manager_token, tmp_data
     listed = client.get(f"/projects/{pid}/meetings/{mid}", headers=headers).json()
     assert listed["analyze_status"] == "error"
     assert listed["can_analyze"] is True
+    from app.app.config import get_settings
+    from app.app.services.meeting_analyze import read_analyze
+
+    stored = read_analyze(get_settings().data_dir, _room)
+    assert stored and stored.get("status") == "error"
     retry = client.post(f"/projects/{pid}/meetings/{mid}/analyze", headers=headers)
     assert retry.status_code == 200
     assert retry.json()["analyze_status"] == "queued"
@@ -757,3 +943,129 @@ def test_track_offset_counts_from_first_sample():
     assert track_offset_sec(started, started.timestamp() - 2.0) == 0.0
     assert track_offset_sec(started, None) is None
     assert track_offset_sec(None, started.timestamp()) is None
+
+
+def test_purge_meeting_room_cleanup_is_repeated(monkeypatch, tmp_path):
+    """Запись дописывается после удаления встречи — очистку каталога комнаты повторяем (находка аудита 4.9)."""
+    import threading
+
+    from app.app.config import Settings
+    from app.app.services import project_purge
+
+    scheduled = []
+
+    class FakeTimer:
+        def __init__(self, delay, fn):
+            scheduled.append((delay, fn))
+            self.daemon = False
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(threading, "Timer", FakeTimer)
+    settings = Settings(secret_key="x" * 16, data_dir=tmp_path)
+    room = "skkkk-" + "ab" * 8
+    room_dir = tmp_path / "meetings" / room
+    room_dir.mkdir(parents=True)
+    (room_dir / "events.jsonl").write_text("{}", encoding="utf-8")
+    project_purge._remove_meeting_room(settings, room)
+    assert not room_dir.exists()
+    assert [d for d, _ in scheduled] == list(project_purge.ROOM_CLEANUP_RETRY_SEC)
+    room_dir.mkdir(parents=True)  # запись «вернула» каталог
+    (room_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    scheduled[0][1]()  # сработал первый повтор
+    assert not room_dir.exists()
+
+
+def test_livekit_token_ttl_is_four_hours():
+    from datetime import datetime, timezone
+
+    from jose import jwt
+
+    from app.app.config import Settings
+    from app.app.services.meetings import LIVEKIT_TOKEN_TTL_HOURS, _livekit_jwt
+
+    assert LIVEKIT_TOKEN_TTL_HOURS == 4
+    settings = Settings(secret_key="x" * 16, livekit_api_key="k", livekit_api_secret="s" * 32)
+    token = _livekit_jwt(settings, "skkkk-abc", "guest:1", "Гость", can_publish=True)
+    claims = jwt.get_unverified_claims(token)
+    ttl = claims["exp"] - datetime.now(timezone.utc).timestamp()
+    assert 3.9 * 3600 < ttl <= 4 * 3600 + 5
+
+
+def test_close_livekit_room_treats_missing_room_as_success(monkeypatch):
+    """DeleteRoom вернул 404 (комнаты уже нет) — это успех, а не предупреждение в логе."""
+    import sys
+    import types
+
+    from app.app.services import meetings
+
+    class _Settings:
+        livekit_url = "wss://x/livekit"
+        livekit_api_key = "k"
+        livekit_api_secret = "s" * 32
+
+    class _Room:
+        async def delete_room(self, _req):
+            raise RuntimeError("ServerError(code=unknown, message=, status=404)")
+
+    class _Client:
+        room = _Room()
+
+        def __init__(self, *_a):
+            pass
+
+        async def aclose(self):
+            pass
+
+    fake = types.SimpleNamespace(LiveKitAPI=_Client, DeleteRoomRequest=lambda room: room)
+    monkeypatch.setitem(sys.modules, "livekit", types.SimpleNamespace(api=fake))
+    monkeypatch.setattr("app.app.config.get_settings", lambda: _Settings())
+    assert meetings.close_livekit_room("skkkk-abc") is True
+
+
+def test_analyze_state_explains_empty_recording(tmp_path):
+    """Дорожки в манифесте есть, файлы пустые (запись оборвана): кнопки анализа нет, но причина названа, а не «нет записи»."""
+    from types import SimpleNamespace
+
+    from app.app.models.meeting import STATUS_ENDED
+    from app.app.services import meeting_recordings as rec
+    from app.app.services.meeting_analyze import analyze_state
+
+    room = "skkkk-emptyrec"
+    manifest = rec.empty_manifest(room)
+    rec.upsert_track(manifest, identity="guest:abc", rel_path="tracks/guest-abc.wav", source=rec.SOURCE_MICROPHONE, sample_rate=rec.SAMPLE_RATE, started_epoch=1000.0)
+    rec.write_manifest(rec.room_dir(tmp_path, room) / rec.MANIFEST_NAME, manifest)
+    (rec.room_dir(tmp_path, room) / "tracks").mkdir(parents=True, exist_ok=True)
+    (rec.room_dir(tmp_path, room) / "tracks" / "guest-abc.wav").write_bytes(b"")
+    state = analyze_state(SimpleNamespace(data_dir=tmp_path), SimpleNamespace(status=STATUS_ENDED, room_name=room))
+    assert state["track_count"] == 0 and state["can_analyze"] is False and state["recording_problem"] == "empty_tracks"
+    (rec.room_dir(tmp_path, room) / "tracks" / "guest-abc.wav").write_bytes(b"\x00" * 200)
+    fixed = analyze_state(SimpleNamespace(data_dir=tmp_path), SimpleNamespace(status=STATUS_ENDED, room_name=room))
+    assert fixed["track_count"] == 1 and fixed["recording_problem"] is None and fixed["can_analyze"] is True
+
+
+def test_room_client_has_reconnect_device_pickers_and_mirror_rule():
+    """Комната: возврат после обрыва связи, выбор микрофона/динамика, зеркало только у фронтальной камеры (полная проверка в браузере: scripts/qa_room.py)."""
+    base = Path(__file__).resolve().parents[1]
+    js = (base / "static" / "meeting_room.js").read_text(encoding="utf-8")
+    css = (base / "static" / "app.css").read_text(encoding="utf-8")
+    for needle in ("_rejoinLoop", "_beginRejoin", "refreshJoin", "RoomEvent.Reconnecting", "RoomEvent.Reconnected", "_ensureMicPicker", "setMic(",
+                   "devicechange", "isFrontCamera", "_syncLocalMirror", "TEXT_SINK_UNSUPPORTED", "wakeLock", "meetingGone", "noWebRtcText", "isBrowserSupported", "_linkQuality", "SIGNAL_POOR_DELAY_MS", "SIGNAL_RECOVER_DELAY_MS", "meeting-signal"):
+        assert needle in js, needle
+    assert ".meeting-tile-local .meeting-tile-stream.is-mirror:not(.is-screen)" in css
+    assert "TEXT_QUALITY_STATUS" not in js  # плохая связь больше не пишется в постоянную строку статуса
+    assert ".meeting-signal" in css and ".meeting-link-quality" not in css
+    assert ".meeting-tile-local .meeting-tile-stream:not(.is-screen) {\n  transform: scaleX(-1)" not in css  # зеркало не безусловное
+    for page in ("meeting_public.html", "meeting_room.html"):
+        html = (base / "templates" / page).read_text(encoding="utf-8")
+        assert "refreshJoin" in html and "meetingGone" in html, page
+
+
+def test_html_404_is_a_friendly_page_but_api_stays_json(client, manager_token):
+    h = {"Authorization": f"Bearer {manager_token}"}
+    page = client.get("/projects/999999", headers={**h, "Accept": "text/html"})
+    assert page.status_code == 404 and "Страница не найдена" in page.text and "К проектам" in page.text
+    api = client.get("/projects/999999/artifacts", headers={**h, "Accept": "application/json"})
+    assert api.status_code == 404 and api.json() == {"detail": "Project not found"} or api.status_code == 404
+    assert "Страница не найдена" not in client.get("/projects/999999/artifacts", headers=h).text  # fetch без text/html получает JSON

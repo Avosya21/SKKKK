@@ -17,12 +17,16 @@ def _vec(*values: float) -> bytes:
 def test_load_universal_voice_profiles_includes_other_project(db_engine):
     from app.app.models.project import Project
     from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+    from app.app.models.user import User
 
     Session = sessionmaker(bind=db_engine)
     db = Session()
     try:
-        p12 = Project(name="p12", description="", created_by=1)
-        p13 = Project(name="p13", description="", created_by=1)
+        user = User(name="universal-user", telegram_id="tg-universal", role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        p12 = Project(name="p12", description="", created_by=user.id)
+        p13 = Project(name="p13", description="", created_by=user.id)
         db.add_all([p12, p13])
         db.flush()
 
@@ -59,11 +63,15 @@ def test_load_universal_voice_profiles_includes_other_project(db_engine):
 def test_sync_confirmed_to_global_creates_and_merges(db_engine):
     from app.app.models.project import Project
     from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.models.user import User
 
     Session = sessionmaker(bind=db_engine)
     db = Session()
     try:
-        project = Project(name="p", description="", created_by=1)
+        user = User(name="sync-user", telegram_id="tg-sync", role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        project = Project(name="p", description="", created_by=user.id)
         db.add(project)
         db.flush()
 
@@ -103,11 +111,15 @@ def test_sync_confirmed_to_global_creates_and_merges(db_engine):
 def test_backfill_global_speaker_profiles(db_engine):
     from app.app.models.project import Project
     from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+    from app.app.models.user import User
 
     Session = sessionmaker(bind=db_engine)
     db = Session()
     try:
-        project = Project(name="p", description="", created_by=1)
+        user = User(name="backfill-user", telegram_id="tg-backfill", role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        project = Project(name="p", description="", created_by=user.id)
         db.add(project)
         db.flush()
         prof = SpeakerProfile(

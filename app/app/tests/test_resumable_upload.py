@@ -27,10 +27,10 @@ def test_resumable_upload_full_flow(client, manager_token, user_token, monkeypat
         f"/projects/{pid}/uploads/init",
         headers=_auth(manager_token),
         json={
-            "filename": "clip.bin",
+            "filename": "clip.webm",
             "size": len(payload),
             "source_type": "call",
-            "client_key": "clip.bin:2048:1",
+            "client_key": "clip.webm:2048:1",
         },
     )
     assert init.status_code == 200, init.text
@@ -62,7 +62,7 @@ def test_resumable_upload_full_flow(client, manager_token, user_token, monkeypat
     )
     assert done.status_code == 200, done.text
     body = done.json()
-    assert body["original_filename"] == "clip.bin"
+    assert body["original_filename"] == "clip.webm"
     assert body["status"] == "uploaded"
     assert body["source_type"] == "call"
     assert hashlib.sha256(payload).hexdigest()
@@ -115,7 +115,7 @@ def test_resumable_complete_rejects_missing_chunks(client, manager_token, user_t
     init = client.post(
         f"/projects/{pid}/uploads/init",
         headers=_auth(manager_token),
-        json={"filename": "a.bin", "size": 2048, "source_type": "note"},
+        json={"filename": "a.txt", "size": 2048, "source_type": "note"},
     )
     assert init.status_code == 200, init.text
     init = init.json()
@@ -140,6 +140,20 @@ def test_resumable_rejects_oversized_init(client, manager_token, user_token, mon
     r = client.post(
         f"/projects/{pid}/uploads/init",
         headers=_auth(manager_token),
-        json={"filename": "big.bin", "size": 20, "source_type": "note"},
+        json={"filename": "big.txt", "size": 20, "source_type": "note"},
     )
     assert r.status_code == 413
+
+
+def test_resumable_init_rejects_unsupported_format(client, manager_token, monkeypatch):
+    """Неизвестный формат отклоняется ещё до загрузки частей (415), а не падает потом в очереди «no text extracted»."""
+    monkeypatch.setenv("UPLOAD_CHUNK_SIZE", "1024")
+    get_settings.cache_clear()
+    pid = _project(client, manager_token)
+    init = client.post(
+        f"/projects/{pid}/uploads/init",
+        headers=_auth(manager_token),
+        json={"filename": "archive.zip", "size": 10, "source_type": "document"},
+    )
+    assert init.status_code == 415
+    assert "не поддерживается" in init.json()["detail"]

@@ -63,11 +63,21 @@ def test_clean_track_name():
     assert vc.clean_track_name("guest:abc") == "clean-guest.abc"
 
 
+def test_live_enhance_pads_stft_and_resets_model():
+    import inspect
+
+    vc = _voice_cleaner()
+    src = inspect.getsource(vc._enhance)
+    assert "enhance(model, state, audio, pad=True" in src
+    assert "reset_h0 = lambda" not in src
+
+
 def test_records_raw_tracks_before_denoise_pump():
     text = (ROOT / "tools" / "livekit" / "voice_cleaner.py").read_text(encoding="utf-8")
     on_track = text.split("def _on_track")[1].split("def _on_unsub")[0]
     assert on_track.find("start_record") < on_track.find("start(track")
     assert "meeting_recordings.py" in text
+    assert "write_manifest_merged" in text
     assert "voice_cleaner: denoise" in text
     assert "voice_cleaner: record" in text
     assert "EVENTS_NAME" in text

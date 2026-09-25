@@ -1,3 +1,5 @@
+"""Модель UserActivityLog — журнал действий пользователей."""
+
 from __future__ import annotations
 
 from datetime import datetime
