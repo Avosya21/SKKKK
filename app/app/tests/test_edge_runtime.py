@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -64,7 +65,22 @@ def test_start_native_reloads_when_yaml_changes(monkeypatch, tmp_path):
     assert calls == ["stop", "spawn"]
 
 
+def test_pid_running_alive_and_dead():
+    assert er._pid_running(os.getpid()) is True
+    assert er._pid_running(0) is False
+    assert er._pid_running(999_999_999) is False
+
+
+def test_ensure_screen_recorder_skips_without_script(monkeypatch, tmp_path):
+    monkeypatch.setattr(er, "edge_disabled", lambda: False)  # эти тесты проверяют сам запуск (с подменой Popen)
+    monkeypatch.setattr(er, "VOICE_PY", tmp_path / "python.exe")
+    monkeypatch.setattr(er, "SCREEN_RECORDER", tmp_path / "missing.py")
+    monkeypatch.setattr(er, "get_settings", lambda: SimpleNamespace(data_dir=tmp_path))
+    assert er.ensure_screen_recorder() == "skip"
+
+
 def test_ensure_voice_cleaner_skips_without_venv(monkeypatch, tmp_path):
+    monkeypatch.setattr(er, "edge_disabled", lambda: False)  # эти тесты проверяют сам запуск (с подменой Popen)
     monkeypatch.setattr(er, "VOICE_PY", tmp_path / "missing.exe")
     monkeypatch.setattr(er, "VOICE_CLEANER", tmp_path / "voice_cleaner.py")
     monkeypatch.setattr(er, "get_settings", lambda: SimpleNamespace(meeting_voice_server=True))
@@ -72,6 +88,7 @@ def test_ensure_voice_cleaner_skips_without_venv(monkeypatch, tmp_path):
 
 
 def test_ensure_voice_cleaner_reports_failed_if_process_exits(monkeypatch, tmp_path):
+    monkeypatch.setattr(er, "edge_disabled", lambda: False)  # эти тесты проверяют сам запуск (с подменой Popen)
     py = tmp_path / "python.exe"
     py.write_text("", encoding="utf-8")
     script = tmp_path / "voice_cleaner.py"
@@ -108,8 +125,9 @@ def test_ensure_edge_starts_voice_after_livekit(monkeypatch):
     monkeypatch.setattr(er, "ensure_caddy", lambda _s: calls.append("caddy") or "ok")
     monkeypatch.setattr(er, "ensure_livekit", lambda: calls.append("livekit") or "started")
     monkeypatch.setattr(er, "ensure_voice_cleaner", lambda: calls.append("voice") or "started")
+    monkeypatch.setattr(er, "ensure_screen_recorder", lambda: calls.append("screen") or "started")
     er.ensure_edge_services(_settings())
-    assert calls == ["tls", "caddy", "livekit", "voice"]
+    assert calls == ["tls", "caddy", "livekit", "voice", "screen"]
 
 
 def test_ensure_edge_services_keeps_portal_if_livekit_fails(monkeypatch):
@@ -145,3 +163,40 @@ def _settings():
         web_port=1777,
         data_dir=Path("C:/1C_NEW_SKKKK/data"),
     )
+
+
+def test_check_served_certificate_reloads_only_on_mismatch(monkeypatch, tmp_path):
+    settings = SimpleNamespace(skkkk_public_host="1.2.3.4", skkkk_https_port=777)
+    monkeypatch.setattr(er, "tls_paths", lambda _s: (tmp_path / "c.crt", tmp_path / "c.key"))
+    monkeypatch.setattr(er, "_file_cert_serial", lambda _p: 200)
+    reloads: list[int] = []
+    monkeypatch.setattr(er, "ensure_caddy", lambda _s: reloads.append(1) or "reloaded")
+    monkeypatch.setattr(er.time, "sleep", lambda _s: None)
+
+    def serve(*values):
+        seq = iter(values)
+        monkeypatch.setattr(er, "_served_cert_serial", lambda _h, _p: next(seq))
+
+    serve(200)  # порт отдаёт то же, что на диске
+    assert er.check_served_certificate(settings) == "ok" and reloads == []
+    serve(100, 200)  # отдавал старый, после перезагрузки новый
+    assert er.check_served_certificate(settings) == "reloaded" and reloads == [1]
+    serve(100, 100)  # перезагрузка не помогла: сообщаем, а не молчим
+    assert er.check_served_certificate(settings) == "failed"
+
+
+def test_check_served_certificate_skips_without_public_host_or_file(monkeypatch, tmp_path):
+    assert er.check_served_certificate(SimpleNamespace(skkkk_public_host="", skkkk_https_port=777)) == "skip"
+    monkeypatch.setattr(er, "tls_paths", lambda _s: (tmp_path / "missing.crt", tmp_path / "k"))
+    assert er.check_served_certificate(SimpleNamespace(skkkk_public_host="h", skkkk_https_port=777)) == "skip"
+
+
+def test_recorders_are_never_started_under_tests(monkeypatch, tmp_path):
+    """Регрессия: сторожевой цикл в тестовом приложении запускал НАСТОЯЩИЕ рекордеры (в пустой временной папке «уже запущенных» нет),
+    и после каждого прогона тестов оставалась ещё одна копия; копии выбивали друг друга из комнаты и рвали запись созвона."""
+    started: list[int] = []
+    monkeypatch.setattr(er.subprocess, "Popen", lambda *a, **k: started.append(1))
+    assert er.edge_disabled() is True  # идут тесты
+    assert er.ensure_voice_cleaner() == "off"
+    assert er.ensure_screen_recorder() == "off"
+    assert started == []

@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 {% block nav_project %}
 <span class="navbar-divider" aria-hidden="true"></span>
-<span class="navbar-brand navbar-project mb-0 py-1">#{{ project_id }} — «{{ project_name }}»</span>
+<span class="navbar-brand navbar-project mb-0 py-1" title="#{{ project_id }} — «{{ project_name }}»">#{{ project_id }} — «{{ project_name }}»</span>
 {% endblock %}
 {% block nav_actions %}
 <a class="btn btn-sm btn-outline-light navbar-back" href="/">к проектам</a>
 {% endblock %}
 {% block content %}
-<p class="text-muted mb-3 mb-md-4 project-page-lead">Здесь собраны загрузка артефактов, общая выжимка проекта, отчеты по файлам и чат по материалам проекта.</p>
-
 <style>
+  /* Список материалов приходит по сети позже первой отрисовки. Резервируем высоту сразу (число материалов подставляет сервер;
+     коэффициенты измерены в браузере: таблица ~115 + 60 px на файл, карточки телефона ~80 + 130 px), иначе всё ниже «уезжает» */
+  #artifacts-body { min-height: calc(115px + var(--artifact-n, 0) * 60px); }
+  @media (max-width: 767.98px) {
+    #artifacts-body { min-height: calc(80px + var(--artifact-n, 0) * 130px); }
+  }
   .project-kpis {
     display: flex;
     flex-wrap: nowrap;
@@ -433,34 +437,78 @@
   @media (min-width: 992px) {
     .project-insights-row {
       align-items: stretch;
+      --bs-gutter-x: 1.25rem;
+    }
+    .project-insights-row > .col-lg-7 {
+      flex: 0 0 58.333333%;
+      width: 58.333333%;
+    }
+    .project-insights-row > .col-lg-5 {
+      flex: 0 0 41.666667%;
+      width: 41.666667%;
     }
     .project-insights-row .insights-card {
       height: min(70vh, 720px);
       max-height: min(70vh, 720px);
+      min-height: 0;
+    }
+    .project-insights-row > .col-lg-5 .insights-card {
       position: sticky;
       top: 0.75rem;
+      height: min(70vh, 720px);
+      max-height: min(70vh, 720px);
+    }
+    .project-insights-row > .col-lg-7 #tz-content {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: .35rem;
     }
     #tz-content,
     #chat-log {
       min-height: 0;
     }
   }
+  @media (min-width: 768px) and (max-width: 991.98px) {
+    /* Планшет: карточки уложены друг под другом (на десктопе высота уже фиксирована), резюме раньше росло до 1400+ px */
+    #tz-content {
+      height: min(55vh, 30rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    #chat-log {
+      height: min(40vh, 22rem);
+      overflow-y: auto;
+    }
+  }
   @media (max-width: 767.98px) {
     .project-page-lead {
       font-size: 0.9rem;
     }
+    /* Фиксированная высота, а не «от 10rem до 50vh»: иначе резюме, пришедшее позже первой отрисовки, раздувает карточку и сдвигает страницу */
     #tz-content {
-      min-height: 10rem;
-      max-height: 50vh;
+      height: min(50vh, 26rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
     #chat-log {
-      min-height: 10rem;
-      max-height: 40vh;
+      height: min(40vh, 20rem);
+      overflow-y: auto;
     }
     .chat-panel-mobile-lift {
       position: relative;
       z-index: 2;
     }
+    .project-insights-row { --bs-gutter-y: 1rem; }
+    .project-insights-row .insights-card,
+    .project-insights-row > .col-lg-5 .insights-card {
+      min-height: 0;
+      height: auto;
+      max-height: none;
+      position: relative;
+      top: auto;
+    }
+    .project-insights-row > .col-lg-7 { order: 1 !important; }
+    .project-insights-row > .col-lg-5 { order: 2 !important; }
   }
 
   .download-banner {
@@ -525,7 +573,6 @@
       <h2 class="h5 mb-1">Добавить материалы</h2>
       <div class="text-muted small">Загрузите созвон, документ, заметку или скриншот для обработки и включения в общую базу проекта.</div>
     </div>
-    <div id="upload-hint" class="text-muted small d-none d-md-block">После завершения обработки выжимка проекта обновится автоматически.</div>
   </div>
   <div class="row g-2 align-items-end">
     <div class="col-12 col-md-4">
@@ -536,11 +583,12 @@
         <option value="note">Заметка</option>
         <option value="screenshot">Скриншот</option>
       </select>
+      <div class="form-text d-none" id="upload-type-hint" aria-live="polite"></div>
     </div>
     <div class="col-12 col-md-5">
       <label class="form-label" for="upload-files">Файлы</label>
-      <input class="form-control" type="file" name="files" id="upload-files" multiple required>
-    </div>
+      <input class="form-control" type="file" name="files" id="upload-files" multiple required
+             accept=".pdf,.docx,.doc,.docm,.dotx,.odt,.rtf,.xlsx,.xlsm,.xltx,.xls,.ods,.csv,.tsv,.pptx,.ppt,.html,.htm,.txt,.md,.markdown,.log,.json,.yaml,.yml,.ini,.text,audio/*,video/*,image/*,.webm,.mkv">    </div>
     <div class="col-12 col-md-3">
       <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="upload-submit" data-idle-label="Загрузить">Загрузить</button>
     </div>
@@ -557,28 +605,28 @@
   </div>
 </form>
 
-<div class="card shadow-sm mb-3 mb-md-4">
+<div class="card shadow-sm mb-3 mb-md-4 workspace-card">
   <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
     <div class="me-sm-auto min-w-0">
-      <strong>Артефакты проекта</strong>
+     <div class="section-title-wrap"><strong>Материалы проекта</strong><span class="section-title-subtitle">Файлы и обработка</span></div>
       <div class="small text-muted" id="artifacts-status" hidden aria-live="polite"></div>
     </div>
     <div class="project-kpis" id="project-kpis" aria-label="Сводка по артефактам">
       <div class="project-kpi">
         <span class="label">Готово</span>
-        <span class="value" id="kpi-done">0</span>
+        <span class="value" id="kpi-done">—</span>
       </div>
       <div class="project-kpi">
         <span class="label">Док.</span>
-        <span class="value" id="kpi-docs">0</span>
+        <span class="value" id="kpi-docs">—</span>
       </div>
       <div class="project-kpi">
         <span class="label">Созвоны</span>
-        <span class="value" id="kpi-calls">0</span>
+        <span class="value" id="kpi-calls">—</span>
       </div>
     </div>
   </div>
-  <div class="card-body">
+  <div class="card-body" id="artifacts-body" data-count="{{ artifact_count|default(0) }}" style="--artifact-n: {{ artifact_count|default(0) }}">
     <div id="pipeline-live" class="d-none" aria-live="polite" aria-atomic="true"></div>
     <div class="table-responsive d-none d-md-block">
       <table class="table table-sm table-hover mb-0" id="artifacts-table">
@@ -586,17 +634,17 @@
           <tr>
             <th>Файл</th>
             <th class="col-download">Скачать</th>
-            <th>Тип</th>
             <th>Статус</th>
             <th>Ошибка</th>
             <th class="col-delete"><span class="visually-hidden">Удалить</span></th>
           </tr>
         </thead>
-        <tbody></tbody>
+        <tbody><tr class="artifacts-loading"><td colspan="5" class="text-muted small">Загружаю материалы…</td></tr></tbody>
       </table>
     </div>
-    <div id="artifacts-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
+    <div id="artifacts-cards" class="d-md-none vstack gap-2" aria-live="polite"><div class="text-muted small artifacts-loading">Загружаю материалы…</div></div>
     <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
+    <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
   </div>
 </div>
 
@@ -627,7 +675,7 @@
   <div class="col-lg-7 order-2 order-lg-1 d-flex">
     <div class="card shadow-sm h-100 w-100 insights-card">
       <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
-        <strong>Итоговая выжимка по проекту</strong>
+        <div class="section-title-wrap"><strong>Резюме проекта</strong></div>
         {% if current_role == 'admin' %}
         <button type="button" id="tz-refresh" class="btn btn-sm btn-outline-secondary skkkk-action-btn" data-idle-label="Пересобрать" aria-label="Пересобрать">Пересобрать</button>
         {% endif %}
@@ -641,10 +689,10 @@
   <div class="col-lg-5 order-1 order-lg-2 d-flex">
     <div class="card shadow-sm h-100 w-100 insights-card chat-card chat-panel-mobile-lift">
       <div class="card-header">
-        <strong>Чат с ИИ по проекту</strong>
+        <div class="section-title-wrap"><strong>Ассистент</strong><span class="section-title-subtitle">По материалам проекта</span></div>
       </div>
       <div class="card-body d-flex flex-column chat-panel insights-panel">
-        <div class="text-muted small mb-2 flex-shrink-0">Используйте чат для вопросов по решениям, ограничениям, участникам и требованиям проекта.</div>
+        <div class="text-muted small mb-2 flex-shrink-0">Решения, ограничения, участники и требования.</div>
         <div id="chat-status" class="text-muted small mb-2 d-none flex-shrink-0" aria-live="polite"></div>
         <div id="chat-log" class="rounded p-2" aria-live="polite"></div>
         <div class="chat-composer">
@@ -681,17 +729,12 @@
   </div>
   <div id="deadlines-panel" class="collapse">
     <div class="card-body">
-      <p class="text-muted small mb-3">
-        Поручения со сроком извлечены из материалов проекта (созвоны, документы). В списке только задачи, где назван дедлайн.
-        Оценки длительности этапов («4–6 нед.») и очередность работ («перед этапом 2») сюда не попадают.
-        Нажмите на строку в списке или на событие в календаре, чтобы прочитать описание целиком.
-      </p>
       <div id="deadlines-status" class="text-muted small mb-2" aria-live="polite">Загрузка…</div>
       <div class="d-flex justify-content-end mb-2">
         <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="deadlines-reextract" data-idle-label="Обновить из материалов">Обновить из материалов</button>
       </div>
       <div id="deadlines-list-view">
-        <div class="table-responsive">
+        <div class="table-responsive d-none d-md-block">
           <table class="table table-sm table-hover mb-0" id="deadlines-table">
             <thead>
               <tr>
@@ -707,6 +750,7 @@
             </tbody>
           </table>
         </div>
+        <div id="deadlines-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
       </div>
       <div id="deadlines-calendar-view" class="d-none">
         <div id="deadlines-calendar" aria-label="Календарь дедлайнов"></div>
@@ -776,7 +820,7 @@
         <code id="meetings-new-link-value" class="user-select-all d-block mt-1 text-break"></code>
         <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="meetings-copy-link" data-idle-label="Копировать ссылку">Копировать ссылку</button>
       </div>
-      <div class="table-responsive">
+      <div class="table-responsive d-none d-md-block">
         <table class="table table-sm table-hover mb-0">
           <thead>
             <tr>
@@ -790,8 +834,9 @@
           <tbody id="meetings-body">
             <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
           </tbody>
-        </table>
+          </table>
       </div>
+      <div id="meetings-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
     </div>
   </div>
 </div>
@@ -839,24 +884,44 @@
     <div id="mcp-status" class="text-muted small mb-2" aria-live="polite"></div>
     <div class="row g-3">
       <div class="col-lg-6">
-        <label class="form-label small fw-semibold mb-1">URL сервера</label>
-        <div class="input-group input-group-sm mb-2">
+        <div class="ds-section-head"><label class="form-label mb-0" for="mcp-url">URL сервера</label></div>
+        <div class="input-group input-group-sm mb-3">
           <input id="mcp-url" class="form-control font-monospace" readonly aria-label="MCP URL">
           <button type="button" class="btn btn-outline-secondary" id="mcp-copy-url" data-idle-label="Копировать">Копировать</button>
         </div>
-        <label class="form-label small fw-semibold mb-1">Пример для Cursor (<code>.cursor/mcp.json</code>)</label>
+        <div class="ds-section-head"><span class="form-label mb-0">Пример для Cursor (<code>.cursor/mcp.json</code>)</span></div>
         <pre id="mcp-config" aria-label="Пример конфигурации MCP"></pre>
         <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="mcp-copy-config" data-idle-label="Копировать JSON">Копировать JSON</button>
       </div>
       <div class="col-lg-6">
-        <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
-          <label class="form-label small fw-semibold mb-0">Ключи доступа</label>
+        <div class="ds-section-head justify-content-between">
+          <span class="form-label mb-0">Ключи доступа</span>
           <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="mcp-create-token" data-idle-label="Создать ключ">Создать ключ</button>
         </div>
         <p class="text-muted small mb-2">Создавать ключи могут admin и manager. Токен показывается один раз.</p>
+        <fieldset class="mb-2" id="mcp-rights">
+          <legend class="form-label small mb-1">Права нового ключа</legend>
+          <div class="form-check small">
+            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-read" value="read" checked>
+            <label class="form-check-label" for="mcp-rights-read"><strong>Только чтение</strong> — агент читает базу и ответы, ничего не записывает</label>
+          </div>
+          <div class="form-check small">
+            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-questions" value="questions">
+            <label class="form-check-label" for="mcp-rights-questions"><strong>Чтение + вопросы</strong> — агент кладёт вопросы в очередь, но вердикты отправлять не может</label>
+          </div>
+          <div class="form-check small">
+            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-submit" value="questions_verdicts">
+            <label class="form-check-label" for="mcp-rights-submit"><strong>Чтение + вопросы и вердикты</strong> — агент сам кладёт вопросы и вердикты в очередь (только добавление; вердикты помечаются как непроверенные, ответы одобряет человек)</label>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-7"><input type="text" class="form-control form-control-sm" id="mcp-agent-name" maxlength="64" placeholder="Имя агента (для журнала)" aria-label="Имя агента"></div>
+            <div class="col-5"><input type="number" class="form-control form-control-sm" id="mcp-rate-limit" min="1" max="1000" placeholder="Лимит за 10 мин" aria-label="Лимит обращений за 10 минут"></div>
+          </div>
+        </fieldset>
         <div id="mcp-new-token" class="alert alert-warning d-none small py-2" role="alert">
           <strong>Новый ключ:</strong>
           <code id="mcp-new-token-value" class="user-select-all d-block mt-1 text-break"></code>
+          <div class="mt-2 text-muted">Передайте разработчику адрес сервера и этот ключ. Инструкцию по работе с базой и по обращению к нам агент получит сам: при подключении, через инструмент <code>get_guide</code> и файл <code>contract/GUIDE.md</code>.</div>
         </div>
         <div class="table-responsive">
           <table class="table table-sm table-hover mb-0 mcp-token-row">
@@ -864,8 +929,8 @@
               <tr>
                 <th>Метка</th>
                 <th>Ключ</th>
+                <th>Права</th>
                 <th>Статус</th>
-                <th></th>
               </tr>
             </thead>
             <tbody id="mcp-tokens-body">
@@ -878,6 +943,11 @@
   </div>
   </div>
 </div>
+{% endif %}
+
+{% if current_role in ('admin', 'manager') %}
+<link href="/static/px_agent.css?v=1" rel="stylesheet">
+{% include "partials/px_agent_cards.html" %}
 {% endif %}
 
 {% if can_grant_access %}
@@ -940,14 +1010,24 @@
 {% endblock %}
 
 {% block scripts %}
-<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/main.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="/static/vendor/fullcalendar/index.global.min.js?v=6.1.15"></script>
 <script>
 if (!SKKKK.requireAuth()) throw new Error('auth');
 const projectId = {{ project_id }};
+// Список материалов приходит с сервера позже первой отрисовки: резервируем ему прежнюю высоту (запоминается по проекту), иначе всё ниже «уезжает»
+(function reserveArtifactsHeight() {
+  try {
+    const body = document.getElementById('artifacts-body');
+    if (!body) return;
+    // запас высоты задан в CSS (по числу материалов от сервера); сохранённая настоящая высота точнее, если она есть
+    const saved = Number(localStorage.getItem('skkkk_artifacts_h_' + projectId)) || 0;
+    if (saved > 120) body.style.minHeight = saved + 'px';
+  } catch (_) { /* без хранилища работает, но с одним сдвигом при загрузке */ }
+})();
 const currentRole = {{ current_role|tojson }};
+window.PX = { projectId, role: currentRole };
 window.SKKKK_ROLE = currentRole;
-const TERMINAL = new Set(['done', 'error']);
+const TERMINAL = new Set(['done', 'error', 'rejected', 'needs_human']);
 const STATUS_LABEL = {
   uploaded:           'В очереди',
   preprocessing:      'Подготовка',
@@ -1108,12 +1188,19 @@ async function reloadChatLog() {
 function startChatPoll() {
   if (chatPollTimer) return;
   setChatBusy(true);
+  let chatPollBusy = false;
   chatPollTimer = setInterval(async () => {
-    const messages = await reloadChatLog();
-    if (!isChatPending(messages)) {
-      clearInterval(chatPollTimer);
-      chatPollTimer = null;
-      setChatBusy(false);
+    if (chatPollBusy || document.hidden) return;
+    chatPollBusy = true;
+    try {
+      const messages = await reloadChatLog();
+      if (!isChatPending(messages)) {
+        clearInterval(chatPollTimer);
+        chatPollTimer = null;
+        setChatBusy(false);
+      }
+    } finally {
+      chatPollBusy = false;
     }
   }, 3000);
 }
@@ -1352,8 +1439,10 @@ function speakerMatchLink(a) {
   const btnClass = ready ? 'btn-outline-success' : 'btn-outline-warning';
   const title = ready
     ? 'Спикеры сопоставлены — открыть страницу голосов'
-    : 'Есть дорожки спикеров — сопоставить с базой голосов и назвать';
-  return artifactReportBtn(href, 'match', title, btnClass);
+    : (a.status === 'speakers_pending'
+      ? 'Есть дорожки спикеров — сопоставить с базой голосов и назвать'
+      : 'Созвон разобран, но не все голоса названы — назовите их, знания пересчитаются сами');
+  return artifactReportBtn(href, 'Голоса', title, btnClass);
 }
 
 function labReportLink(a) {
@@ -1726,7 +1815,6 @@ function buildRow(a) {
     : '<span class="text-muted">—</span>';
   return `<td>${nameCell}</td>
           <td class="col-download">${downloadCell(a)}</td>
-          <td class="text-muted">${escapeHtml(a.source_type)}</td>
           <td>${statusBadge(a.status)}</td>
           <td>${err}</td>
           <td class="col-delete">${deleteCell(a)}</td>`;
@@ -1741,27 +1829,40 @@ function buildCard(a) {
   const err = a.status === 'error' && a.error_message
     ? `<div class="text-danger small mt-2">${escapeHtml(a.error_message)}</div>`
     : '';
-  return `<div class="border rounded p-3 bg-white artifact-card">
-    <span class="artifact-name-line">${title}${actions}</span>
-    <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
-      ${downloadCell(a)}
-      ${deleteCell(a)}
-      <span class="text-muted">${escapeHtml(a.source_type)}</span>
-      ${statusBadge(a.status)}
-    </div>
+  // Карточка: заголовок и статус в одной строке, действия — отдельной строкой снизу (стили .ds-card в design.css).
+  return `<div class="border rounded bg-white artifact-card ds-card">
+    <div class="ds-card-head"><span class="ds-card-title">${title}</span>${statusBadge(a.status)}</div>
+    <div class="ds-card-actions">${actions}${downloadCell(a)}${deleteCell(a)}</div>
     ${err}
   </div>`;
 }
 
+// Подпись последнего ответа: если данные не изменились, DOM не перестраиваем (пункт 3.7) —
+// иначе каждые 3 с кнопки «уезжают» из-под курсора и клик попадает в удалённый элемент.
+let lastArtifactsSig = null;
+let lastMeetingsSig = null;
+
 async function refreshArtifacts() {
   if (deleteArtifactModalEl && deleteArtifactModalEl.classList.contains('show')) return;
   const r = await SKKKK.api(`/projects/${projectId}/artifacts`);
-  const arts = await r.json();
+  const allArts = await r.json();
+  // Файлы обмена с внешним агентом (analysis_question_N.json и т. п.) не материалы проекта: их место в блоке «Обмен с агентами»
+  const EXCHANGE_FILE = /^analysis_(reply|request|question)_\d+\.json$/i;
+  const arts = allArts.filter((a) => !EXCHANGE_FILE.test(a.original_filename || ''));
+  const hiddenExchange = allArts.length - arts.length;
+  const artsSig = JSON.stringify(arts) + '|' + hiddenExchange;
+  if (artsSig === lastArtifactsSig) return;
+  lastArtifactsSig = artsSig;
   const tbody = document.querySelector('#artifacts-table tbody');
   const cards = document.getElementById('artifacts-cards');
   tbody.innerHTML = '';
   cards.innerHTML = '';
   artifactsEmpty.classList.toggle('d-none', arts.length > 0);
+  const hiddenNote = document.getElementById('artifacts-hidden-note');
+  if (hiddenNote) {
+    hiddenNote.classList.toggle('d-none', hiddenExchange === 0);
+    hiddenNote.textContent = hiddenExchange ? `Служебные файлы обмена с агентами скрыты: ${hiddenExchange} (смотрите блок «Обмен с агентами»).` : '';
+  }
 
   const total = arts.length;
   const doneCount = arts.filter(a => a.status === 'done').length;
@@ -1801,6 +1902,14 @@ async function refreshArtifacts() {
   bindDeleteButtons(cards);
   bindSpeakerConfirmButtons(tbody);
   bindSpeakerConfirmButtons(cards);
+  // Резерв высоты сделал своё дело: снимаем и запоминаем настоящую высоту для следующего открытия страницы
+  const listBody = document.getElementById('artifacts-body');
+  if (listBody) {
+    listBody.style.minHeight = '0';  // запас больше не нужен (список пришёл); 0 перекрывает и CSS-запас, чтобы после удаления файлов не оставалось пустоты
+    try {
+      localStorage.setItem('skkkk_artifacts_h_' + projectId, String(Math.round(listBody.getBoundingClientRect().height)));
+    } catch (_) { /* не критично */ }
+  }
 }
 
 deleteArtifactAck.addEventListener('change', syncArtifactDeleteConfirmEnabled);
@@ -1856,6 +1965,36 @@ function keepChatVisibleOnKeyboard() {
   chatQuestion.addEventListener('focus', () => setTimeout(sync, 50));
 }
 
+// Тип по выбранным файлам (пункт 3.8): аудио/видео → созвон, изображения → скриншот, остальное → документ.
+const UPLOAD_KIND_BY_EXT = (() => {
+  const map = {};
+  ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wma', 'mp4', 'mkv', 'mov', 'avi', 'webm', 'm4v'].forEach((e) => { map[e] = 'call'; });
+  ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic'].forEach((e) => { map[e] = 'screenshot'; });
+  return map;
+})();
+function uploadKindOf(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return UPLOAD_KIND_BY_EXT[ext] || 'document';
+}
+document.getElementById('upload-files').addEventListener('change', (ev) => {
+  const files = Array.from(ev.target.files || []);
+  const select = document.getElementById('upload-source-type');
+  const hint = document.getElementById('upload-type-hint');
+  if (!files.length || !select) return;
+  const kinds = Array.from(new Set(files.map(uploadKindOf)));
+  hint.classList.add('d-none');
+  if (kinds.length === 1) {
+    if (select.value !== kinds[0] && !(select.value === 'note' && kinds[0] === 'document')) {
+      select.value = kinds[0];
+      hint.textContent = 'Тип выбран по файлам: ' + select.options[select.selectedIndex].text + '.';
+      hint.classList.remove('d-none');
+    }
+  } else {
+    hint.textContent = 'Выбраны файлы разных видов: тип каждого определится по содержимому.';
+    hint.classList.remove('d-none');
+  }
+});
+
 // --- загрузка (chunked / resume) ---
 document.getElementById('upload-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -1909,7 +2048,7 @@ document.getElementById('upload-form').onsubmit = async (e) => {
       label.textContent = 'Готово';
       detail.textContent = dups
         ? `Принято: ${arts.length}, из них дублей: ${dups}`
-        : `Принято файлов: ${arts.length}`;
+        : `Принято ${SKKKK.count(arts.length, ['файл', 'файла', 'файлов'])}`;
       artifactsStatus.dataset.busy = '1';
       artifactsStatus.hidden = false;
       artifactsStatus.textContent = 'Файлы загружены, ожидаю обновление статусов…';
@@ -1934,14 +2073,25 @@ document.getElementById('upload-form').onsubmit = async (e) => {
 
 refreshArtifacts();
 loadChatHistory();
-loadDeadlinesPanel();
+// const deadlinesStatus объявлена ниже по скрипту: прямой вызов падал с ReferenceError (TDZ)
+Promise.resolve().then(loadDeadlinesPanel);
 syncTzTaskUi().then(() => loadTz());
 keepChatVisibleOnKeyboard();
-setInterval(async () => {
-  await refreshArtifacts();
-  await syncTzTaskUi();
-  if (meetingsPanel?.classList.contains('show')) await loadMeetings();
-}, 3000);
+// Опрос без наложений и без работы в скрытой вкладке: медленный ответ сервера не должен копить запросы.
+let projectPollBusy = false;
+async function projectPollTick() {
+  if (projectPollBusy || document.hidden) return;
+  projectPollBusy = true;
+  try {
+    await refreshArtifacts();
+    await syncTzTaskUi();
+    if (meetingsPanel?.classList.contains('show')) await loadMeetings();
+  } finally {
+    projectPollBusy = false;
+  }
+}
+setInterval(projectPollTick, 3000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) projectPollTick(); });
 
 const mcpStatus = document.getElementById('mcp-status');
 const mcpUrlInput = document.getElementById('mcp-url');
@@ -2006,17 +2156,59 @@ async function loadMcpTokens() {
     }
     mcpTokensBody.innerHTML = rows.map((t) => `
       <tr>
-        <td>${escapeHtml(t.label)}</td>
+        <td>${escapeHtml(t.label)}${t.agent_name ? `<div class="small text-muted">агент: ${escapeHtml(t.agent_name)}</div>` : ''}</td>
         <td><code>${escapeHtml(t.token_prefix)}</code></td>
-        <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}</td>
-        <td class="text-end">${t.is_active ? `<button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button>` : ''}</td>
+        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}</td>
+        <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}${t.is_active ? `<div class="mt-1"><button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button></div>` : ''}</td>
       </tr>`).join('');
+    mcpTokensBody.querySelectorAll('.mcp-scope').forEach((sel) => {
+      sel.addEventListener('change', () => changeMcpScope(Number(sel.dataset.id), sel.value, sel));
+    });
     mcpTokensBody.querySelectorAll('.mcp-revoke').forEach((btn) => {
       btn.addEventListener('click', () => revokeMcpToken(Number(btn.dataset.id)));
     });
   } catch (err) {
     mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Не удалось загрузить ключи</td></tr>';
   }
+}
+
+const MCP_SCOPE_TEXT = {
+  read: 'Оставить ключу только чтение?',
+  questions: 'Разрешить ключу класть ВОПРОСЫ в очередь? Вердикты он отправлять не сможет.',
+  questions_verdicts: 'Разрешить ключу класть вопросы И вердикты в очередь? Агент сможет добавлять записи сам (только добавление, подтверждает человек).',
+};
+async function changeMcpScope(tokenId, scope, selectEl) {
+  if (!confirm(MCP_SCOPE_TEXT[scope] || 'Изменить права ключа?')) {
+    selectEl.value = selectEl.dataset.cur;
+    return;
+  }
+  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/scope`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope }),
+  });
+  if (!r.ok) {
+    alert('Не удалось изменить права ключа');
+    selectEl.value = selectEl.dataset.cur;
+    return;
+  }
+  await loadMcpTokens();
+}
+async function toggleMcpSubmit(tokenId, enable) {
+  const msg = enable
+    ? 'Разрешить этому ключу класть вопросы и вердикты в очередь? Агент сможет добавлять записи сам (только добавление, вердикты помечаются как непроверенные).'
+    : 'Оставить ключу только чтение?';
+  if (!confirm(msg)) return;
+  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: enable }),
+  });
+  if (!r.ok) {
+    alert('Не удалось изменить права ключа');
+    return;
+  }
+  await loadMcpTokens();
 }
 
 async function revokeMcpToken(tokenId) {
@@ -2035,6 +2227,18 @@ document.getElementById('mcp-copy-url')?.addEventListener('click', async () => {
   mcpStatus.textContent = 'URL скопирован';
 });
 
+// Права нового ключа по умолчанию берём из «Настроек для агентов» проекта.
+(async () => {
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/agent-settings`);
+    if (!r.ok) return;
+    const scope = (await r.json()).settings?.default_key_scope || 'read';
+    const ids = { read: 'mcp-rights-read', questions: 'mcp-rights-questions', questions_verdicts: 'mcp-rights-submit' };
+    const el = document.getElementById(ids[scope]);
+    if (el) el.checked = true;
+  } catch (e) { /* остаётся «только чтение» */ }
+})();
+
 document.getElementById('mcp-copy-config')?.addEventListener('click', async () => {
   if (!mcpConfigPre?.textContent) return;
   await navigator.clipboard.writeText(mcpConfigPre.textContent);
@@ -2048,7 +2252,12 @@ document.getElementById('mcp-create-token')?.addEventListener('click', async () 
     const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label }),
+      body: JSON.stringify({
+        label,
+        scope: document.querySelector('input[name="mcp-rights"]:checked')?.value || 'read',
+        agent_name: document.getElementById('mcp-agent-name')?.value.trim() || null,
+        rate_limit: Number(document.getElementById('mcp-rate-limit')?.value) || null,
+      }),
     });
     if (!r.ok) throw new Error('create token failed');
     const data = await r.json();
@@ -2133,11 +2342,12 @@ function formatDeadlineCalendarDates(item) {
   if (!item.deadline_date) return '—';
   const opts = { day: 'numeric', month: 'long', year: 'numeric' };
   const start = new Date(`${item.deadline_date}T00:00:00`).toLocaleDateString('ru-RU', opts);
+  const approx = item.date_approximate ? '≈ ' : '';
   if (item.deadline_end_date && item.deadline_end_date !== item.deadline_date) {
     const end = new Date(`${item.deadline_end_date}T00:00:00`).toLocaleDateString('ru-RU', opts);
-    return `${start} — ${end}`;
+    return `${approx}${start} — ${end}`;
   }
-  return start;
+  return approx + start;
 }
 
 function openDeadlineDetail(itemOrId) {
@@ -2162,7 +2372,9 @@ function openDeadlineDetail(itemOrId) {
     deadlineEl.innerHTML = renderDeadlineCell(item);
   }
   if (datesEl) {
-    datesEl.textContent = item.deadline_date ? formatDeadlineCalendarDates(item) : 'Дата не распознана';
+    datesEl.textContent = item.deadline_date
+      ? formatDeadlineCalendarDates(item) + (item.date_approximate ? ' (оценка от даты загрузки материала)' : '')
+      : 'Дата не распознана';
   }
   if (statusEl) statusEl.innerHTML = deadlineStatusBadge(item.status);
   if (sourceEl) sourceEl.innerHTML = renderDeadlineSource(item);
@@ -2172,8 +2384,10 @@ function openDeadlineDetail(itemOrId) {
 
 function renderDeadlinesTable(items) {
   if (!deadlinesTableBody) return;
+  const cards = document.getElementById('deadlines-cards');
   if (!items.length) {
     deadlinesTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Сроков пока нет — они появятся, если в созвонах или документах были названы дедлайны.</td></tr>';
+    if (cards) cards.innerHTML = '<div class="text-muted small">Сроков пока нет — они появятся, если в материалах были названы дедлайны.</div>';
     return;
   }
   deadlinesTableBody.innerHTML = items.map((item) => `
@@ -2184,6 +2398,29 @@ function renderDeadlinesTable(items) {
       <td>${deadlineStatusBadge(item.status)}</td>
       <td>${renderDeadlineSource(item)}</td>
     </tr>`).join('');
+  if (cards) {
+    cards.innerHTML = items.map((item) => `
+      <div class="border rounded p-3 bg-white text-start mobile-data-card" data-deadline-id="${escapeAttr(String(item.id))}" tabindex="0" role="button" aria-label="Открыть задачу: ${escapeAttr(item.description || 'задача')}">
+        <div class="fw-semibold mobile-data-value">${escapeHtml(item.description || '—')}</div>
+        <dl class="row g-1 mb-0 mt-2 small">
+          <dt class="col-5 text-muted">Ответственный</dt><dd class="col-7 mobile-data-value mb-0">${escapeHtml(item.assignee || '—')}</dd>
+          <dt class="col-5 text-muted">Срок</dt><dd class="col-7 mobile-data-value mb-0">${renderDeadlineCell(item)}</dd>
+          <dt class="col-5 text-muted">Статус</dt><dd class="col-7 mobile-data-value mb-0">${deadlineStatusBadge(item.status)}</dd>
+          <dt class="col-5 text-muted">Источник</dt><dd class="col-7 mobile-data-value mb-0">${renderDeadlineSource(item)}</dd>
+        </dl>
+      </div>`).join('');
+    cards.querySelectorAll('[data-deadline-id]').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('a')) return;
+        openDeadlineDetail(card.dataset.deadlineId);
+      });
+      card.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openDeadlineDetail(card.dataset.deadlineId);
+      });
+    });
+  }
 }
 
 function calendarEventsFromDeadlines(items) {
@@ -2270,12 +2507,12 @@ async function loadDeadlinesPanel() {
     const items = deadlinesData.items || [];
     const total = deadlinesData.total || items.length;
     if (deadlinesCountBadge) {
-      deadlinesCountBadge.textContent = total === 1 ? '1 срок' : `${total} сроков`;
+      deadlinesCountBadge.textContent = SKKKK.count(total, ['срок', 'срока', 'сроков']);
     }
     const parsed = deadlinesData.with_parsed_date || 0;
     const textOnly = deadlinesData.with_text_only_deadline || 0;
     deadlinesStatus.textContent = total
-      ? `${total} сроков · ${parsed} на календаре${textOnly ? ` · ${textOnly} без даты` : ''}`
+      ? `${SKKKK.count(total, ['срок', 'срока', 'сроков'])} · ${parsed} на календаре${textOnly ? ` · ${textOnly} без даты` : ''}`
       : 'Сроки появятся, когда в материалах будут озвучены дедлайны и поручения со сроком';
     renderDeadlinesTable(items);
     if (deadlinesCalendarView && !deadlinesCalendarView.classList.contains('d-none')) {
@@ -2320,7 +2557,7 @@ document.getElementById('deadlines-reextract')?.addEventListener('click', async 
     if (deadlinesStatus) {
       deadlinesStatus.textContent =
         `Готово: ${data.succeeded}/${data.artifacts} материалов, ` +
-        `${data.tasks_with_deadline} сроков в материалах`;
+        `${SKKKK.count(data.tasks_with_deadline, ['срок', 'срока', 'сроков'])} в материалах`;
     }
     await loadDeadlinesPanel();
   }, { label: 'Обновление…' });
@@ -2382,11 +2619,18 @@ function meetingLabLink(m) {
   return artifactReportBtn(href, 'лаб встречи', 'Дорожки созвона: стадии и итоговая расшифровка', 'btn-outline-primary');
 }
 
+function meetingLinkState(m) {
+  if (m.status === 'ended') return 'недействительна (встреча завершена)';
+  return m.public_revoked ? 'отозвана' : 'активна';
+}
+
 function meetingAnalyzeCell(m) {
   const lab = meetingLabLink(m);
   if (m.status !== 'ended') return lab;
   if (!m.track_count) {
-    const empty = '<span class="text-muted small">нет записи</span>';
+    const empty = m.recording_problem === 'empty_tracks'
+      ? '<span class="text-danger small" title="Дорожки голоса записаны пустыми (0 байт): запись была оборвана. Анализ невозможен.">запись пуста</span>'
+      : '<span class="text-muted small">нет записи</span>';
     return lab ? `${empty} ${lab}` : empty;
   }
   const status = m.analyze_status || 'ready';
@@ -2420,15 +2664,20 @@ function resetMeetingDeleteDialog() {
 
 async function loadMeetings() {
   if (!meetingsBody) return;
+  const cards = document.getElementById('meetings-cards');
   if (deleteMeetingModalEl && deleteMeetingModalEl.classList.contains('show')) return;
   try {
     const rows = await SKKKK.apiJson(`/projects/${projectId}/meetings`);
+    const rowsSig = JSON.stringify(rows);
+    if (rowsSig === lastMeetingsSig) return;
+    lastMeetingsSig = rowsSig;
     if (!rows.length) {
       meetingsBody.innerHTML = `<tr><td colspan="${MEETINGS_COLSPAN}" class="text-muted small">Встреч пока нет</td></tr>`;
+      if (cards) cards.innerHTML = '<div class="text-muted small">Встреч пока нет</div>';
       return;
     }
     meetingsBody.innerHTML = rows.map((m) => {
-      const linkState = m.public_revoked ? 'отозвана' : 'активна';
+      const linkState = meetingLinkState(m);
       const startBtn = m.status === 'created' || m.status === 'live'
         ? (m.status === 'created'
           ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
@@ -2449,31 +2698,67 @@ async function loadMeetings() {
         <td class="text-end text-nowrap">${startBtn} ${linkBtns} ${delBtn}</td>
       </tr>`;
     }).join('');
-    meetingsBody.querySelectorAll('.meeting-start').forEach((btn) => {
-      btn.addEventListener('click', () => meetingAction(btn, 'start', 'Начинаю…'));
-    });
-    meetingsBody.querySelectorAll('.meeting-end').forEach((btn) => {
-      btn.addEventListener('click', () => meetingAction(btn, 'end', 'Завершаю…'));
-    });
-    meetingsBody.querySelectorAll('.meeting-revoke').forEach((btn) => {
-      btn.addEventListener('click', () => meetingAction(btn, 'revoke-link', 'Отзываю…'));
-    });
-    meetingsBody.querySelectorAll('.meeting-regen').forEach((btn) => {
-      btn.addEventListener('click', () => meetingAction(btn, 'regenerate-link', 'Обновляю…', true));
-    });
-    meetingsBody.querySelectorAll('.meeting-analyze').forEach((btn) => {
-      btn.addEventListener('click', () => meetingAction(btn, 'analyze', 'Ставлю в очередь…'));
-    });
-    meetingsBody.querySelectorAll('.meeting-delete').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        pendingMeetingDelete = { id: btn.dataset.id };
-        if (deleteMeetingNameEl) deleteMeetingNameEl.textContent = String(btn.dataset.id || '');
-        resetMeetingDeleteDialog();
-      });
-    });
+    if (cards) {
+      cards.innerHTML = rows.map((m) => {
+        const linkState = meetingLinkState(m);
+        const startBtn = m.status === 'created' || m.status === 'live'
+          ? (m.status === 'created'
+            ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
+            : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>
+               <button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`)
+          : '';
+        const linkBtns = m.status !== 'ended'
+          ? `<button type="button" class="btn btn-sm btn-outline-danger meeting-revoke" data-id="${m.id}">Отозвать</button>
+             <button type="button" class="btn btn-sm btn-outline-secondary meeting-regen" data-id="${m.id}">Новая ссылка</button>`
+          : '';
+        const delLabel = `${MEETING_DELETE_LABEL} ${m.id}`;
+        const delBtn = `<button type="button" class="btn btn-sm btn-outline-secondary meeting-delete d-inline-flex align-items-center" data-id="${m.id}" data-bs-toggle="modal" data-bs-target="#deleteMeetingModal" title="${escapeAttr(delLabel)}" aria-label="${escapeAttr(delLabel)}">${deleteIconSvg()}</button>`;
+         return `<div class="border rounded bg-white mobile-data-card ds-card">
+          <div class="ds-card-head">
+            <span class="ds-card-title">Встреча #${escapeHtml(String(m.id))}</span>
+            <span class="badge text-bg-light text-dark border">${escapeHtml(meetingStatusLabel(m.status))}</span>
+          </div>
+          <div class="ds-card-facts">
+            <span>Ссылка</span><span>${escapeHtml(linkState)}</span>
+            <span>Анализ</span><span class="ds-analyze">${meetingAnalyzeCell(m) || '<span class="text-muted">—</span>'}</span>
+          </div>
+          <div class="ds-card-actions">${startBtn}${linkBtns}${delBtn}</div>
+        </div>`;
+      }).join('');
+    }
+    bindMeetingButtons(meetingsBody);
+    bindMeetingButtons(cards);
   } catch {
+    lastMeetingsSig = null; // после ошибки следующий успешный ответ обязан перерисовать таблицу
     meetingsBody.innerHTML = `<tr><td colspan="${MEETINGS_COLSPAN}" class="text-muted small">Не удалось загрузить встречи</td></tr>`;
+    if (cards) cards.innerHTML = '<div class="text-danger small">Не удалось загрузить встречи</div>';
   }
+}
+
+function bindMeetingButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.meeting-start').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'start', 'Начинаю…'));
+  });
+  root.querySelectorAll('.meeting-end').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'end', 'Завершаю…'));
+  });
+  root.querySelectorAll('.meeting-revoke').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'revoke-link', 'Отзываю…'));
+  });
+  root.querySelectorAll('.meeting-regen').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'regenerate-link', 'Обновляю…', true));
+  });
+  root.querySelectorAll('.meeting-analyze').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'analyze', 'Ставлю в очередь…'));
+  });
+  root.querySelectorAll('.meeting-delete').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      pendingMeetingDelete = { id: btn.dataset.id };
+      if (deleteMeetingNameEl) deleteMeetingNameEl.textContent = String(btn.dataset.id || '');
+      resetMeetingDeleteDialog();
+    });
+  });
 }
 
 async function meetingAction(btn, action, label, showLink) {
@@ -2654,4 +2939,5 @@ if (grantMembersBody) {
   loadGrantPanel();
 }
 </script>
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=2"></script>{% endif %}
 {% endblock %}

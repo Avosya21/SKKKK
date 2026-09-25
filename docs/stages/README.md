@@ -10,7 +10,7 @@
 | 1 | Каркас портала | [STAGE-01-skeleton.md](STAGE-01-skeleton.md) | FastAPI, БД, вход по трём паролям, проекты |
 | 2 | Загрузка и очередь | [STAGE-02-upload-queue.md](STAGE-02-upload-queue.md) | Артефакты на диске, таблица `jobs`, воркер вхолостую |
 | 3 | Три ASR + склейка | [STAGE-03-asr-ensemble.md](STAGE-03-asr-ensemble.md) | Окна, три ASR, финальная стенограмма (LLM) |
-| 4 | Документы и OCR | [STAGE-04-documents-ocr.md](STAGE-04-documents-ocr.md) | PDF, DOCX, TXT, изображения → текст |
+| 4 | Документы и OCR | [STAGE-04-documents-ocr.md](STAGE-04-documents-ocr.md) | PDF, DOCX, PPTX, TXT, изображения → текст |
 | 5 | Сущности и индекс | [STAGE-05-entities-index.md](STAGE-05-entities-index.md) | JSON сущностей, чанки, векторный поиск |
 | 6 | Граф, заметки, конфликты | [STAGE-06-graph-notes-conflicts.md](STAGE-06-graph-notes-conflicts.md) | Узлы и рёбра, ручные связи, очередь админа |
 | 7 | ТЗ и чат | [STAGE-07-tz-chat.md](STAGE-07-tz-chat.md) | `current_tz.md`, версии, RAG-ответы с источниками |

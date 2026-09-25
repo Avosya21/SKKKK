@@ -130,7 +130,9 @@ def resolve_llm_provider_at_startup(
             try:
                 provider = _pick_tkinter(saved)
             except Exception:
-                provider = _pick_cli(saved)
+                # Headless Windows/Python installations may have tkinter
+                # imported but no Tcl runtime. Never block service startup on stdin.
+                provider = saved or DEFAULT_LLM_PROVIDER
     else:
         provider = saved or DEFAULT_LLM_PROVIDER
 

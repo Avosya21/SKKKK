@@ -1,9 +1,12 @@
+"""Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, токены комнаты LiveKit, закрытие комнаты."""
+
 from __future__ import annotations
 
 import hashlib
 import re
 import secrets
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -25,6 +28,9 @@ from app.app.services.meeting_tokens import hash_public_token, new_public_token,
 from app.app.services.project_access import require_project, staff_ui_role
 
 GUEST_PREFIX = "guest:"
+# Токен комнаты живёт дольше самой встречи, поэтому после её завершения им можно зайти снова: держим срок коротким (был 6 ч).
+LIVEKIT_TOKEN_TTL_HOURS = 4
+logger = logging.getLogger("skkkk.meetings")
 GUEST_ID_MAX_LEN = 64
 GUEST_ID_RE = re.compile(r"[A-Za-z0-9-]+")
 GUEST_IDENTITY_HASH_LEN = 32
@@ -80,6 +86,8 @@ def get_meeting(db: Session, project_id: int, meeting_id: int) -> Meeting:
 def start_meeting(db: Session, meeting: Meeting) -> Meeting:
     if meeting.status == STATUS_ENDED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting ended")
+    if meeting.status == STATUS_LIVE:
+        return meeting
     meeting.status = STATUS_LIVE
     meeting.started_at = meeting.started_at or _now()
     db.commit()
@@ -88,14 +96,58 @@ def start_meeting(db: Session, meeting: Meeting) -> Meeting:
 
 
 def end_meeting(db: Session, meeting: Meeting) -> Meeting:
+    if meeting.status == STATUS_CREATED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting has not started")
+    if meeting.status == STATUS_ENDED:
+        return meeting
     meeting.status = STATUS_ENDED
-    meeting.ended_at = _now()
+    meeting.ended_at = meeting.ended_at or _now()
     db.commit()
     db.refresh(meeting)
+    close_livekit_room(meeting.room_name)
     return meeting
 
 
+def close_livekit_room(room_name: str) -> bool:
+    """Best-effort server-side room cleanup after a meeting ends."""
+    from app.app.config import get_settings
+
+    settings = get_settings()
+    if not settings.livekit_url or not settings.livekit_api_key or not settings.livekit_api_secret:
+        return False
+    try:
+        from livekit import api
+        import asyncio
+
+        async def _delete() -> None:
+            client = api.LiveKitAPI(
+                settings.livekit_url,
+                settings.livekit_api_key,
+                settings.livekit_api_secret,
+            )
+            try:
+                await client.room.delete_room(api.DeleteRoomRequest(room=room_name))
+            finally:
+                close = getattr(client, "aclose", None) or getattr(client, "close", None)
+                if close:
+                    result = close()
+                    if hasattr(result, "__await__"):
+                        await result
+
+        asyncio.run(_delete())
+        return True
+    except Exception as exc:
+        if "status=404" in str(exc) or "not_found" in str(exc).lower():
+            return True  # комнаты уже нет (все вышли раньше) — цель достигнута
+        logger.warning("livekit room cleanup failed room=%s: %s", room_name, exc)
+        return False
+
+
 def revoke_link(db: Session, meeting: Meeting) -> Meeting:
+    if meeting.status == STATUS_ENDED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting ended")
+    if meeting.public_revoked_at is not None:
+        return meeting
     meeting.public_revoked_at = _now()
     db.commit()
     db.refresh(meeting)
@@ -103,6 +155,8 @@ def revoke_link(db: Session, meeting: Meeting) -> Meeting:
 
 
 def regenerate_link(db: Session, meeting: Meeting) -> tuple[Meeting, str]:
+    if meeting.status == STATUS_ENDED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting ended")
     token = new_public_token()
     meeting.public_token_hash = hash_public_token(token)
     meeting.public_revoked_at = None
@@ -169,15 +223,24 @@ def join_member(db: Session, settings: Settings, meeting: Meeting, user: User) -
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting is not live")
     name = (user.name or f"user-{user.id}")[:128]
     identity = f"member:{user.id}"
-    db.add(
-        MeetingParticipant(
+    row = db.scalar(
+        select(MeetingParticipant).where(
+            MeetingParticipant.meeting_id == meeting.id,
+            MeetingParticipant.identity == identity,
+        )
+    )
+    if row:
+        row.display_name = name
+        row.joined_at = _now()
+        row.left_at = None
+    else:
+        db.add(MeetingParticipant(
             meeting_id=meeting.id,
             user_id=user.id,
             identity=identity,
             display_name=name,
             participant_type=PARTICIPANT_MEMBER,
-        )
-    )
+        ))
     db.commit()
     return _join_payload(settings, meeting, identity, name)
 
@@ -208,6 +271,7 @@ def _upsert_guest(db: Session, meeting: Meeting, identity: str, name: str) -> No
     if row:
         row.display_name = name
         row.joined_at = _now()
+        row.left_at = None
         return
     db.add(
         MeetingParticipant(
@@ -239,6 +303,46 @@ def join_guest(
     _upsert_guest(db, meeting, identity, short_name)
     db.commit()
     return _join_payload(settings, meeting, identity, short_name)
+
+
+def leave_participant(db: Session, meeting: Meeting, identity: str) -> None:
+    row = db.scalar(
+        select(MeetingParticipant).where(
+            MeetingParticipant.meeting_id == meeting.id,
+            MeetingParticipant.identity == identity,
+        )
+    )
+    if row and row.left_at is None:
+        row.left_at = _now()
+        db.commit()
+
+
+def heartbeat_participant(db: Session, meeting: Meeting, identity: str) -> bool:
+    row = db.scalar(select(MeetingParticipant).where(
+        MeetingParticipant.meeting_id == meeting.id,
+        MeetingParticipant.identity == identity,
+    ))
+    if row is None:
+        return False
+    row.last_seen_at = _now()
+    row.left_at = None
+    db.commit()
+    return True
+
+
+def mark_stale_participants(db: Session, meeting: Meeting, *, ttl_seconds: int = 60) -> int:
+    cutoff = _now() - timedelta(seconds=max(1, ttl_seconds))
+    rows = list(db.scalars(select(MeetingParticipant).where(
+        MeetingParticipant.meeting_id == meeting.id,
+        MeetingParticipant.left_at.is_(None),
+        MeetingParticipant.last_seen_at.is_not(None),
+        MeetingParticipant.last_seen_at < cutoff,
+    )).all())
+    for row in rows:
+        row.left_at = _now()
+    if rows:
+        db.commit()
+    return len(rows)
 
 
 def livekit_join(
@@ -284,7 +388,7 @@ def _livekit_jwt(
         "iss": settings.livekit_api_key,
         "sub": identity,
         "nbf": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=6)).timestamp()),
+        "exp": int((now + timedelta(hours=LIVEKIT_TOKEN_TTL_HOURS)).timestamp()),
         "name": display_name,
         "video": video,
     }

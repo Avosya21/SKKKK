@@ -4,6 +4,7 @@ import array
 import math
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.app.services import meeting_recordings as rec
 
@@ -133,9 +134,122 @@ def test_tracks_of_one_room_share_one_manifest(tmp_path: Path):
     assert rec.tracks_linked_to_room(manifest, ROOM_B) == []
 
 
+def test_source_from_publication_reads_livekit_ints():
+    assert rec.source_from_publication(SimpleNamespace(source=3)) == rec.SOURCE_SCREEN
+    assert rec.source_from_publication(SimpleNamespace(source=4)) == rec.SOURCE_SCREEN
+    assert rec.source_from_publication(SimpleNamespace(source=2)) == rec.SOURCE_MICROPHONE
+    assert rec.source_from_publication(SimpleNamespace(source="SOURCE_SCREENSHARE")) == rec.SOURCE_SCREEN
+
+
 def test_screen_audio_is_a_separate_file():
     assert rec.safe_track_stem(MEMBER) == "member-28"
     assert rec.safe_track_stem(MEMBER, rec.SOURCE_SCREEN) == "member-28-screen"
+    assert rec.safe_track_stem(MEMBER, rec.SOURCE_SCREEN_VIDEO) == "member-28-screen_video"
+
+
+def test_safe_sid_strips_and_caps():
+    assert rec.safe_sid("TR_abc-12") == "TR_abc-12"
+    assert rec.safe_sid("TR/xxx yyy!") == "TRxxxyyy"
+    assert rec.safe_sid("") == "sid"
+    assert len(rec.safe_sid("A" * 40)) == rec.SID_SAFE_LEN
+
+
+def test_screen_video_relpath_keeps_audio_apart():
+    rel = rec.screen_video_relpath(MEMBER, "TR_abc12")
+    assert rel == "tracks/member-28-screen_video-TR_abc12.mp4"
+    assert rec.safe_track_stem(MEMBER, rec.SOURCE_SCREEN) + ".wav" != Path(rel).name
+
+
+def test_upsert_screen_video_one_sid_one_row():
+    manifest = rec.empty_manifest(ROOM_A)
+    rec.upsert_screen_video(
+        manifest,
+        identity=MEMBER,
+        rel_path="tracks/member-28-screen_video-TR_one.mp4",
+        track_sid="TR_one",
+        started_epoch=TRACK_START,
+        fps=1,
+        width=1280,
+        height=720,
+    )
+    rec.upsert_screen_video(
+        manifest,
+        identity=MEMBER,
+        rel_path="tracks/member-28-screen_video-TR_one.mp4",
+        track_sid="TR_one",
+        started_epoch=TRACK_START + 50,
+        fps=1,
+        width=1280,
+        height=720,
+    )
+    rec.upsert_screen_video(
+        manifest,
+        identity=MEMBER,
+        rel_path="tracks/member-28-screen_video-TR_two.mp4",
+        track_sid="TR_two",
+        started_epoch=TRACK_START + 80,
+        fps=1,
+        width=800,
+        height=600,
+    )
+    videos = [row for row in manifest["tracks"] if row["source"] == rec.SOURCE_SCREEN_VIDEO]
+    assert len(videos) == 2
+    assert videos[0]["started_epoch"] == TRACK_START
+    assert videos[0]["track_sid"] == "TR_one"
+    assert videos[1]["track_sid"] == "TR_two"
+    rec.set_screen_video_frames(manifest, MEMBER, "TR_one", 40, 1, ended_epoch=TRACK_START + 40)
+    assert videos[0]["frames"] == 40
+    assert videos[0]["duration_sec"] == 40.0
+    assert videos[0]["ended_epoch"] == TRACK_START + 40
+
+
+def test_screen_recording_follows_meeting_record(monkeypatch):
+    assert rec.screen_recording_enabled("1", "1") is True
+    assert rec.screen_recording_enabled("0", "1") is False
+    assert rec.screen_recording_enabled("1", "0") is False
+    assert rec.screen_fps("1") == 1.0
+    assert rec.screen_max_width("") == rec.SCREEN_MAX_W_DEFAULT
+    assert rec.screen_height("") == 1080
+    assert rec.screen_bitrate("5M") == 5_000_000
+    assert rec.screen_canvas() == (1920, 1080)
+
+
+def test_write_manifest_merged_keeps_audio_and_video(tmp_path: Path):
+    dest = rec.room_dir(tmp_path, ROOM_A) / rec.MANIFEST_NAME
+    audio = rec.empty_manifest(ROOM_A)
+    rec.upsert_track(
+        audio,
+        identity=MEMBER,
+        rel_path="tracks/member-28.wav",
+        source=rec.SOURCE_MICROPHONE,
+        sample_rate=rec.SAMPLE_RATE,
+        started_epoch=TRACK_START,
+    )
+    rec.write_manifest(dest, audio)
+    video = rec.empty_manifest(ROOM_A)
+    rec.upsert_screen_video(
+        video,
+        identity=MEMBER,
+        rel_path="tracks/member-28-screen_video-TRone.mp4",
+        track_sid="TR_one",
+        started_epoch=TRACK_START,
+    )
+    rec.write_manifest_merged(dest, video)
+    tracks = rec.read_manifest(dest)["tracks"]
+    sources = {row["source"] for row in tracks}
+    assert sources == {rec.SOURCE_MICROPHONE, rec.SOURCE_SCREEN_VIDEO}
+
+
+def test_remove_room_recordings_deletes_screen_mp4(tmp_path: Path):
+    dest = rec.room_dir(tmp_path, ROOM_A)
+    tracks = dest / rec.TRACKS_DIRNAME
+    tracks.mkdir(parents=True)
+    (dest / rec.MANIFEST_NAME).write_text("{}", encoding="utf-8")
+    mp4 = tracks / "member-28-screen_video-TRone.mp4"
+    mp4.write_bytes(b"ftyp" + b"\x00" * 60)
+    rec.remove_room_recordings(tmp_path, ROOM_A)
+    assert dest.exists() is False
+    assert mp4.exists() is False
 
 
 def test_writer_reports_gap(tmp_path: Path):
@@ -207,3 +321,107 @@ def _write_wav(path: Path, samples: list[int]) -> None:
         handle.setsampwidth(2)
         handle.setframerate(rec.SAMPLE_RATE)
         handle.writeframes(array.array("h", samples).tobytes())
+
+
+def test_writer_never_truncates_existing_track_and_resumes(tmp_path):
+    """Регрессия: перезапуск рекордера посреди встречи обнулял дорожку (wave.open «wb»): потеряны 5 минут голоса."""
+    path = tmp_path / "member.wav"
+    t = [0.0]
+    first = rec.PcmWavWriter(path, sample_rate=8000, clock=lambda: t[0])
+    for _ in range(10):
+        first.write(b"\x01\x00" * 800)  # 0.1 с звука
+        t[0] += 0.1
+    frames_before = first.frames
+    first.close()
+    size_before = path.stat().st_size
+    # «перезапуск»: новый писатель открывает тот же файл, 5 секунд стенных часов прошли без записи
+    started = 1_000_000.0
+    t2 = [100.0]
+    second = rec.PcmWavWriter(path, sample_rate=8000, clock=lambda: t2[0], resume_started_epoch=started, wall_clock=lambda: started + frames_before / 8000 + 5.0)
+    assert second.resumed and second.frames >= frames_before + int(4.9 * 8000)  # старое сохранено, пропуск заполнен тишиной
+    second.write(b"\x02\x00" * 800)
+    second.close()
+    import wave
+
+    with wave.open(str(path), "rb") as w:
+        assert w.getnframes() == second.frames and w.getnframes() > frames_before
+        data = w.readframes(w.getnframes())
+    assert data[: frames_before * 2] == b"\x01\x00" * frames_before  # начало дорожки не тронуто
+    assert path.stat().st_size > size_before
+
+
+def test_writer_header_is_readable_after_crash(tmp_path):
+    """Процесс убит без close(): заголовок обновлялся по ходу, файл читается и содержит почти всё записанное."""
+    import wave
+
+    path = tmp_path / "crash.wav"
+    t = [0.0]
+    w = rec.PcmWavWriter(path, sample_rate=8000, clock=lambda: t[0])
+    for _ in range(50):
+        w.write(b"\x03\x00" * 800)
+        t[0] += 0.1  # 5 с; заголовок обновляется каждые 2 с
+    with wave.open(str(path), "rb") as r:  # без w.close(): «упавший» процесс
+        assert r.getnframes() >= 3 * 8000
+
+
+def test_foreign_file_is_set_aside_not_overwritten(tmp_path):
+    path = tmp_path / "x.wav"
+    path.write_bytes(b"not a wav file at all" * 10)
+    w = rec.PcmWavWriter(path)
+    w.close()
+    assert any(p.name.startswith("x.unreadable-") for p in tmp_path.iterdir())
+
+
+def test_single_instance_lock_blocks_second_copy(tmp_path):
+    """Вторая копия рекордера с тем же именем участника выбивает первую из комнаты LiveKit: блокировка не даёт её запустить."""
+    lock = tmp_path / "locks" / "voice_cleaner.instance"
+    first = rec.acquire_single_instance(lock)
+    assert first is not None
+    assert rec.acquire_single_instance(lock) is None  # уже занято
+    first.close()
+    again = rec.acquire_single_instance(lock)  # освободилось: следующий запуск проходит
+    assert again is not None
+    again.close()
+
+
+def test_single_instance_lock_is_released_when_process_dies(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    lock = tmp_path / "x.instance"
+    code = (
+        "import sys, importlib.util; from pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('r', r'{Path(rec.__file__)}'); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+        f"h = m.acquire_single_instance(Path(r'{lock}')); print('got' if h else 'busy'); sys.stdout.flush()\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60).stdout.strip()
+    assert out == "got"  # процесс завершился, замок не «протух»
+    held = rec.acquire_single_instance(lock)
+    assert held is not None
+    held.close()
+
+
+def test_join_backoff_backs_off_failing_rooms_and_forgets_success():
+    t = [0.0]
+    b = rec.JoinBackoff(base=30, cap=100, min_ok=20, clock=lambda: t[0])
+    assert b.allowed("r")
+    b.started("r")
+    t[0] += 2  # подключение продержалось 2 с: неудача
+    b.finished("r")
+    assert not b.allowed("r")
+    t[0] += 31
+    assert b.allowed("r")
+    b.started("r"); t[0] += 1; b.finished("r")  # вторая неудача: пауза 60 с
+    t[0] += 45
+    assert not b.allowed("r")
+    t[0] += 20
+    assert b.allowed("r")
+    b.started("r"); t[0] += 300; b.finished("r")  # долгое подключение: счётчик сброшен
+    assert b.allowed("r")
+    for _ in range(6):  # пауза не растёт бесконечно
+        b.started("r"); t[0] += 1; b.finished("r"); t[0] += 1000
+    b.started("r"); t[0] += 1; b.finished("r")
+    assert not b.allowed("r") and b._next["r"] - t[0] <= 100
+    b.forget_missing([])  # комната исчезла из LiveKit
+    assert b.allowed("r")

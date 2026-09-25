@@ -1,3 +1,5 @@
+"""Выжимка документа: пути, загрузка исходного текста, промпты, сборка итогового Markdown и запуск (`run_document_summary`)."""
+
 from __future__ import annotations
 
 import logging
@@ -6,7 +8,7 @@ from pathlib import Path
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.services.llm import chat_completion
+from app.app.services.llm import chat_completion_no_think
 from app.app.services.plain_text import clean_summary_output
 from app.app.services.storage import parsed_dir
 from app.app.services.tz import MAP_CHUNK_CHARS, _pack_map_chunks
@@ -71,12 +73,12 @@ def _build_summary_body(settings: Settings, *, source_text: str, title: str) -> 
             user = map_user_tmpl.format(i=i + 1, n=len(map_chunks), chunk_text=chunk)
             log_event(logger, "doc_summary.map", chunk=i + 1, total=len(map_chunks), chars=len(chunk))
             drafts.append(
-                chat_completion(settings, system=map_sys, user=user, max_tokens=MAP_MAX_TOKENS, temperature=0.2)
+                chat_completion_no_think(settings, system=map_sys, user=user, max_tokens=MAP_MAX_TOKENS)
             )
     reduce_user = reduce_user_tmpl.format(drafts="\n\n---\n\n".join(drafts))
     log_event(logger, "doc_summary.reduce", drafts=len(drafts), chars=len(source_text))
-    return chat_completion(
-        settings, system=reduce_sys, user=reduce_user, max_tokens=REDUCE_MAX_TOKENS, temperature=0.2
+    return chat_completion_no_think(
+        settings, system=reduce_sys, user=reduce_user, max_tokens=REDUCE_MAX_TOKENS
     )
 
 

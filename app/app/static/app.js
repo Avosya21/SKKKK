@@ -17,9 +17,24 @@ const SKKKK = {
       session.classList.toggle('d-none', !(name && role));
     }
   },
+  /** Склонение по числу: plural(1, ['срок','срока','сроков']) → 'срок'; plural(2, …) → 'срока'; plural(5, …) → 'сроков'. */
+  plural(n, forms) {
+    const abs = Math.abs(Number(n)) % 100;
+    const last = abs % 10;
+    if (abs > 10 && abs < 20) return forms[2];
+    if (last > 1 && last < 5) return forms[1];
+    if (last === 1) return forms[0];
+    return forms[2];
+  },
+  count(n, forms) {
+    return `${n} ${this.plural(n, forms)}`;
+  },
   async updateLlmBadge() {
     const el = document.getElementById('nav-llm');
     if (!el) return;
+    const staleEl = document.getElementById('nav-stale');
+    // Без входа (страница логина, гость) опрос дал бы 401 в консоли — признак входа ставит login (skkkk_role).
+    if (!localStorage.getItem('skkkk_role') && !this.token()) return;
     try {
       const token = this.token();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -33,6 +48,15 @@ const SKKKK = {
       el.title = data.llm_detail || provider;
       el.classList.toggle('text-bg-success', Boolean(data.llm));
       el.classList.toggle('text-bg-secondary', !data.llm);
+      if (staleEl) {
+        const build = data.build || {};
+        const isAdmin = localStorage.getItem('skkkk_role') === 'admin';
+        staleEl.classList.toggle('d-none', !(build.stale && isAdmin));
+        const files = Array.from(new Set([].concat(build.api_changed || [], build.worker_changed || [])));
+        const who = [build.api_stale ? 'API' : '', build.worker_stale ? 'воркер' : ''].filter(Boolean).join(' и ');
+        staleEl.title = 'Код на диске новее запущенного: ' + (who || 'сервер') +
+          (files.length ? '. Изменено: ' + files.join(', ') : '') + '. Выполните scripts/restart.ps1';
+      }
     } catch {
       /* health недоступен — бейдж скрыт */
     }
@@ -177,7 +201,7 @@ const SKKKK = {
         try {
           const body = await r.json();
           if (body && body.detail) {
-            detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+            detail = window.SKKKKErrors ? SKKKKErrors.text(body.detail, r.status) : String(body.detail);
           }
         } catch {
           /* not json */
@@ -241,7 +265,9 @@ const SKKKK = {
     }
     if (!r.ok) {
       const detail = body && body.detail !== undefined ? body.detail : body;
-      const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      const raw = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      const err = new Error(window.SKKKKErrors ? SKKKKErrors.text(detail, r.status) : raw);
+      err.detail = raw;
       err.status = r.status;
       err.body = body;
       throw err;
@@ -436,6 +462,24 @@ const SKKKK = {
 };
 SKKKK.updateNav();
 SKKKK.updateLlmBadge();
+setInterval(() => SKKKK.updateLlmBadge(), 60000);
 document.getElementById('nav-logout')?.addEventListener('click', () => {
   SKKKK.logout();
 });
+
+
+// Отправка JS-ошибок на сервер (пункт 5.2): не больше 5 за загрузку страницы, без персональных данных.
+(function () {
+  let sent = 0;
+  function report(message, source) {
+    if (sent >= 5) return;
+    sent += 1;
+    try {
+      const body = JSON.stringify({ page: location.pathname.replace(/\/m\/[^/]+/, '/m/…'), message: String(message || ''), source: String(source || '') });
+      if (navigator.sendBeacon) navigator.sendBeacon('/client-log', new Blob([body], { type: 'application/json' }));
+      else fetch('/client-log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true });
+    } catch (_) { /* логирование не должно ломать страницу */ }
+  }
+  window.addEventListener('error', (ev) => report(ev.message, (ev.filename || '') + ':' + (ev.lineno || '')));
+  window.addEventListener('unhandledrejection', (ev) => report('unhandledrejection: ' + ((ev.reason && ev.reason.message) || ev.reason), ''));
+})();

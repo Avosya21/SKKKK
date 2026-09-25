@@ -37,6 +37,7 @@ LIVEKIT_CONTAINER = "skkkk-livekit"
 LIVEKIT_HTTP_PORT = 7880
 VOICE_PY = ROOT / "venvs" / "voice" / "Scripts" / "python.exe"
 VOICE_CLEANER = ROOT / "tools" / "livekit" / "voice_cleaner.py"
+SCREEN_RECORDER = ROOT / "tools" / "livekit" / "screen_recorder.py"
 LIVEKIT_VERSION = "1.8.4"
 LIVEKIT_ZIP_NAME = f"livekit_{LIVEKIT_VERSION}_windows_amd64.zip"
 LIVEKIT_ZIP_URL = (
@@ -45,6 +46,8 @@ LIVEKIT_ZIP_URL = (
 )
 DOCKER_WAIT_SEC = 90
 DOWNLOAD_TIMEOUT_SEC = 120
+PROCESS_QUERY_LIMITED = 0x1000
+HEARTBEAT_STALE_SEC = 12.0
 
 
 _CADDY_FILE_KEYS = (
@@ -89,7 +92,7 @@ def ensure_caddy(settings: Settings) -> str:
         return "skip"
     env = _caddy_env(settings)
     reload = subprocess.run(
-        [str(CADDY_EXE), "reload", "--config", str(CADDYFILE)],
+        [str(CADDY_EXE), "reload", "--force", "--config", str(CADDYFILE)],  # --force: при том же Caddyfile Caddy иначе не перечитывает обновлённый файл сертификата
         cwd=str(CADDY_DIR),
         env=env,
         capture_output=True,
@@ -295,14 +298,54 @@ def ensure_livekit() -> str:
     return _start_docker_livekit()
 
 
+def _win_pid_running(pid: int) -> bool:
+    import ctypes
+
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED, False, pid)
+    if not handle:
+        return False
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return True
+
+
 def _pid_running(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _win_pid_running(pid)
     try:
         os.kill(pid, 0)
     except OSError:
         return False
     return True
+
+
+def _heartbeat_age(path: Path) -> float | None:
+    """Возвращает возраст heartbeat в секундах или None, если файла нет/не читается."""
+    if not path.is_file():
+        return None
+    try:
+        stamp = float(path.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
+    return time.time() - stamp
+
+
+def _kill_pid_tree(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    else:
+        try:
+            os.kill(pid, 0)
+            os.kill(pid, 9)
+        except OSError:
+            pass
 
 
 def voice_venv_ready() -> bool:
@@ -319,8 +362,16 @@ def voice_venv_ready() -> bool:
     return done.returncode == 0
 
 
+def edge_disabled() -> bool:
+    """Тесты и CI не должны запускать настоящие рекордеры: в пустой временной папке «уже запущенных» нет, и на каждый запуск тестов
+    появлялась ещё одна копия. Копии с одним именем участника выбивают друг друга из комнаты LiveKit и рвут запись созвона."""
+    return bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("SKKKK_DISABLE_EDGE") == "1")
+
+
 def ensure_voice_cleaner() -> str:
     settings = get_settings()
+    if edge_disabled():
+        return "off"
     if not settings.meeting_voice_server:
         return "off"
     if not VOICE_PY.is_file() or not VOICE_CLEANER.is_file():
@@ -362,6 +413,60 @@ def ensure_voice_cleaner() -> str:
     return "started"
 
 
+def ensure_screen_recorder() -> str:
+    settings = get_settings()
+    if edge_disabled():
+        return "off"
+    if not VOICE_PY.is_file() or not SCREEN_RECORDER.is_file():
+        log_event(logger, "edge.screen.skip", reason="venv")
+        return "skip"
+    pid_path = settings.data_dir / "locks" / "screen_recorder.pid"
+    heartbeat_path = settings.data_dir / "locks" / "screen_recorder.heartbeat"
+    dead_pid = None
+    if pid_path.is_file():
+        try:
+            pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except ValueError:
+            pid = 0
+        if pid > 0 and _pid_running(pid):
+            age = _heartbeat_age(heartbeat_path)
+            if age is not None and age < HEARTBEAT_STALE_SEC:
+                return "already"
+            dead_pid = pid
+    if not _wait_port(LIVEKIT_HTTP_PORT, timeout=10.0):
+        log_event(logger, "edge.screen.skip", reason="livekit-port")
+        return "skip"
+    if dead_pid:
+        log_event(logger, "edge.screen.restart", pid=dead_pid, reason="stale-heartbeat")
+        _kill_pid_tree(dead_pid)
+    env = dict(os.environ)
+    env["CUDA_VISIBLE_DEVICES"] = "-1"
+    env.setdefault("MEETING_RECORD", "1")
+    env.setdefault("MEETING_SCREEN_RECORD", "1")
+    env["LIVEKIT_RTC_INTERNAL"] = settings.livekit_rtc_internal
+    env["LIVEKIT_HTTP_INTERNAL"] = "http://127.0.0.1:7880"
+    log_path = settings.data_dir / "logs" / "screen_recorder.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = log_path.open("a", encoding="utf-8")
+    proc = subprocess.Popen(
+        [str(VOICE_PY), "-u", str(SCREEN_RECORDER)],
+        cwd=str(ROOT),
+        env=env,
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+    )
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(proc.pid), encoding="utf-8")
+    heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+    heartbeat_path.write_text(str(int(time.time())), encoding="utf-8")
+    time.sleep(0.6)
+    if proc.poll() is not None:
+        log_event(logger, "edge.screen.failed", level=logging.WARNING, code=proc.poll())
+        return "failed"
+    log_event(logger, "edge.screen.ready")
+    return "started"
+
+
 def ensure_edge_services(settings: Settings) -> None:
     tls = ensure_tls_cert(settings)
     log_event(logger, "edge.tls", status=tls)
@@ -370,6 +475,85 @@ def ensure_edge_services(settings: Settings) -> None:
     try:
         livekit = ensure_livekit()
         log_event(logger, "edge.livekit", status=livekit)
-        log_event(logger, "edge.voice", status=ensure_voice_cleaner())
     except Exception as exc:
         log_event(logger, "edge.livekit.failed", level=logging.WARNING, error=str(exc))
+        return
+    try:
+        log_event(logger, "edge.voice", status=ensure_voice_cleaner())
+    except Exception as exc:
+        log_event(logger, "edge.voice.failed", level=logging.WARNING, error=str(exc))
+    try:
+        log_event(logger, "edge.screen", status=ensure_screen_recorder())
+    except Exception as exc:
+        log_event(logger, "edge.screen.failed", level=logging.WARNING, error=str(exc))
+
+
+def _file_cert_serial(path: Path) -> int | None:
+    from cryptography import x509
+
+    try:
+        return x509.load_pem_x509_certificate(path.read_bytes()).serial_number
+    except (OSError, ValueError):
+        return None
+
+
+def _served_cert_serial(host: str, port: int) -> int | None:
+    """Серийный номер сертификата, который порт реально отдаёт сейчас (без проверки доверия: сравниваем только с файлом)."""
+    import ssl
+
+    from cryptography import x509
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection((host, port), timeout=6) as raw:
+            with ctx.wrap_socket(raw, server_hostname=None) as tls:
+                der = tls.getpeercert(binary_form=True)
+        return x509.load_der_x509_certificate(der).serial_number if der else None
+    except (OSError, ValueError, ssl.SSLError):
+        return None
+
+
+def check_served_certificate(settings: Settings) -> str:
+    """Caddy держит сертификат :777 в памяти и не перечитывает файл при обновлении (ACME, ~раз в 6 дней).
+    Сравниваем то, что отдаёт порт, с файлом на диске; при расхождении принудительно перезагружаем Caddy.
+    Результат: skip | ok | reloaded | failed."""
+    if not (settings.skkkk_public_host or "").strip():
+        return "skip"
+    cert, _key = tls_paths(settings)
+    on_disk = _file_cert_serial(cert)
+    if on_disk is None:
+        return "skip"
+    served = _served_cert_serial("127.0.0.1", settings.skkkk_https_port)
+    if served == on_disk:
+        return "ok"
+    log_event(logger, "edge.tls.mismatch", level=logging.WARNING, served_known=served is not None)
+    try:
+        ensure_caddy(settings)
+    except Exception as exc:  # noqa: BLE001
+        log_event(logger, "edge.tls.reload.failed", level=logging.WARNING, error=str(exc))
+        return "failed"
+    time.sleep(1.5)
+    if _served_cert_serial("127.0.0.1", settings.skkkk_https_port) == on_disk:
+        log_event(logger, "edge.tls.reloaded", cert=str(cert))
+        return "reloaded"
+    return "failed"
+
+
+def watch_edge_services() -> dict[str, str]:
+    """Лёгкий watchdog: не трогает TLS/Caddy/конфиг LiveKit, только живость процессов."""
+    settings = get_settings()
+    statuses: dict[str, str] = {}
+    if settings.meeting_voice_server:
+        try:
+            statuses["voice"] = ensure_voice_cleaner()
+        except Exception as exc:
+            log_event(logger, "edge.voice.watch.failed", level=logging.WARNING, error=str(exc))
+            statuses["voice"] = "failed"
+    try:
+        statuses["screen"] = ensure_screen_recorder()
+    except Exception as exc:
+        log_event(logger, "edge.screen.watch.failed", level=logging.WARNING, error=str(exc))
+        statuses["screen"] = "failed"
+    return statuses

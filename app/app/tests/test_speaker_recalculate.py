@@ -64,14 +64,25 @@ def test_restore_confirmed_matches_overwrites_auto_suggestions():
 def test_dedupe_all_speaker_profiles_merges_by_name(db_engine):
     from sqlalchemy.orm import sessionmaker
 
+    from app.app.models.artifact import Artifact
     from app.app.models.project import Project
     from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+    from app.app.models.user import User
 
     Session = sessionmaker(bind=db_engine)
     db = Session()
     try:
-        project = Project(name="p", description="", created_by=1)
+        user = User(name="dedupe-user", telegram_id="tg-dedupe", role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        project = Project(name="p", description="", created_by=user.id)
         db.add(project)
+        db.flush()
+        db.add(Artifact(
+            artifact_id="art_x", project_id=project.id, user_id=user.id,
+            original_filename="x.wav", stored_filename="x.wav", file_path="x.wav",
+            file_type="audio", source_type="call", sha256="x" * 64,
+        ))
         db.flush()
 
         keep = SpeakerProfile(
@@ -121,6 +132,7 @@ def test_cleanup_voice_pool_merges_aliases_and_similar_voices(db_engine):
 
     from app.app.models.project import Project
     from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.models.user import User
     from app.app.services.speaker_profiles import (
         cleanup_voice_profile_pool,
         list_profiles,
@@ -134,7 +146,10 @@ def test_cleanup_voice_pool_merges_aliases_and_similar_voices(db_engine):
     Session = sessionmaker(bind=db_engine)
     db = Session()
     try:
-        project = Project(name="p", description="", created_by=1)
+        user = User(name="cleanup-user", telegram_id="tg-cleanup", role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        project = Project(name="p", description="", created_by=user.id)
         db.add(project)
         db.flush()
 
@@ -267,6 +282,13 @@ def test_recalculate_lab_keeps_speaker_n_and_confirmed(tmp_data, db_engine, monk
     try:
         user = User(name="U", telegram_id="tg-recalc", role="user", password_hash="x")
         db.add(user)
+        db.flush()
+        db.add(
+            sp.SpeakerProfile(
+                id=7, scope="global", display_name="Елена Соколова",
+                embedding=_vec(1.0, 0.0, 0.0), embedding_dim=3,
+            )
+        )
         db.flush()
         project = Project(name="lab recalc", created_by=user.id)
         db.add(project)

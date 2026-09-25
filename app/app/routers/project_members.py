@@ -1,3 +1,5 @@
+"""Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members)."""
+
 from __future__ import annotations
 
 from typing import Annotated

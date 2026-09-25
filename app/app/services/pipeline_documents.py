@@ -1,3 +1,5 @@
+"""Извлечение текста из документов и изображений: TXT, RTF, PDF, DOCX, HTML, таблицы в Markdown, OCR."""
+
 from __future__ import annotations
 
 import logging
@@ -12,6 +14,7 @@ from app.app.models.artifact import Artifact
 from app.app.services.normalize import light_normalize, normalize_document
 from app.app.services.status import set_status
 from app.app.services.storage import parsed_dir
+from app.app.services.table_md import Table, clean_cell, make_table, render_md
 
 logger = logging.getLogger("skkkk.documents")
 SCAN_CHARS_THRESHOLD = 40
@@ -61,57 +64,95 @@ def _extract_rtf(path: Path) -> str:
 
 def _extract_plain(path: Path) -> str:
     if path.suffix.lower() == ".rtf":
+        # RTF с таблицами: через LibreOffice → DOCX (таблицы на местах); без LibreOffice — разбор текста регулярками.
+        from app.app.services.office_convert import find_soffice
+
+        if find_soffice():
+            try:
+                from app.app.services.docx_extract import extract_docx
+
+                out = extract_docx(path)
+                if out.strip():
+                    return out
+            except Exception as exc:
+                logger.warning("rtf via libreoffice failed for %s: %s", path.name, exc)
         return _extract_rtf(path)
     return _extract_text(path)
 
 
-def _extract_pdf(path: Path) -> str:
-    import fitz
+def _ocr_pdf_page(page) -> str:
+    import pytesseract
+    from PIL import Image
 
-    doc = fitz.open(path)
+    from app.app.services.tesseract_tools import configure_pytesseract
+
+    pix = page.get_pixmap(dpi=200)
+    tess_cfg = configure_pytesseract()
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    return pytesseract.image_to_string(img, lang="rus+eng", config=tess_cfg).strip()
+
+
+def _pdf_page_tables(page) -> list[tuple[tuple[float, float, float, float], Table]]:
+    """Таблицы страницы (PyMuPDF find_tables): только настоящие — от 2 столбцов и хотя бы одной строки данных."""
+    try:
+        found = page.find_tables().tables
+    except Exception as exc:  # битая страница — остаёмся на тексте
+        logger.warning("pdf find_tables failed: %s", exc)
+        return []
+    out = []
+    for t in found:
+        grid = [[clean_cell(c, soft_wrap=True) for c in row] for row in t.extract()]
+        table = make_table(grid)
+        if table is None or not table.rows or len(table.header) < 2:
+            continue
+        out.append((tuple(t.bbox), table))
+    return out
+
+
+def _pdf_page_with_tables(page, tables, first_no: int) -> str:
+    """Текст страницы без областей таблиц + таблицы markdown на своих местах (по вертикали)."""
+    import pymupdf
+
+    rects = [pymupdf.Rect(bbox) for bbox, _t in tables]
+    items: list[tuple[float, int, str]] = []
+    for order, block in enumerate(page.get_text("blocks")):
+        x0, y0, x1, y1, text, _no, btype = block[:7]
+        if btype != 0 or not text.strip():
+            continue
+        r = pymupdf.Rect(x0, y0, x1, y1)
+        if any(r.intersects(tr) and (r & tr).get_area() >= 0.5 * max(r.get_area(), 1e-6) for tr in rects):
+            continue
+        items.append((y0, order, text.strip()))
+    for k, (bbox, table) in enumerate(tables):
+        items.append((bbox[1], -1, render_md(table, number=first_no + k)))
+    items.sort(key=lambda it: (it[0], it[1]))
+    return "\n\n".join(text for _y, _o, text in items)
+
+
+def _extract_pdf(path: Path) -> str:
+    import pymupdf
+
+    doc = pymupdf.open(path)
     parts: list[str] = []
+    table_no = 1
     for page in doc:
         text = page.get_text().strip()
-        if len(text) >= SCAN_CHARS_THRESHOLD:
+        if len(text) < SCAN_CHARS_THRESHOLD:
+            parts.append(_ocr_pdf_page(page) or text)
+            continue
+        tables = _pdf_page_tables(page)
+        if not tables:
             parts.append(text)
             continue
-        pix = page.get_pixmap(dpi=200)
-        import pytesseract
-        from PIL import Image
-
-        from app.app.services.tesseract_tools import configure_pytesseract
-
-        tess_cfg = configure_pytesseract()
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        ocr = pytesseract.image_to_string(img, lang="rus+eng", config=tess_cfg).strip()
-        parts.append(ocr or text)
+        parts.append(_pdf_page_with_tables(page, tables, table_no))
+        table_no += len(tables)
     return "\n\n".join(parts).strip()
-
-
-def _table_to_markdown(table) -> str:
-    rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
-    if not rows:
-        return ""
-    header = rows[0]
-    lines = ["| " + " | ".join(header) + " |", "| " + " | ".join("---" for _ in header) + " |"]
-    for row in rows[1:]:
-        lines.append("| " + " | ".join(row) + " |")
-    return "\n".join(lines)
 
 
 def _extract_docx(path: Path) -> str:
-    from docx import Document
+    from app.app.services.docx_extract import extract_docx
 
-    doc = Document(str(path))
-    parts: list[str] = []
-    for p in doc.paragraphs:
-        if p.text.strip():
-            parts.append(p.text.strip())
-    for table in doc.tables:
-        md = _table_to_markdown(table)
-        if md:
-            parts.append(md)
-    return "\n\n".join(parts).strip()
+    return extract_docx(path)
 
 
 def _extract_image(path: Path, settings: Settings | None = None) -> str:
@@ -152,24 +193,9 @@ def _extract_image(path: Path, settings: Settings | None = None) -> str:
 
 
 def _extract_html(path: Path) -> str:
-    from lxml import html as lxml_html
+    from app.app.services.html_extract import extract_html
 
-    content: str | None = None
-    for encoding in ("utf-8", "cp1251", "latin-1"):
-        try:
-            content = path.read_text(encoding=encoding)
-            break
-        except UnicodeDecodeError:
-            continue
-    if content is None:
-        content = path.read_text(encoding="utf-8", errors="replace")
-
-    doc = lxml_html.fromstring(content)
-    for el in doc.xpath("//script|//style|//noscript"):
-        parent = el.getparent()
-        if parent is not None:
-            parent.remove(el)
-    return doc.text_content()
+    return extract_html(path)
 
 
 def _strip_page_numbers(text: str) -> str:
@@ -187,6 +213,14 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
         raw = _extract_pdf(path)
     elif artifact.file_type == "docx":
         raw = _extract_docx(path)
+    elif artifact.file_type == "xlsx":
+        from app.app.services.xlsx_extract import extract_spreadsheet
+
+        raw = extract_spreadsheet(path)
+    elif artifact.file_type == "pptx":
+        from app.app.services.pptx_extract import extract_pptx
+
+        raw = extract_pptx(path, settings)
     elif artifact.file_type == "txt" or path.suffix.lower() in TEXT_SUFFIXES:
         raw = _extract_plain(path)
     elif artifact.file_type == "html" or path.suffix.lower() in {".html", ".htm"}:
@@ -194,7 +228,9 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     elif artifact.file_type == "image":
         raw = _extract_image(path, settings)
     else:
-        raw = ""
+        artifact.error_message = f"формат {path.suffix or artifact.file_type} не поддерживается"
+        set_status(db, artifact, "error", reason="unsupported format")
+        raise RuntimeError(artifact.error_message)
 
     if not raw.strip():
         artifact.error_message = "no text extracted"
@@ -216,9 +252,12 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     elif artifact.file_type == "txt" and len(raw) <= SHORT_TXT_NORMALIZE_CHARS:
         clean = light_normalize(raw)
         mode = "light (short txt)"
+    elif artifact.file_type == "xlsx":
+        clean = light_normalize(raw)  # только таблицы: LLM их не чистит (цифры переносятся дословно)
+        mode = "light (spreadsheet)"
     else:
         try:
-            clean = normalize_document(settings, raw)
+            clean = normalize_document(settings, raw, source=artifact.artifact_id)
             mode = "llm"
         except Exception as exc:
             logger.warning("normalization failed, using light: %s", exc)

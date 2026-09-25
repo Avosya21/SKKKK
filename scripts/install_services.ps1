@@ -3,7 +3,7 @@ param(
     [string]$Nssm = "nssm"
 )
 $ErrorActionPreference = "Stop"
-$Root = "C:\1C_NEW_SKKKK"
+$Root = (Split-Path -Parent $PSScriptRoot)
 $Py = Join-Path $Root "venv\Scripts\python.exe"
 $Logs = Join-Path $Root "data\logs"
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null

@@ -93,6 +93,41 @@ def test_admin_can_delete_project(client, admin_token, manager_token):
     assert client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {admin_token}"}).status_code == 204
 
 
+def test_delete_project_with_agent_protocol_rows(client, manager_token):
+    """Регресс: agent_exchange_log/agent_questions/contract_items ссылаются на project_id
+    (FK, foreign_keys=ON) и раньше не чистились в purge_project — delete падал с
+    IntegrityError, если через проект хоть раз прошёл MCP-агент."""
+    from app.app.db import SessionLocal
+    from app.app.models.agent_exchange import AgentExchangeLog
+    from app.app.models.agent_question import AgentQuestion
+    from app.app.models.contract import ContractItem
+
+    pid = client.post(
+        "/projects",
+        json={"name": "Agent touched"},
+        headers={"Authorization": f"Bearer {manager_token}"},
+    ).json()["id"]
+
+    db = SessionLocal()
+    try:
+        db.add(
+            AgentExchangeLog(
+                project_id=pid,
+                source="test",
+                kind="tz.get",
+                decision="accepted",
+            )
+        )
+        db.add(AgentQuestion(project_id=pid, request_id="req-1", source="test", question="?"))
+        db.add(ContractItem(project_id=pid, kind="req", key="k1", seq=1))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"})
+    assert r.status_code == 204
+
+
 def test_create_project_makes_directory_tree(client, manager_token, tmp_data):
     r = client.post(
         "/projects",
@@ -184,3 +219,22 @@ def test_list_projects_returns_description(client, manager_token):
     rows = client.get("/projects", headers={"Authorization": f"Bearer {manager_token}"}).json()
     match = next(p for p in rows if p["name"] == "WithDesc")
     assert match["description"] == "Кратко о проекте"
+
+
+def test_delete_preview_counts(client, manager_token):
+    h = {"Authorization": f"Bearer {manager_token}"}
+    pid = client.post("/projects", json={"name": "Preview"}, headers=h).json()["id"]
+    client.post(f"/projects/{pid}/meetings", headers=h)
+    client.post(f"/projects/{pid}/meetings", headers=h)
+    r = client.get(f"/projects/{pid}/delete-preview", headers=h)
+    assert r.status_code == 200
+    assert r.json() == {"documents": 0, "calls": 0, "meetings": 2, "notes": 0}
+    assert client.get("/projects/999999/delete-preview", headers=h).status_code == 404
+
+
+def test_project_name_is_not_mangled_and_empty_rejected(client, manager_token):
+    h = {"Authorization": f"Bearer {manager_token}"}
+    ok = client.post("/projects", json={"name": "  ООО «Ромашка» №1 & Co  "}, headers=h)
+    assert ok.status_code in (200, 201) and ok.json()["name"] == "ООО «Ромашка» №1 & Co"
+    assert client.post("/projects", json={"name": "   "}, headers=h).status_code == 400
+    assert client.post("/projects", json={"name": "x" * 300}, headers=h).status_code == 422

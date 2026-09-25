@@ -1,0 +1,61 @@
+/* Тема отчётов (документ и стенограмма созвона) в единой дизайн-системе.
+   Отчёты — сгенерированные HTML со своими стилями: этот файл подключается при отдаче страницы (routers/pages.py,
+   _serve_report) ПОСЛЕ design.css и переопределяет их. Перегенерировать отчёты не нужно. */
+:root {
+  --accent: var(--ds-accent);
+  --border: var(--ds-line);
+  font-family: var(--ds-font);
+  color: var(--ds-text);
+  background: var(--ds-bg);
+}
+body { background: var(--ds-bg) !important; color: var(--ds-text); font-size: 15px; }
+header, main { max-width: 1040px; }
+h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; color: var(--ds-text); }
+.hint, .muted, .summary-empty, .registry-hint { color: var(--ds-muted); }
+audio { border-radius: var(--ds-r-md); }
+
+/* кнопки и «чипы» */
+button.act, a.act, .chip, .when {
+  color: var(--ds-text-2);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-r-sm);
+  font-weight: 500;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.chip { border-radius: 999px; }
+button.act:hover, a.act:hover, .chip:hover { background: var(--ds-surface-2); border-color: var(--ds-line-strong); }
+.chip.active { color: var(--ds-accent-hover); background: var(--ds-accent-soft); border-color: #c7cbfa; }
+button.act.primary, a.act.primary { color: #fff; background: var(--ds-accent); border-color: var(--ds-accent); box-shadow: 0 1px 2px rgba(16, 24, 40, .1); }
+button.act.primary:hover, a.act.primary:hover { background: var(--ds-accent-hover); border-color: var(--ds-accent-hover); color: #fff; }
+button.act:focus-visible, a.act:focus-visible, .chip:focus-visible, .summary-tab:focus-visible { outline: none; box-shadow: var(--ds-ring); }
+.when { border-radius: 6px; color: var(--ds-muted); background: transparent; border-color: transparent; }
+
+/* карточки: резюме, экспорт, реестр спикеров */
+.summary, .export-panel, .source-collapse, .rename, .registry-collapse, .task-banner {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-md);
+  box-shadow: var(--ds-shadow);
+}
+.summary-tabs { border-bottom-color: var(--ds-line); }
+.summary-tab { color: var(--ds-muted); }
+.summary-tab:hover { color: var(--ds-text); }
+.summary-tab[aria-selected="true"] { color: var(--ds-text); border-bottom-color: var(--ds-accent); }
+.summary h3, .export-panel-title { color: var(--ds-text); font-weight: 600; letter-spacing: -0.01em; }
+.source-summary:hover, .registry-summary:hover { background: var(--ds-surface-2); }
+
+/* таблицы резюме */
+.summary-table th, .summary-table td { border-color: var(--ds-line); }
+.summary-table th { color: var(--ds-muted); background: var(--ds-surface-2); font-size: .74rem; letter-spacing: .05em; text-transform: uppercase; }
+.summary-table tbody tr:nth-child(even) { background: var(--ds-surface-2); }
+
+/* стенограмма */
+.turn { border-radius: var(--ds-r-sm); }
+.turn:hover { background: var(--ds-surface-2); }
+.turn.active { background: var(--ds-accent-soft); }
+.who { font-weight: 600; }
+.line { line-height: 1.5; }
+
+/* баннер фоновой задачи */
+.task-banner { color: var(--ds-info); background: var(--ds-info-soft); border-color: #c8dcfb; box-shadow: none; }

@@ -365,12 +365,15 @@ def binarize(
     rules: Binarization | None = None,
     audio_duration: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Матрица вероятностей → сегменты. Гистерезис onset/offset как в NeMo."""
+    """Матрица вероятностей → сегменты. Гистерезис onset/offset как в NeMo.
+
+    Число спикеров — по ширине матрицы: у Nemotron 8 каналов, у Sortformer 4.
+    """
     rules = rules or Binarization()
     total = probabilities.shape[0] * FRAME_DURATION
     limit = audio_duration if audio_duration is not None else total
     segments: list[dict[str, Any]] = []
-    for speaker in range(min(NUM_SPEAKERS, probabilities.shape[1])):
+    for speaker in range(probabilities.shape[1]):
         for start, end in _speaker_spans(probabilities[:, speaker], rules):
             stop = min(end, limit)
             if stop > start:

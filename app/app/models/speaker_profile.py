@@ -1,3 +1,5 @@
+"""Модели голосов: SpeakerProfile и связь ArtifactSpeakerLink со спикерами артефакта."""
+
 from __future__ import annotations
 
 from datetime import datetime

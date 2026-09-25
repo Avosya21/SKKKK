@@ -1,3 +1,5 @@
+"""Модель ChatMessage — сообщение чата проекта, в том числе ожидающее ответа."""
+
 from __future__ import annotations
 
 from datetime import datetime

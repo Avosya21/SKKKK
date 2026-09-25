@@ -1,3 +1,5 @@
+"""Обработка артефакта воркером: выбор конвейера по типу файла (`process_artifact`)."""
+
 from __future__ import annotations
 
 import logging

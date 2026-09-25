@@ -1,3 +1,5 @@
+"""Поиск исполняемых файлов ffmpeg и ffprobe."""
+
 from __future__ import annotations
 
 import os
@@ -26,6 +28,10 @@ def resolve_ffmpeg_tool(name: str) -> str:
         candidate = Path(env_bin)
         if candidate.is_file():
             return str(candidate)
+
+    bundled = Path(__file__).resolve().parents[3] / "tools" / "ffmpeg" / "bin" / f"{name}.exe"  # копия внутри проекта
+    if bundled.is_file():
+        return str(bundled)
 
     found = shutil.which(name)
     if found:

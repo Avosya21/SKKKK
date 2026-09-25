@@ -1,3 +1,5 @@
+"""Чат с ИИ по материалам проекта: история и указания пользователя, уточняющие вопросы, поиск фрагментов и сущностей, сборка контекста, ответ LLM с источниками и ожидающие сообщения (`answer_chat`)."""
+
 from __future__ import annotations
 
 import json
@@ -15,20 +17,26 @@ from app.app.db import get_engine
 from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
-from app.app.models.entity import Entity, Link, Resolution, UserNote
+from app.app.models.entity import Entity, Link, UserNote
 from app.app.models.job import Job
-from app.app.services.llm import chat_completion
+from app.app.services.llm import chat_completion_no_think
 from app.app.services.artifact_reports import load_document_payload
 from app.app.services.summarize_document import load_document_source_text, load_document_summary_md
+from app.app.services.chunk_fts import init_chunk_fts
 from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import parsed_dir
+from app.app.services.recorded_at import material_date_label
 from app.app.services.retrieval import (
     ENTITY_SEARCH_LIMIT,
+    chunk_header,
     enrich_and_rerank_hits,
+    format_entity_line,
+    fuse_chunk_hits,
     search_entities,
     weighted_score,
 )
 from app.app.services.vector_index import init_vector_store, search_vectors
+from app.app.services.prompts import load_prompt_block
 
 logger = logging.getLogger("skkkk.chat")
 ROOT = Path(__file__).resolve().parents[3]
@@ -38,10 +46,14 @@ CHAT_HISTORY_LIMIT = 1000
 CHAT_PENDING_TEXT = "Думаю над ответом..."
 CHAT_STALE_MINUTES = 30
 CHAT_DOC_EXCERPT_CHARS = 3500
+# Если у документа есть выжимка, исходного текста в промпт кладём меньше: контекст чата доходил до 20 тысяч токенов,
+# а почти всё время ответа уходит на обработку промпта (замеры 21.09: ~28 с в среднем, поиск и БД — меньше секунды).
+CHAT_DOC_EXCERPT_WITH_SUMMARY_CHARS = 1800
+# Начало документа + фрагменты этого документа, найденные по словам вопроса (таблица в конце файла иначе не видна).
+CHAT_DOC_HEAD_WITH_MATCHES_CHARS = 1000
+CHAT_DOC_MATCH_LIMIT = 3
 CHAT_DOC_KEYWORDS = ("директор", "вопрос", "последн", "документ", "файл", "заметк", "txt")
 CHAT_PRIORITY_KEYWORDS = ("приоритет", "актуальн", "последн", "главн", "важнее", "считать")
-CHAT_FACT_CONFLICT_KEYWORDS = ("конфликт", "противореч", "какой верн", "что правильн", "какая версия", "бюджет", "срок")
-MATERIAL_CONFLICT_TYPES = frozenset({"decision", "task", "fact"})
 CLARIFICATION_MARKER = "🤔 Нужно ваше уточнение"
 
 
@@ -51,9 +63,15 @@ def asr_busy(db: Session) -> bool:
 
 
 def _load_prompt() -> str:
-    raw = PROMPT_PATH.read_text(encoding="utf-8")
-    blocks = [b.strip() for b in raw.split("```") if b.strip()]
-    return blocks[0] if blocks else raw
+    """Системный промпт чата — код-блок из rag_chat.md, а не markdown-заголовок
+    перед ним (blocks[0] был заголовком файла — реальные правила чата
+    ассистент никогда не получал). Блок хранит и шаблон пользовательского
+    сообщения ({question}/{chunks}/{graph_context}) — код собирает user
+    отдельно (другая структура секций), поэтому берём только инструкции до
+    этого шаблона, чтобы не слать модели незаполненные плейсхолдеры."""
+    block = load_prompt_block(PROMPT_PATH)
+    instructions, _, _ = block.partition("\n\nВопрос: {question}")
+    return instructions.strip() or block
 
 
 def _parse_meta(row: ChatMessage) -> dict[str, Any]:
@@ -152,76 +170,6 @@ def _question_about_project_priority(question: str) -> bool:
     return "сейчас" in q and "актуальн" in q
 
 
-def _question_about_fact_conflict(question: str) -> bool:
-    q = question.lower()
-    return any(k in q for k in CHAT_FACT_CONFLICT_KEYWORDS)
-
-
-def _conflict_is_material(src: Entity, tgt: Entity) -> bool:
-    if src.entity_type not in MATERIAL_CONFLICT_TYPES or tgt.entity_type not in MATERIAL_CONFLICT_TYPES:
-        return False
-    return src.entity_type == tgt.entity_type
-
-
-def _format_entity_value(value_json: str) -> str:
-    try:
-        data = json.loads(value_json)
-    except json.JSONDecodeError:
-        return value_json[:200]
-    if isinstance(data, dict):
-        if data.get("text"):
-            return str(data["text"])[:200]
-        if data.get("description"):
-            return str(data["description"])[:200]
-        if data.get("name"):
-            rel = data.get("relation")
-            return f"{data['name']}" + (f" ({rel})" if rel else "")
-        return ", ".join(f"{k}: {v}" for k, v in list(data.items())[:4])[:200]
-    return str(data)[:200]
-
-
-def _open_conflicts_for_artifacts(db: Session, project_id: int, artifact_db_ids: set[int]) -> list[dict[str, Any]]:
-    if not artifact_db_ids:
-        return []
-    conflicts = db.scalars(
-        select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT")
-    ).all()
-    out: list[dict[str, Any]] = []
-    for link in conflicts:
-        if db.scalar(select(Resolution.id).where(Resolution.link_id == link.id)):
-            continue
-        src = db.get(Entity, link.source_entity_id)
-        tgt = db.get(Entity, link.target_entity_id)
-        if not src or not tgt:
-            continue
-        if src.artifact_id not in artifact_db_ids and tgt.artifact_id not in artifact_db_ids:
-            continue
-        if not _conflict_is_material(src, tgt):
-            continue
-        src_art = db.get(Artifact, src.artifact_id)
-        tgt_art = db.get(Artifact, tgt.artifact_id)
-        out.append(
-            {
-                "link_id": link.id,
-                "left": {
-                    "entity_id": src.id,
-                    "value": src.value_json,
-                    "artifact_id": src_art.artifact_id if src_art else None,
-                    "filename": src_art.original_filename if src_art else None,
-                    "priority_weight": src_art.priority_weight if src_art else 0.5,
-                },
-                "right": {
-                    "entity_id": tgt.id,
-                    "value": tgt.value_json,
-                    "artifact_id": tgt_art.artifact_id if tgt_art else None,
-                    "filename": tgt_art.original_filename if tgt_art else None,
-                    "priority_weight": tgt_art.priority_weight if tgt_art else 0.5,
-                },
-            }
-        )
-    return out
-
-
 def _competing_source_groups(hit_artifacts: list[Artifact]) -> tuple[list[Artifact], list[Artifact]]:
     docs = [a for a in hit_artifacts if a.source_type == "document"]
     calls = [a for a in hit_artifacts if a.source_type == "call" or a.file_type == "audio"]
@@ -236,23 +184,14 @@ def detect_chat_ambiguity(
     hit_artifacts: list[Artifact],
     guidance_texts: list[str],
 ) -> dict[str, Any] | None:
-    artifact_ids = {a.id for a in hit_artifacts}
-    open_conflicts = _open_conflicts_for_artifacts(db, project_id, artifact_ids)
+    # Р4 (DECISIONS 2026-09-25): открытое противоречие не останавливает чат — обе версии с датами идут в контекст
+    # (_supplement_context → conflict_context), модель называет обе и какая позже. Уточнение — только source_split.
     docs, calls = _competing_source_groups(hit_artifacts)
     wants_priority = _question_needs_priority_choice(question)
     project_priority_q = _question_about_project_priority(question)
 
     if project_priority_q:
         return None
-
-    if open_conflicts and _question_about_fact_conflict(question):
-        return {"reason": "open_conflict", "conflicts": open_conflicts}
-
-    if open_conflicts and not wants_priority:
-        return None
-
-    if open_conflicts and wants_priority and not docs:
-        return {"reason": "open_conflict", "conflicts": open_conflicts}
 
     if wants_priority and docs and calls:
         doc_weight = max(a.priority_weight for a in docs)
@@ -281,20 +220,7 @@ def detect_chat_ambiguity(
 def _build_clarification_answer(question: str, ambiguity: dict[str, Any]) -> str:
     lines = [CLARIFICATION_MARKER, "", "Не могу однозначно выбрать, на что опираться:", ""]
 
-    if ambiguity["reason"] == "open_conflict":
-        for item in ambiguity["conflicts"][:2]:
-            left = item["left"]
-            right = item["right"]
-            lines.append(
-                f"- **{left['filename'] or left['artifact_id']}** (вес {left['priority_weight']}): "
-                f"{_format_entity_value(left['value'])}"
-            )
-            lines.append(
-                f"- **{right['filename'] or right['artifact_id']}** (вес {right['priority_weight']}): "
-                f"{_format_entity_value(right['value'])}"
-            )
-            lines.append("")
-    elif ambiguity["reason"] == "source_split":
+    if ambiguity["reason"] == "source_split":
         lines.append("Нашлись и **документы**, и **созвоны** по теме:")
         for doc in ambiguity.get("documents", []):
             lines.append(
@@ -484,26 +410,33 @@ def _graph_snippet(db: Session, project_id: int, entity_ids: list[int]) -> str:
         return ""
     entities = db.scalars(select(Entity).where(Entity.id.in_(entity_ids))).all()
     by_id = {e.id: e for e in entities}
+    # Противоречия (POTENTIAL_CONFLICT) здесь не выводятся: их со статусом «в силе / заменено / не решено»
+    # даёт conflict_context в _supplement_context. Сырой value_json модели не показываем — только строки сущностей.
     links = db.scalars(
         select(Link).where(
             Link.project_id == project_id,
+            Link.link_type != "POTENTIAL_CONFLICT",
             or_(
                 Link.source_entity_id.in_(entity_ids),
                 Link.target_entity_id.in_(entity_ids),
             ),
         )
     ).all()
+
+    def line(ent: Entity) -> str:
+        return format_entity_line(ent.entity_type, ent.value_json, ent.artifact)
+
     lines = ["Соседи графа:"]
     for ent_id in entity_ids[:12]:
         ent = by_id.get(ent_id)
         if ent:
-            lines.append(f"- entity {ent_id} [{ent.entity_type}]: {ent.value_json}")
+            lines.append(f"- {line(ent)}")
     for lnk in links[:20]:
         src = by_id.get(lnk.source_entity_id)
         tgt = by_id.get(lnk.target_entity_id)
-        src_val = src.value_json if src else str(lnk.source_entity_id)
-        tgt_val = tgt.value_json if tgt else str(lnk.target_entity_id)
-        lines.append(f"- {lnk.link_type}: {src_val} -> {tgt_val}")
+        if src is None or tgt is None:
+            continue
+        lines.append(f"- {lnk.link_type}: {line(src)} -> {line(tgt)}")
     return "\n".join(lines)
 
 
@@ -543,6 +476,21 @@ def _document_relevance_score(question: str, artifact: Artifact, raw_excerpt: st
         score += 2.0
     score += artifact.priority_weight * 2.0
     return score
+
+
+def _document_question_matches(db: Session, project_id: int, artifact: Artifact, question: str, shown: str) -> list[str]:
+    """Фрагменты документа по словам и числам вопроса (FTS), которых нет в уже показанном начале."""
+    from app.app.services.chunk_fts import search_chunk_fts
+
+    hits = search_chunk_fts(db, question, project_id=project_id, limit=CHAT_DOC_MATCH_LIMIT + 2, artifact_id=artifact.id)
+    out: list[str] = []
+    for hit in hits:
+        body = (hit.get("text") or "").strip()
+        if body and body[:200] not in shown and body not in out:
+            out.append(body)
+        if len(out) >= CHAT_DOC_MATCH_LIMIT:
+            break
+    return out
 
 
 def _document_context_blocks(
@@ -588,7 +536,16 @@ def _document_context_blocks(
             )
             if people:
                 parts.append(f"Участники: {people}")
-        parts.append(f"Исходный текст:\n{raw_excerpt}")
+        budget = CHAT_DOC_EXCERPT_WITH_SUMMARY_CHARS if (doc_summary or payload.summary) else CHAT_DOC_EXCERPT_CHARS
+        matches = _document_question_matches(db, project_id, art, question, raw_excerpt[:budget])
+        if matches:
+            head = raw_excerpt[: min(budget, CHAT_DOC_HEAD_WITH_MATCHES_CHARS)]
+            left = max(budget - len(head), 0) + CHAT_DOC_EXCERPT_WITH_SUMMARY_CHARS
+            found = "\n---\n".join(matches)[:left]
+            parts.append(f"Исходный текст (начало):\n{head}")
+            parts.append(f"Фрагменты документа по вопросу:\n{found}")
+        else:
+            parts.append(f"Исходный текст:\n{raw_excerpt[:budget]}")
         ranked.append((score, art.id, art, "\n".join(parts)))
     ranked.sort(key=lambda row: (-row[0], -row[1]))
     return [(art, block) for _, _, art, block in ranked[:4]]
@@ -605,7 +562,7 @@ def _supplement_context(
     parts: list[str] = []
 
     if entities:
-        ent_lines = [f"- [{e.entity_type}] {e.value_json}" for e in entities[:30]]
+        ent_lines = [f"- {format_entity_line(e.entity_type, e.value_json, e.artifact)}" for e in entities[:30]]
         parts.append("Сущности по найденным материалам:\n" + "\n".join(ent_lines))
 
     notes = db.scalars(
@@ -616,28 +573,16 @@ def _supplement_context(
         if note_lines:
             parts.append("Заметки проекта:\n" + "\n".join(note_lines))
 
-    conflicts = db.scalars(
-        select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT").limit(20)
-    ).all()
-    if conflicts:
-        open_lines: list[str] = []
-        resolved_lines: list[str] = []
-        for lnk in conflicts:
-            src = db.get(Entity, lnk.source_entity_id)
-            tgt = db.get(Entity, lnk.target_entity_id)
-            row = (
-                f"entities {lnk.source_entity_id} vs {lnk.target_entity_id}: "
-                f"{src.value_json if src else '?'} <> {tgt.value_json if tgt else '?'}"
-            )
-            res = db.scalar(select(Resolution).where(Resolution.link_id == lnk.id))
-            if res:
-                resolved_lines.append(f"- {row}; решение: {res.reason}")
-            else:
-                open_lines.append(f"- {row}")
-        if open_lines:
-            parts.append("Открытые конфликты:\n" + "\n".join(open_lines))
-        if resolved_lines:
-            parts.append("Разрешённые конфликты:\n" + "\n".join(resolved_lines))
+    # Только противоречия по найденным материалам, хронологией (CONFLICT-AUTONOMY-PLAN этап 5).
+    from app.app.services.conflict_context import conflict_lines
+
+    resolved_lines, open_lines = conflict_lines(
+        db, project_id, artifact_ids={a.id for a in artifacts}, entity_ids={e.id for e in entities}
+    )
+    if resolved_lines:
+        parts.append("Изменения решений (что в силе и что заменено):\n" + "\n".join(resolved_lines))
+    if open_lines:
+        parts.append("Нерешённые противоречия:\n" + "\n".join(open_lines))
 
     summary_lines: list[str] = []
     for art in artifacts:
@@ -648,7 +593,9 @@ def _supplement_context(
             continue
         summary = summary_path.read_text(encoding="utf-8").strip()
         if summary:
-            summary_lines.append(f"### {art.original_filename}\n{summary[:2500]}")
+            label = material_date_label(art)
+            title = f"{art.original_filename} ({label})" if label else art.original_filename
+            summary_lines.append(f"### {title}\n{summary[:2500]}")
     if summary_lines:
         parts.append("Выжимки созвонов:\n" + "\n\n".join(summary_lines))
 
@@ -778,10 +725,12 @@ def _answer_chat_inner(
 
     init_vector_store(get_engine())
     q_vecs = embed_texts(settings, [question])
-    hits = search_vectors(db, q_vecs[0], project_id=project_id, limit=CHAT_SEARCH_LIMIT * 2)
-    threshold = settings.search_min_score
-    hits = enrich_and_rerank_hits(db, hits, limit=CHAT_SEARCH_LIMIT)
-    hits = [h for h in hits if h["score"] >= threshold]
+    init_chunk_fts(get_engine())
+    vec_hits = search_vectors(db, q_vecs[0], project_id=project_id, limit=CHAT_SEARCH_LIMIT * 2)
+    hits = fuse_chunk_hits(
+        db, question, q_vecs[0], vec_hits, project_id=project_id, limit=CHAT_SEARCH_LIMIT,
+        min_score=settings.search_min_score, rerank=enrich_and_rerank_hits,
+    )
 
     guidance_texts = list_active_guidance(db, project_id=project_id, user_id=pending.user_id)
     if guidance_reply:
@@ -820,19 +769,21 @@ def _answer_chat_inner(
         art = db.get(Artifact, h["artifact_id"])
         if not art:
             continue
-        speaker = f"[{h['speaker']}] " if h.get("speaker") else ""
-        context_lines.append(f"{speaker}{h['text']}")
+        # Шапка — откуда и когда фрагмент; у окон реплик имена и таймкоды уже в строках текста.
+        speaker = f"[{h['speaker']}] " if h.get("speaker") and h.get("start_sec") is None else ""
+        context_lines.append(f"{chunk_header(art, h)}\n{speaker}{h['text']}")
         key = (art.artifact_id, art.original_filename)
         if key not in seen_source_keys:
             seen_source_keys.add(key)
-            sources.append(
-                {
-                    "artifact_id": art.artifact_id,
-                    "filename": art.original_filename,
-                    "score": h.get("weighted_score", h["score"]),
-                    "priority_weight": h.get("priority_weight", art.priority_weight),
-                }
-            )
+            source = {
+                "artifact_id": art.artifact_id,
+                "filename": art.original_filename,
+                "score": h.get("weighted_score", h["score"]),
+                "priority_weight": h.get("priority_weight", art.priority_weight),
+            }
+            if h.get("start_sec") is not None:
+                source["start_sec"] = h["start_sec"]
+            sources.append(source)
         hit_artifact_db_ids.add(art.id)
         if art.id not in seen_artifacts:
             seen_artifacts.add(art.id)
@@ -843,15 +794,13 @@ def _answer_chat_inner(
         q_vecs[0],
         project_id=project_id,
         limit=ENTITY_SEARCH_LIMIT,
-        min_score=threshold,
+        min_score=settings.search_min_score,
     )
     entity_hit_ids = {h["entity_id"] for h in entity_hits}
     if entity_hits:
         context_lines.append("=== Сущности проекта по вопросу ===")
         for h in entity_hits:
-            context_lines.append(
-                f"- [{h['entity_type']}] {h['text'][:400]} ({h['filename']}, artifact_id={h['artifact_id']})"
-            )
+            context_lines.append(f"- {h['line'][:600]} (artifact_id={h['artifact_id']})")
             art = db.get(Artifact, h["artifact_db_id"])
             if not art:
                 continue
@@ -947,7 +896,9 @@ def _answer_chat_inner(
     if settings.dry_run:
         answer = f"Ответ по {len(sources)} источникам: {question}"
     else:
-        answer = chat_completion(settings, system=system, user=user, max_tokens=2048)
+        # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
+        db.commit()
+        answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
     from app.app.services.plain_text import plainify_llm_markup
 
     answer = plainify_llm_markup(answer.strip())

@@ -54,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="auto", choices=("auto", "cuda", "cpu"))
     parser.add_argument("--asr-model", default=LabOptions.asr_model)
     parser.add_argument("--quantization", default=None)
+    parser.add_argument(
+        "--diar-model",
+        default=None,
+        choices=("nemotron3", "sortformer4"),
+        help="модель диаризации; по умолчанию DIAR_MODEL или nemotron3",
+    )
     parser.add_argument("--onset", type=float, default=LabOptions.onset)
     parser.add_argument("--offset", type=float, default=LabOptions.offset)
     parser.add_argument(
@@ -114,6 +120,7 @@ def main() -> int:
         device=args.device,
         asr_model=args.asr_model,
         quantization=args.quantization,
+        diar_model=args.diar_model,
         onset=args.onset,
         offset=args.offset,
         compare_with_source=args.compare_source,

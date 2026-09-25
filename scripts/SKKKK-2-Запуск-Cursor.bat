@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 title SKKKK — запуск (Cursor API)
 
-set "ROOT=C:\1C_NEW_SKKKK"
+for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 
 echo.

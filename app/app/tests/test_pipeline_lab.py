@@ -260,3 +260,116 @@ def test_overlay_output_ready_skips_only_complete_files(tmp_data: Path):
     assert overlay_output_ready(settings, artifact, run.run_id, "lab_proof") is False
     (proof / "transcript.json").write_text('{"replicas": [{"text": "hi"}]}\n', encoding="utf-8")
     assert overlay_output_ready(settings, artifact, run.run_id, "lab_proof") is True
+
+
+def test_append_screen_context_adds_screen_and_speech_blocks(tmp_data: Path):
+    from app.app.services.pipeline_lab import _append_screen_context
+
+    class _Run:
+        def __init__(self, vt: Path):
+            self._vt = vt
+
+        def resolve(self, name: str):
+            assert name == "video_transcript.json"
+            return self._vt
+
+    run_dir = tmp_data / "test_run"
+    vt = run_dir / "video_transcript.json"
+    vt.parent.mkdir(parents=True, exist_ok=True)
+    vt.write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "video:t_0",
+                        "frame_id": "t_0",
+                        "speaker": "sasha",
+                        "start": 1.0,
+                        "end": 2.0,
+                        "text": "На экране отчёт 1С:\n\n- строка с цифрой 42\n- пароль секретный",
+                        "text_source": "vision",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    proofs = {
+        "replicas": [
+            {
+                "speaker": "я",
+                "start": 0.5,
+                "end": 2.5,
+                "text": "йоу тут ололо",
+                "words": [
+                    {"start": 0.5, "end": 0.7, "word": "йоу"},
+                    {"start": 1.2, "end": 1.4, "word": "тут"},
+                    {"start": 1.8, "end": 2.0, "word": "ололо"},
+                ],
+            }
+        ]
+    }
+    asr_dir = tmp_data / "asr"
+    asr_dir.mkdir(parents=True, exist_ok=True)
+    (asr_dir / "docker_merged.txt").write_text("[speaker_0]\nпривет\n", encoding="utf-8")
+
+    _append_screen_context(asr_dir, _Run(vt), proofs["replicas"])
+
+    body = (asr_dir / "docker_merged.txt").read_text(encoding="utf-8")
+    assert body.startswith("[speaker_0]\nпривет")
+    assert "Экран (показывал sasha)" in body
+    assert "пароль секретный" in body
+    assert "42" in body
+    assert "Речь на экране: я: " in body
+
+
+def test_vision_run_id_prefers_run_with_vision_segments(tmp_data: Path):
+    from app.app.services.artifact_lab import vision_run_id
+    from asr.lab.paths import LabRun, new_run_id
+    from asr.lab.run import init_run
+
+    settings, run = _make_run(tmp_data, 1, "art_vision_pick")
+    ocr_vt = run.resolve("video_transcript.json")
+    ocr_vt.write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "video:t_0",
+                        "speaker": "sasha",
+                        "start": 1.0,
+                        "end": 2.0,
+                        "text": "140 ace оы Sa",
+                        "text_source": "ocr",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run.root / "frames").mkdir(parents=True, exist_ok=True)
+    (run.root / "frames.json").write_text("{}", encoding="utf-8")
+    from app.app.models.artifact import Artifact
+
+    artifact = Artifact(artifact_id="art_vision_pick", project_id=1)
+    assert vision_run_id(settings, artifact) is None
+
+    vision_vt = run.resolve("video_transcript.json")
+    vision_vt.write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {
+                        "segment_id": "video:t_0",
+                        "speaker": "sasha",
+                        "start": 1.0,
+                        "end": 2.0,
+                        "text": "На экране отчёт 1С",
+                        "text_source": "vision",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert vision_run_id(settings, artifact) == run.run_id

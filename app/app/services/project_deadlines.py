@@ -1,3 +1,5 @@
+"""Дедлайны проекта: разбор сроков из текста («до пятницы», «на следующей неделе», даты) относительно даты артефакта и сведение задач в единый список (list_project_deadlines)."""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity
+from app.app.services.recorded_at import filename_date, recorded_local_date
 
 _RU_MONTHS = {
     "январ": 1,
@@ -76,27 +79,23 @@ def _deadline_is_empty(raw: str | None) -> bool:
 
 
 def artifact_reference_date(artifact: Artifact) -> date | None:
-    """Дата материала: из имени файла (19.08) или даты загрузки."""
-    name = artifact.original_filename or ""
-    match = re.search(r"(?<!\d)(\d{1,2})[./](\d{1,2})(?:[./](20\d{2}))?(?!\d)", name)
-    if match:
-        day, month = int(match.group(1)), int(match.group(2))
-        year = int(match.group(3)) if match.group(3) else None
-        if year is None:
-            if artifact.upload_date:
-                year = artifact.upload_date.year
-                if month > artifact.upload_date.month + 2:
-                    year -= 1
-            else:
-                year = datetime.now().year
-        if year:
-            try:
-                return date(year, month, day)
-            except ValueError:
-                pass
+    """Дата материала: ``recorded_at`` (встреча, имя файла, метаданные), иначе имя файла (19.08) или дата загрузки."""
+    recorded = recorded_local_date(artifact)
+    if recorded is not None:
+        return recorded
+    by_name = filename_date(artifact.original_filename, artifact.upload_date)
+    if by_name is not None:
+        return by_name
     if artifact.upload_date:
         return artifact.upload_date.date()
     return None
+
+
+def reference_is_explicit(artifact: Artifact) -> bool:
+    """True, если опорная дата — дата записи (встреча, имя файла, метаданные); False — только дата загрузки."""
+    if recorded_local_date(artifact) is not None:
+        return True
+    return filename_date(artifact.original_filename, artifact.upload_date) is not None
 
 
 def _weekday_on_or_after(reference: date, weekday: int) -> date:
@@ -308,6 +307,8 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
 
         ref = artifact_reference_date(art)
         start, end = parse_deadline_range(deadline_text, reference=ref)
+        # Относительный срок («до пятницы»), посчитанный от даты загрузки, — оценка, а не факт.
+        approximate = bool(start) and _parse_absolute_date(deadline_text) is None and not reference_is_explicit(art)
         items.append(
             {
                 "id": ent.id,
@@ -317,6 +318,7 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
                 "deadline_date": start.isoformat() if start else None,
                 "deadline_end_date": end.isoformat() if end else None,
                 "reference_date": ref.isoformat() if ref else None,
+                "date_approximate": approximate,
                 "status": status,
                 "artifact_id": art.artifact_id,
                 "filename": art.original_filename,

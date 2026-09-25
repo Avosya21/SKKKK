@@ -1,3 +1,5 @@
+"""Модель ProjectTask — фоновая задача проекта со статусом и ошибкой (таблица project_tasks)."""
+
 from __future__ import annotations
 
 from datetime import datetime

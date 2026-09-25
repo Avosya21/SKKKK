@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nemotron-listen",
+      "runtimeExecutable": "C:\\1C_NEW_SKKKK\\venvs\\lab\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-m", "http.server", "8765", "--bind", "127.0.0.1",
+        "--directory", "C:\\Users\\rene_\\AppData\\Local\\Temp\\claude\\C--1C-NEW-SKKKK\\70480d94-b4bf-40b1-94f6-3db63029dfab\\scratchpad\\listen_p35"
+      ],
+      "port": 8765
+    }
+  ]
+}

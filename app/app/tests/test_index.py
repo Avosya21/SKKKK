@@ -15,21 +15,47 @@ def test_chunks_do_not_split_sentences():
 
 
 def test_transcript_chunks_keep_speaker():
-    text = "Спикер №1: первая реплика\nСпикер №2: вторая реплика"
+    text = "Спикер №1: первая реплика\nСпикер №1: вторая реплика"
     chunks = chunk_transcript(text)
-    assert any(c.speaker and "Спикер" in c.speaker for c in chunks)
+    assert chunks[0].speaker == "Спикер №1"
 
 
 def test_transcript_chunks_lab_timecodes_keep_names():
+    """Окно реплик: вопрос и ответ «да» вместе, строки канона дословно (имя и таймкод видны), отрезок времени у чанка."""
     text = (
         "[00:00 - 02:01] Елена Соколова: Запись. Сегодня повестка.\n"
         "[02:01 - 02:02] Игорь (Пилот): Да, вас слышно.\n"
     )
     chunks = chunk_transcript(text)
-    speakers = {c.speaker for c in chunks}
-    assert "Елена Соколова" in speakers
-    assert "Игорь (Пилот)" in speakers
-    assert all("00:00" not in (c.speaker or "") for c in chunks)
+    assert len(chunks) == 1
+    body = chunks[0].text
+    assert "[00:00 - 02:01] Елена Соколова: Запись." in body
+    assert "[02:01 - 02:02] Игорь (Пилот): Да, вас слышно." in body
+    assert chunks[0].speaker is None  # два говорящих в окне
+    assert chunks[0].start_sec == 0.0 and chunks[0].end_sec == 122.0
+
+
+def test_transcript_window_splits_and_overlaps():
+    lines = [f"[{i:02d}:00 - {i:02d}:30] {'Анна' if i % 2 else 'Борис'}: " + "слово " * 20 for i in range(20)]
+    chunks = chunk_transcript("\n".join(lines), max_tokens=200)
+    assert len(chunks) > 1
+    assert all(len(c.text) <= 200 * 4 for c in chunks)
+    first_last = chunks[0].text.splitlines()[-1]
+    assert chunks[1].text.splitlines()[0] == first_last  # перекрытие в одну реплику
+    assert all(c.start_sec is not None for c in chunks)
+
+
+def test_transcript_screen_blocks_go_to_own_windows():
+    text = (
+        "[00:10 - 00:20] Анна: Давайте смотреть.\n"
+        "[00:21 - 00:25] Борис: Согласен.\n"
+        "[75:10 - 75:20] Экран (показывал Анна): таблица номенклатуры\n"
+    )
+    chunks = chunk_transcript(text)
+    assert len(chunks) == 2
+    assert "Экран" not in chunks[0].text
+    assert chunks[1].text.startswith("[75:10 - 75:20] Экран")
+    assert chunks[1].start_sec == 75 * 60 + 10
 
 
 def test_estimate_tokens_positive():
@@ -92,6 +118,7 @@ def test_index_artifact_prefers_lab_final(tmp_data, db_engine, client, admin_tok
     assert n >= 1
     assert any("канон lab" in (c.text or "") for c in rows)
     assert any(c.speaker == "Елена Соколова" for c in rows)
+    assert rows[0].start_sec == 0.0 and rows[0].end_sec == 1.0
 
 
 def test_audit_empty_project_is_ok(tmp_data, db_engine, client, admin_token):

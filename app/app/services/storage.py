@@ -1,3 +1,5 @@
+"""Каталоги проекта и артефактов на диске: имена, пути к оригиналу, аудио, воспроизведению и отчётам."""
+
 from __future__ import annotations
 
 import re
@@ -21,6 +23,14 @@ PROJECT_SUBDIRS = (
 )
 
 _SAFE_NAME = re.compile(r"[^\w\s\-().,]")
+
+
+def normalize_project_name(name: str) -> str:
+    """Название проекта для показа: только пробелы и управляющие символы. Раньше «ООО «Ромашка»» превращалось
+    в «ООО _Ромашка_»; название в путях не участвует (папка проекта — по ID), поэтому кавычки, №, & остаются."""
+    cleaned = "".join(" " if (ord(ch) < 32 or ord(ch) == 127) else ch for ch in (name or ""))
+    cleaned = re.sub(r"[\/]+|\.{2,}", " ", cleaned)  # разделители путей и «..» — на случай, если название где-то попадёт в путь
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def sanitize_display_name(name: str) -> str:

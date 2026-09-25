@@ -17,7 +17,7 @@ from app.app.llm_labels import llm_runtime_label
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.services.artifact_audio import ensure_audio_wav, finalize_audio_outputs
-from app.app.services.artifact_lab import latest_run_id, resolve_run
+from app.app.services.artifact_lab import latest_run_id, resolve_run, vision_run_id
 from app.app.services.media_cleanup import maybe_discard_video_source, reconcile_artifact_source_path
 from app.app.services.notify import notify_artifact_user
 from app.app.services.pipeline_audio import _asr_env
@@ -35,7 +35,7 @@ APP_PYTHON = Path(sys.executable)
 
 LAB_STEPS: tuple[tuple[str, str], ...] = (
     ("audio_prep", "Подготовка WAV 16 кГц"),
-    ("lab_onnx", "Parakeet + Sortformer (ONNX)"),
+    ("lab_onnx", "Parakeet + диаризация Nemotron"),
     ("lab_sense", "Cursor: спорные спикеры"),
     ("lab_giga", "GigaAM — второй слух"),
     ("lab_reconcile", "Сверка lab vs GigaAM"),
@@ -242,6 +242,83 @@ def replicas_to_turns(replicas: list[dict]):
     ]
 
 
+def replicas_to_turn_words(replicas: list[dict]) -> list[list[dict]]:
+    """Слова реплик (с таймингами) параллельно turns — для точечной подсказки экрана."""
+    out: list[list[dict]] = []
+    for row in replicas:
+        words: list[dict] = []
+        for w in row.get("words") or []:
+            if not isinstance(w, dict):
+                continue
+            text = str(w.get("final") or w.get("word") or "").strip()
+            if not text:
+                continue
+            try:
+                start = float(w.get("start") or 0.0)
+                end = float(w.get("end") or start)
+            except (TypeError, ValueError):
+                continue
+            if end < start:
+                start, end = end, start
+            words.append({"start": start, "end": end, "text": text})
+        out.append(words)
+    return out
+
+
+def _frame_url_map(run) -> dict[str, str]:
+    """frame_id -> относительный путь к jpg (posix) из frames.json прогона."""
+    frame_path = run.resolve("frames.json")
+    if not frame_path.is_file():
+        return {}
+    try:
+        rows = json.loads(frame_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(rows, list):
+        return {}
+    out: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        fid = str(row.get("frame_id") or "")
+        rel = row.get("path")
+        if not fid or not rel or not str(rel).lower().endswith(".jpg"):
+            continue
+        out[fid] = Path(rel).as_posix()
+    return out
+
+
+def load_run_screen_segments(settings: Settings, artifact: Artifact, run_id: str | None) -> list[dict]:
+    """Сегменты экрана (текст кадров) из lab run для HTML-подсказок."""
+    if not run_id:
+        return []
+    try:
+        run = resolve_run(settings, artifact, run_id)
+    except FileNotFoundError:
+        return []
+    path = run.resolve("video_transcript.json")
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    segments = payload.get("segments") if isinstance(payload, dict) else None
+    if not isinstance(segments, list):
+        return []
+    out = [s for s in segments if isinstance(s, dict) and str(s.get("text") or "").strip()]
+    if not out:
+        return out
+    relmap = _frame_url_map(run)
+    if not relmap:
+        return out
+    for seg in out:
+        rel = relmap.get(str(seg.get("frame_id") or ""))
+        if rel:
+            seg["frame_url"] = f"/artifacts/{artifact.artifact_id}/lab/{run_id}/frame/{rel}"
+    return out
+
+
 def write_prod_view(
     asr_dir: Path,
     turns,
@@ -249,6 +326,8 @@ def write_prod_view(
     match_payload: dict | None,
     artifact_id: str,
     project_id: int,
+    screen_segments: list[dict] | None = None,
+    turn_words: list[list[dict]] | None = None,
 ) -> None:
     if str(ROOT / "asr") not in sys.path:
         sys.path.insert(0, str(ROOT / "asr"))
@@ -287,7 +366,95 @@ def write_prod_view(
         artifact_id=artifact_id,
         project_id=project_id,
         registry=registry,
+        screen_segments=screen_segments or [],
+        turn_words=turn_words or None,
     )
+
+
+def _append_screen_context(
+    asr_dir: Path,
+    run,
+    replicas: list[dict],
+) -> None:
+    """Добавить блоки экранного контекста в docker_merged*.txt.
+
+    Формат совместим с ``chunk_transcript``: ``[таймкод] Спикер: текст``.
+    Каждый кадр экрана → блок «Экран» (полное vision-описание) +
+    блок «Речь на экране» (реплики, совпадающие по времени с кадром).
+    """
+    path = run.resolve("video_transcript.json")
+    if not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    segments = payload.get("segments") if isinstance(payload, dict) else None
+    if not isinstance(segments, list):
+        return
+    segments = [s for s in segments if isinstance(s, dict) and str(s.get("text") or "").strip()]
+    if not segments:
+        return
+
+    def _fmt(sec: float) -> str:
+        m, s = divmod(int(sec), 60)
+        return f"{m:02d}:{s:02d}"
+
+    blocks: list[str] = []
+    for seg in segments:
+        s = float(seg.get("start") or 0)
+        e = float(seg.get("end") or s)
+        speaker = seg.get("speaker") or seg.get("identity") or "экран"
+        text = str(seg.get("text") or "").strip()
+        if not text:
+            continue
+        text = " ".join(part for part in text.splitlines() if part.strip())
+        overlap_snippets: list[str] = []
+        for row in replicas:
+            r_start = float(row.get("start") or 0)
+            r_end = float(row.get("end") or r_start)
+            if r_end <= s or r_start >= e:
+                continue
+            words = row.get("words") or []
+            if words:
+                snippet = " ".join(
+                    str(w.get("final") or w.get("word") or "").strip()
+                    for w in words
+                    if isinstance(w, dict)
+                    and float(w.get("end") or 0) > s
+                    and float(w.get("start") or 0) < e
+                )
+            else:
+                snippet = str(row.get("text") or "").strip()
+            if snippet:
+                overlap_snippets.append(
+                    f"{row.get('speaker') or 'спикер'}: {snippet}"
+                )
+        blocks.append(f"[{_fmt(s)} - {_fmt(e)}] Экран (показывал {speaker}): {text}")
+        if overlap_snippets:
+            blocks.append(
+                f"[{_fmt(s)} - {_fmt(e)}] Речь на экране: "
+                + " ".join(overlap_snippets)
+            )
+        blocks.append("")
+
+    if not blocks:
+        return
+
+    screen_text = "\n".join(blocks)
+    for name in (
+        "docker_gigaam_diar_smooth_timecodes.txt",
+        "docker_gigaam_diar_smooth.txt",
+        "docker_merged_timecodes.txt",
+        "docker_merged.txt",
+        "docker_merged_plain.txt",
+    ):
+        p = asr_dir / name
+        if p.is_file():
+            p.write_text(
+                p.read_text(encoding="utf-8") + "\n" + screen_text,
+                encoding="utf-8",
+            )
 
 
 def publish_lab_to_prod(db: Session, settings: Settings, artifact: Artifact, run_id: str) -> str:
@@ -321,13 +488,20 @@ def publish_lab_to_prod(db: Session, settings: Settings, artifact: Artifact, run
         rebuild_match_report_html(db, project_id=artifact.project_id, artifact_id=artifact.artifact_id)
 
     turns = replicas_to_turns(replicas)
+    screen_run_id = vision_run_id(settings, artifact) or run_id
+    screen_segments = load_run_screen_segments(settings, artifact, screen_run_id)
+    turn_words = replicas_to_turn_words(replicas)
     write_prod_view(
         ws / "asr",
         turns,
         match_payload=payload,
         artifact_id=artifact.artifact_id,
         project_id=artifact.project_id,
+        screen_segments=screen_segments,
+        turn_words=turn_words,
     )
+    screen_run = resolve_run(settings, artifact, screen_run_id)
+    _append_screen_context(ws / "asr", screen_run, replicas)
     final_path, transcript_url = finalize_audio_outputs(settings, artifact)
     text = final_path.read_text(encoding="utf-8")
     artifact.transcription_file_path = str(final_path)
@@ -352,13 +526,21 @@ def republish_named_transcript(settings: Settings, artifact: Artifact) -> tuple[
     ws = ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
     match_path = ws / "reports" / "sortformer_speaker_match.json"
     payload = json.loads(match_path.read_text(encoding="utf-8")) if match_path.is_file() else None
+    turns = replicas_to_turns(replicas)
+    screen_run_id = vision_run_id(settings, artifact) or run_id
+    screen_segments = load_run_screen_segments(settings, artifact, screen_run_id)
+    turn_words = replicas_to_turn_words(replicas)
     write_prod_view(
         ws / "asr",
-        replicas_to_turns(replicas),
+        turns,
         match_payload=payload,
         artifact_id=artifact.artifact_id,
         project_id=artifact.project_id,
+        screen_segments=screen_segments,
+        turn_words=turn_words,
     )
+    screen_run = resolve_run(settings, artifact, screen_run_id)
+    _append_screen_context(ws / "asr", screen_run, replicas)
     final_path, transcript_url = finalize_audio_outputs(settings, artifact)
     return final_path, transcript_url or artifact_report_url(artifact.artifact_id)
 
@@ -370,12 +552,26 @@ def apply_confirmed_speaker_names(db: Session, settings: Settings, artifact: Art
     artifact.transcription_file_path = str(final_path)
     artifact.transcription_text = text
     artifact.transcript_html_url = transcript_url
+    # «Запомнить», «Слить», подтверждение имён чанки не переиндексируют — но имена в привязанных сущностях
+    # (кто сказал / кто утвердил) обновляем сразу: дёшево, без LLM и Ollama.
+    from app.app.services.entities import rebind_call_entities  # noqa: PLC0415
+
+    rebind_call_entities(db, settings, artifact)
     db.commit()
     return text
 
 
 def process_lab_artifact(db: Session, settings: Settings, artifact: Artifact) -> str:
     """Полный lab-контур. При voice_gate — стоп на speakers_pending (пустое возвращение)."""
+    try:
+        return _process_lab_core(db, settings, artifact)
+    finally:
+        from app.app.services.docker_runtime import stop_gigaam
+
+        stop_gigaam()
+
+
+def _process_lab_core(db: Session, settings: Settings, artifact: Artifact) -> str:
     src = Path(artifact.file_path)
     wav = artifact_audio_path(settings, artifact.artifact_id, artifact.project_id)
     if not src.is_file():
@@ -455,6 +651,10 @@ def process_lab_artifact(db: Session, settings: Settings, artifact: Artifact) ->
     from app.app.services.meeting_analyze import inject_known_speaker_into_lab_match
 
     known_speaker = inject_known_speaker_into_lab_match(settings, artifact, run_id)
+    if not known_speaker:
+        from app.app.services.speaker_auto import auto_accept_lab_voices
+
+        auto_accept_lab_voices(settings, artifact, run_id)
     text = publish_lab_to_prod(db, settings, artifact, run_id)
     if not text:
         artifact.error_message = "речь не обнаружена"
@@ -466,7 +666,27 @@ def process_lab_artifact(db: Session, settings: Settings, artifact: Artifact) ->
         notify_artifact_user(db, settings, artifact, f"Стенограмма готова: {artifact.original_filename}")
         return text
 
-    if settings.voice_gate_before_asr:
+    from app.app.services.speaker_auto import GATE_OFF, gate_mode, gate_proceeds, unnamed_labels
+
+    gate = gate_mode(settings)
+    match_path = ws / "reports" / "sortformer_speaker_match.json"
+    payload = json.loads(match_path.read_text(encoding="utf-8")) if match_path.is_file() else None
+    unnamed = unnamed_labels(payload) if payload else []
+    if gate != GATE_OFF and gate_proceeds(settings, unnamed):
+        # R3: неизвестные голоса не останавливают конвейер — остаются speaker_N, имя дадут позже (знания пересчитаются сами)
+        mark_lab_step(ws, "speakers_confirm", "ok", detail="без ожидания" if unnamed else "все голоса узнаны")
+        set_status(db, artifact, "transcript_ready")
+        db.commit()
+        text_msg = (
+            f"Стенограмма готова: {artifact.original_filename}. Назовите голоса: {len(unnamed)}"
+            if unnamed
+            else f"Стенограмма готова: {artifact.original_filename}"
+        )
+        notify_artifact_user(db, settings, artifact, text_msg)
+        log_event(logger, "lab.speakers_gate", artifact=artifact.artifact_id, gate=gate, unnamed=",".join(unnamed))
+        return text
+
+    if gate != GATE_OFF:
         mark_lab_step(ws, "speakers_confirm", "running", detail="ожидание пользователя")
         set_status(db, artifact, "speakers_pending")
         db.commit()

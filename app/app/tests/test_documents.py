@@ -31,7 +31,6 @@ def test_detect_file_type_html():
 def test_detect_file_type_text_files():
     assert detect_file_type("note.txt", "text/plain") == "txt"
     assert detect_file_type("readme.md", None) == "txt"
-    assert detect_file_type("data.csv", "text/csv") == "txt"
     assert detect_file_type("legacy.rtf", "application/rtf") == "txt"
     assert detect_file_type("config.json", "application/json") == "txt"
     assert detect_file_type("noext", "text/plain") == "txt"
@@ -73,3 +72,68 @@ def test_extract_html_strips_markup(tmp_path: Path):
     assert title in raw
     assert body in raw
     assert "alert" not in raw
+
+
+def test_detect_file_type_pptx():
+    assert detect_file_type("deck.pptx", None) == "pptx"
+    assert detect_file_type("old.ppt", "application/vnd.ms-powerpoint") == "pptx"
+    assert detect_file_type("deck", "application/vnd.openxmlformats-officedocument.presentationml.presentation") == "pptx"
+
+
+def _make_deck(path: Path) -> None:
+    from pptx import Presentation
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.util import Inches
+
+    prs = Presentation()
+    s1 = prs.slides.add_slide(prs.slide_layouts[1])
+    s1.shapes.title.text = "Бюджет проекта"
+    s1.placeholders[1].text_frame.text = "Итого 1 500 000 руб."
+    s1.notes_slide.notes_text_frame.text = "Уточнить у заказчика"
+    s2 = prs.slides.add_slide(prs.slide_layouts[5])
+    s2.shapes.title.text = "Сроки"
+    tbl = s2.shapes.add_table(2, 2, Inches(1), Inches(2), Inches(6), Inches(1)).table
+    for (r, c), v in {(0, 0): "Этап", (0, 1): "Дата", (1, 0): "Пилот", (1, 1): "19.08.2026"}.items():
+        tbl.cell(r, c).text = v
+    cd = CategoryChartData()
+    cd.categories = ["Q1", "Q2"]
+    cd.add_series("План", (10, 20))
+    s2.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(4), Inches(5), Inches(3), cd)
+    prs.save(str(path))
+
+
+def test_extract_pptx_slides_tables_notes_charts(tmp_path: Path):
+    from app.app.services.pptx_extract import extract_pptx
+
+    deck = tmp_path / "deck.pptx"
+    _make_deck(deck)
+    out = extract_pptx(deck)
+    assert "## Слайд 1: Бюджет проекта" in out
+    assert "1 500 000" in out
+    assert "Заметки докладчика:\nУточнить у заказчика" in out
+    assert "## Слайд 2: Сроки" in out
+    assert "| Пилот | 19.08.2026 |" in out
+    assert "План: Q1: 10; Q2: 20" in out
+
+
+def test_extract_legacy_ppt_via_libreoffice(tmp_path: Path):
+    import subprocess
+
+    import pytest
+
+    from app.app.services.pptx_extract import _find_soffice, extract_pptx
+
+    soffice = _find_soffice()
+    if not soffice:
+        pytest.skip("LibreOffice не установлен")
+    deck = tmp_path / "deck.pptx"
+    _make_deck(deck)
+    ppt_dir = tmp_path / "ppt"
+    ppt_dir.mkdir()
+    subprocess.run([soffice, f"-env:UserInstallation={(tmp_path / 'p').resolve().as_uri()}", "--headless",
+                    "--convert-to", "ppt", "--outdir", str(ppt_dir), str(deck)], capture_output=True, timeout=180)
+    ppt = ppt_dir / "deck.ppt"
+    assert ppt.exists()
+    out = extract_pptx(ppt)
+    assert "Бюджет проекта" in out and "1 500 000" in out

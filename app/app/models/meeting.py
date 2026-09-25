@@ -1,8 +1,10 @@
+"""Модели встреч: Meeting и MeetingParticipant (присутствие участников)."""
+
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.app.db import Base
@@ -33,6 +35,9 @@ class Meeting(Base):
 
 class MeetingParticipant(Base):
     __tablename__ = "meeting_participants"
+    __table_args__ = (
+        UniqueConstraint("meeting_id", "identity", name="uq_meeting_participant_identity"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     meeting_id: Mapped[int] = mapped_column(ForeignKey("meetings.id"), nullable=False, index=True)
@@ -42,3 +47,4 @@ class MeetingParticipant(Base):
     participant_type: Mapped[str] = mapped_column(String(16), nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)

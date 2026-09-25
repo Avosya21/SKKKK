@@ -1,0 +1,366 @@
+/* Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки.
+   Данные и права приходят с сервера (can_edit); все действия проверяются на сервере. Роль admin — действия, manager — просмотр. */
+(function () {
+  const root = document.querySelector('[data-px-card]');
+  if (!root || !window.PX) return;
+  const PID = window.PX.projectId;
+  const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const errText = async (r) => {
+    try {
+      const d = (await r.json()).detail;
+      const s = typeof d === 'string' ? d : JSON.stringify(d);
+      return (window.SKKKKErrors && window.SKKKKErrors.text(s)) || s;
+    } catch (e) { return 'Ошибка ' + r.status; }
+  };
+  // Потеря сети или падение сервера не должны молча ломать блок: возвращаем «ответ» с понятным текстом, который показывает errText
+  const api = async (path, opts) => {
+    try {
+      return await SKKKK.api(`/projects/${PID}${path}`, opts);
+    } catch (e) {
+      return new Response(JSON.stringify({ detail: 'Нет связи с сервером. Проверьте интернет и повторите.' }), { status: 599, headers: { 'Content-Type': 'application/json' } });
+    }
+  };
+  const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return iso || ''; } };
+  const say = (key, text, bad) => { const el = $('px-status-' + key); if (el) { el.textContent = text || ''; el.classList.toggle('text-danger', !!bad); } };
+  const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* без хранилища работает */ } } };
+  const SIDE = { customer: 'заказчик', vendor: 'исполнитель', unknown: 'сторона неизвестна' };
+  const STATUS = { agreed: 'согласовано', proposed: 'предложено', implemented: 'реализовано', rejected: 'отклонено', agreed_out_of_scope: 'согласовано вне ТЗ' };
+  const BASIS = {
+    customer_evidence: 'есть реплика заказчика', decision_by_vendor_only: 'только реплика исполнителя', decision_side_unknown: 'сторона реплики неизвестна',
+    customer_conditional: 'заказчик с оговоркой', task_not_confirmed: 'задача, не подтверждена', human_set: 'задано человеком', task_cancelled: 'задача отменена',
+  };
+  const DECISION = { accepted: 'принято', rejected: 'отклонено', needs_human: 'ждёт человека' };
+  const VERDICT = { implemented: 'реализовано', partially_implemented: 'частично', not_implemented: 'не реализовано', contradicts_data: 'противоречит данным', not_verifiable: 'нельзя проверить' };
+  const loaded = {};
+
+  function setCount(key, n, extra) {
+    const el = $('px-count-' + key);
+    if (!el) return;
+    el.textContent = extra ? `${n} ${extra}` : String(n);
+    el.classList.toggle('d-none', !n);
+    el.classList.toggle('text-bg-warning', !!n);
+    el.classList.toggle('text-bg-secondary', !n);
+  }
+
+  async function loadSummary() {
+    try {
+      const r = await api('/agent-exchange/summary');
+      if (!r.ok) return;
+      const s = await r.json();
+      setCount('review', s.requirements_unconfirmed, 'ждут вас');
+      setCount('exchange', s.questions_waiting + s.verdicts_waiting, 'ждут вас');
+      const q = $('px-tabcount-questions'), v = $('px-tabcount-verdicts');
+      q.textContent = s.questions_waiting; q.classList.toggle('d-none', !s.questions_waiting);
+      v.textContent = s.verdicts_waiting; v.classList.toggle('d-none', !s.verdicts_waiting);
+    } catch (e) { /* счётчики не критичны */ }
+  }
+
+  /* ---------- сворачивание с запоминанием и ленивой загрузкой ---------- */
+  document.querySelectorAll('[data-px-card]').forEach((card) => {
+    const key = card.dataset.pxCard;
+    const panel = $('px-panel-' + key);
+    const hint = card.querySelector('.px-toggle-hint');
+    const onShow = () => { if (hint) hint.textContent = '(свернуть)'; store.set('px_open_' + key, '1'); if (!loaded[key]) { loaded[key] = true; LOADERS[key](); } };
+    panel.addEventListener('shown.bs.collapse', onShow);
+    panel.addEventListener('hidden.bs.collapse', () => { if (hint) hint.textContent = '(развернуть)'; store.set('px_open_' + key, '0'); });
+    if (store.get('px_open_' + key) === '1') { new bootstrap.Collapse(panel, { toggle: true }); }
+  });
+
+  /* ---------- Подтверждение требований ---------- */
+  const rv = { offset: 0, total: 0, canEdit: false, selected: new Set() };
+  const RV_LIMIT = 30;
+
+  const MODEL_VERDICT = { confirm: 'подтвердила', reject: 'отклонила', unsure: 'не уверена' };
+
+  function modelHtml(r) {
+    const m = r.model_review;
+    if (!m || m.undone) return '';
+    const live = m.mode === 'live';
+    const what = live ? `Модель ${MODEL_VERDICT[m.verdict] || m.verdict}` : `Модель ${MODEL_VERDICT[m.verdict] || m.verdict} бы (тень)`;
+    const conf = m.confidence != null ? ` · уверенность ${Math.round(m.confidence * 100)}%` : '';
+    return `<div class="small px-model mt-1"><span class="text-muted">${esc(what)}${conf}:</span> ${esc(m.reason || '')}</div>`;
+  }
+
+  function reqHtml(r) {
+    const ok = r.verification === 'human_confirmed';
+    const byModel = r.verification === 'model_confirmed' || r.verification === 'model_rejected';
+    const undoable = byModel && r.model_review && !r.model_review.undone && r.source_entity_id;
+    const quote = r.quote ? `<blockquote class="px-quote">«${esc(r.quote)}»<footer>${esc(r.speaker || '?')} · ${esc(SIDE[r.side] || r.side || '')} · ${esc(fmt(r.said_at))}</footer></blockquote>`
+      : (r.verification === 'model_rejected' ? '' : '<div class="small text-muted">Цитаты в источнике не найдено.</div>');
+    const hr = r.human_review ? `<div class="small text-muted mt-1">Решение человека: ${esc(r.human_review.by)}, ${esc(fmt(r.human_review.at))}${r.human_review.reason ? ' — ' + esc(r.human_review.reason) : ''}</div>` : '';
+    const undo = rv.canEdit && undoable ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-rv="undo" data-id="${esc(r.id)}" data-entity="${esc(r.source_entity_id)}">Вернуть решение модели</button>` : '';
+    const acts = rv.canEdit && r.verification === 'model_rejected' ? `<div class="px-actions">${undo}</div>` : (rv.canEdit ? `<div class="px-actions">
+        ${ok ? '' : `<button type="button" class="btn btn-sm btn-primary" data-rv="confirm" data-id="${esc(r.id)}">Подтвердить</button>`}
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-rv="status" data-id="${esc(r.id)}">Изменить статус</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-rv="reject" data-id="${esc(r.id)}">Отклонить</button>${undo}</div>` : '');
+    return `<div class="px-item" data-item="${esc(r.id)}">
+      <div class="d-flex gap-2 align-items-start">
+        ${rv.canEdit && !ok && r.verification !== 'model_rejected' ? `<input type="checkbox" class="form-check-input mt-1 px-rv-check" data-id="${esc(r.id)}" aria-label="Выбрать ${esc(r.id)}">` : ''}
+        <div class="flex-grow-1">
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+            <code class="small">${esc(r.id)}</code>
+            <span class="badge ${r.status === 'agreed' ? 'text-bg-success' : 'text-bg-light border'}">${esc(STATUS[r.status] || r.status)}</span>
+            <span class="small text-muted">${esc(BASIS[r.status_basis] || r.status_basis || '')}</span>
+            ${ok ? '<span class="badge text-bg-primary">подтверждено человеком</span>'
+              : r.verification === 'model_confirmed' ? '<span class="badge text-bg-success">подтверждено моделью</span>'
+              : r.verification === 'model_rejected' ? '<span class="badge text-bg-secondary">отклонено моделью</span>'
+              : '<span class="badge text-bg-warning">не подтверждено</span>'}
+            ${r.model_review && r.model_review.audit && !ok ? '<span class="badge text-bg-info" title="Контрольная выборка: проверьте решение модели">проверка модели</span>' : ''}
+            ${r.analysis ? `<span class="badge text-bg-info" title="Вердикт агента анализа">агент: ${esc(VERDICT[r.analysis.verdict] || r.analysis.verdict)}</span>` : ''}
+          </div>
+          <div class="px-statement">${esc(r.statement)}</div>
+          ${quote}${modelHtml(r)}${hr}${acts}
+          <div class="px-inline d-none" data-inline="${esc(r.id)}"></div>
+        </div>
+      </div></div>`;
+  }
+
+  async function loadReview(append) {
+    const box = $('px-rv-list');
+    if (!append) { rv.offset = 0; rv.selected.clear(); box.innerHTML = ''; }
+    const p = new URLSearchParams({ offset: rv.offset, limit: RV_LIMIT });
+    for (const [k, id] of [['verification', 'px-rv-verification'], ['status', 'px-rv-status'], ['side', 'px-rv-side'], ['q', 'px-rv-q']]) { const v = $(id).value.trim(); if (v) p.set(k, v); }
+    say('review', 'Загрузка…');
+    try {
+      const r = await api('/requirements/review?' + p);
+      if (!r.ok) { say('review', await errText(r), true); return; }
+      const d = await r.json();
+      rv.canEdit = d.can_edit; rv.total = d.total;
+      $('px-rv-backlog').classList.toggle('d-none', !d.can_edit);
+      box.insertAdjacentHTML('beforeend', d.items.map(reqHtml).join('') || (append ? '' : '<div class="text-muted small">По этим условиям требований нет.</div>'));
+      rv.offset += d.items.length;
+      $('px-rv-more').classList.toggle('d-none', rv.offset >= d.total);
+      setCount('review', d.counts.needs_human, 'ждут вас');
+      say('review', `Показано ${rv.offset} из ${d.total}. Всего требований: ${d.counts.total}; ждут вас: ${d.counts.needs_human}; подтверждено моделью: ${d.counts.model_confirmed}; отклонено моделью: ${d.counts.model_rejected}.` + (d.can_edit ? '' : ' Вы можете только смотреть: подтверждает администратор.'));
+      updateBatch();
+    } catch (e) { say('review', 'Не удалось загрузить требования', true); }
+  }
+
+  function updateBatch() {
+    const n = rv.selected.size;
+    $('px-rv-batch').classList.toggle('d-none', !n);
+    $('px-rv-batch').classList.toggle('d-flex', !!n);
+    $('px-rv-selected').textContent = `Выбрано: ${n}`;
+  }
+
+  function inlineForm(id, html) { const el = document.querySelector(`[data-inline="${CSS.escape(id)}"]`); el.innerHTML = html; el.classList.remove('d-none'); return el; }
+
+  async function reviewAction(action, id, body) {
+    const r = await post(`/requirements/${encodeURIComponent(id)}/${action}`, body);
+    if (!r.ok) { say('review', await errText(r), true); return false; }
+    return true;
+  }
+
+  $('px-rv-list').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-rv]');
+    if (!btn) return;
+    const id = btn.dataset.id, act = btn.dataset.rv;
+    if (act === 'confirm') { if (await SKKKK.guardButton(btn, async () => { if (await reviewAction('confirm', id)) { await loadReview(false); loadSummary(); } })) return; }
+    if (act === 'undo') {
+      await SKKKK.guardButton(btn, async () => {
+        const r = await post(`/requirements/entity/${encodeURIComponent(btn.dataset.entity)}/undo-model`, {});
+        if (!r.ok) { say('review', await errText(r), true); return; }
+        await loadReview(false); loadSummary();
+        say('review', 'Решение модели отменено.');
+      });
+      return;
+    }
+    if (act === 'reject') {
+      const el = inlineForm(id, `<div class="px-form-row"><input class="form-control form-control-sm" placeholder="Причина (необязательно)" maxlength="500"><button type="button" class="btn btn-sm btn-danger" data-do="reject">Отклонить</button><button type="button" class="btn btn-sm btn-link" data-do="cancel">Отмена</button></div><div class="form-text">Требование исчезнет из выдачи агентам; данные не удаляются.</div>`);
+      el.querySelector('input').focus();
+    }
+    if (act === 'status') {
+      const opts = Object.entries(STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+      const el = inlineForm(id, `<div class="px-form-row"><select class="form-select form-select-sm">${opts}</select><input class="form-control form-control-sm" placeholder="Причина (обязательна)" maxlength="500"><button type="button" class="btn btn-sm btn-primary" data-do="status">Сохранить</button><button type="button" class="btn btn-sm btn-link" data-do="cancel">Отмена</button></div>`);
+      el.querySelector('input').focus();
+    }
+  });
+  $('px-rv-list').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-do]');
+    if (!btn) return;
+    const holder = btn.closest('[data-inline]'); const id = holder.dataset.inline;
+    if (btn.dataset.do === 'cancel') { holder.classList.add('d-none'); holder.innerHTML = ''; return; }
+    const reason = holder.querySelector('input').value.trim();
+    await SKKKK.guardButton(btn, async () => {
+      const body = btn.dataset.do === 'status' ? { status: holder.querySelector('select').value, reason } : { reason };
+      if (await reviewAction(btn.dataset.do, id, body)) { await loadReview(false); loadSummary(); }
+    });
+  });
+  $('px-rv-list').addEventListener('change', (ev) => {
+    const c = ev.target.closest('.px-rv-check');
+    if (!c) return;
+    c.checked ? rv.selected.add(c.dataset.id) : rv.selected.delete(c.dataset.id);
+    updateBatch();
+  });
+  $('px-rv-confirm-selected').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
+    const r = await post('/requirements/confirm', { ids: [...rv.selected] });
+    if (!r.ok) { say('review', await errText(r), true); return; }
+    const d = await r.json();
+    await loadReview(false); loadSummary();
+    say('review', `Подтверждено: ${d.confirmed.length}` + (d.failed.length ? `, не удалось: ${d.failed.length}` : ''), d.failed.length > 0);
+  }));
+  $('px-rv-more').addEventListener('click', () => loadReview(true));
+  $('px-rv-backlog').addEventListener('click', (ev) => {
+    if (!confirm('Поставить в очередь фоновую проверку моделью всех накопленных требований и конфликтов проекта? Расшифровке она не мешает; решения модели можно вернуть.')) return;
+    SKKKK.guardButton(ev.currentTarget, async () => {
+      const r = await post('/auto-review/backlog', { scope: 'all' });
+      if (!r.ok) { say('review', await errText(r), true); return; }
+      const d = await r.json();
+      const mode = d.mode === 'live' ? 'с применением' : 'в тени (без последствий)';
+      say('review', `Поставлено задач: ${d.jobs_queued} (${mode}). Требований: ${d.requirements}, конфликтов: ${d.conflicts}, примерно ${d.estimate_minutes} мин.`);
+    });
+  });
+  let rvTimer;
+  document.querySelectorAll('#px-panel-review .px-filter').forEach((f) => f.addEventListener(f.tagName === 'INPUT' ? 'input' : 'change', () => { clearTimeout(rvTimer); rvTimer = setTimeout(() => loadReview(false), 250); }));
+
+  /* ---------- Обмен с агентами ---------- */
+  let exCanEdit = false;
+  document.querySelectorAll('[data-px-tab]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-px-tab]').forEach((x) => x.classList.toggle('active', x === b));
+    for (const t of ['questions', 'verdicts', 'journal']) $('px-tab-' + t).classList.toggle('d-none', t !== b.dataset.pxTab);
+    ({ questions: loadQuestions, verdicts: loadVerdicts, journal: loadJournal })[b.dataset.pxTab]();
+  }));
+
+  const Q_STATUS = { pending: 'ждёт ответа', drafted: 'есть черновик модели', answered: 'отвечено' };
+
+  function questionHtml(q) {
+    const src = (q.sources || []).map((s) => `<li><span class="text-muted">[${s.n}] ${esc(s.artifact)}</span> ${esc(s.text).slice(0, 300)}</li>`).join('');
+    const answered = q.status === 'answered';
+    const edit = exCanEdit && !answered ? `
+      ${q.draft ? `<div class="px-draft"><div class="small text-muted">Черновик локальной модели (агенту не виден):</div><div class="px-statement">${esc(q.draft)}</div><button type="button" class="btn btn-sm btn-primary mt-1" data-q="approve" data-id="${q.id}">Одобрить черновик</button></div>` : ''}
+      <textarea class="form-control form-control-sm mt-2" rows="3" maxlength="4000" placeholder="Ваш ответ агенту" data-q-text="${q.id}"></textarea>
+      <div class="px-actions"><button type="button" class="btn btn-sm btn-primary" data-q="answer" data-id="${q.id}">Ответить</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-q="draft" data-id="${q.id}" data-idle-label="Черновик локальной модели">Черновик локальной модели</button></div>` : '';
+    return `<div class="px-item">
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-1"><code class="small">№${esc(q.request_id)}</code>
+        <span class="badge ${answered ? 'text-bg-success' : 'text-bg-warning'}">${esc(Q_STATUS[q.status] || q.status)}</span>
+        <span class="small text-muted">${esc(fmt(q.created_at))}</span></div>
+      <div class="px-statement">${esc(q.question)}</div>
+      ${answered ? `<div class="px-answer"><div class="small text-muted">Ответ (${esc(q.answer_author || '')}):</div>${esc(q.answer)}</div>` : ''}
+      ${src ? `<details class="mt-1"><summary class="small text-muted">Найденные материалы (${q.sources.length})</summary><ul class="small px-sources">${src}</ul></details>` : ''}
+      ${edit}</div>`;
+  }
+
+  async function loadQuestions() {
+    const box = $('px-q-list');
+    say('exchange', 'Загрузка…');
+    const r = await api('/agent-inbox');
+    if (!r.ok) { say('exchange', await errText(r), true); return; }
+    const items = (await r.json()).items;
+    const s = await api('/agent-exchange/summary').then((x) => x.ok ? x.json() : null).catch(() => null);
+    exCanEdit = window.PX.role === 'admin';
+    box.innerHTML = items.map(questionHtml).join('') || '<div class="text-muted small">Вопросов от агентов пока нет.</div>';
+    say('exchange', exCanEdit ? '' : 'Вы можете только смотреть: отвечает администратор.');
+    if (s) loadSummary();
+  }
+  $('px-q-list').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-q]');
+    if (!btn) return;
+    const id = btn.dataset.id, act = btn.dataset.q;
+    await SKKKK.guardButton(btn, async () => {
+      let r;
+      if (act === 'draft') r = await post(`/agent-inbox/${id}/draft`, {});
+      else if (act === 'approve') r = await post(`/agent-inbox/${id}/answer`, { approve_draft: true });
+      else { const text = document.querySelector(`[data-q-text="${id}"]`).value.trim(); if (!text) { say('exchange', 'Напишите ответ', true); return; } r = await post(`/agent-inbox/${id}/answer`, { text }); }
+      if (!r.ok) { say('exchange', await errText(r), true); return; }
+      say('exchange', act === 'draft' ? 'Черновик готов: проверьте и одобрите.' : 'Ответ отправлен агенту.');
+      await loadQuestions(); loadSummary();
+    }, { label: act === 'draft' ? 'Модель пишет…' : undefined });
+  });
+
+  function verdictHtml(v) {
+    const done = !!v.human_review;
+    const list = (label, arr) => arr && arr.length ? `<div class="small"><span class="text-muted">${label}:</span> ${arr.map((x) => esc(typeof x === 'string' ? x : JSON.stringify(x))).join('; ')}</div>` : '';
+    const acts = exCanEdit && v.needs_review && v.is_active ? `<div class="px-actions"><button type="button" class="btn btn-sm btn-primary" data-v="confirm" data-id="${v.id}">Подтвердить</button><button type="button" class="btn btn-sm btn-outline-danger" data-v="reject" data-id="${v.id}">Отклонить</button></div>` : '';
+    return `<div class="px-item"><div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+        <code class="small">${esc(v.requirement_id)}</code>
+        <span class="badge text-bg-info">${esc(VERDICT[v.verdict] || v.verdict)}</span><span class="small text-muted">уверенность: ${esc(v.confidence)}</span>
+        ${done ? `<span class="badge ${v.is_active ? 'text-bg-primary' : 'text-bg-secondary'}">${v.is_active ? 'подтверждён' : 'отклонён'}: ${esc(v.human_review.by)}</span>` : (v.needs_review ? '<span class="badge text-bg-warning">не проверен человеком</span>' : '')}
+        ${!v.is_active && !done ? '<span class="badge text-bg-secondary">заменён новым</span>' : ''}</div>
+      ${list('Препятствия', v.blockers)}${list('Вопросы заказчику', v.questions_for_customer)}${list('Доказательства в коде', (v.code_evidence || []).map((c) => `${c.object || ''} ${c.path || ''} ${c.note || ''}`.trim()))}${acts}</div>`;
+  }
+  async function loadVerdicts() {
+    const r = await api('/agent-verdicts');
+    if (!r.ok) { say('exchange', await errText(r), true); return; }
+    const d = await r.json();
+    exCanEdit = d.can_edit;
+    $('px-v-list').innerHTML = d.items.map(verdictHtml).join('') || '<div class="text-muted small">Вердиктов от агентов пока нет.</div>';
+    say('exchange', 'Вердикты агента помечены как непроверенные, пока вы их не подтвердите. Машинная проверка по коду не заменяет подтверждение человеком.');
+  }
+  $('px-v-list').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-v]');
+    if (!btn) return;
+    if (btn.dataset.v === 'reject' && !confirm('Отклонить этот вердикт? Он перестанет учитываться, но останется в базе.')) return;
+    await SKKKK.guardButton(btn, async () => {
+      const r = await post(`/agent-verdicts/${btn.dataset.id}/${btn.dataset.v}`, {});
+      if (!r.ok) { say('exchange', await errText(r), true); return; }
+      await loadVerdicts(); loadSummary();
+    });
+  });
+
+  async function loadJournal() {
+    const p = new URLSearchParams({ limit: 100 });
+    if ($('px-j-decision').value) p.set('decision', $('px-j-decision').value);
+    if ($('px-j-source').value) p.set('source', $('px-j-source').value);
+    const r = await api('/agent-exchange?' + p);
+    if (!r.ok) { say('exchange', await errText(r), true); return; }
+    const items = (await r.json()).items;
+    $('px-j-body').innerHTML = items.map((j) => `<tr><td class="text-nowrap">${esc(fmt(j.at))}</td><td>${esc(j.agent || j.source)}</td><td>${esc(j.kind)}</td><td>${esc(j.request_id ?? '')}</td>
+      <td><span class="badge ${j.decision === 'accepted' ? 'text-bg-success' : (j.decision === 'rejected' ? 'text-bg-danger' : 'text-bg-warning')}">${esc(DECISION[j.decision] || j.decision)}</span></td>
+      <td class="small">${esc((j.reasons || []).join('; ')).slice(0, 200)}</td></tr>`).join('') || '<tr><td colspan="6" class="text-muted small">Записей нет.</td></tr>';
+    say('exchange', '');
+  }
+  ['px-j-decision', 'px-j-source'].forEach((id) => $(id).addEventListener('change', loadJournal));
+
+  /* ---------- Настройки ---------- */
+  let settingsCanEdit = false;
+  async function loadSettings() {
+    const r = await api('/agent-settings');
+    if (!r.ok) { say('settings', await errText(r), true); return; }
+    const d = await r.json(), s = d.settings;
+    settingsCanEdit = d.can_edit;
+    $('px-s-tz').value = s.timezone;
+    $('px-s-pack').innerHTML = d.packs.map((p) => `<option value="${esc(p.name)}" data-desc="${esc(p.description)}">${esc(p.title)}</option>`).join('');
+    $('px-s-pack').value = s.domain_pack;
+    const desc = () => { const o = $('px-s-pack').selectedOptions[0]; $('px-s-pack-desc').textContent = o ? o.dataset.desc : ''; };
+    $('px-s-pack').onchange = desc; desc();
+    $('px-s-participants').value = (s.participants || []).map((p) => `${p.name} = ${p.side === 'customer' ? 'заказчик' : 'исполнитель'}`).join('\n');
+    $('px-s-hint-customer').value = (s.side_hints.customer || []).join(', ');
+    $('px-s-hint-vendor').value = (s.side_hints.vendor || []).join(', ');
+    $('px-s-enabled').checked = !!s.exchange_enabled;
+    $('px-s-key-scope').value = s.default_key_scope || 'read';
+    document.querySelectorAll('#px-settings-form input, #px-settings-form select, #px-settings-form textarea').forEach((el) => { el.disabled = !settingsCanEdit; });
+    $('px-s-save').classList.toggle('d-none', !settingsCanEdit);
+    say('settings', settingsCanEdit ? '' : 'Вы можете только смотреть: менять настройки может администратор.');
+  }
+  function parseParticipants(text) {
+    const rows = [];
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (!t) continue;
+      const m = t.match(/^(.+?)\s*[=:—-]\s*(заказчик|исполнитель)\s*$/i);
+      if (!m) throw new Error(`Не понял строку: «${t}». Формат: «Имя = заказчик» или «Имя = исполнитель».`);
+      rows.push({ name: m[1].trim(), side: m[2].toLowerCase() === 'заказчик' ? 'customer' : 'vendor' });
+    }
+    return rows;
+  }
+  $('px-settings-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    await SKKKK.guardButton($('px-s-save'), async () => {
+      let body;
+      try {
+        const words = (id) => $(id).value.split(',').map((x) => x.trim()).filter(Boolean);
+        body = { timezone: $('px-s-tz').value.trim(), domain_pack: $('px-s-pack').value, participants: parseParticipants($('px-s-participants').value),
+          side_hints: { customer: words('px-s-hint-customer'), vendor: words('px-s-hint-vendor') }, exchange_enabled: $('px-s-enabled').checked, default_key_scope: $('px-s-key-scope').value };
+      } catch (e) { say('settings', e.message, true); return; }
+      const r = await fetch(`/projects/${PID}/agent-settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SKKKK.token()}` }, body: JSON.stringify(body) });
+      if (!r.ok) { say('settings', await errText(r), true); return; }
+      say('settings', 'Сохранено. Агенты увидят изменения при следующем обращении.');
+    });
+  });
+
+  const LOADERS = { review: () => loadReview(false), exchange: loadQuestions, settings: loadSettings };
+  loadSummary();
+})();

@@ -134,7 +134,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Скачать созвон | `download.mp3` | **MP3** libmp3lame | 64 kbps, mono |
 | Загрузка | `.wav .mp3 .m4a .ogg .flac .webm .mp4 .mkv` | как пришло | видео: звук вынимается, оригинал может быть снесён после проверки WAV |
 
-Документы: PDF (PyMuPDF **1.28.2**), DOCX (python-docx **1.2.0**), картинки OCR Tesseract / vision через LLM.
+Документы: PDF (PyMuPDF **1.28.2**, таблицы — `find_tables`), DOCX (python-docx **1.2.0**, `docx_extract.py`; .doc/.odt/.rtf — через LibreOffice), Excel/CSV (openpyxl **3.1.5**, `xlsx_extract.py`; .xls/.ods — через LibreOffice), PPTX (python-pptx **1.0.2**, `pptx_extract.py`), HTML (`html_extract.py`: таблицы и выгрузки Google Sheets), картинки OCR Tesseract / vision через LLM. Таблицы всех форматов — один markdown-формат `table_md.py` (подпись `Таблица N: …` + GFM). Неподдерживаемый формат отклоняется при загрузке (415).
 
 #### Как устроена итоговая выжимка проекта
 
@@ -144,7 +144,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 2. **Созвон:** канон `parsed/calls/{id}_final.txt` (proof + имена). Нет файла — чанки БД. Плюс `*_call_summary.md` (протокол **этого** созвона).
 3. **Документ:** чанки `chunks`; нет индекса — `transcription_text`.
 4. Плюс активные сущности только `decision`/`task` (mention / participant / fact / summary в дамп не кладутся), `user_notes`, конфликты `POTENTIAL_CONFLICT` ± `resolutions`.
-5. Нарезка ~6000 симв. → если кусков >1, **последовательный** map (LLM, 1200 tok) → reduce (8192 tok) вместе с **предыдущей** `current_tz.md`. Промпт `docs/prompts/rebuild_tz.md`.
+5. Нарезка ~6000 симв. → если кусков >1, **последовательный** map (LLM, 1200 tok) → при переполнении контекста — **иерархическое слияние черновиков** (`tz._collapse_drafts`, промежуточный merge-проход по группам ~9000 tok, пока всё не уложится в ~12000 tok) → reduce (8192 tok). Предыдущая `current_tz.md` в промпт **не** подставляется (убрана по промпту). Промпт `docs/prompts/rebuild_tz.md` (6 блоков: map → merge → reduce).
 6. Результат: `project_state/current_tz.md` + архив `versions/` + `changelog`.
 
 Кнопка **Пересобрать** — только **admin**, синхронно в FastAPI (минуты из‑за N+1 LLM). Авто: каждый готовый документ; созвоны — каждые `TZ_REBUILD_EVERY_N` (по умолчанию 3). Чат — другое: top‑12 чанков + до 12 ближайших `decision`/`task`/`fact` + хвост `current_tz.md`.
@@ -211,7 +211,8 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **Только портал** | `python -m app.app.main api` | То же без воркера. Воркер (`main worker`) edge **не** поднимает |
 | **Caddy** | поднимает `main` (`ensure_tls_cert` → `ensure_caddy`); опц. служба `SKKKK-CADDY` | `:777` HTTPS (готовый файл, Chrome к IP часто без SNI) + `:8088` HTTP-01 + `:8443` выпуск/продление Let's Encrypt **на IP** (`shortlived`). При старте `main` проверяет файл сертификата и перевыпускает, если его нет или он недействителен. Конфиг — `tools/caddy/Caddyfile` |
 | **LiveKit** | поднимает `main` (`ensure_livekit`) | Native `tools/livekit/livekit-server.exe` `:7880`. Не Docker (STUN ломается) |
-| **Voice cleaner** | поднимает `main` после `:7880` | `venvs/voice` + `tools/livekit/voice_cleaner.py`, участник `skkkk-dfn`. Чистит живой звук и пишет сырые дорожки в `data/meetings/{room}/` (`MEETING_RECORD=1`). Ставит `scripts/install_meeting_voice.py`. GPU не трогает (`CUDA_VISIBLE_DEVICES=-1`). Нет venv — комната без серверной чистки и без записи |
+| **Voice cleaner** | поднимает `main` после `:7880` | `venvs/voice` + `tools/livekit/voice_cleaner.py`, участник `skkkk-dfn`. Чистит живой звук (`enhance` с `pad=True`) и пишет сырые дорожки в `data/meetings/{room}/` (`MEETING_RECORD=1`). Ставит `scripts/install_meeting_voice.py`. GPU не трогает (`CUDA_VISIBLE_DEVICES=-1`). Нет venv — комната без серверной чистки и без записи |
+| **Screen recorder** | поднимает `main` после `voice_cleaner` | `venvs/voice` + `tools/livekit/screen_recorder.py`, участник `skkkk-rec` (hidden, без publish). Пишет `tracks/{identity}-screen_video-{sid}.mp4` в ту же кучу, 1 fps, холст 1920×1080, 5 Мбит/с. Камеру не пишет. `MEETING_SCREEN_RECORD=0` — без файлов |
 | **GPU Worker** | `python -m app.app.main worker` | Очередь `jobs` — lab ASR, knowledge, один job за раз |
 | **GigaAM** | Docker `skkkk-gigaam` | `:18102` — второй слух + **embed_voice** |
 | **Whisper / T-one** | Docker (не стартуют) | `:18101` / `:18103` — откат, воркер не вызывает |
@@ -262,7 +263,8 @@ upload → job queued
 ### 4.2. Документы / изображения
 
 ```
-upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
+upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdown на своих местах)
+  → normalize (LLM только проза, таблицы дословно; Excel без LLM) → text_extracted
   → knowledge pipeline (entities → index → doc_summary → graph → TZ trigger → done)
 ```
 
@@ -297,8 +299,11 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, reextract-entities, conflicts, notes |
 | `routers/project_members.py` | `/projects/{id}/members` | выдача доступа: GET список, POST роль manager/user, DELETE участника |
 | `routers/project_mcp.py` | `/projects/{id}/mcp`, `/mcp` | ключи MCP портала + Streamable HTTP |
+| `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
+| `routers/requirement_review.py` | `/projects/{id}/requirements` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin |
+| `routers/admin_map.py` | `/admin/map`, `/admin/map/search` | страница «Карта проекта» (только admin): поиск по индексу кода и связей; читает `data/project_map.db`, боевую БД не трогает |
 | `routers/acme.py` | `/.well-known/acme-challenge` | HTTP-01 → Caddy (Let's Encrypt на IP) |
-| `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта + гостевой join по токену |
+| `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта + гостевой join/leave/heartbeat по токену + сотрудник: `/projects/{id}/meetings/{mid}/heartbeat` и `/leave` (identity только `member:{user.id}`) |
 | `routers/speaker_profiles.py` | `/api` | enroll, merge, lab enroll/merge, recalculate, speakers-confirm, rebuild-summary, reindex |
 
 ### 5.2. Общая навигация
@@ -313,7 +318,7 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
 | `/audio`, `/download`, speaker API | те же URL | — | Без сессии — **401** |
 | `/health` | `/health` | — | Публично только `{"status":"ok"}` |
-| `/health/ready` | `/health/ready` | бейдж LLM в nav | Очередь/VRAM/LLM — только с сессией |
+| `/health/ready` | `/health/ready` | бейдж LLM в nav + значок «Нужен перезапуск» (админ) | Очередь/VRAM/LLM + `build` (код на диске новее API/воркера, `services/build_info.py`) — только с сессией |
 | `/admin/conflicts` | `/admin/conflicts` | `conflicts.html` | Очередь конфликтов (**admin**, HTML 302→login / 403 не-admin) |
 | `/projects/{id}/graph` | graph | `graph.html` | Cytoscape-граф (GET graph/data) |
 | `/projects/{id}/tz` | tz | `tz.html` | Отдельная страница ТЗ (дублирует rebuild-tz) |
@@ -369,7 +374,7 @@ upload → normalize (PDF/DOCX/OCR/vision) → text_extracted
 | Кнопка | API | Кто | На чём | Время | Роль |
 |--------|-----|-----|--------|-------|------|
 | *(авто load)* | `GET /projects/{id}/tz/content` | FastAPI | `project_state/current_tz.md` | — | все |
-| **Пересобрать** | `POST /projects/{id}/rebuild-tz` | FastAPI → `tz.rebuild_tz()` → **LLM map/reduce** | Аудио: lab `parsed/calls/{id}_final.txt` (proof + имена), **не** Whisper/T-one и не устаревшие чанки. Документы: `chunks`. Плюс сущности `decision`/`task`, выжимки созвонов (`_call_summary.md`), заметки, конфликты; промпт `rebuild_tz.md`; фрагменты ~6000 симв. Пока `tz_rebuild` running (кнопка **или авто** после документа) — кнопка disabled/spinner, POST 409. | 2–10 мин | **admin** |
+| **Пересобрать** | `POST /projects/{id}/rebuild-tz` | FastAPI → `tz.rebuild_tz_fast()` (с 2026-09-18: было `tz.rebuild_tz()`, см. §5.10/§5.11) → top-K векторный поиск (chunks + `decision`/`task` сущности, MMR на разнообразие) + **один** LLM reduce-вызов | Не читает весь проект — top-36 чанков + top-36 сущностей по 7 обобщённым поисковым запросам (не завязаны на тематику конкретного заказчика) + заметки + справочный блок предыдущей версии (фильтр противоречий, не источник фактов). Пока `tz_rebuild` running — кнопка disabled/spinner, POST 409. | ~30-35 с | **admin** |
 
 Источник — **не** обрезанный excerpt сырого текста. Если у аудио нет `_final.txt` — fallback на чанки / `transcription_text`. Роут в `knowledge.py`.
 
@@ -418,13 +423,15 @@ Enter в textarea — тоже отправка. Отдельная страни
 | **Проанализировать** | `POST /projects/{id}/meetings/{mid}/analyze` | admin, manager. Один артефакт + job. Повтор `done`/`error` — **Повторить**, тот же артефакт. Воркер для встречи всегда гонит `process_meeting_artifact`, не `asr.resume` со старой стенограммы. queued/running — 409 |
 | **лаб встречи** | `GET /artifacts/{id}/report-meeting-lab` | только admin. В колонке анализа, если уже есть `analyze_jobs[0].artifact_id`; и в таблице файлов у артефакта встречи |
 | **Удалить созвон** | `DELETE /projects/{id}/meetings/{mid}` | admin, manager. Иконка корзины в строке (как у файлов). Стирает `meetings` / `meeting_participants`, `data/meetings/{room}/`, артефакт `встреча-{id}.wav` + дочерние lab-папки и jobs очереди |
-| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `SKKKK_MEETING_VOICE` из `pages.meeting_voice_flags`. Канон звука — сервер `skkkk-dfn` (`MEETING_VOICE_SERVER=1`). `#meeting-denoise` — **Шумодав** у себя: выкл → все слышат сырой мик этого человека (громкость остаётся). Сигнал `publishData` topic `skkkk-denoise`; metadata — запасной. Свой `clean-*` не играется (`publication.trackName`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). Клиентский DFN3 выкл. `#meeting-sound` — выключить входящий звук (свой мик не трогает). На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
+| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `SKKKK_MEETING_VOICE` из `pages.meeting_voice_flags`. Канон звука — сервер `skkkk-dfn` (`MEETING_VOICE_SERVER=1`). `#meeting-denoise` — **Шумодав** у себя: выкл → все слышат сырой мик этого человека (громкость остаётся). Сигнал `publishData` topic `skkkk-denoise`; metadata — запасной. Свой `clean-*` не играется (`publication.trackName`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). Клиентский DFN3 выкл. `#meeting-sound` — отписка чужого аудио (`setSubscribed(false)` на все remote audio, включая `clean-*`), не `muted`. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
 | Статус для гостя | `GET /api/meetings/public/{token}` | `project_id: null` |
 | **Войти во встречу** | `POST /api/meetings/public/{token}/join` `{display_name, guest_id}` | `guest_id` из `localStorage` `skkkk-guest-{token}`; identity = `guest:` + sha256(hash токена + guest_id)[:32]; перезаход — та же identity и одна строка `meeting_participants`. Без `guest_id` — как раньше (`token_hex`). Невалидный id → 400. До start → 409; после → LiveKit JWT (`canPublish`, без `canPublishSources`) |
-| **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. `#meeting-end` → `POST .../end` для всех; копия ссылки из `sessionStorage` `skkkk-meeting-invite-{id}` |
+| **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. `#meeting-end` → `POST .../end` для всех. «Скопировать ссылку»: сырой токен не хранится (вариант A) — тост «ссылка во вкладке, где встречу создали, или через «Новая ссылка»»; `sessionStorage` `skkkk-meeting-invite-{id}` если ещё открыта вкладка создания |
 | Сигналинг LiveKit | `wss://<хост>:777/livekit` → Caddy → `:7880` | Поднимает `main` (`edge_runtime`). Native exe, не Docker. ICE = `node_ip` `SKKKK_PUBLIC_HOST` + LAN + 127.0.0.1, без STUN (иначе рекламируется чужой исходящий IP). TURN = тот же хост. Медиа: TCP 7881, UDP mux 50000, TURN 3478. Смена `livekit.yaml` перезапускает exe. Чистильщик ждёт `:7880`, затем `LIVEKIT_RTC_INTERNAL` |
-| Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:`; связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек (как DFN), не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера/экран как видео пока не пишутся |
+| Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:`; `skkkk-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек (как DFN), не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
 | Анализ дорожек | `data/meetings/{room_name}/analyze.json` + `events.jsonl` | `meeting_analyze.py`: очередь GPU на каждую WAV с речью; lab `03_diar` пишет одного `speaker_0` без Sortformer |
+
+**Плитки экрана.** Каждая screen-публикация — плитка `meeting-tile-screen-{sid}` (`tileOrder` в `static/meeting_layout.js`). Последняя по `publishedAt` — `lead` (`.meeting-tiles .meeting-tile-screen.is-lead` на всю ширину, правило **вне** phone-media). Новый экран снимает ручной pin; «Экран сверху» в `#meeting-more-tray` возвращает lead. Камера — отдельная плитка (`chosenVideoPub` только `Source.Camera`). Публикация экрана: `contentHint: "detail"`, `ScreenSharePresets.h720fps5`.
 
 Камера у гостя выключена. Join до `start` — 409. Удаление созвона или проекта стирает `meetings`, `meeting_participants`, очередь GPU и `data/meetings/{room_name}/`.
 
@@ -525,6 +532,43 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 
 Падение выжимки в knowledge **не** откатывает index/entities: артефакт всё равно `done`. Тот же POST `rebuild-summary`, что у созвона: audio → call summary, иначе → document summary.
 
+#### Экранная выжимка (screen vision) в стенограмме
+
+Для встреч с записью экрана (`MEETING_SCREEN_RECORD=1`) в стенограмме появляются **подсвеченные блоки слов**, привязанные к кадрам экрана. В начале каждого блока слов (в момент кадра) и в конце каждой реплики — кнопка **▣**; клик открывает **модальное окно** со скриншотом кадра (jpg), подписью «на экране — {кто показывал}» и сворачиваемым блоком `<details class="sm-fold">` с читаемым markdown-описанием содержимого кадра (vision-модель через LLM), а не сырой OCR.
+
+**Как работает:**
+
+1. `meeting_frames.py` собирает кадры по ярусам (речь издателя / сцена 0.15 / чужая речь / пол 15 с), пишет `frames.json` + `speech_screen_links.json` на merge. Определение смен сцены — `scene_times()`: ffmpeg `select='gt(scene,0.15)',showinfo` с **`-fps_mode vfr`** (в ffmpeg 9.0 опция `-vsync vfr` удалена; со старым ключом команда молча падает → `[]` → кадры ложились «полом» 15 с мимо реальных смен картинки).
+2. Если `MEETING_SCREEN_VISION=1` — `redescribe_existing_frames()` отправляет каждый кадр vision-модели (`LMSTUDIO_MODEL`) и получает читаемое описание (~2000+ символов). Результат в `video_transcript.json` (`text_source: "vision"`).
+3. `pipeline_lab.py` → `write_prod_view()` → `transcript_view.py` строит HTML со словами, привязанными к таймкодам кадров.
+4. Слова в пределах одного кадра группируются в блок `<span class="wgrp" data-seg="i">` с подсказкой времени (`title="01:01–01:11"`).
+5. В начале каждого блока слов — кнопка `<button class="screen-dot" data-seg="i">▣</button>` (в начале реплики — `<span class="screen-badge">` в конце). Кнопка ставится **перед** словами блока — на границе момента кадра, чтобы не разрывать фразу: слово приклеивается к сегменту, если его `start` попадает в окно `[seg.start, seg.end)` (`_word_seg_index`). Если в окне кадра нет ни одного слова, кнопка ставится отдельно — перед первым словом, начавшимся не раньше момента кадра (`turn_hits` ограничивает висящие кадры сегментами, пересекающими реплику). Клик по `▣` открывает `renderScreenModal([сегмент])`; клик по бейджу реплики — все сегменты, пересекающиеся с репликой (`screenSegmentsFor`).
+6. Модалка (`#screen-modal-wrap`, `renderScreenModal`/`closeScreenModal`) показывает кадр `<img class="sm-img">` + подпись «на экране — {identity}» + текст описания в сворачиваемом `<details class="sm-fold">` (по умолчанию свёрнут, стрелка `▸`/`▾`). Закрытие — крестик, клик по фону, Escape. Клик по `▣`/бейджу не перематывает аудио (guard в seek-обработчике `#turns`). Кадр отдаётся браузерным эндпоинтом `GET /artifacts/{id}/lab/{run_id}/frame/{relative}` (только `.jpg` внутри `frames/`, права как у отчёта — не admin-only); URL кладётся в сегмент как `frame_url` (`pipeline_lab._frame_url_map()` в `load_run_screen_segments`).
+7. **Индексация в векторную БД:** `pipeline_lab._append_screen_context()` дописывает vision-описания в `docker_merged*.txt` перед `finalize_audio_outputs` блоками `[MM:SS - MM:SS] Экран (показывал {спикер}): {текст кадра одной строкой}` (без переносов строк — чтобы `chunk_transcript` не нарезал на фейковых спикеров по двоеточиям) и `[MM:SS - MM:SS] Речь на экране: {слова реплик, пересекающихся с кадром по времени}`. Так ИИ-чат отвечает на вопрос «что показывалось на экране» по релевантным чанкам. **Источник vision-прогона авто-выбирается:** `artifact_lab.vision_run_id()` ищет среди лабораторных прогонов самый свежий с сегментами `text_source: "vision"` (кадры на всех прогонах идентичны), иначе берёт `latest_run_id` — так в прод не попадает сырой OCR из более свежего прогона. `_append_screen_context` вызывается в `republish_named_transcript` и `publish_lab_to_prod` (покрывает и «Пересобрать выжимку»), которые затем делают `finalize_audio_outputs`.
+
+**Файлы на диске (meeting recording):**
+
+```
+data/meetings/{room_name}/
+  ├── manifest.json              # merged tracks + timeline
+  ├── tracks/                    # raw WAV + screen_video mp4
+  ├── events.jsonl               # meeting events (join/leave/publish)
+  ├── frames.json                # screen frames by tier
+  ├── speech_screen_links.json   # frame→speech alignment (merge)
+  ├── video_transcript.json      # vision descriptions (MEETING_SCREEN_VISION=1)
+  └── analyze.json               # meeting_analyze.py output
+```
+
+**CLI скрипт для пересборки vision-описаний:**
+
+```powershell
+python scripts/redescribe_screen_frames.py {artifact_id} --run {run_id} [--rebuild-only]
+```
+
+Пересобирает vision-описания кадров и/или HTML стенограммы (`--rebuild-only` — только пересборка HTML без повторного vision).
+
+---
+
 ### 5.6. Match спикеров — `/artifacts/{id}/report-speaker-match` (`speaker_match_test.html`)
 
 Страница для подписи голосов: карточки встречи + прокручиваемая **база голосов**. Таймлайна и списка сегментов нет (они в `/report`). Ссылка **match** в таблице проекта ведёт сюда и видна только после публикации меток; **Подтвердить** на проекте появляется, когда все карточки названы.
@@ -547,7 +591,7 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 | `/artifacts/{id}/report-diar-raw` | `build_raw_diar_view.py` | Whisper/Tone/GigaAM tracks |
 | `/artifacts/{id}/report-diar-two-voice` | two-voice diar | 2-speaker view |
 | `/artifacts/{id}/report-lab?run={run_id}` | `build_lab_view.py` | **Только admin.** Лаборатория: снимок 01–07, оверлей Cursor, сверка GigaAM, карточки голосов; итоговая стенограмма как на проде (пилюли MM:SS, цветные имена). Менеджер/user — 403 |
-| `/artifacts/{id}/report-meeting-lab` | `meeting_lab.py` + `meeting_lab.html` | **Только admin.** Дорожки по очереди, I/O стадий, итог на шкале встречи: время / кто (LiveKit) / текст. Пока нет ленты — reload 4 с. Менеджер/user — 403 |
+| `/artifacts/{id}/report-meeting-lab` | `meeting_lab.py` + `meeting_lab.html` | **Только admin.** Проверки шкалы (`PASS`/`WARN`/`FAIL`/`NO_DATA`; «нет данных ≠ пройдено»), таблица протечек, бейджи `silent`/`screen`, ссылка `events.jsonl`, итог на шкале: время / кто / текст (`CONFLICT` подсвечен). Пока нет ленты — reload 4 с. Менеджер/user — 403 |
 | `/artifacts/{id}/meeting-lab/{child}/lab/{run}/file/{путь}` | — | **Только admin.** Файлы дочернего прогона `{parent}__{identity}`. Чужой child — 404 |
 | `/artifacts/{id}/lab/{run_id}/file/{путь}` | — | **Только admin.** Файлы прогона (WAV, json, npy, логи) без выхода за каталог |
 
@@ -630,9 +674,11 @@ API без кнопок в UI (для будущего / интеграций):
 
 | UI | Кнопка | Scope | Output |
 |----|--------|-------|--------|
-| `/projects/{id}` | **Пересобрать** (выжимка проекта) | весь проект | `current_tz.md`: аудио из lab `_final.txt`, документы из `chunks`, плюс `decision`/`task` / notes / conflicts / call_summary |
+| `/projects/{id}` | **Пересобрать** (выжимка проекта) | top-K по проекту (не весь) | `current_tz.md` через `rebuild_tz_fast()` — векторный поиск + один reduce-вызов, см. §5.11 |
 | `/artifacts/…/report` (созвон) | **Пересобрать выжимку** | один созвон | `call_summary.md` из полной стенограммы |
 | `/artifacts/…/report` (документ) | **Пересобрать выжимку** | один документ | `{id}_doc_summary.md` из `*_clean.txt`; чанки не трогает |
+
+Есть и третий, ручной путь — полный `tz.rebuild_tz()` (map/reduce по **всем** чанкам проекта, а не top-K): больше не вызывается ни из UI, ни из авто-пересборки, только из кода/скриптов напрямую. Для проектов с большим объёмом низкоизбыточного контента (проверено: 578 чанков) **не сходится** — упирается в контекст модели (32K) уже на 2-м уровне слияния черновиков и падает с `RuntimeError`, даже после исправления связанных багов (reasoning-налог, упаковка групп слияния). Держать про запас для небольших/средних проектов, не как основной путь.
 
 ### 5.11. Ограничения выжимок (контекст LLM)
 
@@ -640,8 +686,9 @@ API без кнопок в UI (для будущего / интеграций):
 |---------|------|-------------|
 | **Созвон** (`call_summary.md` + `call_brief.md`) | Вся стенограмма | итог: map ~6000 × N + reduce **4096**; кратко: тот же map + reduce **1024** |
 | **Документ** (`{id}_doc_summary.md`) | Нормализованный `*_clean.txt` | map ~6000 × N **последовательно** + reduce **4096**; индекс по-прежнему из полного текста |
-| **Проект** (`current_tz.md`) | Аудио: lab `_final.txt` (нет файла → чанки); документы: `chunks`; плюс `decision`/`task` / notes / conflicts / `_call_summary.md` | map ~6000 симв. × N **последовательно** + reduce **8192 tokens**; минуты из‑за N+1 LLM |
-| **Чат** | top‑12 чанков + до 12 `decision`/`task`/`fact` по `entity_vectors` + хвост `current_tz.md` (~2500) | только к вопросу; выжимка — обзор, не замена фрагментов |
+| **Проект** (`current_tz.md`, дефолт: `rebuild_tz_fast`) | top-36 чанков + top-36 `decision`/`task` сущностей по 7 обобщённым запросам (MMR-отбор на разнообразие) + заметки | **один** reduce-вызов, ~20-35 tokens/с генерации на используемой модели; ~30-35 с итого |
+| **Проект — полный путь** (`rebuild_tz()`, только вручную из кода, см. §5.10) | Аудио: lab `_final.txt` (нет файла → чанки); документы: `chunks`; плюс `decision`/`task` / notes / conflicts / `_call_summary.md` | map ~6000 симв. × N **последовательно** + иерархический merge (группы ~12000 оцен. токенов) + reduce; минуты, и не гарантированно сходится для больших проектов (см. §5.10) |
+| **Чат** | top‑12 чанков (каждый с шапкой «источник · дата записи · таймкод») + до 12 `decision`/`task`/`fact` по `entity_vectors` (строкой «кто сказал / кто утвердил / когда») + хвост `current_tz.md` (~2500) | только к вопросу; выжимка — обзор, не замена фрагментов |
 
 ### 5.12. BPMN: кнопки → API → сервисы → БД/файлы
 
@@ -713,11 +760,11 @@ flowchart TB
 | Кнопка | artifacts | jobs | speaker_profiles | artifact_speaker_links | entities/chunks |
 |--------|-----------|------|------------------|------------------------|-----------------|
 | Загрузить | insert | insert | — | — | — |
-| Подтвердить спикеров | status→phase2 | insert | read | read/write confirmed | — |
+| Подтвердить спикеров | status→phase2 | insert | read | read/write confirmed | entities: `rebind_call_entities` (имена, без LLM) |
 | Пересчитать | — | — | read pool | rewrite | — |
 | Запомнить | — | — | insert/update | write | — |
 | Запомнить (лаб) | — | — | insert/update (`speaker_N`) | write lab match JSON | — |
-| Слить | — | — | — | merge_map in JSON | — |
+| Слить | — | — | — | merge_map in JSON | entities: `rebind_call_entities` (имена, без LLM) |
 | GPU pipeline done | status=done | done | backfill global | from match | insert index |
 
 **Скрипт дедупликации голосов:** `scripts/dedupe_speaker_profiles.py` → `cleanup_voice_profile_pool()` (точные имена, `Игорь (Пилот)`/`Игорь Пилот`, cosine ≥ 0.95, сироты project).
@@ -735,7 +782,7 @@ flowchart TB
 | WAV | `artifact_audio.ensure_audio_wav` | ffmpeg + lock + `.partial` (`-f wav`, иначе muxer не угадывает расширение) | опрос списка **не** извлекает WAV |
 | ONNX | `pipeline_lab._run_cmd` | `asr/lab_pipeline.py --no-voice` | `--run-id` только если sha256 WAV = `run.json` |
 | sense/giga/proof/voice | `pipeline_lab` | `lab_sense.py` → `lab_giga.py` → `lab_reconcile.py` → `lab_proof.py` → `lab_voice.py` | Cursor + GigaAM + WeSpeaker |
-| публикация | `publish_lab_to_prod` | proof + `voice/match.json` | `write_prod_view`, match HTML, `speakers_pending` |
+| публикация | `publish_lab_to_prod` | proof + `voice/match.json` | `write_prod_view` → `_append_screen_context` (vision-прогон авто-выбирается) → match HTML, `speakers_pending` |
 | стоп | `process_artifact` | `return` | пока статус `speakers_pending` |
 | knowledge retry (`transcript_ready` / индекс) | `process_artifact` else | lab: `_final.txt` / `apply_confirmed_speaker_names`; **не** `process_audio_artifact` (Whisper/T-one) | иначе старый `pipeline_checklist.json` не находится и срабатывает тройной ASR |
 
@@ -769,7 +816,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | Пересчитать | `api_recalculate_speakers` | lab: `_recalculate_lab_speaker_match`; иначе `recalculate_speaker_match` |
 | Подтвердить | `api_speakers_confirm` | `confirm_speakers_and_enqueue` (`phase=knowledge`) |
 | Пересобрать выжимку | `api_rebuild_summary` | `rebuild_artifact_call_summary` |
-| Переиндексировать | `api_reindex_artifact` | `refresh_artifact_project_index` |
+| Переиндексировать | `api_reindex_artifact` | `refresh_artifact_project_index` → lab-rebuild + `finalize_audio_outputs` → `index_artifact` |
 | Пересобрать ТЗ | `knowledge.rebuild_tz_endpoint` | `tz.rebuild_tz` — lab `_final.txt` |
 | Список дедлайнов | `knowledge.project_deadlines` | `list_project_deadlines` |
 | Обновить дедлайны | `knowledge.reextract_entities_endpoint` | `reextract_project_entities` (не reindex) |
@@ -787,7 +834,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | **Выжимка Word** | `GET …/download/summary.docx` | `transcript_export.build_summary_docx_bytes` | Calibri (в т.ч. кириллица), поля A4, шапка таблицы `#5B7FA6`, zebra, списки с выступом, `**`/`*`/`` ` `` |
 | **Краткое резюме созвона** | `GET …/download/brief.docx` | `transcript_export.resolve_brief_docx` | тот же рендер, заголовок «Краткое резюме созвона», файл `{имя}_краткое_резюме.docx` |
 | **Стенограмма .txt** | `GET …/download/transcript.txt` | `resolve_transcript_txt` | таймкоды + имена из speakers.json |
-| **Обновить и переиндексировать** | `POST …/reindex` | `refresh_artifact_project_index` | тот же lab-rebuild HTML + Ollama chunks |
+| **Обновить и переиндексировать** | `POST …/reindex` | `refresh_artifact_project_index` | lab-rebuild HTML → `write_prod_view` → `finalize_audio_outputs` (экран дописывается в `republish_named_transcript`/`publish_lab_to_prod` с vision-прогоном) → Ollama chunks |
 
 Промпт выжимки требует **GFM-таблицу** «Кто / Что / Срок» (шапка + `| --- | --- | --- |` + строки), не «набросать пайпы». Рендер: `transcript_view._summary_to_html` → `<table class="summary-table">`.
 
@@ -804,7 +851,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | `asr/call_summary.md` | summarize_call.py | вкладка «Итоговое резюме», Word |
 | `asr/call_brief.md` | summarize_call.py | вкладка «Краткое резюме» |
 | `reports/transcript.html` | `write_prod_view` + `finalize_audio_outputs` | GET `/report` |
-| `parsed/calls/{id}_final.txt` | `finalize_audio_outputs` | индекс, ТЗ |
+| `parsed/calls/{id}_final.txt` | `finalize_audio_outputs` | индекс, ТЗ; на lab-артефакте содержит и экранные блоки «Экран (показывал …)» + «Речь на экране» из `video_transcript.json` |
 
 #### Что нельзя делать на lab-артефакте
 
@@ -868,6 +915,14 @@ data/projects/{project_id}/
 │   ├── {id}_doc_summary.md         # протокол для UI
 │   └── {id}_report.html
 └── structured/{id}_entities.json
+├── meetings/{room_name}/               # встречи (не внутри projects/)
+│   ├── manifest.json                   # merged tracks + timeline
+│   ├── tracks/                         # raw WAV + screen_video mp4
+│   ├── events.jsonl                    # meeting events (join/leave/publish)
+│   ├── frames.json                     # screen frames by tier
+│   ├── speech_screen_links.json        # frame→speech alignment (merge)
+│   ├── video_transcript.json           # vision descriptions (MEETING_SCREEN_VISION=1)
+│   └── analyze.json                    # meeting_analyze.py output
 ```
 
 ---
@@ -878,12 +933,27 @@ data/projects/{project_id}/
 |--------|-----------------|
 | `llm.py` | Единый адаптер: lmstudio / cursor |
 | `gpu_phase.py` | Load/unload Gemma, VRAM-фазы |
-| `queue.py` | jobs: claim FIFO (`created_at`, `id`), finish, requeue; очередь **глобальная**, не per-user |
-| `pipeline_lab.py` | Боевой ASR-оркестратор: `process_lab_artifact`, `publish_lab_to_prod`, `write_prod_view`, `republish_named_transcript`, `apply_confirmed_speaker_names`; повтор джобы пропускает готовые оверлеи (sense/giga/reconcile), `lab_proof` — нет `proof/transcript.json` |
+| `queue.py` | jobs: claim — сначала `kind=process_artifact`, затем фоновая `auto_review`; внутри вида FIFO (`created_at`, `id`); finish, requeue; `enqueue_auto_review` / `enqueue_knowledge_refresh` без дублей; очередь **глобальная**, не per-user |
+| `workers/review.py` | задачи `auto_review` (scope `artifact` / `conflicts`, режим shadow/live): исполнители регистрируются по области; ошибка не трогает статус артефакта; неизвестный `kind` — ошибка задачи, не запуск расшифровки |
+| `auto_review.py` | режим автопроверки (`AUTO_REVIEW_MODE` / настройка проекта), вердикт модели в `value_json.model_review`, «Вернуть», контрольная выборка (каждое N-е) |
+| `review_requirements.py` | этап 2 автопроверки: decision/task → источник (окно ±4 реплик канона / абзац документа), дубли без LLM, пачки по `AUTO_REVIEW_BATCH` в `review_requirement.md`, пороги confirm ≥ 0.7 / reject ≥ 0.8, «кто утвердил» через `_validated_decided_by`; контракт: `verification` = human_confirmed / model_confirmed / extracted; очередь «Ждут вас» и «Вернуть» (`POST /projects/{id}/requirements/entity/{entity_id}/undo-model`); замер — `scripts/eval_auto_review.py` (копия БД) |
+| `speaker_auto.py` | этап 3 автопроверки: автопринятие голоса в lab `voice/match.json` до публикации (cosine ≥ `VOICE_AUTO_ACCEPT_MIN`, отрыв ≥ `VOICE_AUTO_ACCEPT_MARGIN`, пометка `matches[label].auto`, без sync в global); шлагбаум `VOICE_GATE_MODE` strict/soft/off (по умолчанию soft — `transcript_ready` сразу, неназванные остаются `speaker_N`); подсказка имени моделью (`suggest_speaker_names.md` → `matches[label].llm_hint`, только подсказка) в конце knowledge; имя позже → `rebuild_transcript_report_html` → `rebind` + задача `refresh_knowledge` (индекс + выжимка) |
+| `review_conflicts.py` | этап 4 автопроверки + CONFLICT-AUTONOMY-PLAN: `POTENTIAL_CONFLICT` без Resolution → пары не decision/task/fact закрываются правилом `not_conflict`; явная отмена в источнике нового пункта — правилом `explicit_cancel` без модели (`rule_before_model`); остальные — LLM (`review_conflict_v3.md`): модель называет **отношение** (replaces / contradicts / refines / same / different_objects / not_decision / misextracted), победителя даёт `interpret` по весу источника (`conflict_rules`, Р1). live: `*_wins` → `Resolution(status=model_resolved, resolved_by=NULL)` + проигравший выключен с `model_review.reject_kind` (superseded / not_decision / not_said); `not_conflict` → `model_dismissed`; победитель без опоры в источнике (`_source_supports`) и подтверждённая человеком сторона → unsure. Деньги/сроки → `model_review.important` (вкладка «Важное»). Автооткат: > 5 % «Вернуть» из ≥ 10 авторешений за 14 дней → `conflict_review_mode=shadow` в настройках проекта (`check_undo_rate`, `effective_mode`). Экран `/conflicts` (вкладки «Ждут вас» / «Важное» / «Решены моделью»), `GET /projects/{id}/conflicts?view=pending\|important\|model`, `POST /conflicts/{link_id}/undo-model` (ответ `rolled_back_to_shadow`); вердикт — `links.model_review` (rule, relation, reject_kind, important) |
+| `conflict_rules.py` | правила Р1 без модели: `source_weight` (документ заказчика 3 > утверждённое решение / внутренний документ 2 > высказывание 1 > вопрос 0), `cancel_allowed`, `winner_by_weight`, `CANCEL_PATTERNS` (без «исправляем»), `is_material_topic` (деньги, сроки; «8.3» — не дата) |
+| `conflict_context.py` | противоречия для LLM чата (`_supplement_context`, только по найденным материалам) и ТЗ (`_collect_project_material`): «В силе / Раньше считалось / Основание», открытые — «Не решено: 1) … 2) …»; `model_dismissed` не выводится; сырой `value_json` не отдаётся (и в `_graph_snippet` тоже) |
+| Эталон конфликтов | один постоянный `data/eval/conflicts_gold.csv` на все проекты: `scripts/eval_auto_review.py --export-gold --project N [--only-undone]` (дописать пары для разметки), `--gold` (контрольный прогон на копии БД: правила + модель; код 0 — можно live: 0 неверных победителей, ≥ 20 размеченных, «не уверена» ≤ 30 %); обязателен при смене модели, промпта или извлечения |
+| Автопроверка: накопленное | кнопка admin «Проверить моделью всё накопленное» (карточка «Подтверждение требований») → `POST /projects/{id}/auto-review/backlog` → `auto_review.queue_backlog`; CLI `scripts/auto_review_backlog.py --project N [--mode live] [--dry-list]`; ставит только если `queue.running_worker_kinds` видит `auto_review` в `worker.started kinds=`; live применяет теневые вердикты без модели (`promote_shadow_verdicts`, `_promote_shadow`) |
+| `pipeline_lab.py` | Боевой ASR-оркестратор: `process_lab_artifact`, `publish_lab_to_prod`, `write_prod_view`, `_append_screen_context`, `republish_named_transcript`, `apply_confirmed_speaker_names`; экран автоматически берётся из vision-прогона (`artifact_lab.vision_run_id`); повтор джобы пропускает готовые оверлеи (sense/giga/reconcile), `lab_proof` — нет `proof/transcript.json` |
 | `pipeline_audio.py` | Legacy ASR; `run_call_summary` (выжимка созвона) |
 | `pipeline_voice_gate.py` | Legacy voice-gate до triple ASR (воркер lab-путь не вызывает) |
 | `pipeline_knowledge.py` | entities → index → call_summary / doc_summary → graph → done |
-| `pipeline_documents.py` | PDF/DOCX/OCR pipeline; нормализация, не резюме |
+| `pipeline_documents.py` | PDF (текст + таблицы `find_tables` на своих местах)/DOCX/XLSX/PPTX/OCR pipeline; нормализация, не резюме |
+| `table_md.py` | общий формат таблиц: `Table`, `clean_cell`, `make_table`, `render_md` (подпись `Таблица N: …` + GFM), `split_blocks` (текст → проза/таблицы с путём заголовков), `render_record` |
+| `docx_extract.py` | DOCX в порядке документа: заголовки (стиль или «3.2. Текст»), списки, таблицы на своих местах (merge, вложенные), надписи, колонтитулы; .doc/.odt/.rtf через LibreOffice |
+| `xlsx_extract.py` | Excel/CSV → `## Лист: имя` + таблицы по блокам листа: объединения, двухуровневая шапка, форматы чисел/дат, скрытые листы пропускаются, лимит 5000 строк / 60 столбцов |
+| `office_convert.py` | `find_soffice` / `convert_with_soffice` — LibreOffice headless для .doc/.xls/.ods/.ppt |
+| `html_extract.py` | HTML → текст: блоки разметки дают переносы строк, `<table>` → сетка (`colspan`/`rowspan`), линейка выгрузки Google Sheets (A, B, C… и номера строк) убирается, дальше `xlsx_extract.grid_markdown`; вёрсточные таблицы остаются текстом |
+| `pptx_extract.py` | .pptx (и старый .ppt — через LibreOffice headless, `SOFFICE_PATH`) → markdown по слайдам (`## Слайд N: заголовок`): текст, таблицы, диаграммы, SmartArt, заметки докладчика, OCR/vision для слайдов-картинок |
 | `summarize_document.py` | Map/reduce `{id}_doc_summary.md` из `*_clean.txt`; fail-open |
 | `artifact_reports.py` | HTML отчёта документа: протокол сверху, полный текст в `<details>` |
 | `pipeline_resume.py` | Resume ASR без повторного merge |
@@ -891,32 +961,37 @@ data/projects/{project_id}/
 | `voice_gate_checklist.json` | в `asr/` артефакта — шаги gate до confirm спикеров |
 | `transcript_export.py` | export transcript.txt / document `*_текст.txt` + summary.docx |
 | `artifact_audio.py` | finalize, sync reports, rebuild HTML; атомарный extract `input_16k.wav` + lock |
-| `artifact_lab.py` | Лаборатория: список прогонов, выбор прогона, отдача файлов; fallback запрещён |
+| `artifact_lab.py` | Лаборатория: список прогонов, выбор прогона, отдача файлов; fallback запрещён; `vision_run_id()` — автовыбор прогона с vision-описаниями экрана |
 | `media_cleanup.py` | удаление видео-оригинала после проверки `input_16k.wav` |
-| `speaker_profiles.py` | enroll/merge/recalculate; lab enroll в `voice/match.json`; **global pool**; `speaker_action_flags` для кнопок match/confirm в таблице |
-| `entities.py` | LLM extract + persist; для встреч — привязка к `source_span_id`, перефраз через `_text_overlap`, без источника → `needs_review`; leak-текст не пишется в БД и `*_entities.json` |
-| `indexing.py` | chunk → Ollama embed → chunks + chunk_vectors; аудио из lab `_final.txt`; `audit_project_index` |
-| `vector_index.py` | sqlite-vec CRUD чанков (vec0 kNN) и кэш сущностей (`entity_vectors` BLOB по id) |
-| `retrieval.py` | rerank чанков по `priority_weight`; `search_entities` (cosine по `entity_vectors`, типы `decision`/`task`/`fact`) |
-| `graph.py` | seed/rebuild links, conflicts; `delete_entities_with_deps`; `purge_orphan_links` при старте; payload графа без рёбер к несуществующим узлам; читает `entity_vectors` |
-| `tz.py` | rebuild TZ: аудио из lab `_final.txt`, документы из chunks; map/reduce + `decision`/`task` + notes + conflicts |
-| `chat.py` | RAG: чанки + `search_entities` + хвост `current_tz.md`; лента и память — `chat_messages` этого логина |
+| `speaker_profiles.py` | enroll/merge/recalculate; lab enroll в `voice/match.json`; **global pool**; `speaker_action_flags` для кнопок match/confirm в таблице; `refresh_artifact_project_index` — lab-rebuild HTML + `finalize_audio_outputs` + `index_artifact` (экран дописывается на уровне `republish_named_transcript`) |
+| `entities.py` | LLM extract + persist; созвон подаётся пронумерованными репликами `T<n>` (`_numbered_turn_parts`), `turns`/`decided_by` от LLM проверяются кодом. Комната: привязка к `source_span_id` (`speaker_source=track`), без источника → `needs_review`. Загруженный созвон: speaker/время по репликам `_final.txt` (`speaker_source=voice`), без совпадения → `source_status=unbound`. `rebind_call_entities` — имена после переименования спикеров, на месте. Leak-текст не пишется в БД и `*_entities.json` |
+| `indexing.py` | chunk → Ollama embed → chunks (+ `start_sec`/`end_sec`) + chunk_vectors; аудио из lab `_final.txt`; после записи — `rebind_call_entities`; `audit_project_index` (выравнивание по строкам окна, `timed_chunks`) |
+| `vector_index.py` | sqlite-vec CRUD чанков (vec0 kNN) и кэш сущностей (`entity_vectors` BLOB по id); `delete_vectors_for_chunks` чистит и `chunk_fts`; `chunk_scores` — близость к заданным чанкам |
+| `chunk_fts.py` | FTS5 `chunk_fts` (rowid = chunks.id, разряды чисел склеены): `init_chunk_fts` (создание + дозаполнение), `upsert_chunk_fts`, `search_chunk_fts` (основы слов + числа, bm25) |
+| `retrieval.py` | rerank чанков по `priority_weight`; `fuse_chunk_hits` — вектор + FTS5 (RRF, первые 5 находок по словам проходят порог близости) для чата, `/search` и MCP; `search_entities` (cosine по `entity_vectors`, типы `decision`/`task`/`fact`); `chunk_header` (шапка фрагмента: источник · дата записи · таймкод) и `format_entity_line` (кто сказал / кто утвердил / когда) для чата и ТЗ |
+| `graph.py` | seed/rebuild links, conflicts; `delete_entities_with_deps`; `purge_orphan_links` при старте; payload графа без рёбер к несуществующим узлам; читает `entity_vectors`; `POTENTIAL_CONFLICT` только для `decision`/`task`/`fact` (`CONFLICT_ENTITY_TYPES`); провенанс (`PROVENANCE_KEYS`) не входит в `entity_text`; связь без направления (A↔B — одна строка); пересборка сохраняет связи с решением человека; `_try_auto_resolve` — только конфликты своего артефакта, отмена в источнике нового пункта, новее — по дате материала; `repair_conflict_links` (обратные дубли, старые авторазрешения) — CLI `scripts/fix_conflict_links.py` (по умолчанию отчёт) |
+| `tz.py` | rebuild TZ: `rebuild_tz_fast` (дефолт: top-K+MMR+квота «≥1 фрагмент на артефакт», текст строит `build_tz_fast_body` без записи, лог `tz.rebuild_fast.coverage`); полный `rebuild_tz` — с pre-flight (`TzTooLargeError` при >30 черновиков); блок «предыдущая версия» убран (детерминизм); автопересборка документов ждёт конца партии (`_other_pending_jobs`) |
+| `prompts.py` | единая загрузка промптов из `docs/prompts/*.md` (`load_prompt_block`, ограждённые блоки; тест по всем файлам) |
+| `build_info.py` | признак «код на диске новее API/воркера» → `/health/ready.build` |
+| `chat.py` | RAG: чанки (гибридный поиск `fuse_chunk_hits`) + `search_entities` + хвост `current_tz.md`; блок документов — начало файла + фрагменты этого документа по словам вопроса; лента и память — `chat_messages` этого логина |
 | `user_activity.py` | Журнал действий логина (`user_activity_log`) для аудита; чат в промпт берёт `chat_messages`, не этот журнал |
 | `models/chat_message.py` | Per-user chat UI log (`project_id` + `user_id`) |
 | `models/user_activity_log.py` | Append-only журнал: auth, upload, chat, tz, speakers, knowledge |
-| `chunking.py` | split transcript / plain text; lab `[таймкод] Имя:` → поле `speaker` без скобок |
+| `chunking.py` | документы — `chunk_document`: проза абзацами с разделом, таблица — фрагментами целых строк с разделом, подписью и шапкой (широкая > 8 столбцов — записями «Столбец: значение»); стенограмма → окна подряд идущих реплик (строки `_final.txt` дословно, перекрытие 1 реплика, экран отдельно), `start_sec`/`end_sec` окна; `speaker` только у окна одного говорящего |
 | `storage.py` | paths: artifact_root, parsed, structured |
 | `project_purge.py` | полное удаление проекта, артефакта или **созвона**: БД + файлы; `purge_meeting` снимает jobs, артефакт встречи, `meeting_participants` и `data/meetings/{room_name}/` |
-| `meetings.py` / `meeting_tokens.py` | встречи проекта: статусы `created`/`live`/`ended`; публичный токен sha256; guest identity `guest:…`; JWT LiveKit (`canPublish`, без `canPublishSources`) |
-| `meeting_recordings.py` | сырые WAV + `manifest.json` + `events.jsonl` на комнату; gap-pad; `MeetingEventLog`; `has_speech` / `window_rms`; пишет `voice_cleaner` |
+| `meetings.py` / `meeting_tokens.py` | статусы `created`/`live`/`ended`; heartbeat (гость и сотрудник) и stale TTL; best-effort DeleteRoom LiveKit; публичный токен sha256; JWT LiveKit |
+| `meeting_recordings.py` | сырые WAV + `screen_video` mp4 + `manifest.json` (merge, чтобы cleaner и rec не затирали друг друга) + `events.jsonl`; gap-pad; `MeetingEventLog`; `has_speech` / `window_rms` |
 | `meeting_analyze.py` | кнопка **Проанализировать**: полный `meeting.json` (epoch, frames, silent, screen); длительность = max(offset+duration) |
+| `meeting_frames.py` | C2: кадры по ярусам (речь издателя / сцена 0.15 / чужая речь / пол 15 с), `frames.json` + `speech_screen_links.json` на merge, vision за `MEETING_SCREEN_VISION`; `scene_times()` — смены сцены через ffmpeg `select='gt(scene,0.15)',showinfo` + `-fps_mode vfr` (не `-vsync vfr`, удалён в ffmpeg 9.0); `_dotenv_value()` — fallback на `.env`, если ключа нет в `os.environ` (vision-флаг виден воркеру); `redescribe_existing_frames()` — переописание кадров vision-моделью (пропускает уже `text_source="vision"`); `_write_video_transcript()` — запись `video_transcript.json` |
 | `meeting_checks.py` | проверки шкалы: track_span/frames/gaps/leaks/giga_share/head_loss/speaker_sync/clock_integrity |
-| `pipeline_meeting.py` | дорожка → Parakeet/GigaAM/proof → `refine_leaks` (rank/RMS окна/CONFLICT) → одна стенограмма |
-| `meeting_lab.py` | снимок лаборатории созвона: дорожки, I/O стадий, итоговая расшифровка |
-| `meeting_merge.py` | сдвиг слов, `word_text` (пустой `final` не оживает), реплики по дорожке, `find_leaks`/`leaks.json`, `source_span_id` |
+| `pipeline_meeting.py` | дорожка → Parakeet/GigaAM/proof → `refine_leaks` с RMS окон дорожек (rank → RMS → CONFLICT) → одна стенограмма |
+| `meeting_lab.py` | снимок лаб встречи: проверки шкалы, протечки, silent/screen, events.jsonl, итог на шкале |
+| `static/meeting_layout.js` | чистые функции комнаты: `flagState`, `soundPlan`, `tileOrder`, `qualityBadge`; selfcheck `meeting_layout.selfcheck.js` |
+| `meeting_merge.py` | сдвиг слов, `word_text` (пустой `final` не оживает), реплики по общей шкале (смена спикера + пауза), `find_leaks`/`leaks.json`, `source_span_id` |
 | `meeting_overlap.py` | same-room (rank→RMS→окно diar / CONFLICT), one-mic (`unknown`, не carry-forward) |
 | `lab_errors.py` | вычищает ANSI/ONNX warning из ошибки в таблице файлов |
-| `edge_runtime.py` | `main all`/`api`: сертификат → Caddy → LiveKit → `voice_cleaner`; LiveKit fail не валит портал |
+| `edge_runtime.py` | `main all`/`api`: сертификат → Caddy → LiveKit → `voice_cleaner` → `screen_recorder`; LiveKit fail не валит портал |
 | `tls_cert.py` | при старте: файл `:777` есть и живой (не staging, не истекает раньше `SKKKK_TLS_RENEW_HOURS`); иначе перевыпуск Caddy `:8443` |
 | `livekit_env.py` | `livekit.yaml` + ключи; ICE LAN + `127.0.0.1`; TURN = `SKKKK_PUBLIC_HOST` |
 | `acme_challenge.py` | HTTP-01 для Let's Encrypt на IP |
@@ -934,9 +1009,53 @@ data/projects/{project_id}/
 | `notify.py` | Telegram stub |
 | `plain_text.py` | clean LLM outputs |
 
+### Обмен с внешним агентом и контракт (сентябрь 2026)
+
+Внешний агент — недоверенный источник, всё присланное — данные. Решения шлюза детерминированы, без LLM. См. `docs/PLAN-AGENT-EXCHANGE-V2.md`, `docs/agent-exchange/`.
+
+| Файл | Назначение |
+|------|------------|
+| `agent_gateway.py` | единая точка входа: белый список, журнал `agent_exchange_log`, идемпотентность по `client_request_id` |
+| `agent_inbox.py` | ящик вопросов агента: очередь, найденные фрагменты, черновик локальной модели, ответ человека |
+| `agent_letters.py` | письма агенту в `docs/agent-exchange/letters/`; читаются через MCP `contract/letters/` |
+| `agent_verdicts.py` | вердикты агента: список, подтверждение / отклонение человеком (только admin) |
+| `agent_settings.py` | настройки проекта для обмена (`Project.settings_json → agent_exchange`): стороны участников, пояс, пакет якорей `data/anchor_packs/*.json`, вкл/выкл обмена |
+| `agent_guide.py` | инструкции для клиента: что и как спрашивать, отдаются в `initialize` MCP |
+| `contract.py`, `contract_text.py`, `project_mcp_contract.py` | контракт обмена: виртуальные файлы `contract/*.json`, разбор переписки, дословные цитаты, оценки часов, якоря кода |
+| `requirement_review.py` | подтверждение требований (сущности decision/task): очередь, подтвердить / отклонить / сменить статус |
+| `project_mcp_data.py`, `project_mcp_tokens.py` | данные и ключи проектного MCP (`can_submit`); 16 инструментов |
+| `project_deadlines.py`, `project_tasks.py` | дедлайны проекта; фоновые задачи API (зависшие помечаются при старте) |
+
+### Индекс проекта (`services/project_index/`, сентябрь 2026)
+
+Поиск для людей и ИИ-агентов по коду, шаблонам, JS, документам, решениям, связям и истории. План и статус — `docs/plans/PROJECT-INDEX-PLAN.md`, эксплуатация — `docs/OPERATIONS.md` («Индекс проекта»). Хранилище `data/project_map.db` (SQLite + sqlite-vec + FTS5), эмбеддинги — Ollama `bge-m3` на CPU, GPU не занимается.
+
+| Файл | Назначение |
+|------|------------|
+| `config.py` | какие файлы индексируем (`scripts/index_config.yaml`), исключения, версия схемы и нарезчика, маскирование секретов |
+| `store.py` | схема БД, версии, кэш эмбеддингов, блокировка индексатора |
+| `chunkers.py` | нарезка: функции и методы Python (`ast`), JS, шаблоны (элементы с `id`, inline-скрипты), CSS, Markdown (разделы, строки находок), манифест, конфиги; символы, вызовы, импорты |
+| `analyzers.py` | производные знания: роуты, карта БД (модели, миграции, кто пишет/читает), окружение, связка элемент→JS→API, покрытие тестами, инварианты, тексты интерфейса, история git |
+| `indexer.py` | инкрементальная индексация, векторы добираются отдельно (обрыв безопасен) |
+| `search.py` | гибридный поиск (FTS5 + вектор + точный символ + намерения «кто вызывает», роут, таблица), режимы `--callers`, `--route` и др., единый вывод для веба и MCP |
+
+Скрипты: `index_project_map.py`, `search_project_map.py`, `eval_index.py`, `index_doctor.py`, `check_map_drift.py`, `install_hooks.ps1`, `dev_changelog.py`; MCP-сервер `tools/projindex_mcp.py` (`.mcp.json`); словарь синонимов `scripts/index_glossary.yaml`.
+
+### Прочие сервисы, появившиеся после 2026-08-27
+
+| Файл | Назначение |
+|------|------------|
+| `single_instance.py` | защита от второго GPU-воркера (SQLite допускает одного писателя) |
+| `docker_runtime.py` | автозапуск Docker Desktop и ASR-контейнеров перед аудио |
+| `artifact_download.py` | доступность и подпись скачивания артефакта |
+| `report_embed.py` | встраивание отчётов |
+| `rate_limit.py` | ограничение попыток входа |
+| `prompts.py`, `build_info.py` | реестр промптов; сведения о сборке |
+| `meeting_frames.py` | кадры записи экрана и их описание |
+
 ### Модели (`app/app/models/`)
 
-`user`, `project`, `project_member`, `artifact`, `job`, `meeting`, `meeting_participant`, `entity` (+ chunks, links, speaker_profile, `chat_message`, `user_activity_log`, …)
+`user`, `project`, `project_member`, `artifact`, `job`, `meeting`, `meeting_participant`, `entity` (+ chunks, links, speaker_profile, `chat_message`, `chat_guidance`, `user_activity_log`, `project_task`, `project_mcp_token`, …), обмен с агентом: `agent_exchange` (журнал), `agent_question`, `contract`
 
 ### Точка входа (`app/app/`)
 
@@ -998,7 +1117,7 @@ data/projects/{project_id}/
 | `match_sortformer_speakers.py` | WeSpeaker embed (GigaAM docker) → match JSON |
 | `voice_turn_audit.py` | Проверка голос/текст, auto-fix |
 | `docker_stage.py` | Копия WAV из `SKKKK_ASR_WORK` → `asr/work` перед T-one/GigaAM embed (контейнеры не видят per-artifact каталог) |
-| `transcript_view.py` | HTML renderer + JS (recalc, summary, reindex) |
+| `transcript_view.py` | HTML renderer + JS (recalc, summary, reindex); grouped words by segment (`wgrp`) с кнопкой `▣` (`screen-dot`) и бейджем реплики; модалка кадра (`#screen-modal-wrap`, `renderScreenModal`) со скриншотом `<img class="sm-img">` и сворачиваемым `<details class="sm-fold">` для текста; `fmtScreenText()` markdown→HTML |
 | `build_speaker_match_view.py` | HTML страница match |
 | `speaker_registry.py` | enroll/merge в UI |
 | `summarize_call.py` | Map/reduce: `call_summary.md` (протокол) + `call_brief.md` (кратко) из `docker_gigaam_speakers.json`. Lab: HTML через `write_prod_view` |
@@ -1085,23 +1204,54 @@ run_pipeline
 
 | Скрипт | Назначение |
 |--------|------------|
+| `qa_all.py` | Единая команда QA: pytest + смоук + аудит целостности + отчёт здоровья (`--per-file`, `--evals`) |
+| `health_report.py` | Отчёт здоровья по логам/БД с красными признаками |
+| `verify_backup.py` | Проверка бэкапа БД: integrity_check и восстановление во временную папку |
+| `audit_integrity.py` | Аудит целостности (только чтение): «сироты» в БД (23 проверки), векторы чанков (`rowid`), папки проектов и записи комнат без записи в БД |
+| `collect_ui_copy.py` | Реестр текстов интерфейса → `docs/UI-COPY.md` |
+| `eval_tz.py` | Качество быстрой сводки ТЗ на эталонных фактах (`docs/eval/tz_facts_*.json`): recall/противоречия/стабильность; только чтение |
+| `eval_chat.py` | Оценка чата на копии БД (`docs/eval/chat_questions_*.json`): пустые ответы, источники, отказ на ловушках |
+| `restart.ps1` | Безопасный перезапуск: проверка Ollama/LM Studio/модели/порта → `start.ps1` → ждёт нового воркера и `/health` |
+| `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
 | `rerun_cursor_merge.py` | Merge+view без ASR (Cursor tuning) |
 | `rerun_transcript_integrity.py` | Только integrity + plain + view |
 | `resume_knowledge.py` | Догнать knowledge phase |
+| `reprocess_documents.py` | Отчёт «новое извлечение таблиц против текущего `_clean`» по документам проектов; `--enqueue` — копия БД и задачи `process_artifact` для переобработки |
 | `inspect_project_index.py` | Сверка чанков sqlite-vec с lab `_final.txt` (`--project 18`) |
 | `refresh_portal_knowledge.py` | Пересборка выжимок созвонов + индекс + сущности + ТЗ (`--project 19` / `--all`) |
 | `rebuild_artifact_report.py` | Пересборка отчёта артефакта |
 | `monitor_status.py` / `monitor_skkkk_loop.ps1` | Мониторинг сервера |
 | `install_caddy.ps1` | бинарь Caddy + опциональная служба `SKKKK-CADDY` |
 | `install_meeting_voice.py` | изолированный `venvs/voice` + DeepFilterNet CPU (не app venv) |
+| `screen_recorder.py` | `skkkk-rec`: VideoStream I420 → packed yuv420p → ffmpeg mp4 1 fps в `data/meetings/{room}/tracks/`; смена WxH — scale в размер первого кадра, не сырой хвост буфера |
 | `fetch_meeting_dfn3.py` | WASM DFN3 в `static/vendor/dfn3/` — клиент выключен, канон сервер |
+| `redescribe_screen_frames.py` | Vision-переописание кадров экрана и/или пересборка HTML стенограммы (`--rebuild-only`) |
 | `scripts/start.ps1` | Запуск API+воркер: `-Llm cursor|gemma` или из `.env` |
 | `scripts/start-cursor.ps1` / `start-gemma.ps1` | Быстрый старт с выбранным LLM |
 | `scripts/stop.ps1` | Остановить сервер и снять lock воркера |
 | `run_all.ps1` / `run_api.ps1` / `run_worker.ps1` | Запуск служб |
 | `smoke_cycle.py` | Smoke test |
+| `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
+| `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops` |
+| `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
+| `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество |
+| `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
+| `install_hooks.ps1` | git-хуки post-commit/post-merge: фоновое обновление индекса |
+| `dev_changelog.py` | журнал разработки из git → `docs/CHANGELOG-DEV.md` |
+| `fast_summarize_tz.py` | быстрая сводка ТЗ из CLI: top-K по sqlite-vec + заметки → один reduce → `current_tz.md` + changelog |
+| `kb_inbox.py` | ящик вопросов внешнего агента из командной строки (`list`, ответ), без входа по паролю |
+| `live_meetings.py` | печатает идущие встречи; код выхода 3, если есть люди на связи (для безопасного перезапуска) |
+| `watch_server.py` | наблюдение за сервером, очередью и ошибками конвейера |
+| `qa_pages.py` | аудит вёрстки страниц на разных экранах и движках (изолированный экземпляр с копией БД) |
+| `qa_flows.py` | интерактивные сценарии по порталу в браузере |
+| `qa_navbar.py` | проверка шапки на разных экранах |
+| `qa_room.py` | комната созвона в Chromium с фейковыми устройствами, без паролей (песочница `SMOKE_PROJECT_ID`) |
+| `qa_analysis.py`, `qa_publish_wav.py` | сквозная проверка «созвон → запись → анализ» на синтезированной русской речи |
+| `qa_call_stress.py` | стресс записи звонка на реальном сервере: рост дорожек, убийство рекордера |
+| `qa_mobile_webkit.py`, `qa_mobile_android.py` | мобильные проверки: WebKit (iPhone/iPad) и настоящий Chrome на эмуляторе Android |
+| `smoke/` | смоук-набор (`run_all.py`, общие настройки в `common.py`, секреты только из окружения): комната, плитки, права, счётчики, формы, `smoke_agent_cards.py`, `smoke_agent_exchange.py` |
 
 ---
 
@@ -1144,7 +1294,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Ollama bge-m3 | `OLLAMA_*` | Индекс артефактов, search |
 | Docker ASR | `GIGAAM_URL` | Прод: GigaAM (второй слух + embed). Whisper/T-one URL — откат |
 | LiveKit | `LIVEKIT_*`, `LIVEKIT_RTC_INTERNAL` | комнаты; native server поднимает `main` |
-| Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_VOICE_ATTEN_LIM`, `MEETING_VOICE_POST_FILTER`, `MEETING_RECORD` | серверная чистка (канон); клиентский DFN3 выкл; лимит подавления DFN в дБ |
+| Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_VOICE_ATTEN_LIM`, `MEETING_VOICE_POST_FILTER`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | серверная чистка (канон); запись экрана `skkkk-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`); клиентский DFN3 выкл |
 | Telegram | `TELEGRAM_*` | Уведомления (stub) |
 
 ---
@@ -1158,7 +1308,422 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 - Очередь `jobs` + один GPU worker
 - sqlite-vec + entities/links (не Qdrant/Neo4j до этапа 10)
 - Секреты только в `.env`
+- Обход reasoning имеет самопроверку при старте API и воркера (`llm.lmstudio_no_think_selfcheck`, `LMSTUDIO_NO_THINK=0` — принудительный откат на chat-эндпоинт); статус — `/health/ready.llm_no_think`
+- Вход ограничен по попыткам (`services/rate_limit.py`: 8 неудач/5 мин на IP и логин → 429); заголовки безопасности в `main.SECURITY_HEADERS` (HSTS/CSP сознательно нет)
+- Стили: `static/app.css` (структура) + `static/design.css` (единая дизайн-система, токены `--ds-*`), см. DECISIONS; отчёты (документ и стенограмма) — сгенерированные HTML, тема `static/report-theme.css` подключается при отдаче в `_serve_report`, файлы отчётов не меняются
+- Обмен с внешним агентом: `services/agent_gateway.py` (белый список, журнал `agent_exchange_log`), контракт — `services/contract.py` + `project_mcp_contract.py` (MCP-инструменты 16 шт., файлы `contract/*.json` виртуальные), правила — `docs/agent-exchange/`; файлы `analysis_reply_/analysis_request_*.json` в конвейер не идут
+- `POST /client-log` принимает JS-ошибки браузеров (лимит), событие `client.js_error`; зависимость `livekit-api` обязательна (закрытие комнаты при завершении встречи)
+- Тесты не имеют права писать в боевую БД: `SessionLocal` в тестах запрещён без фикстур `client`/`db_engine`
+- Роль сессии — в JWT, роль общей учётки в БД при входе не перезаписывается (`dependencies.py`)
+- LLM-вызовы, где важен результат (JSON/текст), — только через `*_no_think` (обход зависшего reasoning); страж — `test_llm_no_think_guard.py`
+- Текст согласия гостя (`meeting_public.html`) должен совпадать с реальной записью: голос и экран, без камеры (зависит от `MEETING_RECORD`)
 - Lab-артефакт: HTML/JSON только через `write_prod_view`, не `build_transcript_view.py`
+
+---
+
+## 15. Реестр модулей (генерируется)
+
+<!-- generated:begin registry -->
+
+> Генерируется `scripts/check_map_drift.py --fix` из кода. Не править руками: описание берётся из докстринга (для модулей без докстринга — прочерк, его стоит добавить). Смысловое описание — в разделах выше.
+
+**`app/app/`**
+
+| Файл | Назначение |
+|---|---|
+| `bootstrap.py` | Подготовка `.env` до того, как Settings прочитает файл. |
+| `config.py` | — |
+| `cursor_compat.py` | Совместимость cursor-sdk с Python < 3.12 (os.get_blocking / os.set_blocking). |
+| `db.py` | — |
+| `dependencies.py` | — |
+| `llm_labels.py` | Подписи LLM для логов и UI в зависимости от провайдера (Gemma / Cursor). |
+| `llm_settings.py` | Выбор LLM-провайдера (Gemma / Cursor) — чтение и запись в `.env`. |
+| `logging_setup.py` | Единая настройка логов: консоль (PyCharm) плюс файл в `data/logs`. |
+| `main.py` | — |
+| `preflight.py` | Проверка всех систем перед запуском. |
+| `startup_llm.py` | Выбор LLM при запуске SKKKK: LM Studio (локально) или Cursor API. |
+
+**`app/app/mcp/`**
+
+| Файл | Назначение |
+|---|---|
+| `project_protocol.py` | Проектный MCP по JSON-RPC: инструменты чтения знаний проекта и приёма данных агента, разбор запросов и инструкции клиенту. |
+
+**`app/app/models/`**
+
+| Файл | Назначение |
+|---|---|
+| `agent_exchange.py` | Модель AgentExchangeLog — журнал обмена с внешним агентом (таблица agent_exchange_log). |
+| `agent_question.py` | Модель AgentQuestion — вопрос внешнего агента в ящике вопросов проекта (таблица agent_questions). |
+| `artifact.py` | Модель Artifact — загруженный файл проекта и его статус обработки (таблица artifacts). |
+| `chat_guidance.py` | Модель ChatGuidance — указания пользователя чату по теме проекта (важнее созвонов при расхождении). |
+| `chat_message.py` | Модель ChatMessage — сообщение чата проекта, в том числе ожидающее ответа. |
+| `contract.py` | Модель ContractItem — элемент контракта обмена с внешним агентом. |
+| `entity.py` | Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ. |
+| `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
+| `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
+| `project.py` | Модель Project — проект и его настройки. |
+| `project_mcp_token.py` | Модель ProjectMcpToken — ключ доступа проектного MCP (хеш, права, отзыв). |
+| `project_member.py` | Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал). |
+| `project_task.py` | Модель ProjectTask — фоновая задача проекта со статусом и ошибкой (таблица project_tasks). |
+| `speaker_profile.py` | Модели голосов: SpeakerProfile и связь ArtifactSpeakerLink со спикерами артефакта. |
+| `user.py` | Модель User — пользователь (имя, роль, Telegram). |
+| `user_activity_log.py` | Модель UserActivityLog — журнал действий пользователей. |
+
+**`app/app/routers/`**
+
+| Файл | Назначение |
+|---|---|
+| `acme.py` | Маршрут HTTP-01 проверки Let's Encrypt (`/.well-known/acme-challenge`). |
+| `admin_map.py` | Страница «Карта проекта» для администратора: поиск по индексу кода, связей, БД, окружения и истории (/admin/map). |
+| `auth.py` | Вход и выход: `/auth/login` (роль определяется паролем), `/auth/logout`. |
+| `knowledge.py` | Знания проекта: поиск по смыслу, граф, сущности, заметки и связи, конфликты, ТЗ и его версии, чат, дедлайны. |
+| `meetings.py` | Встречи проекта и гостевой вход: создание, старт, завершение, отзыв ссылки, вход и выход гостя, присутствие. |
+| `pages.py` | HTML-страницы портала и отчёты: вход, проекты, встречи, отчёты артефактов, отдача аудио и скачивание. |
+| `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал. |
+| `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
+| `projects.py` | Проекты: список, создание, карточка, предпросмотр и полное удаление. |
+| `requirement_review.py` | Подтверждение требований контракта (карточка «Подтверждение требований» на странице проекта). |
+| `speaker_profiles.py` | Спикеры и голоса: профили, запись голоса, слияние, пересчёт, подтверждение и связанные фоновые задачи. |
+| `upload.py` | Загрузка файлов (в том числе частями с докачкой) и список артефактов проекта, удаление артефакта. |
+
+**`app/app/services/`**
+
+| Файл | Назначение |
+|---|---|
+| `acme_challenge.py` | Проброс HTTP-01 проверки Let's Encrypt к Caddy: адрес проверки и прокси-ответ (`/.well-known/acme-challenge`). |
+| `agent_gateway.py` | Шлюз обмена с внешним агентом (агент анализа конфигурации): всё, что он присылает, — недоверенные ДАННЫЕ. |
+| `agent_guide.py` | Инструкция для внешних агентов: как пользоваться базой знаний, как просить нас о чём-то и как с нами общаться. |
+| `agent_inbox.py` | Ящик вопросов внешнего агента: принять вопрос, найти опорные фрагменты, дать ответить человеку, Claude или локальной модели. |
+| `agent_letters.py` | Письма базы знаний внешнему агенту: доставка через MCP, без переноса человеком. |
+| `agent_settings.py` | Настройки проекта для обмена с внешними агентами (хранятся в Project.settings_json → "agent_exchange"). |
+| `agent_verdicts.py` | Вердикты внешнего агента (analysis_verdict): список, подтверждение и отклонение человеком (только admin). |
+| `artifact_audio.py` | Подготовка звука артефакта: атомарное извлечение WAV из исходника с блокировкой и проверкой полноты, MP3 для скачивания, AAC для проигрывани |
+| `artifact_download.py` | Скачивание исходного файла артефакта: путь, имя и MIME (resolve_artifact_download), доступность и подпись кнопки «Скачать». |
+| `artifact_lab.py` | Доступ к лабораторным прогонам артефакта из веба. |
+| `artifact_reports.py` | HTML-отчёты по документам: путь и адрес отчёта, запись на диск, панель инструментов, разделы исходного текста и выжимки. |
+| `auth.py` | Хеширование и проверка паролей. |
+| `auto_review.py` | Автопроверка локальной моделью: режим (off / shadow / live), запись вердикта модели, отмена человеком, контрольная выборка. |
+| `build_info.py` | Признак «код на диске новее запущенного сервера» (пункт плана 1.3). |
+| `chat.py` | Чат с ИИ по материалам проекта: история и указания пользователя, уточняющие вопросы, поиск фрагментов и сущностей, сборка контекста, ответ L |
+| `chunk_fts.py` | Полнотекстовый поиск по фрагментам проекта (SQLite FTS5) — пара к векторному поиску для точных слов и чисел. |
+| `chunking.py` | Нарезка текста на фрагменты для индексации: документы (проза + таблицы), реплики стенограммы, оценка токенов. |
+| `conflict_context.py` | Противоречия проекта для LLM чата и ТЗ — хронологией, человеческими строками (CONFLICT-AUTONOMY-PLAN этап 5, Р4). |
+| `conflict_rules.py` | Правила разрешения противоречий без модели — docs/plans/CONFLICT-AUTONOMY-PLAN.md, решение Р1 (DECISIONS 2026-09-25). |
+| `contract.py` | Контракт обмена «база знаний ↔ агент анализа конфигурации» (v1.0). |
+| `contract_text.py` | Разбор текста для контракта обмена с агентом анализа: сообщения переписки, дословные цитаты, оценки часов, якоря кода. |
+| `docker_runtime.py` | Автозапуск Docker Desktop и ASR-контейнеров перед обработкой аудио. |
+| `docx_extract.py` | DOCX → markdown в порядке документа: заголовки (#), абзацы, списки, таблицы на своих местах, надписи, колонтитулы. |
+| `edge_runtime.py` | HTTPS (Caddy) and LiveKit room — поднимает main вместе с порталом. |
+| `entities.py` | Извлечение сущностей (задачи, упоминания, участники, решения, факты) из нормализованного текста через LLM: разбиение, промпт, разбор JSON и  |
+| `ffmpeg_tools.py` | Поиск исполняемых файлов ffmpeg и ffprobe. |
+| `gpu_phase.py` | Фазы GPU: замер видеопамяти (nvidia-smi), ожидание освобождения, выгрузка и загрузка модели LM Studio, чтобы ASR и LLM по очереди делили одн |
+| `graph.py` | Граф знаний проекта: тексты сущностей, автосвязи по косинусной близости, пересборка графа, удаление сущностей с зависимостями, чистка «осиро |
+| `html_extract.py` | HTML → текст с таблицами: блоки разметки дают переносы строк, ``<table>`` — markdown-таблицы на своих местах. |
+| `image_extract.py` | Текст из изображений: проверка слабого OCR и распознавание через vision-модель LLM. |
+| `indexing.py` | Индексация артефакта для поиска по смыслу (фрагменты и векторы в sqlite-vec) и сверка индекса проекта (`audit_project_index`). |
+| `lab_errors.py` | User-facing lab errors. ONNX warnings and ANSI stay out of the UI. |
+| `livekit_env.py` | Keys and livekit.yaml for the Meeting Mind room. |
+| `llm.py` | Единый адаптер LLM (LM Studio или Cursor API): вызовы без reasoning (`*_no_think`), разбор JSON, самопроверка обхода reasoning при старте. |
+| `login_allowlist.py` | Допуск на вход: только логины из Login_up.txt, без учёта регистра. |
+| `media_cleanup.py` | Чистка исходников: удаление видео после проверки извлечённого WAV и сверка пути исходника артефакта. |
+| `meeting_analyze.py` | Queue dual-hearing jobs for native meeting tracks. No Sortformer. |
+| `meeting_checks.py` | Чистые проверки шкалы созвона. Без БД и без LiveKit. |
+| `meeting_frames.py` | Кадры screen_video → vision. Не во время живой комнаты. |
+| `meeting_lab.py` | Снимок лаборатории созвона: дорожка за дорожкой, входы и выходы стадий. |
+| `meeting_merge.py` | Merge per-speaker meeting words onto one clock. No LLM. |
+| `meeting_overlap.py` | Same-room и one-mic: не угадывать имя без технических признаков. |
+| `meeting_recordings.py` | Raw per-speaker audio for one LiveKit room. Not DFN. Not ASR. |
+| `meeting_tokens.py` | Публичные токены встреч: генерация, хеш и адрес гостевой ссылки. |
+| `meeting_track_repair.py` | Ремонт реплик дорожки встречи, когда основной распознаватель (Parakeet) ошибся во времени или в содержании. |
+| `meetings.py` | Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, токены комнаты LiveKit, закрыт |
+| `normalize.py` | Нормализация текста документов: разбиение на части, промпт LLM и лёгкая нормализация без LLM. |
+| `notify.py` | Уведомления в Telegram через HTTPS Bot API: о готовности файла и событиях для пользователя. |
+| `office_convert.py` | Конвертация старых офисных форматов через LibreOffice headless: .doc/.rtf/.odt → .docx, .xls/.ods → .xlsx, .ppt → .pptx. |
+| `ollama_client.py` | Клиент Ollama: эмбеддинги (bge-m3, на CPU) и список моделей. |
+| `ollama_runtime.py` | Автозапуск Ollama перед эмбеддингами и индексацией. |
+| `pipeline_audio.py` | Обработка аудио-артефакта: запуск лабораторного ASR-конвейера, стенограмма, сверка спикеров, аудит реплик и выжимка созвона (`process_audio_ |
+| `pipeline_documents.py` | Извлечение текста из документов и изображений: TXT, RTF, PDF, DOCX, HTML, таблицы в Markdown, OCR. |
+| `pipeline_knowledge.py` | Конвейер знаний после получения текста артефакта: сущности, индекс и граф (`run_knowledge_pipeline`). |
+| `pipeline_lab.py` | Боевой ASR: лабораторный контур → публикация → speakers_pending. |
+| `pipeline_meeting.py` | Native meeting: per-track dual hearing → merge by time → one transcript. |
+| `pipeline_progress.py` | Пошаговый прогресс обработки артефакта для UI (чеклист ASR + фазы knowledge). |
+| `pipeline_resume.py` | Продолжение обработки аудио после сбоя: восстановление стенограммы из рабочей папки ASR и решение, продолжать ли. |
+| `pipeline_voice_gate.py` | Voice gate before triple ASR: wav → Sortformer → speaker match → speakers_pending. |
+| `plain_text.py` | Convert common LLM LaTeX / math markup into plain Unicode for HTML display. |
+| `pptx_extract.py` | Текст из презентаций .pptx → markdown по слайдам (вход для normalize / knowledge-пайплайна). |
+| `project_access.py` | Доступ к проекту: свои + выданные участники; роль на проекте может отличаться от пароля. |
+| `project_deadlines.py` | Дедлайны проекта: разбор сроков из текста («до пятницы», «на следующей неделе», даты) относительно даты артефакта и сведение задач в единый  |
+| `project_mcp_contract.py` | MCP-инструменты контракта обмена с агентом анализа (только чтение). Формат и смысл полей — docs/agent-exchange/CONTRACT.md. |
+| `project_mcp_data.py` | Данные проектного MCP (только чтение): обзор проекта, артефакты, сводка, поиск, сущности, граф и заметки — то, что отдают инструменты MCP. |
+| `project_mcp_tokens.py` | Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit) и проверка ключа при запросе. |
+| `project_members.py` | Выдача доступа к проекту: роли manager и user, без admin. |
+| `project_purge.py` | Удаление проекта целиком или одного артефакта: записи БД и файлы на диске. |
+| `project_tasks.py` | Фоновые задачи API (пересборка ТЗ, переиндексация и т.п.): запись и статусы в таблице project_tasks, защита от параллельного запуска, очистк |
+| `prompts.py` | Загрузка промптов из docs/prompts/*.md (пункт плана 2.2). |
+| `queue.py` | Очередь задач (таблица jobs): захват следующей задачи, завершение, возврат «осиротевших», постановка обработки и повтора этапа знаний. |
+| `rate_limit.py` | Ограничитель неудачных попыток (пункт плана 4.7): защита входа от перебора паролей ролей. |
+| `recorded_at.py` | Когда записан материал (`artifacts.recorded_at`): встреча из комнаты, дата в имени файла, метаданные файла или дата загрузки. |
+| `report_embed.py` | Режимы встраивания HTML-отчётов (прозрачный фон, без шапки) и скрытие элементов управления по роли пользователя. |
+| `requirement_review.py` | Подтверждение требований человеком (только admin): очередь, подтвердить / отклонить / сменить статус. |
+| `resumable_upload.py` | Загрузка файлов частями с докачкой: сессии, части и сборка на диск. |
+| `retrieval.py` | Поиск сущностей и фрагментов проекта: взвешенные оценки, обогащение и переранжирование результатов, порядок артефактов. |
+| `review_conflicts.py` | Автопроверка конфликтов (POTENTIAL_CONFLICT) локальной моделью — этап 4 docs/plans/AUTO-REVIEW-PLAN.md, |
+| `review_requirements.py` | Автопроверка требований (decision / task) локальной моделью по источнику — этап 2 docs/plans/AUTO-REVIEW-PLAN.md. |
+| `single_instance.py` | Защита от запуска второго GPU-воркера. |
+| `speaker_auto.py` | Спикеры без лишних подтверждений (этап 3 docs/plans/AUTO-REVIEW-PLAN.md). |
+| `speaker_profiles.py` | Голоса и спикеры: профили и эмбеддинги голосов, сопоставление имён, подтверждение спикеров, слияние профилей и синхронизация подтверждённых  |
+| `status.py` | Смена статуса артефакта. |
+| `storage.py` | Каталоги проекта и артефактов на диске: имена, пути к оригиналу, аудио, воспроизведению и отчётам. |
+| `summarize_document.py` | Выжимка документа: пути, загрузка исходного текста, промпты, сборка итогового Markdown и запуск (`run_document_summary`). |
+| `table_md.py` | Таблицы документов в markdown: один формат для DOCX, Excel/CSV, PDF и разбор его обратно (нормализация, нарезка). |
+| `tesseract_tools.py` | Поиск Tesseract и каталога tessdata, настройка pytesseract. |
+| `tls_cert.py` | Публичный сертификат :777 — проверка при старте и перевыпуск через Caddy :8443. |
+| `transcript_export.py` | Экспорт стенограммы созвона в документы (Word): поиск данных спикеров, выжимки и таймкодов, оформление стилей и шрифтов. |
+| `transcript_turns.py` | Реплики созвона из канона ``_final.txt``: кто, с какой по какую секунду, что сказал. |
+| `tz.py` | Техническое задание проекта: пересборка `current_tz.md` из материалов (быстрый путь top-K и полный map/reduce), версии, оценка объёма, челов |
+| `upload.py` | Приём файлов: определение типа, приоритет, длительность через ffprobe, сохранение потока, хеш, поиск дубликатов и создание записи артефакта. |
+| `user_activity.py` | Журнал действий пользователя (аудит). |
+| `user_identity.py` | Учётка по имени (логину). Telegram ID только хранится и обновляется. |
+| `vector_index.py` | Хранилище эмбеддингов в SQLite через sqlite-vec. |
+| `xlsx_extract.py` | Excel/CSV → markdown: ``## Лист: имя`` и GFM-таблицы по блокам листа. |
+
+**`app/app/services/project_index/`**
+
+| Файл | Назначение |
+|---|---|
+| `analyzers.py` | Структурные знания о проекте, которые нельзя надёжно получить из текста: роуты, БД, окружение, |
+| `chunkers.py` | Нарезка файлов проекта на фрагменты для индекса: Python, JS, шаблоны, CSS, Markdown, конфиги. |
+| `config.py` | Конфигурация индекса проекта: какие файлы читать, что исключать, как прятать секреты. |
+| `indexer.py` | Индексатор проекта: инкрементально, с кэшем эмбеддингов, устойчиво к обрыву. |
+| `search.py` | Поиск по индексу проекта: гибрид (точный FTS5 + смысловой вектор + точное совпадение символа) и структурные режимы. |
+| `store.py` | Хранилище индекса проекта: SQLite + sqlite-vec + FTS5 в data/project_map.db (отдельно от app.db). |
+
+**`app/app/static/`**
+
+| Файл | Назначение |
+|---|---|
+| `app.css` | Shared responsive tweaks for Primary Analytics portal |
+| `app.js` | const SKKKK = { |
+| `design.css` | Единая дизайн-система Primary Analytics (v2, 2026-09-19). |
+| `errors_ru.js` | Единая карта «английский detail API → русский текст» (пункт плана 3.14). |
+| `meeting_layout.js` | (function (root) { |
+| `meeting_layout.selfcheck.js` | (function () { |
+| `meeting_room.js` | const SCREEN_HINT = |
+| `px_agent.css` | Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. |
+| `px_agent.js` | Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. |
+| `report-theme.css` | Тема отчётов (документ и стенограмма созвона) в единой дизайн-системе. |
+
+**`app/app/templates/`**
+
+| Файл | Назначение |
+|---|---|
+| `admin_map.html` | — |
+| `base.html` | — |
+| `chat.html` | — |
+| `conflicts.html` | — |
+| `error.html` | — |
+| `graph.html` | — |
+| `index.html` | — |
+| `login.html` | — |
+| `meeting_lab.html` | — |
+| `meeting_public.html` | — |
+| `meeting_room.html` | — |
+| `project.html` | — |
+| `tz.html` | — |
+
+**`app/app/templates/partials/`**
+
+| Файл | Назначение |
+|---|---|
+| `px_agent_cards.html` | — |
+
+**`app/app/workers/`**
+
+| Файл | Назначение |
+|---|---|
+| `gpu_worker.py` | GPU-воркер: один процесс, берёт задачи из очереди по одной, ждёт зависимости и запускает обработку артефактов. |
+| `pipeline.py` | Обработка артефакта воркером: выбор конвейера по типу файла (`process_artifact`). |
+| `processor.py` | Заглушка обработки для режима DRY_RUN: проходит статусы без моделей. |
+| `review.py` | Фоновая автопроверка артефакта локальной моделью (задачи очереди ``kind=auto_review``). |
+
+**`asr/`**
+
+| Файл | Назначение |
+|---|---|
+| `build_lab_view.py` | Страница лабораторного прогона: стадии, хеши, A/B, тепловая карта, стенограмма. |
+| `build_raw_diar_view.py` | Сырая диаризация для прослушивания: без Gemma, без сглаживания, несколько треков. |
+| `build_sortformer_transcript_view.py` | Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF). |
+| `build_speaker_match_view.py` | Страница голосов созвона: диаризация + match/запоминание голосов (Bootstrap 5). |
+| `build_transcript_view.py` | Собрать реплики: Sortformer + Gemma + (опционально) база голосов → HTML. |
+| `client.py` | Клиент SKKKK к трём ASR-контейнерам. |
+| `clock_guard.py` | Диагностика петель Whisper и выбор надёжного якоря часов для alignment. |
+| `docker_stage.py` | Синхронизация аудио в asr/work для Docker-контейнеров ASR. |
+| `dump_pyannote.py` | Снять сырые интервалы PyAnnote из контейнера skkkk-gigaam. |
+| `dump_sortformer.py` | Sortformer v2.1 GGUF → sortformer_segments.json в OUT (и reports/ артефакта). |
+| `engine_timeline.py` | Фильтрация таймлайнов ASR-движков перед склейкой и alignment. |
+| `hallucination_guard.py` | Защита стенограммы от галлюцинаций ASR на тишине и от «простыни в 4 секунды». |
+| `lab_giga.py` | Этап 3a — прогон GigaAM (Docker) на аудио того же лабораторного прогона. |
+| `lab_hint.py` | Подписать лабораторных спикеров именами с боя — без копирования нарезки. |
+| `lab_pipeline.py` | CLI лабораторного конвейера расшифровки. |
+| `lab_proof.py` | Этап 3в — вычитка текста снимка 1+2 по прогону GigaAM. |
+| `lab_reconcile.py` | Этап 3b — построчная сверка снимка 1+2 с прогоном GigaAM. |
+| `lab_sense.py` | Оверлей Cursor API: разнести спорные слова по смыслу, не трогая снимок 01–07. |
+| `lab_voice.py` | Этап 4 — слепки голосов лаборатории в voice/, без записи в БД. |
+| `llm_client.py` | Единый LLM-клиент для ASR-скриптов (merge, summary). |
+| `match_sortformer_speakers.py` | Match Sortformer SPEAKER_XX → speaker_profiles (проект + global). |
+| `merge_ensemble.py` | Склейка трёх ASR через Gemma по окнам 120–180 с. |
+| `merge_guard.py` | Проверка полноты склейки LLM и восстановление пропусков из ASR. |
+| `paths.py` | Рабочие каталоги ASR: из env (prod) или asr/work + asr/out (dev). |
+| `pipeline_checklist.py` | Чеклист этапов ASR-пайплайна. |
+| `prepare_audio.py` | Готовит аудио для трёх ASR-движков. |
+| `run_all.py` | Запускает три ASR-движка ПАРАЛЛЕЛЬНО, каждый в своём процессе и своём окружении. |
+| `run_gigaam.py` | Движок 2: GigaAM v3 (переработка того, что лежит в AudioToText). |
+| `run_pipeline.py` | Сквозной прогон: видео → три ASR → Gemma → спикеры PyAnnote → HTML. |
+| `run_tone.py` | Движок 3: T-one (t-tech/T-one), телефонный русский, 8 кГц. |
+| `run_whisper.py` | Движок 1: Whisper large-v3 Russian Podlodka (bond005). |
+| `seed_artifact_asr.py` | — |
+| `serve.py` | HTTP-сервис ASR-движка. Контейнер живёт постоянно; модель грузится при первом /transcribe. |
+| `silence_energy.py` | Грубая оценка «есть ли речь» по энергии WAV без сдвига таймлайна. |
+| `speaker_labels.py` | Подписи Sortformer ID → имена из sortformer_speaker_match.json. |
+| `speaker_registry.py` | Match Sortformer/PyAnnote SPEAKER_XX к speaker_profiles (WeSpeaker cosine). |
+| `speakers.py` | Диаризация отдельно от ASR: реплики, сглаживание границ, overlay текста, имена. |
+| `summarize_call.py` | Выжимки созвона: итоговый протокол и краткое резюме, только из текста стенограммы. |
+| `timing_align.py` | Привязка склейки Gemma к часам ASR и спикерам. |
+| `transcript_integrity.py` | Страховка от потерь текста: audit merge + UI и глобальный backfill. |
+| `transcript_view.py` | Статическая страница стенограммы: цвета спикеров, клик к таймкоду, фильтр. |
+| `voice_turn_audit.py` | Автопроверка меток спикеров по голосу (WeSpeaker) после нарезки реплик. |
+
+**`asr/lab/`**
+
+| Файл | Назначение |
+|---|---|
+| `audio.py` | Чтение и ресемпл WAV для стадий лаборатории. |
+| `diar_models.py` | Движки диаризации лаборатории: Nemotron 3 (по умолчанию) и Sortformer 4spk (откат). |
+| `giga.py` | Разбор ответа GigaAM (Docker) для лаборатории. |
+| `hint.py` | Подписи имён с боевого проекта — не основа лаборатории. |
+| `nemotron_runner.py` | Nemotron 3 Diarization в отдельном процессе ``venvs\nemo-diar`` (NeMo + torch). |
+| `onnx_env.py` | Общая настройка onnxruntime и каталогов моделей для лаборатории. |
+| `paths.py` | Пути лабораторного прогона. Единственный источник — этот модуль. |
+| `pipeline.py` | Оркестратор лабораторных стадий. |
+| `proof.py` | Вычитка текста: пословные расхождения лаборатории и GigaAM (этап 3в). |
+| `reconcile.py` | Построчная сверка снимка 1+2 с независимым мнением GigaAM (этап 3b). |
+| `run.py` | Контракт стадии: хеши входов и выходов, честное падение, пропуск по отпечатку. |
+| `sense.py` | Смысловая разноска спорных фраз — оверлей над зафиксированной покраской. |
+| `sortformer.py` | Streaming Sortformer 4spk v2.1 на ONNX Runtime, без NeMo и без torch. |
+| `voice.py` | Слепки голосов лаборатории: клипы из слов, WeSpeaker, match.json прогона. |
+| `words.py` | Сборка слов из токенов SentencePiece. |
+
+**`scripts/`**
+
+| Файл | Назначение |
+|---|---|
+| `audit_integrity.py` | Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы. Только чтение. |
+| `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
+| `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO) |
+| `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
+| `check_env.ps1` | — |
+| `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
+| `check_systems.ps1` | SKKKK — только проверка всех систем, без запуска |
+| `collect_ui_copy.py` | Реестр текстов интерфейса (пункт плана 3.9): собирает русские подписи, подсказки, aria-label и строки JS. |
+| `dedupe_speaker_profiles.py` | Удалить дубликаты speaker_profiles (имена и похожие голоса). |
+| `dev_changelog.py` | Журнал разработки из git: docs/CHANGELOG-DEV.md (генерируется, руками не править). |
+| `eval_auto_review.py` | Замер автопроверки требований (план docs/plans/AUTO-REVIEW-PLAN.md, §9). |
+| `eval_chat.py` | Оценка чата-ассистента (пункт плана 2.9). |
+| `eval_index.py` | Оценка индекса проекта на золотом наборе вопросов (docs/eval/index_questions.json). |
+| `eval_tz.py` | Оценка качества быстрой сводки ТЗ (пункт плана 2.3). |
+| `fast_summarize_tz.py` | Быстрый векторный свод: retrieval top-K из sqlite-vec (чанки+сущности) + заметки |
+| `fetch_meeting_dfn3.py` | Download DeepFilterNet3 browser assets. Live meeting only, not lab ASR. |
+| `fix_conflict_links.py` | Разовая чистка конфликтов после исправления ошибок графа (docs/plans/CONFLICT-AUTONOMY-PLAN.md, этап 1). |
+| `health_report.py` | Отчёт о здоровье системы (пункт плана 5.2). Только чтение логов и БД. |
+| `index_doctor.py` | Диагностика индекса проекта: всё ли в порядке и что чинить. Только чтение. |
+| `index_project_map.py` | Индексатор проекта (карта, код Python/JS/шаблонов/CSS, документы, символы, роуты, БД, окружение, история). |
+| `inspect_project_index.py` | Сверка векторного индекса проекта: чанки ↔ sqlite-vec ↔ lab _final.txt. |
+| `install_caddy.ps1` | SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора) |
+| `install_hooks.ps1` | Установить (или снять) git-хуки, которые после коммита и слияния обновляют индекс проекта. |
+| `install_meeting_voice.py` | Isolated CPU venv for the LiveKit DeepFilterNet cleaner. Not the app venv. |
+| `install_services.ps1` | SKKKK — установка служб Windows через NSSM (запуск от администратора) |
+| `kb_inbox.py` | Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю). |
+| `lightrag_doctor.py` | Проверка LightRAG: Docker, Ollama embed, LLM, inputs. |
+| `lightrag_index.py` | Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline. |
+| `lightrag_query.py` | Запрос к LightRAG по карте SKKKK. |
+| `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
+| `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
+| `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
+| `monitor_skkkk_loop.ps1` | — |
+| `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
+| `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
+| `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
+| `qa_call_stress.py` | Стресс-проверка записи звонка на РЕАЛЬНОМ сервере (рекордеры, LiveKit): песочный проект SMOKE_PROJECT_ID (29), два браузерных гостя. |
+| `qa_flows.py` | Интерактивные сценарии по всему порталу в браузере (изолированный экземпляр с копией базы, как в qa_pages.py; боевой сервер не затрагивается |
+| `qa_mobile_android.py` | Проверка комнаты на настоящем Chrome для Android: эмулятор Pixel 7 (Android 14, папка tools/android) или телефон по USB с отладкой. |
+| `qa_mobile_webkit.py` | Проверка гостевого входа и комнаты на мобильных профилях: WebKit (движок Safari) для iPhone/iPad и Chromium для Android-профилей. |
+| `qa_navbar.py` | Проверка шапки: на разных экранах шапка не шире экрана, не выше 2 строк на телефоне, проект обрезается многоточием, ничего не наезжает. |
+| `qa_pages.py` | Аудит вёрстки страниц портала на разных экранах и движках: переполнение по ширине, наезд элементов, размеры кнопок и полей, мелкий шрифт, |
+| `qa_publish_wav.py` | Публикует wav-файл как микрофон участника в комнату LiveKit (для проверки записи и анализа без людей). |
+| `qa_room.py` | Проверка комнаты созвона в настоящем браузере (Chromium + фейковые камера/микрофон), без паролей: встреча создаётся кодом приложения |
+| `rebuild_artifact_report.py` | Пересобрать reports/transcript.html для артефакта: Sortformer + match + новый UI. |
+| `redescribe_screen_frames.py` | Переописать кадры шэринга экрана прогона vision-моделью и пересобрать прод-HTML. |
+| `refresh_portal_knowledge.py` | Пересобрать выжимки созвонов, индекс, сущности и ТЗ по проекту(ам). |
+| `reprocess_documents.py` | Переобработка загруженных документов новым извлечением таблиц (docs/plans/DOCUMENT-TABLES-PLAN.md, шаг 8). |
+| `rerun_cursor_merge.py` | Пересклейка merge + view для артефакта (Cursor, без ASR и без Gemma). |
+| `rerun_transcript_integrity.py` | Пересчёт global integrity + plain без повторного LLM-merge. |
+| `restart.ps1` | SKKKK — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health |
+| `resume_knowledge.py` | Resume knowledge pipeline for an artifact with finished ASR/transcript. |
+| `run_all.ps1` | SKKKK — весь проект одной командой (LLM из .env) |
+| `run_api.ps1` | SKKKK — только API (LLM из .env) |
+| `run_worker.ps1` | SKKKK — GPU-воркер очереди |
+| `search_project_map.py` | Поиск по индексу проекта: смысл + точные имена + связи. Каждый ответ — с адресом `путь:строка`. |
+| `setup_env.ps1` | Установка окружения проекта после переноса папки на другой ПК (или с нуля). |
+| `smoke_cycle.py` | Прогон полного цикла через HTTP API: вход, проект, загрузка, обработка. |
+| `start-cursor.ps1` | — |
+| `start-gemma.ps1` | — |
+| `start-saved.ps1` | — |
+| `start.ps1` | SKKKK — запуск API + GPU-воркер с выбором LLM |
+| `stop.ps1` | SKKKK — остановить API и GPU-воркер |
+| `verify_backup.py` | Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить. |
+| `watch_server.py` | Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log). |
+
+**`scripts/smoke/`**
+
+| Файл | Назначение |
+|---|---|
+| `common.py` | Общие настройки смоук-набора. Всё берётся из переменных окружения — секретов в коде нет. |
+| `run_all.py` | Запуск всего смоук-набора. Код выхода 0 — всё зелёное (SKIP не считается провалом). |
+| `smoke_agent_cards.py` | Карточки обмена с агентами на странице проекта (песочница): раскрываются, грузят данные, нет ошибок консоли и горизонтального скролла; |
+| `smoke_agent_exchange.py` | Обмен с внешним агентом (шлюз + MCP-контракт) на живом сервере, только песочница: ключ создаётся и отзывается. |
+| `smoke_console.py` | Нет ошибок консоли и упавших запросов на основных страницах (пункт 3.6). |
+| `smoke_counters.py` | Согласованность счётчиков проекта (пункт 3.16): Док. + Созвоны = знаменатель «Готово» = число строк таблицы = ответ API. |
+| `smoke_delete_live_guest.py` | Удаление встречи при подключённом госте (находка аудита 4.9): гость покидает комнату, запись не возобновляется. |
+| `smoke_double_click.py` | Двойной клик = один запрос (пункт 3.18): «Создать встречу» и «Пересобрать» ТЗ. Только песочница. |
+| `smoke_duplicate_tab.py` | Дубль-вкладка сотрудника (пункт 2.6): первая вкладка получает понятную причину и заблокированные кнопки. |
+| `smoke_end_confirm.py` | «Завершить для всех» (пункт 3.13): своё окно подтверждения; «Отмена» встречу не завершает, «Завершить» — завершает. |
+| `smoke_flow.py` | Песочница: загрузка документа -> встреча -> гость и сотрудник входят (API). |
+| `smoke_forms.py` | Формы (пункт 3.18): вход по Enter; название проекта из пробелов отклоняется по-русски и ничего не создаёт. |
+| `smoke_guest_lobby.py` | Гостевой вход (пункты 3.3/3.12): кнопка «Войти во встречу» видна без прокрутки на типовых размерах. |
+| `smoke_perm.py` | Роли на одной учётке не перебивают друг друга (пункт 1.2). |
+| `smoke_presence.py` | Presence симметричен (пункт 1.1): у сотрудника есть heartbeat и leave. |
+| `smoke_room.py` | Комната: два участника, завершение встречи замечается, кнопка смены камеры (браузер). |
+| `smoke_stable_dom.py` | Автообновление не перестраивает DOM без изменений (пункт 3.7): узел кнопки встречи живёт дольше двух опросов. |
+| `smoke_tiles.py` | Плитки комнаты (пункт 3.11): N участников × размеры окна — нет пересечений, выходов за экран и перекрытия панелью. |
+| `smoke_widths_a11y.py` | Планшетные ширины и базовая доступность (пункты 4.2, 4.8): нет горизонтального скролла; у кнопок/ссылок/полей есть имя. |
+
+**`tools/`**
+
+| Файл | Назначение |
+|---|---|
+| `_monitor_snapshot.py` | — |
+| `projindex_mcp.py` | Локальный MCP-сервер индекса проекта (stdio): поиск по коду, связям, БД, окружению и истории. Только чтение. |
+
+**`tools/livekit/`**
+
+| Файл | Назначение |
+|---|---|
+| `ensure_livekit.py` | CLI: write LiveKit keys into .env and tools/livekit/livekit.yaml. |
+| `screen_recorder.py` | CPU screen-share recorder for live rooms. Not DFN. Not ASR. Not camera. |
+| `voice_cleaner.py` | CPU DeepFilterNet for live rooms. Not lab ASR. Not GPU. |
+
+<!-- generated:end registry -->
 
 ---
 
@@ -1174,4 +1739,11 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 ---
 
-*Последнее обновление карты: 2026-08-29 — выжимка документа (`doc_summary.md`), UI `/report` для файлов.*
+*Дополнение 2026-09-21: обмен с агентом, подтверждение требований, новые сервисы и скрипты QA (§5.1, §7, §10); фронт: `static/px_agent.js` + `px_agent.css` + `templates/partials/px_agent_cards.html` (карточки обмена на странице проекта), `static/errors_ru.js` + `templates/error.html` (русские ошибки), `static/design.css` (дизайн-система). БД: пул 10+20, таймаут 15 с, при исчерпании стеки держателей в `api.log` (`db.describe_pool_holders`). Комната: иконки выбора динамика и микрофона в `meeting_room.js` / шаблонах комнаты.*
+
+*Последнее обновление карты: 2026-09-17 — легализованы рассуждения локальной LLM (подготовка к новому Swift-Qwen 27B): из `llm._lmstudio_chat_body` убраны хардкоды `chat_template_kwargs.enable_thinking=False` и `reasoning_effort="none"`; добавлены настройки `LMSTUDIO_ENABLE_THINKING` (default `true`) и `LMSTUDIO_REASONING_EFFORT` (default `medium`) в `config.Settings`, а `chat_completion`/`chat_from_env`/`lmstudio_chat_raw` резолвят их и передают `enable_thinking` + `reasoning_effort` (при `enable_thinking=false` усилие принудительно `none`). Сверено с сервером LM Studio: `reasoning_effort` принимает только `none/minimal/low/medium/high/xhigh`, иначе HTTP 400 (а не молчаливое отбрасывание); сервер сам маппит `none→off`, `minimal→low`, `xhigh→high`. Инфраструктура запуска (вне репозитория): пресет `%USERPROFILE%\.lmstudio\config-presets\swift-qwen-24gb.preset.json` (flash-attn, KV q8_0, draft-MTP, 1 слот, `enableThinking=true`) + `run_server.ps1` в корне проекта — в этой сборке `lms load` не умеет `--preset`/`--limit-slots`, поэтому поля пресета раскладываются в `user-concrete-model-default-config` конкретной модели, а один слот задаётся `--parallel 1`. Тесты: `app/app/tests/test_llm_provider.py` (16 passed). Ранее: иерархическая пересборка ТЗ: `tz._build_tz_body` при переполнении контекста LM Studio (`n_keep > n_ctx`) автоматически группирует черновики в промежуточные merge-вызовы (Проход 1.5, `tz.merge` в логах, ~9000 tok на группу) до тех пор, пока сводные черновики не укладываются в budget финального reduce; промпт `rebuild_tz.md` расширен до 6 блоков, `_parse_prompts` возвращает 6 кортежей. Исправлено: сборки с >73 чанками (напр. проект 18 с 76) раньше падали с `LM Studio HTTP 400 … n_keep >= n_ctx` — теперь проходят до конца. Ранее: фикс warning LM Studio «Reasoning setting 'off' is not a valid option» (`llm._lmstudio_chat_body`): невалидные значения маппились в `low`, а мышление глушилось `chat_template_kwargs.enable_thinking=False` (**отменено 2026-09-17, см. выше** — «none» в этой сборке валиден, а невалидное значение даёт 400); в лог `lmstudio.chat` добавлены `reasoning_tokens` и `has_reasoning` — теперь видно, если модель реально начала выдавать `<thinking>`. Ранее: приклейка кадров экрана в стенограмме (`transcript_view._words_html`): кнопка **▣** теперь ставится **перед** блоком слов (на границе момента кадра, фразы не разрываются), а кадры, в окне которых нет слов, получают отдельную кнопку перед первым словом после момента кадра (`turn_hits`); пересобраны все стенограммы с кадрами (2026-09-01 ×2, 2026-09-16 ×2, 2026-09-17). Ранее: фикс `scene_times()` (`-fps_mode vfr` вместо удалённого в ffmpeg 9.0 `-vsync vfr`): кадры экрана снова ложатся на реальные смены сцены, а не «пол 15 с»; `_dotenv_value()` даёт `screen_vision_enabled()`/`frames_max()` fallback на `.env`; `redescribe_existing_frames()` пропускает vision-кадры; авто-vision в `pipeline_meeting`; полный пересбор созвонов 2026-09-16 (jobs 74/75) — кадры vision в проде и чанках БД. Экран в стенограмме: hover pop-up заменён на кнопку **▣** в конце блока/реплики → модалка со скриншотом кадра (`frame_url`, эндпоинт `/lab/{run_id}/frame/{relative}`, права уровня отчёта) и сворачиваемым `<details>` с текстом описания.*
+
+
+## Архив разработки
+
+`_archive/` — файлы и код, оставшиеся от разработки и не используемые рабочим контуром (модели и окружения экспериментов, разовые скрипты, логи). Перенесены без удаления; список и способ возврата — в [`_archive/README.md`](../_archive/README.md).

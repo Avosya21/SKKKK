@@ -1,3 +1,5 @@
+"""Клиент Ollama: эмбеддинги (bge-m3, на CPU) и список моделей."""
+
 from __future__ import annotations
 
 import logging

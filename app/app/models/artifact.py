@@ -1,3 +1,5 @@
+"""Модель Artifact — загруженный файл проекта и его статус обработки (таблица artifacts)."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -31,6 +33,10 @@ class Artifact(Base):
     duration_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     asr_engines_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcript_html_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Когда материал записан (UTC, без пояса — как всё время в БД). Источник: meeting | filename | media | upload.
+    # «filename» — точность до дня (полдень UTC), «upload» — честная замена, а не дата созвона. У старых записей NULL.
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_at_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="artifacts")
     jobs: Mapped[list["Job"]] = relationship(back_populates="artifact")

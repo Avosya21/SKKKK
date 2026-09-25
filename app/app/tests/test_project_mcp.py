@@ -12,12 +12,15 @@ def test_mcp_initialize_returns_tools_capability():
     assert resp["result"]["serverInfo"]["name"] == "skkkk-project"
 
 
-def test_mcp_tools_list_has_nine_tools():
+def test_mcp_tools_list_has_base_and_contract_tools():
     resp = handle_jsonrpc(None, None, 1, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = {t["name"] for t in resp["result"]["tools"]}
     assert "project_overview" in names
     assert "search_project" in names
-    assert len(names) == 9
+    base = {"project_overview", "list_artifacts", "get_project_summary", "search_project", "list_entities",
+            "get_knowledge_graph", "list_notes", "list_conflicts", "get_artifact_content", "get_guide", "wait_reply", "exchange_status", "submit_question", "submit_verdicts"}
+    contract = {"get_requirements", "get_changes", "get_code_anchors", "get_conflicts", "get_quote", "get_artifact_meta", "get_tz"}
+    assert base | contract == names
 
 
 def test_create_and_auth_mcp_token(db_engine, client, admin_token, manager_token):
@@ -46,7 +49,7 @@ def test_create_and_auth_mcp_token(db_engine, client, admin_token, manager_token
         json={"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}},
     )
     assert mcp_r.status_code == 200
-    assert len(mcp_r.json()["result"]["tools"]) == 9
+    assert len(mcp_r.json()["result"]["tools"]) == 21
 
 
 def test_mcp_rejects_without_token(client, manager_token):

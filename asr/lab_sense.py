@@ -86,14 +86,14 @@ def main() -> int:
         print(json.dumps({"spans": len(payloads), "words": meta["disputed_words"]}, ensure_ascii=False))
         return 0
 
-    from app.app.services.llm import chat_from_env, strip_json_fence
+    from app.app.services.llm import chat_from_env_no_think, strip_json_fence
 
     system = PROMPT.read_text(encoding="utf-8")
     decisions: list[dict] = []
     batches_log: list[dict] = []
     for batch in batched(payloads, BATCH_SPANS):
         user = json.dumps({"spans": batch, "allowed_speakers": sorted(allowed)}, ensure_ascii=False)
-        text, _usage = chat_from_env(system, user, temperature=0.1, max_tokens=2048)
+        text, _usage = chat_from_env_no_think(system, user, temperature=0.1, max_tokens=2048)
         try:
             parsed_raw = json.loads(strip_json_fence(text) or "{}")
         except json.JSONDecodeError:

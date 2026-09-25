@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import os
 
+os.environ.setdefault("SKKKK_STRICT_DB_HOLD", "1")  # вызов LLM при открытой транзакции БД в тестах — ошибка (держит соединение пула)
+os.environ.setdefault("SKKKK_DISABLE_LLM_SELFCHECK", "1")  # самопроверка LLM при старте приложения будила бы настоящий LM Studio
+os.environ.setdefault("SKKKK_DISABLE_EDGE", "1")  # тесты не запускают настоящие рекордеры записи (см. edge_runtime.edge_disabled)
+
 from collections.abc import Generator
 
 from pathlib import Path
@@ -47,6 +51,39 @@ os.environ["MANAGER_PASSWORD_HASH"] = MANAGER_PASSWORD_HASH
 os.environ["USER_PASSWORD_HASH"] = USER_PASSWORD_HASH
 
 os.environ["DRY_RUN"] = "1"
+
+
+
+
+
+@pytest.fixture(autouse=True)
+
+def _reset_login_limiter():
+
+    from app.app.services.rate_limit import LOGIN_LIMITER
+
+    LOGIN_LIMITER.reset()
+
+    yield
+
+
+
+@pytest.fixture(autouse=True)
+
+def _forbid_real_db(monkeypatch):
+
+    """Тест без изоляции БД не должен молча писать в боевую data/app.db (так в неё попали 9 проектов «Batch»).
+
+    SessionLocal по умолчанию бросает ошибку; фикстуры client/db_engine подменяют его тестовым.
+    """
+
+    import app.app.db as db_mod
+
+    def _blocked(*_a, **_k):
+
+        raise RuntimeError("Тест обратился к боевой БД: используйте фикстуру client или db_engine")
+
+    monkeypatch.setattr(db_mod, "SessionLocal", _blocked)
 
 
 

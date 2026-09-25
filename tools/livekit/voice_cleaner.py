@@ -109,9 +109,34 @@ def _ensure_df_io_compat() -> None:
     except ImportError:
         pass
     if "torchaudio.backend.common" in sys.modules:
-        return
+        common = sys.modules["torchaudio.backend.common"]
+        existing = getattr(common, "AudioMetaData", None)
+        if existing is not None:
+            try:
+                existing(sample_rate=0)
+                return
+            except TypeError:
+                class CompatAudioMetaData(existing):
+                    def __init__(self, sample_rate=0, num_frames=0, num_channels=0,
+                                 bits_per_sample=0, encoding=""):
+                        super().__init__(sample_rate, num_frames, num_channels,
+                                         bits_per_sample, encoding)
+                common.AudioMetaData = CompatAudioMetaData
+                return
     try:
-        from torchaudio.backend.common import AudioMetaData  # noqa: F401
+        from torchaudio.backend.common import AudioMetaData
+        # torchaudio 2.9 keeps the class but made all metadata fields required;
+        # DeepFilterNet and older callers rely on the legacy defaults.
+        try:
+            AudioMetaData(sample_rate=0)
+        except TypeError:
+            common = sys.modules["torchaudio.backend.common"]
+            class CompatAudioMetaData(AudioMetaData):
+                def __init__(self, sample_rate=0, num_frames=0, num_channels=0,
+                             bits_per_sample=0, encoding=""):
+                    super().__init__(sample_rate, num_frames, num_channels,
+                                     bits_per_sample, encoding)
+            common.AudioMetaData = CompatAudioMetaData
         return
     except Exception:
         pass
@@ -186,14 +211,9 @@ def _enhance(model, state, enhance, pcm, atten=None):
     if atten is None:
         atten = _ATTEN
     audio = torch.from_numpy(pcm.astype(np.float32) / 32768.0).unsqueeze(0)
-    reset = getattr(model, "reset_h0", None)
-    if reset is not None:
-        model.reset_h0 = lambda *args, **kwargs: None
-    try:
-        out = enhance(model, state, audio, pad=False, atten_lim_db=atten)
-    finally:
-        if reset is not None:
-            model.reset_h0 = reset
+    # Compensate STFT delay so the chunk stays the same length. A short
+    # enhance output is zero-padded by _fit and the live voice falls apart.
+    out = enhance(model, state, audio, pad=True, atten_lim_db=atten)
     wave = out.detach().cpu().numpy().reshape(-1)
     wave = np.clip(wave, -1.0, 1.0)
     return _fit((wave * 32767.0).astype(np.int16), len(pcm))
@@ -269,7 +289,7 @@ def _bind_recorders(room_name: str, rec, data_dir: Path):
 
     def persist() -> None:
         dest = rec.room_dir(data_dir, room_name) / rec.MANIFEST_NAME
-        rec.write_manifest(dest, manifest)
+        rec.write_manifest_merged(dest, manifest)
 
     def start_record(track, pub, participant) -> None:
         identity = participant.identity
@@ -287,6 +307,8 @@ def _bind_recorders(room_name: str, rec, data_dir: Path):
                     on_gap=lambda sec, who=identity: events.append(
                         rec.EVENT_GAP, identity=who, sec=round(sec, 3)
                     ),
+                    # рекордер перезапустили посреди встречи: продолжаем существующую дорожку, а не затираем её
+                    resume_started_epoch=rec.existing_track_started(data_dir, room_name, identity, source),
                 )
                 writers[key] = writer
                 rec.upsert_track(
@@ -638,6 +660,7 @@ async def _loop() -> None:
     lock = asyncio.Lock()
     print("voice_cleaner: DeepFilterNet CPU ready", "atten", _ATTEN, flush=True)
     active: set[str] = set()
+    backoff = _recordings().JoinBackoff()
     while True:
         list_jwt, _ = _tokens(key, secret)
         try:
@@ -645,31 +668,42 @@ async def _loop() -> None:
         except Exception as exc:
             print("voice_cleaner: list", exc, file=sys.stderr)
             rooms = []
+        backoff.forget_missing(rooms)
         for name in rooms:
-            if name in active:
+            if name in active or not backoff.allowed(name):
                 continue
             _, join_jwt = _tokens(key, secret, name)
             active.add(name)
-            asyncio.create_task(_watch(name, join_jwt, model, enhance, lock, active))
+            backoff.started(name)
+            asyncio.create_task(_watch(name, join_jwt, model, enhance, lock, active, backoff))
         await asyncio.sleep(POLL_SEC)
 
 
-async def _watch(name: str, token: str, model, enhance, lock, active: set[str]) -> None:
+async def _watch(name: str, token: str, model, enhance, lock, active: set[str], backoff=None) -> None:
     try:
         await _join(INTERNAL_URL, token, model, enhance, lock, name)
     except Exception as exc:
         print("voice_cleaner:", name, exc, file=sys.stderr)
     finally:
         active.discard(name)
+        if backoff is not None:
+            backoff.finished(name)
 
 
 def main() -> int:
     if os.environ.get("MEETING_VOICE_SERVER", "1").strip() in {"0", "false", "off"}:
         return 0
+    # одна копия на машину: вторая с тем же именем участника выбивала бы первую из комнаты
+    instance = _recordings().acquire_single_instance(_data_dir() / "locks" / "voice_cleaner.instance")
+    if instance is None:
+        print("voice_cleaner: уже запущен, эта копия выходит", flush=True)
+        return 0
     try:
         asyncio.run(_loop())
     except KeyboardInterrupt:
         return 0
+    finally:
+        instance.close()
     return 0
 
 

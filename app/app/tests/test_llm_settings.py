@@ -47,17 +47,18 @@ def test_write_and_read_llm_provider(tmp_path, monkeypatch):
     assert read_llm_provider_from_env_file() == "lmstudio"
 
 
-def test_resolve_llm_provider_cli(monkeypatch):
-    from app.app import bootstrap
+def test_resolve_llm_provider_cli(tmp_path, monkeypatch):
+    from app.app import bootstrap, llm_settings
     from app.app.startup_llm import resolve_llm_provider_at_startup
 
-    env_path = bootstrap.ENV_PATH
-    monkeypatch.setattr(
-        bootstrap,
-        "_read_env",
-        lambda: "SECRET_KEY=test-secret-key-32chars!!\nLLM_PROVIDER=lmstudio\n",
+    # Раньше тест писал в боевой .env (llm_settings.ENV_PATH не подменялся) и сбрасывал провайдер.
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "SECRET_KEY=test-secret-key-32chars!!" + chr(10) + "LLM_PROVIDER=lmstudio" + chr(10), encoding="utf-8"
     )
     monkeypatch.setattr(bootstrap, "ENV_PATH", env_path)
+    monkeypatch.setattr(llm_settings, "ENV_PATH", env_path)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
     provider = resolve_llm_provider_at_startup(cli_choice="cursor", use_saved=True, interactive=False)
     assert provider == "cursor"

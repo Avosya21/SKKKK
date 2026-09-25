@@ -1,3 +1,5 @@
+"""Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ."""
+
 from __future__ import annotations
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
@@ -32,6 +34,8 @@ class Link(Base):
     is_automatic: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Вердикт локальной модели по конфликту (JSON: verdict, reason, confidence, mode, prompt_version…); человек главнее.
+    model_review: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Chunk(Base):
@@ -44,6 +48,9 @@ class Chunk(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     speaker: Mapped[str | None] = mapped_column(String(128), nullable=True)
     token_estimate: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Отрезок созвона, который покрывает фрагмент (секунды от начала записи); у документов и старых чанков — NULL.
+    start_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
+    end_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class AsrRun(Base):

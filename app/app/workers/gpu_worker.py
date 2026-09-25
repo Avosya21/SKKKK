@@ -1,14 +1,77 @@
+"""GPU-воркер: один процесс, берёт задачи из очереди по одной, ждёт зависимости и запускает обработку артефактов."""
+
 from __future__ import annotations
 
 import logging
 import os
 import time
 
+try:
+    from loguru import logger as log
+except ImportError:  # loguru missing in this interpreter -> colored stdlib fallback
+    import sys as _sys
+
+    try:
+        from colorama import Fore as _Fore, Style as _Style
+    except ImportError:
+        _Fore, _Style = None, None
+
+    _C = {
+        logging.INFO: getattr(_Fore, "CYAN", ""),
+        logging.WARNING: getattr(_Fore, "YELLOW", ""),
+        logging.ERROR: getattr(_Fore, "RED", ""),
+    }
+    _R = getattr(_Style, "RESET", "")
+
+    class _Shim:
+        def __init__(self):
+            _h = logging.StreamHandler(_sys.stderr)
+            _h.setFormatter(logging.Formatter(
+                fmt="%(asctime)s | %(levelname)s | %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            ))
+            self._lg = logging.getLogger("skkkk.gpu_worker")
+            self._lg.setLevel(logging.INFO)
+            self._lg.propagate = False
+            if not self._lg.handlers:
+                self._lg.addHandler(_h)
+
+        @staticmethod
+        def _fmt(msg, args, kwargs):
+            try:
+                return msg.format(*args, **kwargs)
+            except Exception:
+                return " ".join([str(msg), *[str(x) for x in args], *[f"{k}={v}" for k, v in kwargs.items()]])
+
+        def _emit(self, level, msg, args, kwargs, exc=False):
+            self._lg.log(level, _C.get(level, "") + self._fmt(msg, args, kwargs) + _R, exc_info=exc)
+
+        def info(self, msg, *a, **k):
+            self._emit(logging.INFO, msg, a, k)
+
+        def warning(self, msg, *a, **k):
+            self._emit(logging.WARNING, msg, a, k)
+
+        def error(self, msg, *a, **k):
+            self._emit(logging.ERROR, msg, a, k)
+
+        def exception(self, msg, *a, **k):
+            self._emit(logging.ERROR, msg, a, k, exc=True)
+
+    log = _Shim()
+
 from app.app.config import get_settings
 from app.app.db import SessionLocal
 from app.app.logging_setup import log_event, setup_logging
 from app.app.models.artifact import Artifact
-from app.app.services.queue import claim_next_job, finish_job, requeue_orphaned_jobs
+from app.app.services.queue import (
+    KIND_AUTO_REVIEW,
+    KIND_PROCESS,
+    KIND_REFRESH,
+    claim_next_job,
+    finish_job,
+    requeue_orphaned_jobs,
+)
 from app.app.services.single_instance import AlreadyRunning, SingleInstance
 from app.app.workers import processor as proc_mod
 
@@ -58,6 +121,40 @@ def _wait_dependencies(settings, timeout_sec: int = 300) -> None:
     logger.warning("dependency wait timed out; worker continues anyway")
 
 
+def _run_other_job(db, settings, job, artifact: Artifact) -> bool:
+    """Задачи кроме расшифровки. Неизвестный вид — ошибка задачи, а не запуск конвейера расшифровки на готовом файле.
+
+    Ошибка автопроверки статус артефакта не трогает: знания по нему уже построены.
+    """
+    started = time.monotonic()
+    job_pk = job.id
+    try:
+        if job.kind not in (KIND_AUTO_REVIEW, KIND_REFRESH):
+            raise ValueError(f"неизвестный вид задачи: {job.kind!r}")
+        if settings.dry_run:
+            log_event(logger, "job.skipped", artifact=artifact.artifact_id, kind=job.kind, reason="dry_run")
+        elif job.kind == KIND_REFRESH:
+            from app.app.workers.review import refresh_knowledge
+
+            refresh_knowledge(db, settings, artifact)
+        else:
+            from app.app.workers.review import process_review
+
+            process_review(db, settings, job, artifact)
+        finish_job(db, job, ok=True)
+        log_event(logger, "job.done", job_id=job_pk, artifact=artifact.artifact_id, kind=job.kind, seconds=round(time.monotonic() - started, 1))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("job %s failed", job_pk)
+        db.rollback()
+        from app.app.models.job import Job
+
+        fresh = db.get(Job, job_pk)
+        if fresh is not None:
+            finish_job(db, fresh, ok=False, error=str(exc)[:1000])
+        log_event(logger, "job.failed", job_id=job_pk, artifact=artifact.artifact_id, kind=job.kind, error=exc)
+    return True
+
+
 def run_once() -> bool:
     settings = get_settings()
     db = SessionLocal()
@@ -78,7 +175,10 @@ def run_once() -> bool:
             file=artifact.original_filename,
             file_type=artifact.file_type,
             attempt=job.attempts,
+            kind=job.kind,
         )
+        if job.kind != KIND_PROCESS:
+            return _run_other_job(db, settings, job, artifact)
         started = time.monotonic()
         try:
             if settings.dry_run:
@@ -86,7 +186,30 @@ def run_once() -> bool:
             else:
                 from app.app.workers.pipeline import process_artifact
 
-                process_artifact(db, settings, artifact)
+                log.info(
+                    "[HEAVY] start | Parakeet-TDT -> GigaAM -> Sortformer -> LightRAG | "
+                    "artifact={artifact} file={file} attempt={attempt}",
+                    artifact=artifact.artifact_id,
+                    file=artifact.original_filename,
+                    attempt=job.attempts,
+                )
+                phase_started = time.monotonic()
+                try:
+                    process_artifact(db, settings, artifact)
+                except Exception as e:  # noqa: BLE001
+                    log.exception(
+                        "[HEAVY] FAILED | Parakeet-TDT / GigaAM / Sortformer / LightRAG | "
+                        "artifact={artifact} error={err}",
+                        artifact=artifact.artifact_id,
+                        err=str(e),
+                    )
+                    raise
+                log.info(
+                    "[HEAVY] done | Parakeet-TDT / GigaAM / Sortformer / LightRAG | "
+                    "artifact={artifact} seconds={seconds}",
+                    artifact=artifact.artifact_id,
+                    seconds=round(time.monotonic() - phase_started, 1),
+                )
             finish_job(db, job, ok=True)
             log_event(
                 logger,
@@ -145,6 +268,14 @@ def run_once() -> bool:
                 seconds=round(time.monotonic() - started, 1),
                 error=exc,
             )
+            if artifact.file_type != "audio":
+                # Последний файл партии упал — ТЗ по остальным всё равно нужно пересобрать.
+                try:
+                    from app.app.services.tz import maybe_auto_rebuild_tz
+
+                    maybe_auto_rebuild_tz(db, settings, artifact)
+                except Exception:
+                    logger.exception("auto rebuild after failed job %s", job_pk)
         return True
     finally:
         db.close()
@@ -169,12 +300,17 @@ def main() -> int:
                 log_event(logger, "jobs.requeued", count=n, reason="worker restart")
         finally:
             db.close()
+        from app.app.services.llm import announce_llm_and_selfcheck
+
+        announce_llm_and_selfcheck(settings, logger)
         log_event(
             logger,
             "worker.started",
             pid=os.getpid(),
             dry_run=settings.dry_run,
             data_dir=settings.data_dir,
+            # по этой метке API и скрипты проверяют, что работающий воркер понимает новые виды задач
+            kinds=",".join((KIND_PROCESS, KIND_AUTO_REVIEW, KIND_REFRESH)),
         )
         while True:
             if not run_once():

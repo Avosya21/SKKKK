@@ -102,7 +102,7 @@ def main() -> int:
         print(json.dumps(meta, ensure_ascii=False, indent=2))
         return 0
 
-    from app.app.services.llm import chat_from_env, strip_json_fence
+    from app.app.services.llm import chat_from_env_no_think, strip_json_fence
 
     system = PROMPT.read_text(encoding="utf-8")
     allowed = {row["id"] for row in asked}
@@ -111,7 +111,7 @@ def main() -> int:
     for number, batch in enumerate(batched(asked, BATCH_DIFFS), start=1):
         payload = [{key: row[key] for key in LLM_FIELDS} for row in batch]
         user = json.dumps({"diffs": payload}, ensure_ascii=False)
-        text, _usage = chat_from_env(system, user, temperature=0.0, max_tokens=2048)
+        text, _usage = chat_from_env_no_think(system, user, temperature=0.0, max_tokens=2048)
         try:
             raw = json.loads(strip_json_fence(text) or "{}")
         except json.JSONDecodeError:

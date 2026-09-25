@@ -1,3 +1,5 @@
+"""Поиск Tesseract и каталога tessdata, настройка pytesseract."""
+
 from __future__ import annotations
 
 import os
@@ -21,6 +23,10 @@ def resolve_tesseract_cmd() -> str:
         candidate = Path(env_bin)
         if candidate.is_file():
             return str(candidate)
+
+    bundled = ROOT / "tools" / "tesseract" / "tesseract.exe"  # портативная копия внутри проекта
+    if bundled.is_file():
+        return str(bundled)
 
     found = shutil.which("tesseract")
     if found:

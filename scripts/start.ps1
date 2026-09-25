@@ -7,7 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = "C:\1C_NEW_SKKKK"
+$Root = (Split-Path -Parent $PSScriptRoot)
 Set-Location $Root
 
 function Get-EnvValue {

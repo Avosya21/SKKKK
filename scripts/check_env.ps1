@@ -5,7 +5,7 @@
 #>
 
 $ErrorActionPreference = 'Continue'
-$root = 'C:\1C_NEW_SKKKK'
+$root = (Split-Path -Parent $PSScriptRoot)
 $logDir = Join-Path $root 'data\logs'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $report = Join-Path $logDir 'env-check.txt'

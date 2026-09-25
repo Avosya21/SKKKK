@@ -23,6 +23,18 @@ SAMPLE_WIDTH = 2
 PCM_MAX = 32768.0
 SOURCE_MICROPHONE = "microphone"
 SOURCE_SCREEN = "screen"
+SOURCE_SCREEN_VIDEO = "screen_video"
+RECORDER_ID = "skkkk-rec"
+SCREEN_RECORD_ENV = "MEETING_SCREEN_RECORD"
+SCREEN_FPS_ENV = "MEETING_SCREEN_FPS"
+SCREEN_FPS_DEFAULT = 1.0
+SCREEN_MAX_W_ENV = "MEETING_SCREEN_MAX_W"
+SCREEN_MAX_W_DEFAULT = 1920
+SCREEN_HEIGHT_ENV = "MEETING_SCREEN_HEIGHT"
+SCREEN_HEIGHT_DEFAULT = 1080
+SCREEN_BITRATE_ENV = "MEETING_SCREEN_BITRATE"
+SCREEN_BITRATE_DEFAULT = 5_000_000
+SID_SAFE_LEN = 16
 OFF_VALUES = {"0", "false", "off"}
 GAP_PAD_SEC = 0.1
 SPEECH_WINDOW_SEC = 1.0
@@ -44,6 +56,83 @@ def recording_enabled(raw: str | None = None) -> bool:
     if not value:
         return True
     return value not in OFF_VALUES
+
+
+def screen_recording_enabled(record_raw: str | None = None, screen_raw: str | None = None) -> bool:
+    if not recording_enabled(record_raw):
+        return False
+    value = (
+        os.environ.get(SCREEN_RECORD_ENV, "1") if screen_raw is None else screen_raw
+    ).strip().lower()
+    if not value:
+        return True
+    return value not in OFF_VALUES
+
+
+def screen_fps(raw: str | None = None) -> float:
+    text = (os.environ.get(SCREEN_FPS_ENV, "") if raw is None else raw).strip()
+    if not text:
+        return SCREEN_FPS_DEFAULT
+    try:
+        value = float(text)
+    except ValueError:
+        return SCREEN_FPS_DEFAULT
+    return max(0.2, min(5.0, value))
+
+
+def screen_max_width(raw: str | None = None) -> int:
+    text = (os.environ.get(SCREEN_MAX_W_ENV, "") if raw is None else raw).strip()
+    if not text:
+        return SCREEN_MAX_W_DEFAULT
+    try:
+        value = int(float(text))
+    except ValueError:
+        return SCREEN_MAX_W_DEFAULT
+    return max(640, min(1920, value - value % 2))
+
+
+def screen_height(raw: str | None = None) -> int:
+    text = (os.environ.get(SCREEN_HEIGHT_ENV, "") if raw is None else raw).strip()
+    if not text:
+        return SCREEN_HEIGHT_DEFAULT
+    try:
+        value = int(float(text))
+    except ValueError:
+        return SCREEN_HEIGHT_DEFAULT
+    return max(360, min(1080, value - value % 2))
+
+
+def screen_bitrate(raw: str | None = None) -> int:
+    text = (os.environ.get(SCREEN_BITRATE_ENV, "") if raw is None else raw).strip().lower()
+    if not text:
+        return SCREEN_BITRATE_DEFAULT
+    for suffix in ("mbps", "mbit", "mb/s", "m"):
+        if text.endswith(suffix):
+            text = text[: -len(suffix)].strip()
+            try:
+                return max(500_000, min(20_000_000, int(float(text) * 1_000_000)))
+            except ValueError:
+                return SCREEN_BITRATE_DEFAULT
+    try:
+        value = int(float(text))
+    except ValueError:
+        return SCREEN_BITRATE_DEFAULT
+    if value < 1000:
+        value *= 1_000_000
+    return max(500_000, min(20_000_000, value))
+
+
+def screen_canvas() -> tuple[int, int]:
+    return screen_max_width(), screen_height()
+
+
+def safe_sid(track_sid: str) -> str:
+    cleaned = "".join(ch for ch in str(track_sid or "") if ch.isalnum() or ch in "-_")
+    return (cleaned or "sid")[:SID_SAFE_LEN]
+
+
+def screen_video_relpath(identity: str, track_sid: str) -> str:
+    return f"{TRACKS_DIRNAME}/{safe_track_stem(identity, SOURCE_SCREEN_VIDEO)}-{safe_sid(track_sid)}.mp4"
 
 
 def is_human_identity(identity: str) -> bool:
@@ -84,8 +173,15 @@ def track_path(
 
 
 def source_from_publication(pub) -> str:
-    raw = str(getattr(pub, "source", "") or "").upper()
-    if "SCREEN" in raw:
+    raw = getattr(pub, "source", "")
+    try:
+        code = int(raw)
+    except (TypeError, ValueError):
+        code = None
+    if code in {3, 4}:
+        return SOURCE_SCREEN
+    text = str(raw or "").upper()
+    if "SCREEN" in text:
         return SOURCE_SCREEN
     return SOURCE_MICROPHONE
 
@@ -120,6 +216,77 @@ def upsert_track(
         }
     )
     return manifest
+
+
+def upsert_screen_video(
+    manifest: dict,
+    *,
+    identity: str,
+    rel_path: str,
+    track_sid: str,
+    started_epoch: float,
+    fps: float = SCREEN_FPS_DEFAULT,
+    width: int = 0,
+    height: int = 0,
+) -> dict:
+    """Ключ видео — (identity, screen_video, track_sid). started_epoch не перетираем."""
+    tracks = manifest.setdefault("tracks", [])
+    for row in tracks:
+        if (
+            row.get("identity") == identity
+            and row.get("source") == SOURCE_SCREEN_VIDEO
+            and row.get("track_sid") == track_sid
+        ):
+            row["path"] = rel_path
+            if fps:
+                row["fps"] = fps
+            if width:
+                row["width"] = width
+            if height:
+                row["height"] = height
+            return manifest
+    tracks.append(
+        {
+            "identity": identity,
+            "source": SOURCE_SCREEN_VIDEO,
+            "track_sid": track_sid,
+            "path": rel_path,
+            "started_epoch": round(started_epoch, 3),
+            "fps": fps,
+            "width": width,
+            "height": height,
+        }
+    )
+    return manifest
+
+
+def set_screen_video_frames(
+    manifest: dict,
+    identity: str,
+    track_sid: str,
+    frames: int,
+    fps: float,
+    ended_epoch: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
+) -> None:
+    rate = float(fps or SCREEN_FPS_DEFAULT) or SCREEN_FPS_DEFAULT
+    for row in manifest.get("tracks") or []:
+        if (
+            row.get("identity") == identity
+            and row.get("source") == SOURCE_SCREEN_VIDEO
+            and row.get("track_sid") == track_sid
+        ):
+            row["frames"] = frames
+            row["fps"] = rate
+            row["duration_sec"] = round(frames / rate, 3)
+            if ended_epoch is not None:
+                row["ended_epoch"] = round(ended_epoch, 3)
+            if width:
+                row["width"] = width
+            if height:
+                row["height"] = height
+            return
 
 
 def set_track_frames(
@@ -267,6 +434,123 @@ def write_manifest(path: Path, manifest: dict) -> None:
     tmp.replace(path)
 
 
+def _track_merge_key(row: dict) -> tuple:
+    if row.get("source") == SOURCE_SCREEN_VIDEO:
+        return ("v", str(row.get("identity") or ""), str(row.get("track_sid") or ""))
+    return ("a", str(row.get("identity") or ""), str(row.get("source") or SOURCE_MICROPHONE))
+
+
+def merge_track_rows(base: list, incoming: list) -> list:
+    by: dict[tuple, dict] = {}
+    for row in list(base or []) + list(incoming or []):
+        if isinstance(row, dict):
+            by[_track_merge_key(row)] = row
+    return list(by.values())
+
+
+def write_manifest_merged(path: Path, manifest: dict) -> dict:
+    """Не затирает чужие дорожки: voice_cleaner и skkkk-rec пишут один файл."""
+    dest = path.parent / (path.name + ".lock")
+
+    def _write() -> dict:
+        existing = read_manifest(path) or {}
+        merged = dict(manifest)
+        if existing.get("room_name") and not merged.get("room_name"):
+            merged["room_name"] = existing["room_name"]
+        merged["tracks"] = merge_track_rows(existing.get("tracks") or [], manifest.get("tracks") or [])
+        write_manifest(path, merged)
+        manifest["tracks"] = merged["tracks"]
+        return merged
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(40):
+        try:
+            handle = os.open(str(dest), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(handle)
+            try:
+                return _write()
+            finally:
+                dest.unlink(missing_ok=True)
+        except FileExistsError:
+            time.sleep(0.05)
+    return _write()
+
+
+def acquire_single_instance(lock_path: Path):
+    """Не даёт запустить вторую копию рекордера: эксклюзивная блокировка файла на всё время жизни процесса.
+
+    Две копии с одним именем участника в LiveKit выбивают друг друга из комнаты («duplicate participant»), дорожки обрываются.
+    Блокировка снимается ОС при любой смерти процесса, «протухших» замков не бывает. Возвращает открытый файл (держать до конца
+    процесса) или None, если экземпляр уже работает."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    try:
+        fh.seek(0)
+        fh.truncate()
+        fh.write(str(os.getpid()).encode("ascii"))
+        fh.flush()
+    except OSError:
+        pass
+    return fh
+
+
+class JoinBackoff:
+    """Пауза для комнат, куда не удаётся подключиться (завершённые встречи, которые LiveKit ещё держит).
+
+    Подключение короче ``min_ok`` секунд считается неудачей: следующая попытка через base*2^(n-1) секунд, не дольше cap.
+    Долгое подключение сбрасывает счётчик. Без этого рекордер тысячами заходил в комнаты давно закрытых встреч."""
+
+    def __init__(self, base: float = 30.0, cap: float = 1800.0, min_ok: float = 20.0, clock: Callable[[], float] = time.monotonic) -> None:
+        self.base, self.cap, self.min_ok, self._clock = base, cap, min_ok, clock
+        self._started: dict[str, float] = {}
+        self._streak: dict[str, int] = {}
+        self._next: dict[str, float] = {}
+
+    def allowed(self, room: str) -> bool:
+        return self._clock() >= self._next.get(room, 0.0)
+
+    def started(self, room: str) -> None:
+        self._started[room] = self._clock()
+
+    def finished(self, room: str) -> None:
+        lasted = self._clock() - self._started.pop(room, self._clock())
+        if lasted >= self.min_ok:
+            self._streak.pop(room, None)
+            self._next.pop(room, None)
+            return
+        n = self._streak.get(room, 0) + 1
+        self._streak[room] = n
+        self._next[room] = self._clock() + min(self.cap, self.base * (2 ** (n - 1)))
+
+    def forget_missing(self, listed: list[str]) -> None:
+        keep = set(listed)
+        for store in (self._streak, self._next, self._started):
+            for room in [r for r in store if r not in keep]:
+                store.pop(room, None)
+
+
+def existing_track_started(data_dir: Path, room_name: str, identity: str, source: str) -> float | None:
+    """Время первого сэмпла уже записанной дорожки (для продолжения записи после перезапуска рекордера)."""
+    manifest = read_manifest(room_dir(data_dir, room_name) / MANIFEST_NAME) or {}
+    for row in manifest.get("tracks") or []:
+        if row.get("identity") == identity and (row.get("source") or SOURCE_MICROPHONE) == source and row.get("started_epoch"):
+            return float(row["started_epoch"])
+    return None
+
+
 def read_manifest(path: Path) -> dict | None:
     if not path.is_file():
         return None
@@ -302,11 +586,30 @@ def remove_room_recordings(data_dir: Path, room_name: str) -> None:
     shutil.rmtree(resolved)
 
 
+_WAV_HEADER = 44
+HEADER_FLUSH_SEC = 2.0  # как часто дописываем в заголовок реальный размер: после аварийного завершения файл читается
+
+
+def _wav_header(sample_rate: int, data_bytes: int) -> bytes:
+    import struct
+
+    byte_rate = sample_rate * CHANNELS * SAMPLE_WIDTH
+    return (
+        b"RIFF" + struct.pack("<I", 36 + data_bytes) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, CHANNELS, sample_rate, byte_rate, CHANNELS * SAMPLE_WIDTH, SAMPLE_WIDTH * 8)
+        + b"data" + struct.pack("<I", data_bytes)
+    )
+
+
 class PcmWavWriter:
     """WAV, растянутый по стенным часам: пока микрофон молчит, пишется тишина.
 
     Иначе кадры ложатся вплотную, дорожка выходит короче встречи, и всё после
     паузы съезжает назад по времени.
+
+    Файл НИКОГДА не обнуляется: если процесс записи перезапустили (или участник перезашёл) и файл уже есть,
+    запись продолжается в его конец, а пропущенное время заполняется тишиной (нужен ``resume_started_epoch`` —
+    время первого сэмпла дорожки). Заголовок обновляется каждые ``HEADER_FLUSH_SEC``, поэтому при падении процесса
+    теряются секунды, а не вся дорожка.
     """
 
     def __init__(
@@ -315,6 +618,8 @@ class PcmWavWriter:
         sample_rate: int = SAMPLE_RATE,
         clock: Callable[[], float] = time.monotonic,
         on_gap: Callable[[float], None] | None = None,
+        resume_started_epoch: float | None = None,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
@@ -322,11 +627,46 @@ class PcmWavWriter:
         self.frames = 0
         self._clock = clock
         self._on_gap = on_gap
-        self._opened = clock()
-        self._wave = wave.open(str(path), "wb")
-        self._wave.setnchannels(CHANNELS)
-        self._wave.setsampwidth(SAMPLE_WIDTH)
-        self._wave.setframerate(sample_rate)
+        self._last_header = clock()
+        self.resumed = False
+        existing = path.stat().st_size if path.is_file() else 0
+        if existing > _WAV_HEADER and self._header_matches(path):
+            self._file = open(path, "r+b")
+            self.frames = (existing - _WAV_HEADER) // SAMPLE_WIDTH
+            self._file.seek(_WAV_HEADER + self.frames * SAMPLE_WIDTH)
+            self._file.truncate()  # обрезать неполный сэмпл в хвосте, если он есть
+            self.resumed = True
+            if resume_started_epoch:  # время, пока запись не шла (перезапуск), заполняем тишиной
+                lost = wall_clock() - (resume_started_epoch + self.frames / sample_rate)
+                if lost >= GAP_PAD_SEC:
+                    self._write_frames(b"\x00" * (int(lost * sample_rate) * SAMPLE_WIDTH))
+                    if self._on_gap:
+                        self._on_gap(lost)
+        else:
+            if existing:  # файл есть, но это не наш WAV: не затираем, откладываем в сторону
+                path.rename(path.with_name(f"{path.stem}.unreadable-{int(wall_clock())}{path.suffix}"))
+            self._file = open(path, "wb")
+            self._file.write(_wav_header(sample_rate, 0))
+        self._opened = clock() - self.frames / sample_rate
+        self._patch_header()
+
+    def _header_matches(self, path: Path) -> bool:
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(_WAV_HEADER)
+        except OSError:
+            return False
+        return len(head) == _WAV_HEADER and head[:4] == b"RIFF" and head[8:16] == b"WAVEfmt " and head[36:40] == b"data" and head[24:28] == self.sample_rate.to_bytes(4, "little")
+
+    def _patch_header(self) -> None:
+        if self._file is None:
+            return
+        pos = self._file.tell()
+        self._file.seek(0)
+        self._file.write(_wav_header(self.sample_rate, self.frames * SAMPLE_WIDTH))
+        self._file.seek(pos)
+        self._file.flush()
+        self._last_header = self._clock()
 
     def _gap_frames(self) -> int:
         """Сколько сэмплов потеряно. Мелкий дребезг кадров не считаем."""
@@ -340,13 +680,16 @@ class PcmWavWriter:
             if self._on_gap:
                 self._on_gap(gap / self.sample_rate)
         self._write_frames(pcm16)
+        if self._clock() - self._last_header >= HEADER_FLUSH_SEC:
+            self._patch_header()
 
     def _write_frames(self, pcm16: bytes) -> None:
-        self._wave.writeframes(pcm16)
+        self._file.write(pcm16)
         self.frames += len(pcm16) // SAMPLE_WIDTH
 
     def close(self) -> None:
-        if self._wave is None:
+        if self._file is None:
             return
-        self._wave.close()
-        self._wave = None
+        self._patch_header()
+        self._file.close()
+        self._file = None

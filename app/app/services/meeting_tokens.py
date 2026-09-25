@@ -1,3 +1,5 @@
+"""Публичные токены встреч: генерация, хеш и адрес гостевой ссылки."""
+
 from __future__ import annotations
 
 import hashlib

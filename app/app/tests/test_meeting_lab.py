@@ -124,7 +124,8 @@ def test_meeting_lab_page_admin_only(client, tmp_data, admin_token, manager_toke
     assert "Лаборатория созвона" in ok.text
     assert "Итоговая расшифровка" in ok.text
     assert "Проверки шкалы" in ok.text
-    assert "Проверить участок" in (
+    assert "нет данных ≠ пройдено" in ok.text
+    assert "Протечки" in (
         Path(__file__).resolve().parents[1] / "templates" / "meeting_lab.html"
     ).read_text(encoding="utf-8")
 
@@ -215,6 +216,86 @@ def test_meeting_lab_hides_rejected_final(tmp_data, admin_token):
         ),
     )
     assert snap["merge"]["words"][0]["text"] == ""
+
+
+def test_meeting_lab_checks_and_leaks(tmp_data, admin_token):
+    from app.app.services.meeting_checks import STATUS_NO_DATA
+
+    pid, parent_id = _seed_meeting_art("art_meet_checks")
+    ws = artifact_dir(get_settings(), pid, parent_id)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / MEETING_FILE).write_text(
+        json.dumps({"tracks": [{"identity": "guest:a", "speaker": "Анна", "silent": True, "source": "microphone"}]}),
+        encoding="utf-8",
+    )
+    _write_parent_proof(
+        pid,
+        parent_id,
+        {
+            "replicas": [{"speaker": "Анна", "start": 1.0, "end": 2.0, "text": "один два три"}],
+            "leaks": [
+                {
+                    "text": "один два три",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "from_speaker": "A",
+                    "speaker": "B",
+                    "by": "rank",
+                }
+            ],
+        },
+    )
+    snap = build_meeting_lab(
+        get_settings(),
+        SimpleNamespace(
+            project_id=pid, artifact_id=parent_id, status="transcript_ready", original_filename="встреча-1.wav"
+        ),
+    )
+    assert snap["checks"]
+    assert all("id" in row and "status" in row for row in snap["checks"])
+    assert any(row["status"] == STATUS_NO_DATA for row in snap["checks"])
+    assert snap["leaks"][0]["text"] == "один два три"
+    assert snap["tracks"][0]["silent"] is True
+
+
+def test_meeting_lab_screen_video_has_no_asr_stages(tmp_data, admin_token):
+    pid, parent_id = _seed_meeting_art("art_meet_screen")
+    ws = artifact_dir(get_settings(), pid, parent_id)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / MEETING_FILE).write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {
+                        "identity": "member:28",
+                        "speaker": "demo_user",
+                        "source": "screen_video",
+                        "child_id": parent_id + "__member-28-TRone",
+                        "duration_sec": 40,
+                        "fps": 1,
+                        "src": "C:/tmp/member-28-screen_video-TRone.mp4",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    snap = build_meeting_lab(
+        get_settings(),
+        SimpleNamespace(
+            project_id=pid, artifact_id=parent_id, status="transcript_ready", original_filename="встреча-1.wav"
+        ),
+    )
+    row = snap["tracks"][0]
+    assert row["source"] == "screen_video"
+    assert row["speaker"] == "demo_user"
+    assert row["stages"] == []
+    assert row["duration_sec"] == 40
+    html = (Path(__file__).resolve().parents[1] / "templates" / "meeting_lab.html").read_text(
+        encoding="utf-8"
+    )
+    assert "screen_video" in html
+    assert "видео, ASR пропущен" in html
 
 
 def test_project_page_has_meeting_lab_button():

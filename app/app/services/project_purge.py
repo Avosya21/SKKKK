@@ -13,9 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.app.config import Settings
 from app.app.logging_setup import log_event
+from app.app.models.agent_exchange import AgentExchangeLog
+from app.app.models.agent_question import AgentQuestion
 from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
+from app.app.models.contract import ContractItem
 from app.app.models.entity import AsrRun, Changelog, Chunk, Entity, Link, NoteRef, Resolution, UserNote
 from app.app.models.job import Job
 from app.app.models.meeting import Meeting, MeetingParticipant
@@ -201,6 +204,9 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     db.execute(delete(Changelog).where(Changelog.project_id == pid))
     db.execute(delete(ProjectMember).where(ProjectMember.project_id == pid))
     db.execute(delete(ProjectMcpToken).where(ProjectMcpToken.project_id == pid))
+    db.execute(delete(AgentExchangeLog).where(AgentExchangeLog.project_id == pid))
+    db.execute(delete(AgentQuestion).where(AgentQuestion.project_id == pid))
+    db.execute(delete(ContractItem).where(ContractItem.project_id == pid))
     meeting_ids = list(db.scalars(select(Meeting.id).where(Meeting.project_id == pid)))
     meeting_rooms = list(db.scalars(select(Meeting.room_name).where(Meeting.project_id == pid)))
     if meeting_ids:
@@ -220,6 +226,10 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
 
 def purge_meeting(db: Session, settings: Settings, meeting: Meeting) -> None:
     """Стереть созвон: очередь, артефакт расшифровки, дорожки комнаты."""
+    if meeting.status == "live":
+        from fastapi import HTTPException, status
+
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="End meeting before deleting it")
     mid = meeting.id
     pid = meeting.project_id
     room = meeting.room_name
@@ -318,8 +328,25 @@ def _delete_jobs(db: Session, job_ids: list[int], artifact_pks: list[int]) -> No
     db.execute(delete(Job).where(Job.id.in_(job_ids), Job.artifact_id.in_(artifact_pks)))
 
 
+# Запись комнаты завершается уже после того, как встречу удалили: процесс записи дописывает events.jsonl, manifest.json
+# и дорожки (найдено при аудите целостности — «удалённая» запись возвращалась на диск). Поэтому кроме немедленной
+# очистки повторяем её через несколько интервалов. Трогает только каталог только что удалённой комнаты.
+ROOM_CLEANUP_RETRY_SEC = (15, 45, 120)
+
+
 def _remove_meeting_room(settings: Settings, room_name: str) -> None:
-    try:
-        remove_room_recordings(settings.data_dir, room_name)
-    except ValueError:
-        pass
+    import threading
+
+    def _remove() -> None:
+        try:
+            remove_room_recordings(settings.data_dir, room_name)
+        except ValueError:
+            pass
+        except OSError:
+            logger.warning("meeting.purge.retry_failed room=%s", room_name)
+
+    _remove()
+    for delay in ROOM_CLEANUP_RETRY_SEC:
+        timer = threading.Timer(delay, _remove)
+        timer.daemon = True
+        timer.start()

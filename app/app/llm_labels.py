@@ -23,7 +23,7 @@ def asr_step_labels(provider: str | None) -> dict[str, str]:
     name = llm_short_name(provider)
     return {
         "audio_prep": "Подготовка WAV 16 кГц",
-        "lab_onnx": "Parakeet + Sortformer (ONNX)",
+        "lab_onnx": "Parakeet + диаризация Nemotron",
         "lab_sense": f"Спорные спикеры ({name})",
         "lab_giga": "GigaAM — второй слух",
         "lab_reconcile": "Сверка lab vs GigaAM",

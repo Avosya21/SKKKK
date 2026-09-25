@@ -39,6 +39,36 @@ def _color_map(turns: list[Turn]) -> dict[str, str]:
     return {name: COLORS[i % len(COLORS)] for i, name in enumerate(names)}
 
 
+def _normalize_screen_segments(segments: list[dict]) -> list[dict]:
+    out = []
+    for raw in segments or []:
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            start = float(raw.get("start") or 0.0)
+            end = float(raw.get("end") or start)
+        except (TypeError, ValueError):
+            continue
+        if end < start:
+            start, end = end, start
+        identity = str(raw.get("identity") or raw.get("speaker") or "").strip()
+        item = {
+            "start": start,
+            "end": end,
+            "text": text,
+            "identity": identity,
+        }
+        frame_url = str(raw.get("frame_url") or "").strip()
+        if frame_url:
+            item["frame_url"] = frame_url
+        out.append(item)
+    out.sort(key=lambda s: (s["start"], s["end"]))
+    return out
+
+
 def _strip_llm_artifacts(text: str) -> str:
     """Gemma иногда просится в LaTeX, хотя промпт это запрещает — подчищаем как подстраховку."""
     try:
@@ -347,6 +377,99 @@ def _registry_panel(registry: list[dict], colors: dict[str, str]) -> str:
     )
 
 
+def _normalize_turn_words(words: list[dict] | None) -> list[dict]:
+    out: list[dict] = []
+    for raw in words or []:
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("text") or raw.get("final") or raw.get("word") or "").strip()
+        if not text:
+            continue
+        try:
+            start = float(raw.get("start") or 0.0)
+            end = float(raw.get("end") or start)
+        except (TypeError, ValueError):
+            continue
+        if end < start:
+            start, end = end, start
+        out.append({"start": start, "end": end, "text": text})
+    return out
+
+
+def _word_seg_index(ws: float, screen: list[dict]) -> int:
+    for i, seg in enumerate(screen):
+        if seg["start"] <= ws < seg["end"]:
+            return i
+    return -1
+
+
+def _words_html(
+    words: list[dict], *, screen: list[dict] | None = None, turn_hits: list[int] | None = None
+) -> str | None:
+    if not words:
+        return None
+    screen = screen or []
+    turn_hits = set(turn_hits or ())
+    group_idx = [_word_seg_index(w["start"], screen) for w in words]
+
+    def _span(i: int, w: dict, cls: str) -> str:
+        return (
+            f'<span class="{cls}" data-i="{i}" data-start="{w["start"]:.3f}" '
+            f'data-end="{w["end"]:.3f}">{html.escape(w["text"])}</span>'
+        )
+
+    def _wgrp(gi: int, inner: str) -> str:
+        seg = screen[gi]
+        btn = (
+            f'<button type="button" class="screen-dot" data-seg="{gi}" '
+            f'title="Кадр экрана {format_clock(seg["start"])}" '
+            f'aria-label="Показать кадр экрана">▣</button>'
+        )
+        return (
+            f'<span class="wgrp wgrp-{"a" if gi % 2 == 0 else "b"}" data-seg="{gi}" '
+            f'title="{format_clock(seg["start"])}–{format_clock(seg["end"])}">'
+            f"{btn}{inner}</span>"
+        )
+
+    # Висящие кадры: у сегмента нет ни одного слова в его окне — кнопку ставим
+    # отдельно, перед первым словом, начавшимся не раньше момента кадра.
+    hole_anchor: dict[int, int] = {}
+    for gi in sorted(turn_hits):
+        seg = screen[gi]
+        if any(seg["start"] <= w["start"] < seg["end"] for w in words):
+            continue
+        anchor = len(words)
+        for k, w in enumerate(words):
+            if w["start"] >= seg["start"]:
+                anchor = k
+                break
+        hole_anchor[gi] = anchor
+
+    parts: list[str] = []
+    emitted: set[int] = set()
+    i, n = 0, len(words)
+    while i < n:
+        for gi in sorted(g for g, a in hole_anchor.items() if a == i and g not in emitted):
+            parts.append(_wgrp(gi, ""))
+            emitted.add(gi)
+        gi = group_idx[i]
+        if gi < 0:
+            parts.append(_span(i, words[i], "w"))
+            i += 1
+            continue
+        j = i
+        while j < n and group_idx[j] == gi:
+            j += 1
+        inner = " ".join(_span(k, words[k], "w") for k in range(i, j))
+        parts.append(_wgrp(gi, inner))
+        emitted.add(gi)
+        i = j
+    for gi in sorted(g for g, a in hole_anchor.items() if g not in emitted):
+        parts.append(_wgrp(gi, ""))
+        emitted.add(gi)
+    return " ".join(parts)
+
+
 def render_transcript_html(
     *,
     title: str,
@@ -358,8 +481,20 @@ def render_transcript_html(
     artifact_id: str | None = None,
     project_id: int | None = None,
     registry: list[dict] | None = None,
+    screen_segments: list[dict] | None = None,
+    turn_words: list[list[dict]] | None = None,
 ) -> str:
     colors = _color_map(turns)
+    screen = _normalize_screen_segments(screen_segments or [])
+    words_by_turn = [(_normalize_turn_words(turn_words[i]) if turn_words and i < len(turn_words) else [])
+                     for i in range(len(turns))] if turn_words else [[] for _ in turns]
+    screen_idx: list[list[int]] = []
+    for turn in turns:
+        turn_hits = []
+        for i, seg in enumerate(screen):
+            if seg["end"] > turn.start - 0.5 and seg["start"] < turn.end + 0.5:
+                turn_hits.append(i)
+        screen_idx.append(turn_hits)
     chips = "".join(
         (
             f'<button type="button" class="chip" data-filter="{html.escape(name, quote=True)}">'
@@ -408,24 +543,41 @@ def render_transcript_html(
     items = []
     for i, turn in enumerate(turns):
         color = colors.get(turn.speaker, "#64748b")
+        has_screen = bool(screen_idx[i])
+        screen_badge = (
+            '<span class="screen-badge" title="В этот момент что-то показывали на экране">▣</span>'
+            if has_screen
+            else ""
+        )
+        words_html = _words_html(words_by_turn[i], screen=screen, turn_hits=screen_idx[i]) if has_screen else None
+        body = words_html if words_html else html.escape(turn.text)
         items.append(
-            "<article class='turn' "
+            "<article class='turn" + (" has-screen" if has_screen else "") + "' "
             f"data-i='{i}' data-start='{turn.start:.3f}' data-end='{turn.end:.3f}' "
             f"data-speaker='{html.escape(turn.speaker, quote=True)}'>"
             f"<button type='button' class='when' style='border-color:{color}' title='Перейти к {format_clock(turn.start)}'>"
             f"{format_clock(turn.start)}–{format_clock(turn.end)}</button>"
             f"<p class='line'><span class='who' style='color:{color}'></span>: "
-            f"{html.escape(turn.text)}</p></article>"
+            f"{body}{screen_badge}</p></article>"
         )
     payload = json.dumps(
         {
             "artifact_id": artifact_id,
             "project_id": project_id,
             "turns": [
-                {"start": t.start, "end": t.end, "speaker": t.speaker, "text": t.text} for t in turns
+                {
+                    "start": t.start,
+                    "end": t.end,
+                    "speaker": t.speaker,
+                    "text": t.text,
+                    "screen": screen_idx[i],
+                    "words": words_by_turn[i] if screen_idx[i] else [],
+                }
+                for i, t in enumerate(turns)
             ],
             "mapping": mapping or {},
             "registry": registry or [],
+            "screen": screen,
         },
         ensure_ascii=False,
     )
@@ -496,6 +648,79 @@ def render_transcript_html(
     .turn:hover {{ background: rgba(255,255,255,.6); }}
     .turn.active {{ background: #e0f2fe; }}
     .turn.hidden {{ display: none; }}
+    .turn.has-screen {{ background: rgba(91,127,166,.06); }}
+    .w {{
+      cursor: pointer; border-radius: 3px; padding: 0 1px; transition: background .12s ease;
+    }}
+    .wgrp.wgrp-a {{
+      display: inline; background: rgba(176,137,104,.14);
+      border-radius: 4px; padding: 0 2px;
+      box-decoration-break: clone; -webkit-box-decoration-break: clone;
+    }}
+    .wgrp.wgrp-b {{
+      display: inline; background: rgba(96,125,161,.14);
+      border-radius: 4px; padding: 0 2px;
+      box-decoration-break: clone; -webkit-box-decoration-break: clone;
+    }}
+    .wgrp.wgrp-a:hover {{ background: rgba(176,137,104,.26); }}
+    .wgrp.wgrp-b:hover {{ background: rgba(96,125,161,.26); }}
+    .screen-badge {{
+      display: inline-block; vertical-align: 1px; color: #b08968;
+      font-size: .72rem; letter-spacing: .5px; cursor: pointer;
+      background: none; border: none; padding: 0; font-family: inherit;
+    }}
+    .screen-dot {{
+      display: inline-block; margin-left: 4px; padding: 0 2px;
+      color: #b08968; font-size: .78rem; line-height: 1; vertical-align: 1px;
+      background: none; border: none; cursor: pointer; box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }}
+    .screen-dot:hover {{ color: #7c4a23; }}
+    .screen-modal-overlay {{
+      position: fixed; inset: 0; z-index: 70; background: rgba(15,23,42,.42);
+      display: grid; place-items: center; padding: 16px;
+    }}
+    .screen-modal-overlay[hidden] {{ display: none; }}
+    .screen-modal {{
+      background: #fff; border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(15,23,42,.22); max-width: min(760px, 94vw);
+      max-height: 88vh; display: flex; flex-direction: column;
+      font-size: .9rem; line-height: 1.5; color: #0f172a;
+    }}
+    .screen-modal .sm-head {{
+      display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .screen-modal .sm-title {{
+      font-size: .8rem; font-weight: 650; color: #64748b; flex: 1 1 auto;
+    }}
+    .screen-modal .sm-close {{
+      border: 1px solid #cbd5e1; background: #fff; border-radius: 999px;
+      width: 1.7rem; height: 1.7rem; cursor: pointer; font: inherit; font-size: .85rem;
+      display: inline-flex; align-items: center; justify-content: center; color: #64748b;
+    }}
+    .screen-modal .sm-close:hover {{ background: #f1f5f9; }}
+    .screen-modal .sm-body {{ overflow-y: auto; padding: 12px 14px 14px; }}
+    .screen-modal .sm-seg {{ margin-bottom: 10px; }}
+    .screen-modal .sm-seg:last-child {{ margin-bottom: 0; }}
+    .screen-modal .sm-img {{ width: 100%; max-height: 46vh; object-fit: contain; border: 1px solid var(--border); border-radius: 8px; background: #0f172a; }}
+    .screen-modal .sp-time {{ font-variant-numeric: tabular-nums; color: #64748b; font-size: .8rem; margin-bottom: 6px; }}
+    .screen-modal .sm-who {{ color: #b08968; font-size: .8rem; margin: 8px 0 2px; }}
+    .screen-modal .sm-text {{ margin-top: 4px; white-space: normal; overflow-wrap: break-word; }}
+    .screen-modal .sm-fold {{
+      margin-top: 8px; border: 1px solid var(--border); border-radius: 8px;
+      background: #f8fafc;
+    }}
+    .screen-modal .sm-fold > summary {{
+      cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px; font-size: .82rem; color: #64748b;
+    }}
+    .screen-modal .sm-fold > summary:hover {{ color: #334155; }}
+    .screen-modal .sm-fold > summary::-webkit-details-marker {{ display: none; }}
+    .screen-modal .sm-fold-arrow {{ transition: transform .15s ease; font-size: .7rem; }}
+    .screen-modal .sm-fold[open] .sm-fold-arrow {{ transform: rotate(90deg); }}
+    .screen-modal .sm-fold .sm-text {{ padding: 0 10px 10px; }}
+    .screen-modal .sm-more {{ margin-top: 8px; color: #94a3b8; font-size: .8rem; }}
     .when {{ align-self: baseline; justify-self: start; font-size: .75rem; padding: 1px 6px; white-space: nowrap; color: #64748b; line-height: 1.3; }}
     .line {{ margin: 0; line-height: 1.35; font-size: .92rem; }}
     .who {{ font-weight: 650; }}
@@ -721,6 +946,7 @@ def render_transcript_html(
   {rename_block}
 </header>
 <main id="turns">{''.join(items)}</main>
+<div id="screen-modal-wrap" class="screen-modal-overlay" hidden></div>
 <script id="data" type="application/json">{payload}</script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
@@ -905,6 +1131,9 @@ function startArtifactTaskPoll() {{
   }}, 3000);
 }}
 document.getElementById("turns").addEventListener("click", (ev) => {{
+  if (ev.target.closest(".screen-dot") || ev.target.closest(".screen-badge")) {{
+    return;
+  }}
   if (ev.target.closest("button.when")) {{
     seek(Number(ev.target.closest(".turn").dataset.start));
     return;
@@ -1125,6 +1354,73 @@ if (data.artifact_id) {{
 if (data.artifact_id) {{
   syncArtifactTasks().then((busy) => {{ if (busy) startArtifactTaskPoll(); }});
 }}
+function fmtClock(sec) {{
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h ? `${{h}}:${{pad(m)}}:${{pad(r)}}` : `${{pad(m)}}:${{pad(r)}}`;
+}}
+function screenSegmentsFor(turnIdx) {{
+  const idx = (data.turns[turnIdx] && data.turns[turnIdx].screen) || [];
+  const segs = [];
+  for (const i of idx) {{
+    const seg = (data.screen || [])[i];
+    if (seg && seg.text) segs.push(seg);
+  }}
+  return segs;
+}}
+function fmtScreenText(t) {{
+  return String(t)
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/\\n/g, "<br>");
+}}
+function renderScreenModal(segs) {{
+  const wrap = document.getElementById("screen-modal-wrap");
+  const rows = segs.map((s) => {{
+    const who = s.identity ? `<div class="sm-who">на экране — ${{s.identity}}</div>` : "";
+    const img = s.frame_url
+      ? `<img class="sm-img" src="${{s.frame_url}}" alt="Кадр экрана ${{fmtClock(s.start)}}" loading="lazy">`
+      : "";
+    const text = s.text
+      ? `<details class="sm-fold"><summary><span class="sm-fold-arrow">▸</span>Текст описания</summary>` +
+        `<div class="sm-text">${{fmtScreenText(s.text)}}</div></details>`
+      : "";
+    return `<div class="sm-seg"><div class="sp-time">${{fmtClock(s.start)}}–${{fmtClock(s.end)}}</div>${{img}}${{who}}${{text}}</div>`;
+  }});
+  wrap.innerHTML =
+    `<div class="screen-modal"><div class="sm-head"><span class="sm-title">Кадр экрана</span>` +
+    `<button type="button" class="sm-close" aria-label="Закрыть">×</button></div>` +
+    `<div class="sm-body">${{rows.join("")}}</div></div>`;
+  wrap.hidden = false;
+  wrap.querySelector(".sm-close").addEventListener("click", closeScreenModal);
+  wrap.addEventListener("click", (ev) => {{
+    if (ev.target === wrap) closeScreenModal();
+  }});
+}}
+function closeScreenModal() {{
+  const wrap = document.getElementById("screen-modal-wrap");
+  wrap.hidden = true;
+  wrap.innerHTML = "";
+}}
+document.getElementById("turns").addEventListener("click", (ev) => {{
+  const btn = ev.target && ev.target.closest ? ev.target.closest(".screen-dot") : null;
+  if (!btn) return;
+  ev.stopPropagation();
+  const gi = Number(btn.dataset.seg);
+  const seg = (data.screen || [])[gi];
+  if (seg && seg.text) renderScreenModal([seg]);
+}});
+document.getElementById("turns").addEventListener("click", (ev) => {{
+  const btn = ev.target && ev.target.closest ? ev.target.closest(".screen-badge") : null;
+  if (!btn) return;
+  ev.stopPropagation();
+  const turnIdx = Number(ev.target.closest(".turn").dataset.i);
+  const segs = screenSegmentsFor(turnIdx);
+  if (segs.length) renderScreenModal(segs);
+}});
+document.addEventListener("keydown", (ev) => {{
+  if (ev.key === "Escape") closeScreenModal();
+}});
 paint();
 </script>
 </body>

@@ -6,7 +6,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$Root = "C:\1C_NEW_SKKKK"
+$Root = (Split-Path -Parent $PSScriptRoot)
 $CaddyDir = Join-Path $Root "tools\caddy"
 $CaddyExe = Join-Path $CaddyDir "caddy.exe"
 $Caddyfile = Join-Path $CaddyDir "Caddyfile"

@@ -1,6 +1,9 @@
+from app.app.models.agent_exchange import AgentExchangeLog
+from app.app.models.agent_question import AgentQuestion
 from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
+from app.app.models.contract import ContractItem
 from app.app.models.entity import (
     AsrRun,
     Changelog,
@@ -22,6 +25,9 @@ from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
 
 __all__ = [
+    "AgentQuestion",
+    "AgentExchangeLog",
+    "ContractItem",
     "ChatGuidance",
     "ChatMessage",
     "User",

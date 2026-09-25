@@ -42,8 +42,16 @@ class Settings(BaseSettings):
     skkkk_tls_issue_timeout_sec: int = 120
 
     lmstudio_base_url: str = "http://127.0.0.1:1234/v1"
-    lmstudio_model: str = "qwen/qwen3.8-27b"
+    lmstudio_model: str = "swift-qwen3.8-27b-uncensored-dynamic-mtp"
     lmstudio_api_key: str = "lm-studio"
+    # Рассуждения локальной модели. enable_thinking управляет Jinja-переменной
+    # enable_thinking в шаблоне Qwen, reasoning_effort — уровнем усилия
+    # (none/minimal/low/medium/high/xhigh; см. _LMSTUDIO_REASONING_LEVELS).
+    # По умолчанию мышление ВЫКЛЮЧЕНО: при ~2.4-3k reasoning-токенов на вызов
+    # короткие вызовы (chat/entities/normalize/ASR, max_tokens 2-8k) вернули бы
+    # пустой контент. Включается точечно там, где бюджет рассчитан: ТЗ-конвейер.
+    lmstudio_enable_thinking: bool = False
+    lmstudio_reasoning_effort: str = "medium"
 
     llm_provider: str = "lmstudio"
     cursor_api_key: str = ""
@@ -65,6 +73,8 @@ class Settings(BaseSettings):
     whisper_url: str = "http://127.0.0.1:18101"
     gigaam_url: str = "http://127.0.0.1:18102"
     tone_url: str = "http://127.0.0.1:18103"
+    # Диаризация lab: nemotron3 (до 8 спикеров, venvs/nemo-diar) или sortformer4 (откат, ONNX)
+    diar_model: str = "nemotron3"
     gigaam_api_key: str = ""
 
     telegram_bot_token: str = ""
@@ -94,6 +104,17 @@ class Settings(BaseSettings):
 
     # Пауза после lab-стенограммы: имена спикеров, затем knowledge
     voice_gate_before_asr: bool = True
+    # strict — ждать, пока все голоса названы (как было); soft — знания строятся сразу, неизвестные голоса остаются
+    # speaker_N и называются позже (R3 docs/plans/AUTO-REVIEW-PLAN.md); off — без паузы. voice_gate_before_asr=false → off.
+    voice_gate_mode: str = "soft"
+
+    # Автопроверка локальной моделью (docs/plans/AUTO-REVIEW-PLAN.md): off | shadow | live.
+    # shadow — вердикты пишутся без последствий (для замера согласия с человеком), live — применяются.
+    auto_review_mode: str = "shadow"
+    auto_review_audit_every: int = 20  # каждое N-е авторешение дополнительно идёт человеку
+    auto_review_batch: int = 5  # сущностей на один вызов LLM
+    voice_auto_accept_min: float = 0.85
+    voice_auto_accept_margin: float = 0.10
 
     @field_validator("data_dir", "login_allowlist_path", mode="before")
     @classmethod

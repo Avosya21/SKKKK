@@ -46,8 +46,9 @@ def test_control_call_synthetic_phases():
     overlap_a = _words("A", 10.0, ["один", "два", "три"])
     overlap_b = _words("B", 10.4, ["раз", "два"])
     overlapped = merge_track_replicas(overlap_a, overlap_b)
-    assert overlapped[0]["text"] == "один два три"
-    assert overlapped[1]["text"] == "раз два"
+    assert [row["speaker"] for row in overlapped] == ["A", "B", "A", "B", "A"]
+    assert overlapped[0]["text"] == "один"
+    assert overlapped[1]["text"] == "раз"
 
     meeting = {
         "duration_sec": 40.0,
