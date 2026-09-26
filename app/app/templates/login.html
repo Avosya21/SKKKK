@@ -46,10 +46,7 @@
           </div>
           <div class="alert alert-danger d-none" id="step-error" role="alert"></div>
           <button class="btn btn-primary w-100 skkkk-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
-          <div class="d-flex justify-content-between">
-            <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
-            <button type="button" class="btn btn-link px-0 d-none" id="step-skip">Позже</button>
-          </div>
+          <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
         </form>
       </div>
     </div>
@@ -62,7 +59,7 @@
   const loginForm = document.getElementById('login-form');
   const stepForm = document.getElementById('step-form');
   const $ = (id) => document.getElementById(id);
-  let step = null;  // {step, ticket, name, can_skip, min_length}
+  let step = null;  // {step, ticket, name, min_length}
 
   function errorText(payload, status) {
     const detail = payload && payload.detail;
@@ -111,7 +108,6 @@
     $('step-personal-group').classList.toggle('d-none', setup);
     $('step-setup-group').classList.toggle('d-none', !setup);
     $('step-new-help').textContent = `Не короче ${data.min_length} символов. Не совпадает с логином и паролем роли.`;
-    $('step-skip').classList.toggle('d-none', !data.can_skip);
     const submit = $('step-submit');
     submit.textContent = setup ? 'Сохранить и войти' : 'Войти';
     submit.dataset.idleLabel = submit.textContent;
@@ -191,17 +187,6 @@
 
   $('step-back').addEventListener('click', () => backToStart(''));
 
-  $('step-skip').addEventListener('click', async () => {
-    if (!step) return;
-    await SKKKK.guardSubmit(stepForm, async () => {
-      const {r, payload} = await post('/auth/login/skip', {ticket: step.ticket});
-      if (r.ok) {
-        finish(payload);
-        return;
-      }
-      stepFailed(r, payload);
-    }, { busyText: 'Вхожу…' });
-  });
 })();
 </script>
 {% endblock %}

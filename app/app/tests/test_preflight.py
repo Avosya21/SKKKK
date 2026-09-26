@@ -159,5 +159,5 @@ def test_personal_passwords_check(monkeypatch):
     off = check_personal_passwords(Settings(personal_password="off"))
     assert off.status == OK and "выключены" in off.detail
     personal_password.set_initial("admin", "correct-horse-battery", "correct-horse-battery")
-    on = check_personal_passwords(Settings(personal_password="optional"))
-    assert on.status == OK and "задано: 1" in on.detail
+    on = check_personal_passwords(Settings(personal_password="required"))
+    assert on.status == OK and "задано: 1" in on.detail and "required" in on.detail
