@@ -121,6 +121,13 @@ def _check_session_gates(settings: Settings, user: User, payload: dict) -> None:
     required = settings.personal_password == "required"
     if stale or (required and not (payload.get("pp") and payload.get("pf"))):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+    if required:
+        # Админ сбросил карточку — открытые сессии человека закрываются сразу, а не через 30 дней.
+        from app.app.services.user_profile import get_profile, is_complete
+
+        db = object_session(user)
+        if db is not None and not is_complete(get_profile(db, user.id)):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
 
 
 def _user_from_access_token(db: Session, settings: Settings, token: str) -> User:

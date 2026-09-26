@@ -563,6 +563,20 @@ def _reset_personal_password_interactive() -> None:
     interactive_reset()
 
 
+def _user_cards_interactive() -> None:
+    """Пункт 8 меню запуска: карточки пользователей (компанию меняет только админ)."""
+    import app.app.models  # noqa: F401 — меню идёт до старта: таблиц карточек может ещё не быть
+    from app.app.db import SessionLocal
+    from app.app.services.user_profile_console import interactive
+
+    Base.metadata.create_all(bind=get_engine())
+    db = SessionLocal()
+    try:
+        interactive(db)
+    finally:
+        db.close()
+
+
 def _reset_role_passwords_interactive(host: str, port: int) -> None:
     """Пункт 9 меню запуска: перевыпуск паролей всех ролей с подтверждением."""
     print()
@@ -628,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
             interactive=interactive,
             actions={
                 "7": ("сбросить личный пароль пользователя", _reset_personal_password_interactive),
+                "8": ("карточки пользователей: компания, согласие на голос, сброс", _user_cards_interactive),
                 "9": (
                     "перевыпустить пароли ролей",
                     lambda: _reset_role_passwords_interactive(args.host, args.port),
