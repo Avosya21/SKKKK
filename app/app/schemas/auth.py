@@ -32,7 +32,6 @@ class LoginStepResponse(BaseModel):
     step: str
     ticket: str
     name: str
-    can_skip: bool = False
     min_length: int
 
 

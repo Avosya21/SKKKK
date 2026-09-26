@@ -1,8 +1,7 @@
 """Вход и выход: `/auth/login` (роль определяется паролем), `/auth/logout`.
 
-При `PERSONAL_PASSWORD=optional|required` вход в два шага: `/auth/login` проверяет пароль роли
-и выдаёт пропуск (ticket) на шаг 2 — `/auth/login/personal`, `/auth/login/setup` или
-`/auth/login/skip`. Смена своего пароля — `/auth/password/change`.
+При `PERSONAL_PASSWORD=required` вход в два шага: `/auth/login` проверяет пароль роли
+и выдаёт пропуск (ticket) на шаг 2 — `/auth/login/personal` или `/auth/login/setup`. Смена своего пароля — `/auth/password/change`.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ from app.app.schemas.auth import (
     PasswordStateResponse,
     PersonalLoginRequest,
     PersonalSetupRequest,
-    TicketRequest,
     TokenResponse,
 )
 from app.app.services import personal_password
@@ -259,7 +257,6 @@ def login(
             step=step,
             ticket=_make_ticket(settings, user, role, step=step, created=created),
             name=user.name,
-            can_skip=step == "setup" and personal_password.mode() == "optional",
             min_length=personal_password.min_length(),
         )
     return _open_session(request, response, db, settings, user, role, created=created)
@@ -331,33 +328,6 @@ def login_setup(
         created=bool(claims.get("new")),
         pv=version,
         pp=True,
-    )
-
-
-@router.post("/login/skip", response_model=TokenResponse)
-def login_skip(
-    body: TicketRequest,
-    request: Request,
-    response: Response,
-    db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    claims, user = _read_ticket(settings, db, body.ticket)
-    if personal_password.mode() != "optional" or personal_password.has_password(user.name):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Личный пароль обязателен")
-    _burn_ticket(claims)
-    LOGIN_LIMITER.reset(_name_key(user.name))
-    log_event(logger, "personal.skipped", user_id=user.id, name=user.name)
-    return _open_session(
-        request,
-        response,
-        db,
-        settings,
-        user,
-        claims["role"],
-        created=bool(claims.get("new")),
-        pv=personal_password.current_version(user.name),
-        pp=False,
     )
 
 

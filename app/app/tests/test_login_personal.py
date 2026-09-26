@@ -1,4 +1,4 @@
-"""Вход в два шага: пароль роли → личный пароль (PERSONAL_PASSWORD=optional|required)."""
+"""Вход в два шага: пароль роли → личный пароль (PERSONAL_PASSWORD=required)."""
 
 from __future__ import annotations
 
@@ -14,12 +14,6 @@ def _set_mode(monkeypatch, mode: str) -> None:
 
     monkeypatch.setenv("PERSONAL_PASSWORD", mode)
     get_settings.cache_clear()
-
-
-@pytest.fixture()
-def optional(client, monkeypatch):
-    _set_mode(monkeypatch, "optional")
-    return client
 
 
 @pytest.fixture()
@@ -50,10 +44,10 @@ def test_off_mode_gives_session_right_away(client):
     assert "access_token" in data and "step" not in data
 
 
-def test_first_login_setup_then_personal(optional):
-    client = optional
+def test_first_login_setup_then_personal(required):
+    client = required
     first = _step1(client)
-    assert first["step"] == "setup" and first["can_skip"] is True and first["min_length"] == 10
+    assert first["step"] == "setup" and first["min_length"] == 10
     assert "access_token" not in first
     assert "skkkk_session" not in client.cookies
 
@@ -63,68 +57,68 @@ def test_first_login_setup_then_personal(optional):
     assert client.get("/projects", headers=_bearer(r.json()["access_token"])).status_code == 200
 
     second = _step1(client)
-    assert second["step"] == "personal" and second["can_skip"] is False
+    assert second["step"] == "personal"
     bad = client.post("/auth/login/personal", json={"ticket": second["ticket"], "password": "wrong-one-here"})
     assert bad.status_code == 401 and bad.json()["detail"] == "Неверный личный пароль"
     ok = client.post("/auth/login/personal", json={"ticket": second["ticket"], "password": GOOD})
     assert ok.status_code == 200, ok.text
 
 
-def test_role_still_comes_from_role_password(optional):
-    client = optional
+def test_role_still_comes_from_role_password(required):
+    client = required
     _setup(client, _step1(client)["ticket"])
     step = _step1(client, password=MANAGER_PASS)
     r = client.post("/auth/login/personal", json={"ticket": step["ticket"], "password": GOOD})
     assert r.json()["role"] == "manager"
 
 
-def test_wrong_role_password_reveals_nothing(optional):
-    r = optional.post("/auth/login", json={"name": "Admin", "telegram_id": "tg", "password": "nope"})
+def test_wrong_role_password_reveals_nothing(required):
+    r = required.post("/auth/login", json={"name": "Admin", "telegram_id": "tg", "password": "nope"})
     assert r.status_code == 401
     assert "step" not in r.text and "ticket" not in r.text
 
 
-def test_setup_rules_and_mismatch(optional):
-    ticket = _step1(optional)["ticket"]
-    r = _setup(optional, ticket, GOOD, GOOD + "x")
+def test_setup_rules_and_mismatch(required):
+    ticket = _step1(required)["ticket"]
+    r = _setup(required, ticket, GOOD, GOOD + "x")
     assert r.status_code == 400 and r.json()["detail"] == "Пароли не совпадают"
-    r = _setup(optional, ticket, "short")
+    r = _setup(required, ticket, "short")
     assert r.status_code == 400 and "короче" in r.json()["detail"]
     # Пропуск не сгорел на ошибке правил — можно исправить и продолжить.
-    assert _setup(optional, ticket).status_code == 200
+    assert _setup(required, ticket).status_code == 200
 
 
-def test_ticket_is_one_time(optional):
-    ticket = _step1(optional)["ticket"]
-    assert _setup(optional, ticket).status_code == 200
-    again = optional.post("/auth/login/personal", json={"ticket": ticket, "password": GOOD})
+def test_ticket_is_one_time(required):
+    ticket = _step1(required)["ticket"]
+    assert _setup(required, ticket).status_code == 200
+    again = required.post("/auth/login/personal", json={"ticket": ticket, "password": GOOD})
     assert again.status_code == 401
 
 
-def test_ticket_expired_forged_or_session_token(optional, monkeypatch):
+def test_ticket_expired_forged_or_session_token(required, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
     from jose import jwt
 
-    ticket = _step1(optional)["ticket"]
+    ticket = _step1(required)["ticket"]
     claims = jwt.get_unverified_claims(ticket)
     old = dict(claims, exp=datetime.now(timezone.utc) - timedelta(seconds=1))
     expired = jwt.encode(old, "test-secret-key-32chars!!", algorithm="HS256")
-    assert _setup(optional, expired).status_code == 401
+    assert _setup(required, expired).status_code == 401
     forged = jwt.encode(claims, "other-secret-key-32chars!", algorithm="HS256")
-    assert _setup(optional, forged).status_code == 401
+    assert _setup(required, forged).status_code == 401
     wrong_purpose = jwt.encode(dict(claims, purpose="x"), "test-secret-key-32chars!!", algorithm="HS256")
-    assert _setup(optional, wrong_purpose).status_code == 401
-    assert "Время на вход вышло" in _setup(optional, "garbage").json()["detail"]
+    assert _setup(required, wrong_purpose).status_code == 401
+    assert "Время на вход вышло" in _setup(required, "garbage").json()["detail"]
 
 
-def test_ticket_is_not_a_session(optional):
-    ticket = _step1(optional)["ticket"]
-    assert optional.get("/projects", headers=_bearer(ticket)).status_code == 401
+def test_ticket_is_not_a_session(required):
+    ticket = _step1(required)["ticket"]
+    assert required.get("/projects", headers=_bearer(ticket)).status_code == 401
 
 
-def test_personal_step_is_rate_limited_and_step1_does_not_reset(optional):
-    client = optional
+def test_personal_step_is_rate_limited_and_step1_does_not_reset(required):
+    client = required
     _setup(client, _step1(client)["ticket"])
     for _ in range(8):
         step = _step1(client)  # верный пароль роли не обнуляет счётчик имени
@@ -134,38 +128,21 @@ def test_personal_step_is_rate_limited_and_step1_does_not_reset(optional):
     assert r.status_code == 429
 
 
-def test_skip_only_in_optional(optional, monkeypatch):
-    ticket = _step1(optional)["ticket"]
-    r = optional.post("/auth/login/skip", json={"ticket": ticket})
-    assert r.status_code == 200
-    token = r.json()["access_token"]
-    assert optional.get("/projects", headers=_bearer(token)).status_code == 200
+def test_setup_when_password_exists_is_conflict(required):
+    ticket_a = _step1(required)["ticket"]
+    ticket_b = _step1(required)["ticket"]
+    assert _setup(required, ticket_a).status_code == 200
+    assert _setup(required, ticket_b).status_code == 409
 
+
+def test_session_from_before_personal_passwords_dies_right_away(client, monkeypatch):
+    old_token = _step1(client)["access_token"]  # выдан до включения: без pp
     _set_mode(monkeypatch, "required")
-    # Сессия без личного пароля в режиме required недействительна.
-    assert optional.get("/projects", headers=_bearer(token)).status_code == 401
-    step = _step1(optional)
-    assert step["can_skip"] is False
-    assert optional.post("/auth/login/skip", json={"ticket": step["ticket"]}).status_code == 403
-
-
-def test_setup_when_password_exists_is_conflict(optional):
-    ticket_a = _step1(optional)["ticket"]
-    ticket_b = _step1(optional)["ticket"]
-    assert _setup(optional, ticket_a).status_code == 200
-    assert _setup(optional, ticket_b).status_code == 409
-
-
-def test_old_off_mode_session_dies_when_password_created(client, monkeypatch):
-    old_token = _step1(client)["access_token"]
-    _set_mode(monkeypatch, "optional")
-    assert client.get("/projects", headers=_bearer(old_token)).status_code == 200  # версия 0 — пока жива
-    _setup(client, _step1(client)["ticket"])
     assert client.get("/projects", headers=_bearer(old_token)).status_code == 401
 
 
-def test_change_password_logs_out_other_sessions(optional):
-    client = optional
+def test_change_password_logs_out_other_sessions(required):
+    client = required
     first = _setup(client, _step1(client)["ticket"]).json()["access_token"]
     step = _step1(client)
     second = client.post("/auth/login/personal", json={"ticket": step["ticket"], "password": GOOD}).json()["access_token"]
@@ -180,28 +157,19 @@ def test_change_password_logs_out_other_sessions(optional):
     assert client.get("/projects", headers=_bearer(second)).status_code == 401
     assert client.get("/projects", headers=_bearer(fresh)).status_code == 200
     assert client.get("/auth/password/state", headers=_bearer(fresh)).json() == {
-        "mode": "optional",
+        "mode": "required",
         "has_password": True,
         "min_length": 10,
     }
 
 
-def test_change_creates_password_after_skip(optional):
-    ticket = _step1(optional)["ticket"]
-    token = optional.post("/auth/login/skip", json={"ticket": ticket}).json()["access_token"]
-    body = {"password": GOOD, "password_confirm": GOOD}
-    r = optional.post("/auth/password/change", json=body, headers=_bearer(token))
-    assert r.status_code == 200, r.text
-    assert _step1(optional)["step"] == "personal"
-
-
-def test_admin_reset_sends_user_to_setup(optional):
+def test_admin_reset_sends_user_to_setup(required):
     from app.app.services import personal_password
 
-    token = _setup(optional, _step1(optional)["ticket"]).json()["access_token"]
+    token = _setup(required, _step1(required)["ticket"]).json()["access_token"]
     personal_password.reset("admin")
-    assert optional.get("/projects", headers=_bearer(token)).status_code == 401
-    assert _step1(optional)["step"] == "setup"
+    assert required.get("/projects", headers=_bearer(token)).status_code == 401
+    assert _step1(required)["step"] == "setup"
 
 
 def test_change_is_refused_when_off(client):
@@ -214,11 +182,26 @@ def test_change_is_refused_when_off(client):
     assert r.status_code == 409
 
 
-def test_activity_log_has_no_passwords(optional, db_engine):
+def test_activity_log_has_no_passwords(required, db_engine):
     from sqlalchemy import text
 
-    _setup(optional, _step1(optional)["ticket"])
+    _setup(required, _step1(required)["ticket"])
     with db_engine.connect() as conn:
         rows = conn.execute(text("SELECT * FROM user_activity_log")).fetchall()
     assert rows
     assert GOOD not in repr(rows)
+
+
+def test_required_is_default_and_optional_is_gone():
+    from pydantic import ValidationError
+
+    from app.app.config import Settings
+
+    assert Settings.model_fields["personal_password"].default == "required"
+    with pytest.raises(ValidationError, match="optional"):
+        Settings(personal_password="optional")
+
+
+def test_skip_endpoint_is_gone(required):
+    ticket = _step1(required)["ticket"]
+    assert required.post("/auth/login/skip", json={"ticket": ticket}).status_code in (404, 405)

@@ -93,8 +93,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 43_200
     job_max_attempts: int = 3
     login_allowlist_path: Path = ROOT / "Login_up.txt"
-    # Личный пароль после пароля роли: off | optional | required (docs/plans/PERSONAL-PASSWORD-PLAN.md).
-    personal_password: str = "off"
+    # Личный пароль после пароля роли: required (всегда) | off — только тесты и аварийный откат.
+    personal_password: str = "required"
     credentials_db_path: Path = ROOT / "data" / "credentials.db"
     personal_password_min_len: int = 10
 
@@ -124,9 +124,11 @@ class Settings(BaseSettings):
     @classmethod
     def _personal_password(cls, v: str | None) -> str:
         # Опечатка не должна молча выключить защиту: неизвестное значение — ошибка старта.
-        mode = (v or "off").strip().lower()
-        if mode not in {"off", "optional", "required"}:
-            raise ValueError("PERSONAL_PASSWORD: off | optional | required")
+        mode = (v or "required").strip().lower()
+        if mode == "optional":
+            raise ValueError("PERSONAL_PASSWORD=optional больше нет: личный пароль обязателен (required)")
+        if mode not in {"off", "required"}:
+            raise ValueError("PERSONAL_PASSWORD: required | off (off — только тесты и аварийный откат)")
         return mode
 
     @field_validator("data_dir", "login_allowlist_path", "credentials_db_path", mode="before")

@@ -51,6 +51,8 @@ os.environ["MANAGER_PASSWORD_HASH"] = MANAGER_PASSWORD_HASH
 os.environ["USER_PASSWORD_HASH"] = USER_PASSWORD_HASH
 
 os.environ["DRY_RUN"] = "1"
+# Личный пароль по умолчанию обязателен; старые тесты входят одним шагом — режим включают только тесты личного пароля.
+os.environ["PERSONAL_PASSWORD"] = "off"
 
 
 
