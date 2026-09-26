@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{# Страница «Карта проекта» (/admin/map, только admin): поиск по индексу кода, документов и связей #}
+{% block content %}
+<h1 class="h4 mb-2">Карта проекта</h1>
+<p class="text-muted small mb-3">Поиск по коду, связям, базе, окружению и истории. Только для администратора. Источник — индекс <code>data/project_map.db</code>.</p>
+<form id="map-form" class="row g-2 mb-3" autocomplete="off">
+  <div class="col-12 col-md-7"><input id="map-q" class="form-control" placeholder="Вопрос или имя: log_activity, GET /projects/1/artifacts, meeting_participants…" aria-label="Запрос" maxlength="300"></div>
+  <div class="col-8 col-md-3">
+    <select id="map-mode" class="form-select" aria-label="Режим">
+      <option value="search">Вопрос по смыслу</option>
+      <option value="symbol">Где определён символ</option>
+      <option value="callers">Кто вызывает</option>
+      <option value="callees">Что вызывает</option>
+      <option value="route">Роут (метод и URL)</option>
+      <option value="endpoint">URL: фронт и роут</option>
+      <option value="table">Таблица БД</option>
+      <option value="env">Переменная / константа</option>
+      <option value="ui">Кнопка / текст интерфейса</option>
+      <option value="tests">Тесты модуля</option>
+      <option value="ops">Запуск, порты, логи</option>
+      <option value="history">История (по файлу)</option>
+      <option value="why_changed">Что менялось в функции</option>
+      <option value="invariants">Что нельзя ломать</option>
+      <option value="changed">Незакоммиченные правки</option>
+    </select>
+  </div>
+  <div class="col-4 col-md-2"><button class="btn btn-dark w-100" type="submit">Найти</button></div>
+</form>
+<div id="map-status" class="small text-muted mb-2" role="status"></div>
+<div id="map-results" class="vstack gap-2"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  if (!SKKKK.requireAuth()) return;
+  const form = document.getElementById('map-form');
+  const qEl = document.getElementById('map-q');
+  const modeEl = document.getElementById('map-mode');
+  const out = document.getElementById('map-results');
+  const status = document.getElementById('map-status');
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  async function run() {
+    out.replaceChildren();
+    status.textContent = 'Ищу…';
+    const params = new URLSearchParams({ q: qEl.value, mode: modeEl.value });
+    const r = await SKKKK.api('/admin/map/search?' + params.toString());
+    if (r.status === 403) { status.textContent = 'Нужна роль администратора.'; return; }
+    if (!r.ok) { status.textContent = 'Ошибка поиска.'; return; }
+    const data = await r.json();
+    const parts = [];
+    if (data.stale && (data.stale.changed || data.stale.removed)) parts.push('индекс отстаёт: изменено файлов ' + data.stale.changed);
+    if (data.stale && data.stale.no_vector) parts.push('без вектора: ' + data.stale.no_vector);
+    status.textContent = (data.items.length ? 'Найдено: ' + data.items.length : '') + (parts.length ? '  ·  ' + parts.join(', ') : '');
+    for (const n of data.notes || []) out.appendChild(el('div', 'alert alert-warning py-2 mb-0 small', n));
+    for (const it of data.items) {
+      const card = el('div', 'card');
+      const body = el('div', 'card-body py-2');
+      const head = el('div', 'd-flex flex-wrap gap-2 align-items-baseline');
+      head.appendChild(el('strong', 'text-break', it.title));
+      if (it.path) {
+        head.appendChild(el('code', 'small text-break', it.path + ':' + it.line));
+        if (it.ide) { const a = el('a', 'small', 'открыть в PyCharm'); a.href = it.ide; head.appendChild(a); }
+      }
+      body.appendChild(head);
+      if (it.text) body.appendChild(el('pre', 'small mb-0 mt-1 text-break', it.text));
+      card.appendChild(body);
+      out.appendChild(card);
+    }
+  }
+  form.addEventListener('submit', (e) => { e.preventDefault(); run(); });
+})();
+</script>
+{% endblock %}

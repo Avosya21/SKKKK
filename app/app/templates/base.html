@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+{# Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц #}
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ title }} — Primary Analytics</title>
+  <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/app.css?v=12" rel="stylesheet">
+  <link href="/static/design.css?v=6" rel="stylesheet">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-dark mb-3 mb-md-4 navbar-skkkk">
+  <div class="container navbar-inner">
+    <div class="navbar-brand-row">
+      <a class="navbar-brand mb-0 py-1 flex-shrink-0" href="/">Primary Analytics</a>
+      {% block nav_project %}{% endblock %}
+    </div>
+    <div class="navbar-actions-row">
+      {% block nav_actions %}{% endblock %}
+      <span class="badge rounded-pill text-bg-warning d-none" id="nav-stale" role="status">Нужен перезапуск</span>
+      {% block nav_changelog %}{% endblock %}
+      <span class="badge rounded-pill text-bg-secondary d-none" id="nav-llm" title="LLM-провайдер"></span>
+      <div class="nav-session d-none align-items-center gap-1" id="nav-session">
+        <span class="navbar-text text-white-50 mb-0" id="nav-user"></span>
+        <button type="button" class="btn nav-logout" id="nav-logout" aria-label="Выйти" title="Выйти">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z"/>
+            <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+<main class="container pb-5">
+  {% block content %}{% endblock %}
+</main>
+<script src="/static/errors_ru.js?v=1"></script>
+<script src="/static/app.js?v=2"></script>
+<script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

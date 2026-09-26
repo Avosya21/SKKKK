@@ -1,0 +1,2944 @@
+{% extends "base.html" %}
+{# Страница проекта: загрузка материалов, таблица артефактов, выжимка, чат, дедлайны, встречи, MCP, доступ, обмен с агентом #}
+{% block nav_project %}
+<span class="navbar-divider" aria-hidden="true"></span>
+<span class="navbar-brand navbar-project mb-0 py-1" title="#{{ project_id }} — «{{ project_name }}»">#{{ project_id }} — «{{ project_name }}»</span>
+{% endblock %}
+{% block nav_actions %}
+<a class="btn btn-sm btn-outline-light navbar-back" href="/">к проектам</a>
+{% endblock %}
+{% block content %}
+<style>
+  /* Список материалов приходит по сети позже первой отрисовки. Резервируем высоту сразу (число материалов подставляет сервер;
+     коэффициенты измерены в браузере: таблица ~115 + 60 px на файл, карточки телефона ~80 + 130 px), иначе всё ниже «уезжает» */
+  #artifacts-body { min-height: calc(115px + var(--artifact-n, 0) * 60px); }
+  @media (max-width: 767.98px) {
+    #artifacts-body { min-height: calc(80px + var(--artifact-n, 0) * 130px); }
+  }
+  .project-kpis {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.25rem;
+    flex: 0 0 auto;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .project-kpi {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.28rem;
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    background: #f8f9fa;
+    white-space: nowrap;
+    line-height: 1.2;
+  }
+  .project-kpi .value {
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+  .project-kpi .label {
+    font-size: 0.7rem;
+    color: #6c757d;
+  }
+  @media (max-width: 575.98px) {
+    .project-kpi {
+      padding: 0.12rem 0.35rem;
+      gap: 0.2rem;
+    }
+    .project-kpi .value { font-size: 0.85rem; }
+    .project-kpi .label { font-size: 0.65rem; }
+  }
+  #tz-content {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  #tz-content h3 { font-size: 1.05rem; }
+  #tz-content h4 { font-size: 0.95rem; }
+  #tz-content h5 { font-size: 0.9rem; }
+  #tz-content table { font-size: 0.85rem; }
+  #tz-content h3, #tz-content h4, #tz-content h5,
+  #chat-log h3, #chat-log h4, #chat-log h5 {
+    line-height: 1.3;
+  }
+  #tz-content table, #chat-log table {
+    background: #fff;
+  }
+  .chat-message {
+    border-left: 4px solid transparent;
+  }
+  .chat-message-user {
+    border-left-color: #0d6efd;
+  }
+  .chat-message-ai {
+    border-left-color: #198754;
+  }
+  .insights-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .insights-card > .card-body,
+  .insights-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .chat-card .card-body,
+  .chat-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #chat-log {
+    flex: 1 1 auto;
+    min-height: 8rem;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border: none;
+    margin-bottom: 0.75rem;
+    line-height: 1.55;
+    font-size: 0.8125rem;
+  }
+  #chat-log h3 { font-size: 0.95rem; }
+  #chat-log h4 { font-size: 0.875rem; }
+  #chat-log h5 { font-size: 0.8125rem; }
+  #chat-log table { font-size: 0.75rem; }
+  #chat-log code { font-size: 0.75rem; }
+  .chat-card .card-header {
+    font-size: 0.9rem;
+  }
+  .chat-composer {
+    display: flex;
+    flex: 0 0 auto;
+    margin-top: auto;
+    align-items: flex-end;
+    gap: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+    background: #fff;
+  }
+  .chat-composer:focus-within {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+  }
+  .mcp-access-card .mcp-toggle-hint {
+    font-weight: normal;
+    color: #6c757d;
+  }
+  .deadlines-card .card-header .deadlines-toggle-btn {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    flex: 1 1 auto;
+  }
+  .deadlines-card .card-header .deadlines-toggle-btn:hover {
+    color: #0d6efd;
+  }
+  .deadlines-card .deadlines-toggle-hint {
+    font-weight: normal;
+    color: #6c757d;
+  }
+  #deadlines-calendar {
+    min-height: 420px;
+  }
+  #deadlines-table {
+    font-size: 0.85rem;
+  }
+  #deadlines-table th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+    white-space: nowrap;
+  }
+  .deadline-status-badge {
+    font-size: 0.72rem;
+  }
+  .deadline-overdue {
+    color: #dc3545;
+    font-weight: 600;
+  }
+  #deadlines-table tbody tr.deadline-row {
+    cursor: pointer;
+  }
+  #deadlines-table tbody tr.deadline-row:hover {
+    background-color: rgba(13, 110, 253, 0.06);
+  }
+  #deadlines-calendar .fc-event {
+    cursor: pointer;
+  }
+  @media (max-width: 767.98px) {
+    #deadlines-calendar {
+      min-height: 360px;
+    }
+  }
+  .mcp-access-card .card-header .mcp-toggle-btn,
+  .meetings-card .card-header .meetings-toggle-btn,
+  .grant-access-card .card-header .grant-toggle-btn {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    flex: 1 1 auto;
+  }
+  .mcp-access-card .card-header .mcp-toggle-btn:hover,
+  .meetings-card .card-header .meetings-toggle-btn:hover,
+  .grant-access-card .card-header .grant-toggle-btn:hover {
+    color: #0d6efd;
+  }
+  .mcp-access-card .mcp-toggle-hint,
+  .meetings-card .meetings-toggle-hint,
+  .grant-access-card .grant-toggle-hint {
+    font-weight: normal;
+    color: #6c757d;
+  }
+  #mcp-config {
+    font-size: 0.78rem;
+    max-height: 12rem;
+    overflow: auto;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin: 0;
+  }
+  .mcp-token-row td code {
+    font-size: 0.8rem;
+  }
+  #chat-question {
+    resize: none;
+    overflow: hidden;
+    min-height: 24px;
+    max-height: 220px;
+    line-height: 1.45;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 0;
+    box-shadow: none;
+    outline: none;
+    padding: 0;
+    background: transparent;
+    flex: 1 1 auto;
+  }
+  #chat-question:focus {
+    border: 0;
+    box-shadow: none;
+    outline: none;
+  }
+  #chat-send {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .artifact-card .file-name {
+    word-break: break-word;
+  }
+  #pipeline-live {
+    border: 1px solid #cfe2ff;
+    background: #f8fbff;
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .pipeline-live-item {
+    border-bottom: 1px solid #e3eefb;
+  }
+  .pipeline-live-item:last-child {
+    border-bottom: 0;
+  }
+  .pipeline-live-summary {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    padding: 0.35rem 0;
+    user-select: none;
+  }
+  .pipeline-live-summary::-webkit-details-marker {
+    display: none;
+  }
+  .pipeline-live-summary .pip-toggle {
+    flex: 0 0 auto;
+    width: 0.85rem;
+    color: #6c757d;
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+  }
+  .pipeline-live-item[open] .pip-toggle {
+    transform: rotate(90deg);
+  }
+  .pipeline-live-summary .pipeline-file {
+    font-weight: 600;
+    flex: 0 1 auto;
+    max-width: 42%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0;
+  }
+  .pipeline-live-summary .pipeline-current {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: #0d6efd;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0;
+  }
+  .pipeline-live-body {
+    padding: 0 0 0.5rem 1.1rem;
+  }
+  .pipeline-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+  .pipeline-steps li {
+    display: flex;
+    gap: 0.45rem;
+    align-items: baseline;
+  }
+  .pipeline-steps .pip-icon {
+    width: 1rem;
+    flex: 0 0 auto;
+    text-align: center;
+    font-weight: 700;
+  }
+  .pipeline-steps .pip-ok { color: #198754; }
+  .pipeline-steps .pip-running { color: #0d6efd; }
+  .pipeline-steps .pip-pending { color: #adb5bd; }
+  .pipeline-steps .pip-fail { color: #dc3545; }
+  .pipeline-steps .pip-warn { color: #fd7e14; }
+  .pipeline-steps .pip-detail {
+    color: #6c757d;
+    font-size: 0.75rem;
+  }
+  #artifacts-table {
+    --bs-table-bg: transparent;
+    --bs-table-border-color: #eef1f3;
+    margin-bottom: 0;
+  }
+  #artifacts-table thead th {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6c757d;
+    background: transparent;
+    border-bottom: 1px solid #e8ecef;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+  #artifacts-table tbody td {
+    vertical-align: middle;
+    border-bottom-color: #f3f5f6;
+  }
+  #artifacts-table th.col-download,
+  #artifacts-table td.col-download {
+    width: 5.25rem;
+    min-width: 5.25rem;
+    max-width: 5.25rem;
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+  #artifacts-table th.col-delete,
+  #artifacts-table td.col-delete {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    max-width: 2.5rem;
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+  }
+  #artifacts-table .artifact-download {
+    width: 4.5rem;
+    min-width: 4.5rem;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+    justify-content: center;
+  }
+  #artifacts-table .artifact-delete,
+  .artifact-card .artifact-delete {
+    width: 2rem;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0;
+    justify-content: center;
+    color: #868e96;
+    border-color: #dee2e6;
+    background: transparent;
+  }
+  #artifacts-table .artifact-delete:hover,
+  .artifact-card .artifact-delete:hover,
+  #artifacts-table .artifact-delete:focus-visible,
+  .artifact-card .artifact-delete:focus-visible {
+    color: #a61e1e;
+    border-color: #e0b4b4;
+    background: #fff8f8;
+  }
+  .artifact-delete-icon {
+    display: block;
+    flex-shrink: 0;
+  }
+  #artifacts-table .artifact-download-placeholder {
+    display: inline-block;
+    width: 4.5rem;
+    text-align: center;
+  }
+  .artifact-report-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+  }
+  .artifact-action-btn {
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+  .artifact-name-line {
+    display: inline;
+  }
+  .artifact-card .artifact-name-line {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  @media (min-width: 992px) {
+    .project-insights-row {
+      align-items: stretch;
+      --bs-gutter-x: 1.25rem;
+    }
+    .project-insights-row > .col-lg-7 {
+      flex: 0 0 58.333333%;
+      width: 58.333333%;
+    }
+    .project-insights-row > .col-lg-5 {
+      flex: 0 0 41.666667%;
+      width: 41.666667%;
+    }
+    .project-insights-row .insights-card {
+      height: min(70vh, 720px);
+      max-height: min(70vh, 720px);
+      min-height: 0;
+    }
+    .project-insights-row > .col-lg-5 .insights-card {
+      position: sticky;
+      top: 0.75rem;
+      height: min(70vh, 720px);
+      max-height: min(70vh, 720px);
+    }
+    .project-insights-row > .col-lg-7 #tz-content {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: .35rem;
+    }
+    #tz-content,
+    #chat-log {
+      min-height: 0;
+    }
+  }
+  @media (min-width: 768px) and (max-width: 991.98px) {
+    /* Планшет: карточки уложены друг под другом (на десктопе высота уже фиксирована), резюме раньше росло до 1400+ px */
+    #tz-content {
+      height: min(55vh, 30rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    #chat-log {
+      height: min(40vh, 22rem);
+      overflow-y: auto;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .project-page-lead {
+      font-size: 0.9rem;
+    }
+    /* Фиксированная высота, а не «от 10rem до 50vh»: иначе резюме, пришедшее позже первой отрисовки, раздувает карточку и сдвигает страницу */
+    #tz-content {
+      height: min(50vh, 26rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    #chat-log {
+      height: min(40vh, 20rem);
+      overflow-y: auto;
+    }
+    .chat-panel-mobile-lift {
+      position: relative;
+      z-index: 2;
+    }
+    .project-insights-row { --bs-gutter-y: 1rem; }
+    .project-insights-row .insights-card,
+    .project-insights-row > .col-lg-5 .insights-card {
+      min-height: 0;
+      height: auto;
+      max-height: none;
+      position: relative;
+      top: auto;
+    }
+    .project-insights-row > .col-lg-7 { order: 1 !important; }
+    .project-insights-row > .col-lg-5 { order: 2 !important; }
+  }
+
+  .download-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    z-index: 10000;
+    max-width: min(520px, calc(100vw - 2rem));
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: #0d6efd;
+    color: #fff;
+    box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.2);
+  }
+
+  .download-banner.is-done {
+    background: #198754;
+  }
+
+  .download-banner.is-error {
+    background: #dc3545;
+  }
+
+  .download-banner .progress {
+    height: 0.35rem;
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .download-banner .progress-bar {
+    background: #fff;
+  }
+</style>
+
+<!-- Индикатор скачивания -->
+<div id="download-banner" class="download-banner d-none" role="status" aria-live="polite" aria-atomic="true">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <div id="download-banner-spinner" class="spinner-border spinner-border-sm text-light" role="status">
+      <span class="visually-hidden">Скачивание</span>
+    </div>
+    <div id="download-banner-text" class="small fw-semibold flex-grow-1">Скачивание…</div>
+  </div>
+  <div id="download-banner-progress-wrap" class="progress" aria-hidden="true">
+    <div id="download-banner-progress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+  </div>
+</div>
+
+<!-- Тост «готово» -->
+<div id="toast-anchor" class="position-fixed p-3" style="z-index:9999; top:0; right:0; left:0;">
+  <div id="done-toast" class="toast align-items-center text-bg-success border-0 mx-auto ms-md-auto me-md-0" role="alert" aria-live="assertive">
+    <div class="d-flex">
+      <div class="toast-body" id="done-toast-body">Файл обработан</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Форма загрузки -->
+<form id="upload-form" class="card card-body mb-3 mb-md-4 shadow-sm">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+      <h2 class="h5 mb-1">Добавить материалы</h2>
+      <div class="text-muted small">Загрузите созвон, документ, заметку или скриншот для обработки и включения в общую базу проекта.</div>
+    </div>
+  </div>
+  <div class="row g-2 align-items-end">
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="upload-source-type">Тип</label>
+      <select class="form-select" name="source_type" id="upload-source-type">
+        <option value="call">Созвон (аудио/видео)</option>
+        <option value="document">Документ</option>
+        <option value="note">Заметка</option>
+        <option value="screenshot">Скриншот</option>
+      </select>
+      <div class="form-text d-none" id="upload-type-hint" aria-live="polite"></div>
+    </div>
+    <div class="col-12 col-md-5">
+      <label class="form-label" for="upload-files">Файлы</label>
+      <input class="form-control" type="file" name="files" id="upload-files" multiple required
+             accept=".pdf,.docx,.doc,.docm,.dotx,.odt,.rtf,.xlsx,.xlsm,.xltx,.xls,.ods,.csv,.tsv,.pptx,.ppt,.html,.htm,.txt,.md,.markdown,.log,.json,.yaml,.yml,.ini,.text,audio/*,video/*,image/*,.webm,.mkv">    </div>
+    <div class="col-12 col-md-3">
+      <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="upload-submit" data-idle-label="Загрузить">Загрузить</button>
+    </div>
+  </div>
+  <div id="upload-progress-wrap" class="mt-3 d-none" aria-live="polite">
+    <div class="d-flex justify-content-between small mb-1">
+      <span id="upload-progress-label">Загрузка…</span>
+      <span id="upload-progress-pct">0%</span>
+    </div>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="upload-progressbar" style="height: 0.75rem;">
+      <div class="progress-bar" id="upload-progress-bar" style="width: 0%"></div>
+    </div>
+    <div id="upload-progress-detail" class="text-muted small mt-1"></div>
+  </div>
+</form>
+
+<div class="card shadow-sm mb-3 mb-md-4 workspace-card">
+  <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+    <div class="me-sm-auto min-w-0">
+     <div class="section-title-wrap"><strong>Материалы проекта</strong><span class="section-title-subtitle">Файлы и обработка</span></div>
+      <div class="small text-muted" id="artifacts-status" hidden aria-live="polite"></div>
+    </div>
+    <div class="project-kpis" id="project-kpis" aria-label="Сводка по артефактам">
+      <div class="project-kpi">
+        <span class="label">Готово</span>
+        <span class="value" id="kpi-done">—</span>
+      </div>
+      <div class="project-kpi">
+        <span class="label">Док.</span>
+        <span class="value" id="kpi-docs">—</span>
+      </div>
+      <div class="project-kpi">
+        <span class="label">Созвоны</span>
+        <span class="value" id="kpi-calls">—</span>
+      </div>
+    </div>
+  </div>
+  <div class="card-body" id="artifacts-body" data-count="{{ artifact_count|default(0) }}" style="--artifact-n: {{ artifact_count|default(0) }}">
+    <div id="pipeline-live" class="d-none" aria-live="polite" aria-atomic="true"></div>
+    <div class="table-responsive d-none d-md-block">
+      <table class="table table-sm table-hover mb-0" id="artifacts-table">
+        <thead>
+          <tr>
+            <th>Файл</th>
+            <th class="col-download">Скачать</th>
+            <th>Статус</th>
+            <th>Ошибка</th>
+            <th class="col-delete"><span class="visually-hidden">Удалить</span></th>
+          </tr>
+        </thead>
+        <tbody><tr class="artifacts-loading"><td colspan="5" class="text-muted small">Загружаю материалы…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="artifacts-cards" class="d-md-none vstack gap-2" aria-live="polite"><div class="text-muted small artifacts-loading">Загружаю материалы…</div></div>
+    <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
+    <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
+  </div>
+</div>
+
+<div class="modal fade" id="deleteArtifactModal" tabindex="-1" aria-labelledby="delete-artifact-title" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="delete-artifact-title">Подтверждение удаления</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Удалить артефакт «<strong id="delete-artifact-name"></strong>»?</p>
+        <p class="text-muted small mb-3">Будут стёрты файл, стенограмма, сущности и задания, которые пришли с этим артефактом. Остальные файлы проекта останутся. Отменить нельзя.</p>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="delete-artifact-ack">
+          <label class="form-check-label" for="delete-artifact-ack">Подтверждаю полное удаление артефакта</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-artifact-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4 align-items-stretch project-insights-row">
+  <div class="col-lg-7 order-2 order-lg-1 d-flex">
+    <div class="card shadow-sm h-100 w-100 insights-card">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div class="section-title-wrap"><strong>Резюме проекта</strong></div>
+        {% if current_role == 'admin' %}
+        <button type="button" id="tz-refresh" class="btn btn-sm btn-outline-secondary skkkk-action-btn" data-idle-label="Пересобрать" aria-label="Пересобрать">Пересобрать</button>
+        {% endif %}
+      </div>
+      <div class="card-body d-flex flex-column insights-panel">
+        <div id="tz-status" class="text-muted small mb-2 flex-shrink-0" aria-live="polite">Загрузка...</div>
+        <div id="tz-content" style="line-height:1.6;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5 order-1 order-lg-2 d-flex">
+    <div class="card shadow-sm h-100 w-100 insights-card chat-card chat-panel-mobile-lift">
+      <div class="card-header">
+        <div class="section-title-wrap"><strong>Ассистент</strong><span class="section-title-subtitle">По материалам проекта</span></div>
+      </div>
+      <div class="card-body d-flex flex-column chat-panel insights-panel">
+        <div class="text-muted small mb-2 flex-shrink-0">Решения, ограничения, участники и требования.</div>
+        <div id="chat-status" class="text-muted small mb-2 d-none flex-shrink-0" aria-live="polite"></div>
+        <div id="chat-log" class="rounded p-2" aria-live="polite"></div>
+        <div class="chat-composer">
+          <textarea id="chat-question" rows="1"
+                    placeholder="Задайте вопрос по материалам проекта"
+                    aria-label="Вопрос по материалам проекта"
+                    enterkeyhint="send"
+                    autocomplete="off"></textarea>
+          <button id="chat-send" class="btn btn-primary btn-sm skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4 deadlines-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="deadlines-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#deadlines-panel"
+            aria-expanded="false"
+            aria-controls="deadlines-panel">
+      <strong>Дедлайны</strong>
+      <span id="deadlines-toggle-hint" class="small deadlines-toggle-hint">(развернуть)</span>
+    </button>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge text-bg-light text-dark border" id="deadlines-count-badge">…</span>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Вид дедлайнов">
+        <button type="button" class="btn btn-outline-secondary active" id="deadlines-view-list" aria-pressed="true">Список</button>
+        <button type="button" class="btn btn-outline-secondary" id="deadlines-view-calendar" aria-pressed="false">Календарь</button>
+      </div>
+    </div>
+  </div>
+  <div id="deadlines-panel" class="collapse">
+    <div class="card-body">
+      <div id="deadlines-status" class="text-muted small mb-2" aria-live="polite">Загрузка…</div>
+      <div class="d-flex justify-content-end mb-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="deadlines-reextract" data-idle-label="Обновить из материалов">Обновить из материалов</button>
+      </div>
+      <div id="deadlines-list-view">
+        <div class="table-responsive d-none d-md-block">
+          <table class="table table-sm table-hover mb-0" id="deadlines-table">
+            <thead>
+              <tr>
+                <th>Задача</th>
+                <th>Ответственный</th>
+                <th>Срок</th>
+                <th>Статус</th>
+                <th>Источник</th>
+              </tr>
+            </thead>
+            <tbody id="deadlines-table-body">
+              <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="deadlines-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
+      </div>
+      <div id="deadlines-calendar-view" class="d-none">
+        <div id="deadlines-calendar" aria-label="Календарь дедлайнов"></div>
+        <div id="deadlines-calendar-empty" class="text-muted small mt-2 d-none">
+          Нет сроков с распознанной датой — откройте список или дождитесь материалов с явными датами.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="deadline-detail-modal" tabindex="-1" aria-labelledby="deadline-detail-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="deadline-detail-title">Задача</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-3 text-muted">Описание</dt>
+          <dd class="col-sm-9" id="deadline-detail-description">—</dd>
+          <dt class="col-sm-3 text-muted">Ответственный</dt>
+          <dd class="col-sm-9" id="deadline-detail-assignee">—</dd>
+          <dt class="col-sm-3 text-muted">Срок</dt>
+          <dd class="col-sm-9" id="deadline-detail-deadline">—</dd>
+          <dt class="col-sm-3 text-muted">На календаре</dt>
+          <dd class="col-sm-9" id="deadline-detail-dates">—</dd>
+          <dt class="col-sm-3 text-muted">Статус</dt>
+          <dd class="col-sm-9" id="deadline-detail-status">—</dd>
+          <dt class="col-sm-3 text-muted">Источник</dt>
+          <dd class="col-sm-9" id="deadline-detail-source">—</dd>
+        </dl>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if current_role != 'user' %}
+<div class="card shadow-sm mb-4 meetings-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="meetings-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#meetings-panel"
+            aria-expanded="false"
+            aria-controls="meetings-panel">
+      <strong>Встречи</strong>
+      <span id="meetings-toggle-hint" class="small meetings-toggle-hint">(развернуть)</span>
+    </button>
+  </div>
+  <div id="meetings-panel" class="collapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Гостевая ссылка ведёт на отдельную страницу без доступа к проекту.
+        Ссылку можно отозвать. Камера у гостя выключена; записываются голос и экран.
+      </p>
+      <div id="meetings-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="meetings-create" data-idle-label="Создать встречу">Создать встречу</button>
+      </div>
+      <div id="meetings-new-link" class="alert alert-warning d-none small py-2" role="alert">
+        <strong>Гостевая ссылка (один раз):</strong>
+        <code id="meetings-new-link-value" class="user-select-all d-block mt-1 text-break"></code>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="meetings-copy-link" data-idle-label="Копировать ссылку">Копировать ссылку</button>
+      </div>
+      <div class="table-responsive d-none d-md-block">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Статус</th>
+              <th>Ссылка</th>
+              <th>Проанализировать</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="meetings-body">
+            <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+          </table>
+      </div>
+      <div id="meetings-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="deleteMeetingModal" tabindex="-1" aria-labelledby="delete-meeting-title" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="delete-meeting-title">Подтверждение удаления</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Удалить созвон «<strong id="delete-meeting-name"></strong>»?</p>
+        <p class="text-muted small mb-3">Будут стёрты запись комнаты, расшифровка и задания в очереди. Отменить нельзя.</p>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="delete-meeting-ack">
+          <label class="form-check-label" for="delete-meeting-ack">Подтверждаю полное удаление созвона</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-meeting-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card shadow-sm mb-4 mcp-access-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="mcp-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#mcp-access-panel"
+            aria-expanded="false"
+            aria-controls="mcp-access-panel">
+      <strong>Удалённый доступ (MCP)</strong>
+      <span id="mcp-toggle-hint" class="small mcp-toggle-hint">(развернуть)</span>
+    </button>
+    <span class="badge text-bg-secondary flex-shrink-0">только чтение</span>
+  </div>
+  <div id="mcp-access-panel" class="collapse">
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Подключите Cursor или другой MCP-клиент к знаниям этого проекта: артефакты, выжимка, поиск, сущности, граф, заметки.
+      Доступ по ключу — без пароля портала. URL ниже — для подключения из интернета.
+    </p>
+    <div id="mcp-status" class="text-muted small mb-2" aria-live="polite"></div>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="ds-section-head"><label class="form-label mb-0" for="mcp-url">URL сервера</label></div>
+        <div class="input-group input-group-sm mb-3">
+          <input id="mcp-url" class="form-control font-monospace" readonly aria-label="MCP URL">
+          <button type="button" class="btn btn-outline-secondary" id="mcp-copy-url" data-idle-label="Копировать">Копировать</button>
+        </div>
+        <div class="ds-section-head"><span class="form-label mb-0">Пример для Cursor (<code>.cursor/mcp.json</code>)</span></div>
+        <pre id="mcp-config" aria-label="Пример конфигурации MCP"></pre>
+        <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="mcp-copy-config" data-idle-label="Копировать JSON">Копировать JSON</button>
+      </div>
+      <div class="col-lg-6">
+        <div class="ds-section-head justify-content-between">
+          <span class="form-label mb-0">Ключи доступа</span>
+          <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="mcp-create-token" data-idle-label="Создать ключ">Создать ключ</button>
+        </div>
+        <p class="text-muted small mb-2">Создавать ключи могут admin и manager. Токен показывается один раз.</p>
+        <fieldset class="mb-2" id="mcp-rights">
+          <legend class="form-label small mb-1">Права нового ключа</legend>
+          <div class="form-check small">
+            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-read" value="read" checked>
+            <label class="form-check-label" for="mcp-rights-read"><strong>Только чтение</strong> — агент читает базу и ответы, ничего не записывает</label>
+          </div>
+          <div class="form-check small">
+            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-questions" value="questions">
+            <label class="form-check-label" for="mcp-rights-questions"><strong>Чтение + вопросы</strong> — агент кладёт вопросы в очередь, но вердикты отправлять не может</label>
+          </div>
+          <div class="form-check small">
+            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-submit" value="questions_verdicts">
+            <label class="form-check-label" for="mcp-rights-submit"><strong>Чтение + вопросы и вердикты</strong> — агент сам кладёт вопросы и вердикты в очередь (только добавление; вердикты помечаются как непроверенные, ответы одобряет человек)</label>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-7"><input type="text" class="form-control form-control-sm" id="mcp-agent-name" maxlength="64" placeholder="Имя агента (для журнала)" aria-label="Имя агента"></div>
+            <div class="col-5"><input type="number" class="form-control form-control-sm" id="mcp-rate-limit" min="1" max="1000" placeholder="Лимит за 10 мин" aria-label="Лимит обращений за 10 минут"></div>
+          </div>
+        </fieldset>
+        <div id="mcp-new-token" class="alert alert-warning d-none small py-2" role="alert">
+          <strong>Новый ключ:</strong>
+          <code id="mcp-new-token-value" class="user-select-all d-block mt-1 text-break"></code>
+          <div class="mt-2 text-muted">Передайте разработчику адрес сервера и этот ключ. Инструкцию по работе с базой и по обращению к нам агент получит сам: при подключении, через инструмент <code>get_guide</code> и файл <code>contract/GUIDE.md</code>.</div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0 mcp-token-row">
+            <thead>
+              <tr>
+                <th>Метка</th>
+                <th>Ключ</th>
+                <th>Права</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody id="mcp-tokens-body">
+              <tr><td colspan="4" class="text-muted small">Загрузка…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+{% endif %}
+
+{% if current_role in ('admin', 'manager') %}
+<link href="/static/px_agent.css?v=1" rel="stylesheet">
+{% include "partials/px_agent_cards.html" %}
+{% endif %}
+
+{% if can_grant_access %}
+<div class="card shadow-sm mb-4 grant-access-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="grant-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#grant-access-panel"
+            aria-expanded="false"
+            aria-controls="grant-access-panel">
+      <strong>Выдать доступ</strong>
+      <span id="grant-toggle-hint" class="small grant-toggle-hint">(развернуть)</span>
+    </button>
+  </div>
+  <div id="grant-access-panel" class="collapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Выберите пользователя и роль в этом проекте. Админскую роль назначить нельзя.
+        Кто в списке — видит проект и работает по своей роли: менеджер (match, выжимки) или участник (просмотр и чат).
+      </p>
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold mb-1" for="grant-user">Пользователь</label>
+          <select id="grant-user" class="form-select form-select-sm" aria-label="Пользователь для доступа">
+            <option value="">Загрузка…</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1" for="grant-role">Роль</label>
+          <select id="grant-role" class="form-select form-select-sm" aria-label="Роль в проекте">
+            <option value="manager">Менеджер</option>
+            <option value="user">Участник</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="button" class="btn btn-sm btn-primary skkkk-action-btn w-100" id="grant-add" data-idle-label="Добавить">Добавить</button>
+        </div>
+      </div>
+      <div id="grant-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Пользователь</th>
+              <th>Роль</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="grant-members-body">
+            <tr><td colspan="3" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vendor/fullcalendar/index.global.min.js?v=6.1.15"></script>
+<script>
+if (!SKKKK.requireAuth()) throw new Error('auth');
+const projectId = {{ project_id }};
+// Список материалов приходит с сервера позже первой отрисовки: резервируем ему прежнюю высоту (запоминается по проекту), иначе всё ниже «уезжает»
+(function reserveArtifactsHeight() {
+  try {
+    const body = document.getElementById('artifacts-body');
+    if (!body) return;
+    // запас высоты задан в CSS (по числу материалов от сервера); сохранённая настоящая высота точнее, если она есть
+    const saved = Number(localStorage.getItem('skkkk_artifacts_h_' + projectId)) || 0;
+    if (saved > 120) body.style.minHeight = saved + 'px';
+  } catch (_) { /* без хранилища работает, но с одним сдвигом при загрузке */ }
+})();
+const currentRole = {{ current_role|tojson }};
+window.PX = { projectId, role: currentRole };
+window.SKKKK_ROLE = currentRole;
+const TERMINAL = new Set(['done', 'error', 'rejected', 'needs_human']);
+const STATUS_LABEL = {
+  uploaded:           'В очереди',
+  preprocessing:      'Подготовка',
+  asr_running:        'ASR',
+  asr_completed:      'После ASR',
+  speakers_pending:   'Спикеры',
+  speakers_confirmed: 'Спикеры ✓',
+  text_extracted:     'Текст',
+  transcript_ready:   'Стенограмма',
+  entities_extracted: 'Сущности',
+  indexed:            'Индекс',
+  graph_seeded:       'Граф',
+  done:               'Готово',
+  error:              'Ошибка',
+};
+const STATUS_BADGE = {
+  uploaded:           'secondary',
+  preprocessing:      'secondary',
+  asr_running:        'primary',
+  asr_completed:      'primary',
+  speakers_pending:   'warning',
+  speakers_confirmed: 'warning',
+  text_extracted:     'info',
+  transcript_ready:   'info',
+  entities_extracted: 'info',
+  indexed:            'info',
+  graph_seeded:       'info',
+  done:               'success',
+  error:              'danger',
+};
+
+let _prev = {};       // artifact_id → status (предыдущее)
+const pipelineExpanded = new Set(); // artifact_id с развёрнутым чеклистом
+/** artifact_id пока идёт скачивание — переживает refresh таблицы */
+const _artifactDownloading = new Set();
+const toastEl   = document.getElementById('done-toast');
+const toastBody = document.getElementById('done-toast-body');
+const bsToast   = new bootstrap.Toast(toastEl, { delay: 6000 });
+const downloadBanner = document.getElementById('download-banner');
+const downloadBannerText = document.getElementById('download-banner-text');
+const downloadBannerSpinner = document.getElementById('download-banner-spinner');
+const downloadBannerProgressWrap = document.getElementById('download-banner-progress-wrap');
+const downloadBannerProgress = document.getElementById('download-banner-progress');
+let downloadBannerHideTimer = null;
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} ГБ`;
+}
+
+function showDownloadBanner(filename) {
+  if (!downloadBanner) return;
+  if (downloadBannerHideTimer) clearTimeout(downloadBannerHideTimer);
+  downloadBanner.classList.remove('d-none', 'is-done', 'is-error');
+  downloadBannerSpinner.classList.remove('d-none');
+  downloadBannerText.textContent = `Скачивание: ${filename}`;
+  downloadBannerProgress.style.width = '0%';
+  downloadBannerProgressWrap.classList.remove('d-none');
+  downloadBannerProgress.classList.add('progress-bar-animated', 'progress-bar-striped');
+}
+
+function updateDownloadBannerProgress({ percent, received, total }) {
+  if (!downloadBannerProgress) return;
+  if (percent != null && total > 0) {
+    downloadBannerProgress.style.width = `${percent}%`;
+    downloadBannerText.textContent = `Скачивание: ${percent}% (${fmtBytes(received)} / ${fmtBytes(total)})`;
+  } else if (received > 0) {
+    downloadBannerProgress.style.width = '100%';
+    downloadBannerText.textContent = `Скачивание… получено ${fmtBytes(received)}`;
+  }
+}
+
+function finishDownloadBanner({ ok, filename, bytes, error }) {
+  if (!downloadBanner) return;
+  downloadBannerProgress.classList.remove('progress-bar-animated', 'progress-bar-striped');
+  if (ok) {
+    downloadBanner.classList.add('is-done');
+    downloadBannerSpinner.classList.add('d-none');
+    downloadBannerProgress.style.width = '100%';
+    downloadBannerText.textContent = `Сохранено: ${filename} (${fmtBytes(bytes)})`;
+  } else {
+    downloadBanner.classList.add('is-error');
+    downloadBannerSpinner.classList.add('d-none');
+    downloadBannerProgressWrap.classList.add('d-none');
+    downloadBannerText.textContent = error || 'Ошибка скачивания';
+  }
+  downloadBannerHideTimer = setTimeout(() => {
+    downloadBanner.classList.add('d-none');
+    downloadBanner.classList.remove('is-done', 'is-error');
+  }, ok ? 4000 : 6000);
+}
+
+function hideDownloadBanner() {
+  if (!downloadBanner) return;
+  if (downloadBannerHideTimer) clearTimeout(downloadBannerHideTimer);
+  downloadBanner.classList.add('d-none');
+  downloadBanner.classList.remove('is-done', 'is-error');
+}
+
+const tzStatus = document.getElementById('tz-status');
+const tzContent = document.getElementById('tz-content');
+const chatLog = document.getElementById('chat-log');
+const chatQuestion = document.getElementById('chat-question');
+const chatSend = document.getElementById('chat-send');
+const chatStatus = document.getElementById('chat-status');
+let chatPollTimer = null;
+
+function chatPendingHtml() {
+  return '<strong>ИИ:</strong><div class="text-muted d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом...</span></div>';
+}
+
+function isChatPending(messages) {
+  return (messages || []).some((m) => m.role === 'assistant' && m.waiting);
+}
+
+function setChatBusy(busy, label) {
+  SKKKK.setButtonBusy(chatSend, busy, { label: busy ? 'Думаю…' : undefined });
+  chatQuestion.disabled = busy;
+  chatQuestion.placeholder = busy ? 'ИИ готовит ответ…' : 'Задайте вопрос по материалам проекта';
+  if (!chatStatus) return;
+  if (busy) {
+    chatStatus.classList.remove('d-none');
+    chatStatus.textContent = label || 'ИИ готовит ответ… подождите';
+  } else {
+    chatStatus.classList.add('d-none');
+    chatStatus.textContent = '';
+  }
+}
+
+function renderChatHistoryMessage(msg) {
+  if (msg.role === 'user') {
+    appendChat('q', `<strong>Вы:</strong><div>${escapeHtml(msg.content || '')}</div>`);
+    return;
+  }
+  if (msg.waiting) {
+    appendChat('a', chatPendingHtml());
+    return;
+  }
+  const isClarification = msg.meta && msg.meta.kind === 'clarification';
+  appendChat(
+    'a',
+    `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(msg.content || '')}</div>${renderChatSources(msg.sources)}`,
+    isClarification ? 'border-warning-subtle bg-warning-subtle' : ''
+  );
+}
+
+async function reloadChatLog() {
+  const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
+  if (!r.ok) return null;
+  const data = await r.json();
+  chatLog.innerHTML = '';
+  (data.messages || []).forEach(renderChatHistoryMessage);
+  return data.messages || [];
+}
+
+function startChatPoll() {
+  if (chatPollTimer) return;
+  setChatBusy(true);
+  let chatPollBusy = false;
+  chatPollTimer = setInterval(async () => {
+    if (chatPollBusy || document.hidden) return;
+    chatPollBusy = true;
+    try {
+      const messages = await reloadChatLog();
+      if (!isChatPending(messages)) {
+        clearInterval(chatPollTimer);
+        chatPollTimer = null;
+        setChatBusy(false);
+      }
+    } finally {
+      chatPollBusy = false;
+    }
+  }, 3000);
+}
+
+async function syncChatUi() {
+  try {
+    const messages = await reloadChatLog();
+    const pending = isChatPending(messages);
+    setChatBusy(pending);
+    return pending;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function loadChatHistory() {
+  try {
+    const messages = await reloadChatLog();
+    if (isChatPending(messages)) startChatPoll();
+  } catch (err) {
+    console.warn('chat history', err);
+  }
+}
+
+async function askProjectChat() {
+  const question = chatQuestion.value.trim();
+  if (!question) return;
+  if (await syncChatUi()) {
+    startChatPoll();
+    return;
+  }
+  await SKKKK.guardButton(chatSend, async () => {
+    chatQuestion.value = '';
+    appendChat('q', `<strong>Вы:</strong><div>${escapeHtml(question)}</div>`);
+    appendChat('a', chatPendingHtml());
+    const pending = chatLog.lastElementChild;
+    setChatBusy(true);
+    try {
+      const r = await SKKKK.api('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, question }),
+      });
+      if (r.status === 409) {
+        const payload = await r.json().catch(() => ({}));
+        pending.remove();
+        await syncChatUi();
+        startChatPoll();
+        if (chatStatus) chatStatus.textContent = payload.detail || 'ИИ уже готовит ответ…';
+        return;
+      }
+      if (!r.ok) throw new Error('chat failed');
+      const data = await r.json();
+      pending.innerHTML =
+        `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(data.answer || 'Пустой ответ')}</div>` +
+        renderChatSources(data.sources);
+      setChatBusy(false);
+    } catch (err) {
+      pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
+      setChatBusy(false);
+      await syncChatUi();
+    }
+  }, { label: 'Отправка…' });
+}
+const artifactsStatus = document.getElementById('artifacts-status');
+const pipelineLive = document.getElementById('pipeline-live');
+const artifactsEmpty = document.getElementById('artifacts-empty');
+const kpiDone = document.getElementById('kpi-done');
+const kpiDocs = document.getElementById('kpi-docs');
+const kpiCalls = document.getElementById('kpi-calls');
+const deleteArtifactModalEl = document.getElementById('deleteArtifactModal');
+const deleteArtifactNameEl = document.getElementById('delete-artifact-name');
+const deleteArtifactAck = document.getElementById('delete-artifact-ack');
+const deleteArtifactConfirmBtn = document.getElementById('delete-artifact-confirm');
+let pendingArtifactDelete = null;
+
+function syncArtifactDeleteConfirmEnabled() {
+  deleteArtifactConfirmBtn.disabled = !deleteArtifactAck.checked || !pendingArtifactDelete;
+}
+
+function resetArtifactDeleteDialog() {
+  deleteArtifactAck.checked = false;
+  syncArtifactDeleteConfirmEnabled();
+}
+
+function escapeHtml(text) {
+  return (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+function inlineMarkdown(text) {
+  let safe = escapeHtml(SKKKK.cleanSummaryOutput(text || ''));
+  safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
+  return safe;
+}
+
+function renderMarkdown(text) {
+  const lines = (text || '').replace(/\r/g, '').split('\n');
+  const html = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      html.push('<hr>');
+      i += 1;
+      continue;
+    }
+
+    if (/^###\s+/.test(trimmed)) {
+      html.push(`<h5 class="mt-3">${inlineMarkdown(trimmed.replace(/^###\s+/, ''))}</h5>`);
+      i += 1;
+      continue;
+    }
+    if (/^##\s+/.test(trimmed)) {
+      html.push(`<h4 class="mt-4">${inlineMarkdown(trimmed.replace(/^##\s+/, ''))}</h4>`);
+      i += 1;
+      continue;
+    }
+    if (/^#\s+/.test(trimmed)) {
+      html.push(`<h3 class="mt-4">${inlineMarkdown(trimmed.replace(/^#\s+/, ''))}</h3>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^\|\s*.+\s*\|$/.test(trimmed)) {
+      const tableLines = [];
+      while (i < lines.length && /^\|\s*.+\s*\|$/.test(lines[i].trim())) {
+        tableLines.push(lines[i].trim());
+        i += 1;
+      }
+      const rows = tableLines
+        .filter((row, idx) => !(idx === 1 && /^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?$/.test(row)))
+        .map(row => row.replace(/^\||\|$/g, '').split('|').map(cell => inlineMarkdown(cell.trim())));
+      if (rows.length) {
+        const header = rows[0].map(cell => `<th>${cell}</th>`).join('');
+        const body = rows.slice(1).map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+        html.push(
+          `<div class="table-responsive"><table class="table table-sm table-bordered">` +
+          `<thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`
+        );
+      }
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(`<li>${inlineMarkdown(lines[i].trim().replace(/^[-*]\s+/, ''))}</li>`);
+        i += 1;
+      }
+      html.push(`<ul>${items.join('')}</ul>`);
+      continue;
+    }
+
+    const parts = [trimmed];
+    i += 1;
+    while (i < lines.length) {
+      const next = lines[i].trim();
+      if (!next || /^#{1,3}\s+/.test(next) || /^[-*]\s+/.test(next) || /^\|\s*.+\s*\|$/.test(next) || /^---+$/.test(next)) {
+        break;
+      }
+      parts.push(next);
+      i += 1;
+    }
+    html.push(`<p>${inlineMarkdown(parts.join(' '))}</p>`);
+  }
+
+  return html.join('') || '<p>Итоговая выжимка проекта пока не сформирована.</p>';
+}
+
+function autoGrowField(el, maxPx = 220) {
+  el.style.height = 'auto';
+  const next = Math.min(el.scrollHeight, maxPx);
+  el.style.height = `${next}px`;
+  el.style.overflowY = el.scrollHeight > maxPx ? 'auto' : 'hidden';
+}
+
+function autoGrowFields(root = document) {
+  root.querySelectorAll('textarea[data-rename-src], textarea.auto-grow, #chat-question').forEach((el) => {
+    autoGrowField(el, el.id === 'chat-question' ? 220 : 160);
+    if (el.dataset.autogrowBound) return;
+    el.dataset.autogrowBound = '1';
+    el.addEventListener('input', () => autoGrowField(el, el.id === 'chat-question' ? 220 : 160));
+  });
+}
+
+function reportLink(a, extraClass = '') {
+  const href = escapeAttr(a.transcript_html_url || '');
+  const name = escapeHtml(a.original_filename);
+  const label = a.file_type === 'audio' ? 'Стенограмма' : 'Отчёт';
+  const cls = ['transcript-link', extraClass].filter(Boolean).join(' ');
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer"
+             class="${cls}"
+             title="Открыть ${label} в новой вкладке">${name}</a>`;
+}
+
+function artifactReportBtn(href, label, title, btnClass = 'btn-outline-secondary') {
+  return `<a href="${href}" target="_blank" rel="noopener noreferrer" ` +
+    `class="btn btn-sm ${btnClass} artifact-action-btn" ` +
+    `title="${escapeAttr(title)}" aria-label="${escapeAttr(title)}">${escapeHtml(label)}</a>`;
+}
+
+function isSpeakersMatchAvailable(a) {
+  if (typeof a.speakers_match_available === 'boolean') return a.speakers_match_available;
+  return ['speakers_pending', 'speakers_confirmed', 'asr_completed', 'transcript_ready',
+    'entities_extracted', 'indexed', 'graph_seeded', 'done'].includes(a.status);
+}
+
+function isSpeakersMatchReady(a) {
+  if (typeof a.speakers_match_ready === 'boolean') return a.speakers_match_ready;
+  return a.status !== 'speakers_pending';
+}
+
+function isSpeakersConfirmReady(a) {
+  if (typeof a.speakers_confirm_ready === 'boolean') return a.speakers_confirm_ready;
+  return a.status === 'speakers_pending' && isSpeakersMatchReady(a);
+}
+
+function speakerMatchLink(a) {
+  if (currentRole === 'user') return '';
+  if (a.file_type !== 'audio' || !isSpeakersMatchAvailable(a)) return '';
+  const href = escapeAttr(`/artifacts/${a.artifact_id}/report-speaker-match`);
+  const ready = isSpeakersMatchReady(a);
+  const btnClass = ready ? 'btn-outline-success' : 'btn-outline-warning';
+  const title = ready
+    ? 'Спикеры сопоставлены — открыть страницу голосов'
+    : (a.status === 'speakers_pending'
+      ? 'Есть дорожки спикеров — сопоставить с базой голосов и назвать'
+      : 'Созвон разобран, но не все голоса названы — назовите их, знания пересчитаются сами');
+  return artifactReportBtn(href, 'Голоса', title, btnClass);
+}
+
+function labReportLink(a) {
+  if (currentRole !== 'admin') return '';
+  if (a.file_type !== 'audio') return '';
+  if (a.meeting_lab) {
+    const href = escapeAttr(`/artifacts/${a.artifact_id}/report-meeting-lab`);
+    return artifactReportBtn(
+      href,
+      'лаб встречи',
+      'Дорожки созвона: стадии и итоговая расшифровка',
+      'btn-outline-primary',
+    );
+  }
+  if (!a.lab_runs) return '';
+  const href = escapeAttr(`/artifacts/${a.artifact_id}/report-lab`);
+  return artifactReportBtn(href, 'лаб', `Лабораторных прогонов: ${a.lab_runs}`, 'btn-outline-primary');
+}
+
+function artifactReportActions(a) {
+  const buttons = [
+    speakerMatchLink(a),
+    labReportLink(a),
+  ].filter(Boolean);
+  const confirm = speakerConfirmCell(a);
+  if (!buttons.length && !confirm) return '';
+  return `<span class="artifact-report-actions">${buttons.join('')}${confirm}</span>`;
+}
+
+function speakerConfirmCell(a) {
+  if (currentRole === 'user') return '';
+  if (a.file_type !== 'audio' || a.status !== 'speakers_pending' || !isSpeakersConfirmReady(a)) return '';
+  return `<button type="button" class="btn btn-sm btn-warning speaker-confirm-btn" ` +
+    `data-artifact-id="${escapeAttr(a.artifact_id)}" ` +
+    `title="Все спикеры названы — запустить выжимку и индекс" ` +
+    `aria-label="Подтвердить спикеров и собрать выжимку">` +
+    `Подтвердить спикеров</button>`;
+}
+
+const tzRefreshBtn = document.getElementById('tz-refresh');
+let tzRebuildRunning = false;
+
+async function loadTz() {
+  const preserveStatus = tzRebuildRunning;
+  if (!preserveStatus) tzStatus.textContent = 'Загрузка...';
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    const data = await r.json();
+    const content = (data.content || '').trim();
+    tzContent.innerHTML = renderMarkdown(content);
+    if (!preserveStatus) {
+      tzStatus.textContent = content ? 'Актуальная версия загружена' : 'Пока пусто';
+    }
+  } catch (err) {
+    if (!preserveStatus) {
+      tzStatus.textContent = 'Не удалось загрузить выжимку проекта';
+      tzContent.innerHTML = '';
+    }
+  }
+}
+
+function findTzTask(tasks) {
+  return (tasks || []).find((t) => t.task_type === 'tz_rebuild' && t.status === 'running');
+}
+
+function lockTzRebuildButton(label) {
+  tzRebuildRunning = true;
+  tzStatus.textContent = label;
+  if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, true, { label: 'Пересборка…' });
+}
+
+async function syncTzTaskUi() {
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/tasks/active`);
+    if (!r.ok) return tzRebuildRunning;
+    const tzTask = findTzTask((await r.json()).tasks);
+    if (tzTask) {
+      lockTzRebuildButton(`${tzTask.label}… подождите, это может занять несколько минут`);
+      return true;
+    }
+    const justFinished = tzRebuildRunning;
+    tzRebuildRunning = false;
+    if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
+    if (justFinished) await loadTz();
+    return false;
+  } catch (err) {
+    return tzRebuildRunning;
+  }
+}
+
+async function rebuildTz() {
+  if (!tzRefreshBtn || tzRebuildRunning || tzRefreshBtn.disabled || tzRefreshBtn.dataset.busy === '1') return;
+  if (await syncTzTaskUi()) return;
+  lockTzRebuildButton('Пересборка итоговой выжимки...');
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
+    if (r.status === 409) {
+      const payload = await r.json().catch(() => ({}));
+      tzStatus.textContent = payload.detail || 'Пересборка уже выполняется…';
+      await syncTzTaskUi();
+      return;
+    }
+    if (!r.ok) throw new Error('rebuild failed');
+    tzRebuildRunning = false;
+    if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
+    await loadTz();
+  } catch (err) {
+    tzStatus.textContent = 'Не удалось пересобрать выжимку';
+    if (!(await syncTzTaskUi())) {
+      tzRebuildRunning = false;
+      if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
+    }
+  }
+}
+
+function appendChat(kind, html, extraClass) {
+  const wrap = document.createElement('div');
+  wrap.className = `mb-2 p-2 border rounded chat-message ${kind === 'q' ? 'bg-white chat-message-user' : 'bg-body chat-message-ai'}${extraClass ? ` ${extraClass}` : ''}`;
+  wrap.innerHTML = html;
+  chatLog.appendChild(wrap);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function renderChatSources(sources) {
+  const names = (sources || []).map(s => s.filename).filter(Boolean);
+  if (!names.length) return '';
+  return `<div class="small text-muted mt-2">Источники: ${escapeHtml(names.join(', '))}</div>`;
+}
+
+const tzRefreshEl = document.getElementById('tz-refresh');
+if (tzRefreshEl) tzRefreshEl.onclick = rebuildTz;
+chatSend.onclick = askProjectChat;
+autoGrowFields();
+chatQuestion.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    askProjectChat();
+  }
+});
+
+// --- обновление таблицы ---
+function statusBadge(status) {
+  const color = STATUS_BADGE[status] || 'secondary';
+  const label = STATUS_LABEL[status] || status;
+  return `<span class="badge bg-${color}">${label}</span>`;
+}
+
+function stepIcon(status) {
+  if (status === 'ok') return '✓';
+  if (status === 'running') return '●';
+  if (status === 'fail') return '✗';
+  if (status === 'warn') return '!';
+  return '○';
+}
+
+function stepClass(status) {
+  return `pip-${status || 'pending'}`;
+}
+
+function renderProgressSteps(progress) {
+  if (!progress || !progress.steps || !progress.steps.length) return '';
+  return `<ul class="pipeline-steps">${progress.steps.map((s) => {
+    const detail = s.detail ? `<span class="pip-detail"> — ${escapeHtml(s.detail)}</span>` : '';
+    return `<li><span class="pip-icon ${stepClass(s.status)}" aria-hidden="true">${stepIcon(s.status)}</span>` +
+      `<span>${escapeHtml(s.label)}${detail}</span></li>`;
+  }).join('')}</ul>`;
+}
+
+
+function renderCollapsibleProgress(a, { summaryClass = 'pipeline-live-summary', bodyClass = 'pipeline-live-body' } = {}) {
+  if (!a.progress) return '';
+  const open = pipelineExpanded.has(a.artifact_id) ? ' open' : '';
+  const label = escapeHtml(a.progress.current_label || a.status);
+  const fname = escapeHtml(a.original_filename);
+  return `<details class="pipeline-live-item"${open} data-artifact="${escapeAttr(a.artifact_id)}">` +
+    `<summary class="${summaryClass}">` +
+    `<span class="pip-toggle" aria-hidden="true">▸</span>` +
+    `<span class="pipeline-file">${fname}</span>` +
+    `<span class="pipeline-current">${label}</span>` +
+    `</summary>` +
+    `<div class="${bodyClass}">${renderProgressSteps(a.progress)}</div>` +
+    `</details>`;
+}
+
+function bindPipelineToggle(root) {
+  if (!root) return;
+  root.querySelectorAll('details.pipeline-live-item[data-artifact]').forEach((el) => {
+    if (el.dataset.bound) return;
+    el.dataset.bound = '1';
+    el.addEventListener('toggle', () => {
+      const id = el.dataset.artifact;
+      if (el.open) pipelineExpanded.add(id);
+      else pipelineExpanded.delete(id);
+    });
+  });
+}
+
+function updatePipelineLivePanel(arts) {
+  if (!pipelineLive) return;
+  const active = arts.filter((a) => a.progress && !TERMINAL.has(a.status));
+  if (!active.length) {
+    pipelineLive.classList.add('d-none');
+    pipelineLive.innerHTML = '';
+    if (artifactsStatus && !artifactsStatus.dataset.busy) {
+      artifactsStatus.hidden = true;
+      artifactsStatus.textContent = '';
+    }
+    return;
+  }
+  pipelineLive.classList.remove('d-none');
+  pipelineLive.innerHTML = active.map((a) => renderCollapsibleProgress(a)).join('');
+  bindPipelineToggle(pipelineLive);
+  if (artifactsStatus) {
+    artifactsStatus.hidden = true;
+    artifactsStatus.textContent = '';
+  }
+}
+
+function downloadCell(a) {
+  if (!a.download_available) {
+    return '<span class="artifact-download-placeholder text-muted small" title="Файл появится после обработки">—</span>';
+  }
+  const label = a.file_type === 'audio' ? 'MP3' : 'Файл';
+  const fname = a.download_filename || a.original_filename;
+  const busy = _artifactDownloading.has(a.artifact_id);
+  const disabled = busy ? ' disabled' : '';
+  const busyAttr = busy ? ' aria-busy="true"' : '';
+  const inner = busy
+    ? '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>'
+    : label;
+  return `<button type="button" class="btn btn-sm btn-outline-secondary artifact-download d-inline-flex align-items-center"${disabled}${busyAttr} ` +
+    `data-artifact-id="${escapeHtml(a.artifact_id)}" ` +
+    `data-idle-label="${escapeHtml(label)}" ` +
+    `data-download-name="${escapeHtml(fname)}" ` +
+    `aria-label="Скачать ${label.toLowerCase()}: ${escapeHtml(a.original_filename)}">${inner}</button>`;
+}
+
+function setDownloadButtonsBusy(artifactId, busy) {
+  document.querySelectorAll(`.artifact-download[data-artifact-id="${CSS.escape(artifactId)}"]`).forEach((btn) => {
+    const idle = btn.dataset.idleLabel || 'Скачать';
+    btn.disabled = busy;
+    if (busy) {
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+      btn.setAttribute('aria-busy', 'true');
+      btn.setAttribute('aria-label', `Скачивание: ${btn.dataset.downloadName || idle}`);
+    } else {
+      btn.textContent = idle;
+      btn.removeAttribute('aria-busy');
+      btn.setAttribute('aria-label', `Скачать ${idle.toLowerCase()}: ${btn.dataset.downloadName || idle}`);
+    }
+  });
+}
+
+function bindSpeakerConfirmButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.speaker-confirm-btn').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.artifactId;
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        const st = await SKKKK.api(`/api/artifacts/${id}/speakers-status`);
+        if (st.ok) {
+          const info = await st.json();
+          if (!info.ready && info.pending && info.pending.length) {
+            toastBody.textContent = `Подтвердите спикеров: ${info.pending.join(', ')} (откройте match)`;
+            bsToast.show();
+            btn.disabled = false;
+            return;
+          }
+        }
+        const r = await SKKKK.api(`/api/artifacts/${id}/speakers-confirm`, { method: 'POST' });
+        if (!r.ok) {
+          const payload = await r.json().catch(() => ({}));
+          throw new Error(payload.detail || 'confirm failed');
+        }
+        toastBody.textContent = 'Спикеры подтверждены — эксперименты в очереди GPU';
+        bsToast.show();
+        await refreshArtifacts();
+      } catch (err) {
+        toastBody.textContent = err.message || String(err);
+        bsToast.show();
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+function bindDownloadButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.artifact-download').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.artifactId;
+      const fname = btn.dataset.downloadName || btn.dataset.idleLabel || 'файл';
+      if (!id || _artifactDownloading.has(id)) return;
+      _artifactDownloading.add(id);
+      setDownloadButtonsBusy(id, true);
+      showDownloadBanner(fname);
+      try {
+        await SKKKK.downloadArtifact(id, {
+          onProgress: updateDownloadBannerProgress,
+          onComplete: (result) => finishDownloadBanner({
+            ok: true,
+            filename: result.filename,
+            bytes: result.bytes,
+          }),
+        });
+      } catch (err) {
+        finishDownloadBanner({ ok: false, error: `Не удалось скачать: ${err.message || err}` });
+        toastBody.textContent = `Не удалось скачать: ${err.message || err}`;
+        bsToast.show();
+      } finally {
+        _artifactDownloading.delete(id);
+        setDownloadButtonsBusy(id, false);
+      }
+    });
+  });
+}
+
+function deleteIconSvg() {
+  return (
+    '<svg class="artifact-delete-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">' +
+    '<path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>' +
+    '<path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>' +
+    '</svg>'
+  );
+}
+
+function deleteCell(a) {
+  const label = `Удалить артефакт ${a.original_filename || ''}`.trim();
+  return `<button type="button" class="btn btn-sm btn-outline-secondary artifact-delete d-inline-flex align-items-center" ` +
+    `data-artifact-id="${escapeAttr(a.artifact_id)}" ` +
+    `data-artifact-name="${escapeAttr(a.original_filename)}" ` +
+    `data-bs-toggle="modal" data-bs-target="#deleteArtifactModal" ` +
+    `title="${escapeAttr(label)}" ` +
+    `aria-label="${escapeAttr(label)}">${deleteIconSvg()}</button>`;
+}
+
+function bindDeleteButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.artifact-delete').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      pendingArtifactDelete = {
+        id: btn.dataset.artifactId,
+        name: btn.dataset.artifactName || 'артефакт',
+      };
+      deleteArtifactModalEl.dataset.artifactId = pendingArtifactDelete.id;
+      deleteArtifactModalEl.dataset.artifactName = pendingArtifactDelete.name;
+      deleteArtifactNameEl.textContent = pendingArtifactDelete.name;
+      resetArtifactDeleteDialog();
+    });
+  });
+}
+
+function buildRow(a) {
+  const hasReport = Boolean(a.transcript_html_url);
+  const title = hasReport ? reportLink(a) : escapeHtml(a.original_filename);
+  const actions = artifactReportActions(a);
+  const nameCell = actions
+    ? `<span class="artifact-name-line">${title}${actions}</span>`
+    : title;
+  const err = a.status === 'error' && a.error_message
+    ? `<span class="text-danger small">${escapeHtml(a.error_message)}</span>`
+    : '<span class="text-muted">—</span>';
+  return `<td>${nameCell}</td>
+          <td class="col-download">${downloadCell(a)}</td>
+          <td>${statusBadge(a.status)}</td>
+          <td>${err}</td>
+          <td class="col-delete">${deleteCell(a)}</td>`;
+}
+
+function buildCard(a) {
+  const hasReport = Boolean(a.transcript_html_url);
+  const title = hasReport
+    ? reportLink(a, 'file-name fw-semibold')
+    : `<span class="file-name fw-semibold">${escapeHtml(a.original_filename)}</span>`;
+  const actions = artifactReportActions(a);
+  const err = a.status === 'error' && a.error_message
+    ? `<div class="text-danger small mt-2">${escapeHtml(a.error_message)}</div>`
+    : '';
+  // Карточка: заголовок и статус в одной строке, действия — отдельной строкой снизу (стили .ds-card в design.css).
+  return `<div class="border rounded bg-white artifact-card ds-card">
+    <div class="ds-card-head"><span class="ds-card-title">${title}</span>${statusBadge(a.status)}</div>
+    <div class="ds-card-actions">${actions}${downloadCell(a)}${deleteCell(a)}</div>
+    ${err}
+  </div>`;
+}
+
+// Подпись последнего ответа: если данные не изменились, DOM не перестраиваем (пункт 3.7) —
+// иначе каждые 3 с кнопки «уезжают» из-под курсора и клик попадает в удалённый элемент.
+let lastArtifactsSig = null;
+let lastMeetingsSig = null;
+
+async function refreshArtifacts() {
+  if (deleteArtifactModalEl && deleteArtifactModalEl.classList.contains('show')) return;
+  const r = await SKKKK.api(`/projects/${projectId}/artifacts`);
+  const allArts = await r.json();
+  // Файлы обмена с внешним агентом (analysis_question_N.json и т. п.) не материалы проекта: их место в блоке «Обмен с агентами»
+  const EXCHANGE_FILE = /^analysis_(reply|request|question)_\d+\.json$/i;
+  const arts = allArts.filter((a) => !EXCHANGE_FILE.test(a.original_filename || ''));
+  const hiddenExchange = allArts.length - arts.length;
+  const artsSig = JSON.stringify(arts) + '|' + hiddenExchange;
+  if (artsSig === lastArtifactsSig) return;
+  lastArtifactsSig = artsSig;
+  const tbody = document.querySelector('#artifacts-table tbody');
+  const cards = document.getElementById('artifacts-cards');
+  tbody.innerHTML = '';
+  cards.innerHTML = '';
+  artifactsEmpty.classList.toggle('d-none', arts.length > 0);
+  const hiddenNote = document.getElementById('artifacts-hidden-note');
+  if (hiddenNote) {
+    hiddenNote.classList.toggle('d-none', hiddenExchange === 0);
+    hiddenNote.textContent = hiddenExchange ? `Служебные файлы обмена с агентами скрыты: ${hiddenExchange} (смотрите блок «Обмен с агентами»).` : '';
+  }
+
+  const total = arts.length;
+  const doneCount = arts.filter(a => a.status === 'done').length;
+  const docCount = arts.filter(a => a.file_type !== 'audio').length;
+  const callCount = arts.filter(a => a.file_type === 'audio').length;
+  kpiDone.textContent = `${doneCount}/${total}`;
+  kpiDocs.textContent = docCount;
+  kpiCalls.textContent = callCount;
+  updatePipelineLivePanel(arts);
+  if (artifactsStatus && !artifactsStatus.dataset.busy && !arts.some((a) => a.progress && !TERMINAL.has(a.status))) {
+    artifactsStatus.textContent = '';
+    artifactsStatus.hidden = true;
+  }
+
+  for (const a of arts) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = buildRow(a);
+    tbody.appendChild(tr);
+
+    const card = document.createElement('div');
+    card.innerHTML = buildCard(a);
+    cards.appendChild(card.firstElementChild);
+
+    const prev = _prev[a.artifact_id];
+    if (a.status === 'done' && prev && prev !== 'done') {
+      toastBody.textContent = `✅ ${a.original_filename} — обработан`;
+      bsToast.show();
+      if (!(await syncTzTaskUi())) await loadTz();
+      loadDeadlinesPanel();
+    }
+    _prev[a.artifact_id] = a.status;
+  }
+
+  bindDownloadButtons(tbody);
+  bindDownloadButtons(cards);
+  bindDeleteButtons(tbody);
+  bindDeleteButtons(cards);
+  bindSpeakerConfirmButtons(tbody);
+  bindSpeakerConfirmButtons(cards);
+  // Резерв высоты сделал своё дело: снимаем и запоминаем настоящую высоту для следующего открытия страницы
+  const listBody = document.getElementById('artifacts-body');
+  if (listBody) {
+    listBody.style.minHeight = '0';  // запас больше не нужен (список пришёл); 0 перекрывает и CSS-запас, чтобы после удаления файлов не оставалось пустоты
+    try {
+      localStorage.setItem('skkkk_artifacts_h_' + projectId, String(Math.round(listBody.getBoundingClientRect().height)));
+    } catch (_) { /* не критично */ }
+  }
+}
+
+deleteArtifactAck.addEventListener('change', syncArtifactDeleteConfirmEnabled);
+
+deleteArtifactModalEl.addEventListener('hidden.bs.modal', () => {
+  pendingArtifactDelete = null;
+  delete deleteArtifactModalEl.dataset.artifactId;
+  delete deleteArtifactModalEl.dataset.artifactName;
+  resetArtifactDeleteDialog();
+});
+
+deleteArtifactConfirmBtn.addEventListener('click', async () => {
+  const target = pendingArtifactDelete || {
+    id: deleteArtifactModalEl.dataset.artifactId,
+    name: deleteArtifactModalEl.dataset.artifactName || 'артефакт',
+  };
+  if (!target.id || !deleteArtifactAck.checked) return;
+  pendingArtifactDelete = target;
+  await SKKKK.guardButton(deleteArtifactConfirmBtn, async () => {
+    const r = await SKKKK.api(
+      `/projects/${projectId}/artifacts/${encodeURIComponent(target.id)}`,
+      { method: 'DELETE' },
+    );
+    if (!r.ok) {
+      toastBody.textContent = r.status === 403 ? 'Недостаточно прав' : 'Не удалось удалить артефакт';
+      bsToast.show();
+      return;
+    }
+    delete _prev[target.id];
+    pendingArtifactDelete = null;
+    bootstrap.Modal.getOrCreateInstance(deleteArtifactModalEl).hide();
+    toastBody.textContent = `Удалён: ${target.name}`;
+    bsToast.show();
+    await refreshArtifacts();
+    if (typeof loadDeadlinesPanel === 'function') loadDeadlinesPanel();
+  }, { label: 'Удаляю…' });
+  syncArtifactDeleteConfirmEnabled();
+});
+
+function keepChatVisibleOnKeyboard() {
+  const composer = document.querySelector('.chat-composer');
+  if (!composer || !window.visualViewport) return;
+  const sync = () => {
+    const vv = window.visualViewport;
+    const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb-overlap', `${overlap}px`);
+    if (document.activeElement === chatQuestion && overlap > 0) {
+      composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  };
+  window.visualViewport.addEventListener('resize', sync);
+  window.visualViewport.addEventListener('scroll', sync);
+  chatQuestion.addEventListener('focus', () => setTimeout(sync, 50));
+}
+
+// Тип по выбранным файлам (пункт 3.8): аудио/видео → созвон, изображения → скриншот, остальное → документ.
+const UPLOAD_KIND_BY_EXT = (() => {
+  const map = {};
+  ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wma', 'mp4', 'mkv', 'mov', 'avi', 'webm', 'm4v'].forEach((e) => { map[e] = 'call'; });
+  ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic'].forEach((e) => { map[e] = 'screenshot'; });
+  return map;
+})();
+function uploadKindOf(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return UPLOAD_KIND_BY_EXT[ext] || 'document';
+}
+document.getElementById('upload-files').addEventListener('change', (ev) => {
+  const files = Array.from(ev.target.files || []);
+  const select = document.getElementById('upload-source-type');
+  const hint = document.getElementById('upload-type-hint');
+  if (!files.length || !select) return;
+  const kinds = Array.from(new Set(files.map(uploadKindOf)));
+  hint.classList.add('d-none');
+  if (kinds.length === 1) {
+    if (select.value !== kinds[0] && !(select.value === 'note' && kinds[0] === 'document')) {
+      select.value = kinds[0];
+      hint.textContent = 'Тип выбран по файлам: ' + select.options[select.selectedIndex].text + '.';
+      hint.classList.remove('d-none');
+    }
+  } else {
+    hint.textContent = 'Выбраны файлы разных видов: тип каждого определится по содержимому.';
+    hint.classList.remove('d-none');
+  }
+});
+
+// --- загрузка (chunked / resume) ---
+document.getElementById('upload-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const files = fd.getAll('files').filter((f) => f && f.size !== undefined);
+  if (!files.length) return;
+
+  const sourceType = fd.get('source_type') || 'document';
+  const wrap = document.getElementById('upload-progress-wrap');
+  const bar = document.getElementById('upload-progress-bar');
+  const pctEl = document.getElementById('upload-progress-pct');
+  const label = document.getElementById('upload-progress-label');
+  const detail = document.getElementById('upload-progress-detail');
+  const barWrap = document.getElementById('upload-progressbar');
+
+  await SKKKK.guardSubmit(form, async () => {
+    wrap.classList.remove('d-none');
+    artifactsStatus.dataset.busy = '1';
+    artifactsStatus.hidden = false;
+    artifactsStatus.textContent = 'Идёт загрузка файлов…';
+
+    const fmt = (n) => {
+      if (n < 1024) return `${n} Б`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+      if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+      return `${(n / (1024 * 1024 * 1024)).toFixed(2)} ГБ`;
+    };
+
+    try {
+      const arts = await SKKKK.uploadFilesResumable(projectId, files, sourceType, {
+        onProgress: (p) => {
+          const pct = p.percent || 0;
+          bar.style.width = `${pct}%`;
+          pctEl.textContent = `${pct}%`;
+          barWrap.setAttribute('aria-valuenow', String(pct));
+          const name = p.file ? p.file.name : '';
+          if (p.phase === 'retry') {
+            label.textContent = `Повтор чанка (${p.attempt})…`;
+            detail.textContent = name + (p.error ? `: ${p.error}` : '');
+          } else if (p.phase === 'complete' || p.phase === 'done') {
+            label.textContent = 'Сборка на сервере…';
+            detail.textContent = name;
+          } else {
+            label.textContent = `Загрузка ${p.fileIndex + 1} из ${p.filesTotal}`;
+            detail.textContent = `${name} — ${fmt(p.sentBytes)} / ${fmt(p.totalBytes)}`;
+          }
+        },
+      });
+      const dups = arts.filter((a) => a.duplicate).length;
+      label.textContent = 'Готово';
+      detail.textContent = dups
+        ? `Принято: ${arts.length}, из них дублей: ${dups}`
+        : `Принято ${SKKKK.count(arts.length, ['файл', 'файла', 'файлов'])}`;
+      artifactsStatus.dataset.busy = '1';
+      artifactsStatus.hidden = false;
+      artifactsStatus.textContent = 'Файлы загружены, ожидаю обновление статусов…';
+      form.reset();
+      refreshArtifacts();
+      setTimeout(() => {
+        delete artifactsStatus.dataset.busy;
+        if (artifactsStatus.textContent.startsWith('Файлы загружены')) {
+          artifactsStatus.textContent = '';
+          artifactsStatus.hidden = true;
+        }
+      }, 4000);
+    } catch (err) {
+      label.textContent = 'Ошибка загрузки';
+      detail.textContent = String(err.message || err);
+      artifactsStatus.dataset.busy = '1';
+      artifactsStatus.hidden = false;
+      artifactsStatus.textContent = 'Загрузка прервалась — можно повторить; уже залитые чанки сохранятся.';
+    }
+  }, { busyText: 'Загрузка…' });
+};
+
+refreshArtifacts();
+loadChatHistory();
+// const deadlinesStatus объявлена ниже по скрипту: прямой вызов падал с ReferenceError (TDZ)
+Promise.resolve().then(loadDeadlinesPanel);
+syncTzTaskUi().then(() => loadTz());
+keepChatVisibleOnKeyboard();
+// Опрос без наложений и без работы в скрытой вкладке: медленный ответ сервера не должен копить запросы.
+let projectPollBusy = false;
+async function projectPollTick() {
+  if (projectPollBusy || document.hidden) return;
+  projectPollBusy = true;
+  try {
+    await refreshArtifacts();
+    await syncTzTaskUi();
+    if (meetingsPanel?.classList.contains('show')) await loadMeetings();
+  } finally {
+    projectPollBusy = false;
+  }
+}
+setInterval(projectPollTick, 3000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) projectPollTick(); });
+
+const mcpStatus = document.getElementById('mcp-status');
+const mcpUrlInput = document.getElementById('mcp-url');
+const mcpConfigPre = document.getElementById('mcp-config');
+const mcpTokensBody = document.getElementById('mcp-tokens-body');
+const mcpNewTokenBox = document.getElementById('mcp-new-token');
+const mcpNewTokenValue = document.getElementById('mcp-new-token-value');
+let mcpInfo = null;
+
+function mcpCursorConfig(url, tokenPlaceholder) {
+  return {
+    mcpServers: {
+      [`skkkk-project-${projectId}`]: {
+        url,
+        headers: { Authorization: `Bearer ${tokenPlaceholder}` },
+      },
+    },
+  };
+}
+
+async function loadMcpPanel() {
+  if (!mcpStatus) return;
+  const role = currentRole || localStorage.getItem('skkkk_role');
+  const card = document.querySelector('.mcp-access-card');
+  if (role === 'user') {
+    if (card) card.classList.add('d-none');
+    return;
+  }
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/mcp/info`);
+    if (!r.ok) throw new Error('mcp info failed');
+    mcpInfo = await r.json();
+    mcpUrlInput.value = mcpInfo.mcp_url || '';
+    mcpConfigPre.textContent = JSON.stringify(
+      mcpCursorConfig(mcpInfo.mcp_url, '<ваш MCP-токен>'),
+      null,
+      2,
+    );
+    mcpStatus.textContent = mcpInfo.uses_public_url
+      ? `${mcpInfo.tools_count} инструментов · публичный URL (${mcpInfo.public_base_url})`
+      : `${mcpInfo.tools_count} инструментов · только чтение`;
+    await loadMcpTokens();
+  } catch (err) {
+    mcpStatus.textContent = 'Не удалось загрузить настройки MCP';
+  }
+}
+
+async function loadMcpTokens() {
+  if (!mcpTokensBody) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`);
+    if (r.status === 403) {
+      mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Список ключей доступен admin/manager</td></tr>';
+      document.getElementById('mcp-create-token')?.classList.add('d-none');
+      return;
+    }
+    if (!r.ok) throw new Error('tokens failed');
+    const rows = (await r.json()).tokens || [];
+    if (!rows.length) {
+      mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Ключей пока нет</td></tr>';
+      return;
+    }
+    mcpTokensBody.innerHTML = rows.map((t) => `
+      <tr>
+        <td>${escapeHtml(t.label)}${t.agent_name ? `<div class="small text-muted">агент: ${escapeHtml(t.agent_name)}</div>` : ''}</td>
+        <td><code>${escapeHtml(t.token_prefix)}</code></td>
+        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}</td>
+        <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}${t.is_active ? `<div class="mt-1"><button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button></div>` : ''}</td>
+      </tr>`).join('');
+    mcpTokensBody.querySelectorAll('.mcp-scope').forEach((sel) => {
+      sel.addEventListener('change', () => changeMcpScope(Number(sel.dataset.id), sel.value, sel));
+    });
+    mcpTokensBody.querySelectorAll('.mcp-revoke').forEach((btn) => {
+      btn.addEventListener('click', () => revokeMcpToken(Number(btn.dataset.id)));
+    });
+  } catch (err) {
+    mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Не удалось загрузить ключи</td></tr>';
+  }
+}
+
+const MCP_SCOPE_TEXT = {
+  read: 'Оставить ключу только чтение?',
+  questions: 'Разрешить ключу класть ВОПРОСЫ в очередь? Вердикты он отправлять не сможет.',
+  questions_verdicts: 'Разрешить ключу класть вопросы И вердикты в очередь? Агент сможет добавлять записи сам (только добавление, подтверждает человек).',
+};
+async function changeMcpScope(tokenId, scope, selectEl) {
+  if (!confirm(MCP_SCOPE_TEXT[scope] || 'Изменить права ключа?')) {
+    selectEl.value = selectEl.dataset.cur;
+    return;
+  }
+  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/scope`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope }),
+  });
+  if (!r.ok) {
+    alert('Не удалось изменить права ключа');
+    selectEl.value = selectEl.dataset.cur;
+    return;
+  }
+  await loadMcpTokens();
+}
+async function toggleMcpSubmit(tokenId, enable) {
+  const msg = enable
+    ? 'Разрешить этому ключу класть вопросы и вердикты в очередь? Агент сможет добавлять записи сам (только добавление, вердикты помечаются как непроверенные).'
+    : 'Оставить ключу только чтение?';
+  if (!confirm(msg)) return;
+  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: enable }),
+  });
+  if (!r.ok) {
+    alert('Не удалось изменить права ключа');
+    return;
+  }
+  await loadMcpTokens();
+}
+
+async function revokeMcpToken(tokenId) {
+  if (!confirm('Отозвать этот MCP-ключ?')) return;
+  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}`, { method: 'DELETE' });
+  if (!r.ok && r.status !== 204) {
+    alert('Не удалось отозвать ключ');
+    return;
+  }
+  await loadMcpTokens();
+}
+
+document.getElementById('mcp-copy-url')?.addEventListener('click', async () => {
+  if (!mcpUrlInput?.value) return;
+  await navigator.clipboard.writeText(mcpUrlInput.value);
+  mcpStatus.textContent = 'URL скопирован';
+});
+
+// Права нового ключа по умолчанию берём из «Настроек для агентов» проекта.
+(async () => {
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/agent-settings`);
+    if (!r.ok) return;
+    const scope = (await r.json()).settings?.default_key_scope || 'read';
+    const ids = { read: 'mcp-rights-read', questions: 'mcp-rights-questions', questions_verdicts: 'mcp-rights-submit' };
+    const el = document.getElementById(ids[scope]);
+    if (el) el.checked = true;
+  } catch (e) { /* остаётся «только чтение» */ }
+})();
+
+document.getElementById('mcp-copy-config')?.addEventListener('click', async () => {
+  if (!mcpConfigPre?.textContent) return;
+  await navigator.clipboard.writeText(mcpConfigPre.textContent);
+  mcpStatus.textContent = 'JSON конфигурации скопирован';
+});
+
+document.getElementById('mcp-create-token')?.addEventListener('click', async () => {
+  const btn = document.getElementById('mcp-create-token');
+  const label = prompt('Метка ключа (например Cursor на ноутбуке):', 'Cursor') || 'Cursor';
+  await SKKKK.guardButton(btn, async () => {
+    const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        label,
+        scope: document.querySelector('input[name="mcp-rights"]:checked')?.value || 'read',
+        agent_name: document.getElementById('mcp-agent-name')?.value.trim() || null,
+        rate_limit: Number(document.getElementById('mcp-rate-limit')?.value) || null,
+      }),
+    });
+    if (!r.ok) throw new Error('create token failed');
+    const data = await r.json();
+    mcpNewTokenValue.textContent = data.token;
+    mcpNewTokenBox.classList.remove('d-none');
+    mcpConfigPre.textContent = JSON.stringify(
+      mcpCursorConfig(mcpInfo?.mcp_url || mcpUrlInput.value, data.token),
+      null,
+      2,
+    );
+    await loadMcpTokens();
+  }, { label: 'Создание…' });
+});
+
+loadMcpPanel();
+
+const deadlinesPanel = document.getElementById('deadlines-panel');
+const deadlinesToggleHint = document.getElementById('deadlines-toggle-hint');
+const deadlinesStatus = document.getElementById('deadlines-status');
+const deadlinesTableBody = document.getElementById('deadlines-table-body');
+const deadlinesCountBadge = document.getElementById('deadlines-count-badge');
+const deadlinesListView = document.getElementById('deadlines-list-view');
+const deadlinesCalendarView = document.getElementById('deadlines-calendar-view');
+const deadlinesCalendarEmpty = document.getElementById('deadlines-calendar-empty');
+const deadlinesViewListBtn = document.getElementById('deadlines-view-list');
+const deadlinesViewCalendarBtn = document.getElementById('deadlines-view-calendar');
+const deadlineDetailModalEl = document.getElementById('deadline-detail-modal');
+let deadlineDetailModal = deadlineDetailModalEl ? new bootstrap.Modal(deadlineDetailModalEl) : null;
+let deadlinesData = null;
+let deadlinesCalendar = null;
+
+const DEADLINE_STATUS_LABEL = {
+  open: 'Открыта',
+  done: 'Выполнена',
+  closed: 'Закрыта',
+  cancelled: 'Отменена',
+  unknown: 'Неизвестно',
+};
+
+function deadlineStatusBadge(status) {
+  const key = (status || 'unknown').toLowerCase();
+  const label = DEADLINE_STATUS_LABEL[key] || status || '—';
+  let color = 'secondary';
+  if (key === 'done' || key === 'closed') color = 'success';
+  else if (key === 'open') color = 'primary';
+  else if (key === 'cancelled') color = 'dark';
+  return `<span class="badge text-bg-${color} deadline-status-badge">${escapeHtml(label)}</span>`;
+}
+
+function isDeadlineOverdue(item) {
+  if (!item.deadline_date) return false;
+  const key = (item.status || 'unknown').toLowerCase();
+  if (key === 'done' || key === 'closed' || key === 'cancelled') return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(`${item.deadline_date}T00:00:00`);
+  return due < today;
+}
+
+function renderDeadlineCell(item) {
+  const text = item.deadline || '—';
+  if (isDeadlineOverdue(item)) {
+    return `<span class="deadline-overdue" title="Просрочено">${escapeHtml(text)}</span>`;
+  }
+  return escapeHtml(text);
+}
+
+function renderDeadlineSource(item) {
+  const name = escapeHtml(item.filename || item.artifact_id || '—');
+  if (item.transcript_html_url) {
+    return `<a href="${escapeAttr(item.transcript_html_url)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+  }
+  return `<span class="text-muted">${name}</span>`;
+}
+
+function getDeadlineItemById(id) {
+  const key = String(id);
+  return (deadlinesData?.items || []).find((item) => String(item.id) === key) || null;
+}
+
+function formatDeadlineCalendarDates(item) {
+  if (!item.deadline_date) return '—';
+  const opts = { day: 'numeric', month: 'long', year: 'numeric' };
+  const start = new Date(`${item.deadline_date}T00:00:00`).toLocaleDateString('ru-RU', opts);
+  const approx = item.date_approximate ? '≈ ' : '';
+  if (item.deadline_end_date && item.deadline_end_date !== item.deadline_date) {
+    const end = new Date(`${item.deadline_end_date}T00:00:00`).toLocaleDateString('ru-RU', opts);
+    return `${approx}${start} — ${end}`;
+  }
+  return approx + start;
+}
+
+function openDeadlineDetail(itemOrId) {
+  const item = typeof itemOrId === 'object' && itemOrId ? itemOrId : getDeadlineItemById(itemOrId);
+  if (!item || !deadlineDetailModal) return;
+
+  const titleEl = document.getElementById('deadline-detail-title');
+  const descEl = document.getElementById('deadline-detail-description');
+  const assigneeEl = document.getElementById('deadline-detail-assignee');
+  const deadlineEl = document.getElementById('deadline-detail-deadline');
+  const datesEl = document.getElementById('deadline-detail-dates');
+  const statusEl = document.getElementById('deadline-detail-status');
+  const sourceEl = document.getElementById('deadline-detail-source');
+
+  const description = item.description || '—';
+  if (titleEl) {
+    titleEl.textContent = description.length > 72 ? `${description.slice(0, 72)}…` : description;
+  }
+  if (descEl) descEl.textContent = description;
+  if (assigneeEl) assigneeEl.textContent = item.assignee || '—';
+  if (deadlineEl) {
+    deadlineEl.innerHTML = renderDeadlineCell(item);
+  }
+  if (datesEl) {
+    datesEl.textContent = item.deadline_date
+      ? formatDeadlineCalendarDates(item) + (item.date_approximate ? ' (оценка от даты загрузки материала)' : '')
+      : 'Дата не распознана';
+  }
+  if (statusEl) statusEl.innerHTML = deadlineStatusBadge(item.status);
+  if (sourceEl) sourceEl.innerHTML = renderDeadlineSource(item);
+
+  deadlineDetailModal.show();
+}
+
+function renderDeadlinesTable(items) {
+  if (!deadlinesTableBody) return;
+  const cards = document.getElementById('deadlines-cards');
+  if (!items.length) {
+    deadlinesTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Сроков пока нет — они появятся, если в созвонах или документах были названы дедлайны.</td></tr>';
+    if (cards) cards.innerHTML = '<div class="text-muted small">Сроков пока нет — они появятся, если в материалах были названы дедлайны.</div>';
+    return;
+  }
+  deadlinesTableBody.innerHTML = items.map((item) => `
+    <tr class="deadline-row" data-deadline-id="${escapeAttr(String(item.id))}" tabindex="0" role="button" aria-label="Открыть задачу: ${escapeAttr(item.description || 'задача')}">
+      <td>${escapeHtml(item.description || '—')}</td>
+      <td>${escapeHtml(item.assignee || '—')}</td>
+      <td>${renderDeadlineCell(item)}</td>
+      <td>${deadlineStatusBadge(item.status)}</td>
+      <td>${renderDeadlineSource(item)}</td>
+    </tr>`).join('');
+  if (cards) {
+    cards.innerHTML = items.map((item) => `
+      <div class="border rounded p-3 bg-white text-start mobile-data-card" data-deadline-id="${escapeAttr(String(item.id))}" tabindex="0" role="button" aria-label="Открыть задачу: ${escapeAttr(item.description || 'задача')}">
+        <div class="fw-semibold mobile-data-value">${escapeHtml(item.description || '—')}</div>
+        <dl class="row g-1 mb-0 mt-2 small">
+          <dt class="col-5 text-muted">Ответственный</dt><dd class="col-7 mobile-data-value mb-0">${escapeHtml(item.assignee || '—')}</dd>
+          <dt class="col-5 text-muted">Срок</dt><dd class="col-7 mobile-data-value mb-0">${renderDeadlineCell(item)}</dd>
+          <dt class="col-5 text-muted">Статус</dt><dd class="col-7 mobile-data-value mb-0">${deadlineStatusBadge(item.status)}</dd>
+          <dt class="col-5 text-muted">Источник</dt><dd class="col-7 mobile-data-value mb-0">${renderDeadlineSource(item)}</dd>
+        </dl>
+      </div>`).join('');
+    cards.querySelectorAll('[data-deadline-id]').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('a')) return;
+        openDeadlineDetail(card.dataset.deadlineId);
+      });
+      card.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openDeadlineDetail(card.dataset.deadlineId);
+      });
+    });
+  }
+}
+
+function calendarEventsFromDeadlines(items) {
+  return items
+    .filter((item) => item.deadline_date)
+    .map((item) => {
+      const ev = {
+        id: String(item.id),
+        title: [item.description, item.assignee ? `(${item.assignee})` : ''].filter(Boolean).join(' '),
+        start: item.deadline_date,
+        allDay: true,
+        backgroundColor: isDeadlineOverdue(item) ? '#dc3545' : '#0d6efd',
+        borderColor: isDeadlineOverdue(item) ? '#dc3545' : '#0d6efd',
+        extendedProps: {
+          filename: item.filename || '',
+          deadlineText: item.deadline || '',
+        },
+      };
+      if (item.deadline_end_date) {
+        const end = new Date(`${item.deadline_end_date}T00:00:00`);
+        end.setDate(end.getDate() + 1);
+        ev.end = end.toISOString().slice(0, 10);
+      }
+      return ev;
+    });
+}
+
+function ensureDeadlinesCalendar(items) {
+  const events = calendarEventsFromDeadlines(items);
+  if (!window.FullCalendar || !document.getElementById('deadlines-calendar')) return;
+  if (!deadlinesCalendar) {
+    deadlinesCalendar = new FullCalendar.Calendar(document.getElementById('deadlines-calendar'), {
+      initialView: 'dayGridMonth',
+      locale: 'ru',
+      height: 'auto',
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,listMonth',
+      },
+      events,
+      eventClick(info) {
+        info.jsEvent.preventDefault();
+        openDeadlineDetail(info.event.id);
+      },
+      eventDidMount(info) {
+        const bits = [
+          info.event.extendedProps.deadlineText,
+          info.event.extendedProps.filename ? `Источник: ${info.event.extendedProps.filename}` : '',
+          'Нажмите для подробностей',
+        ].filter(Boolean);
+        if (bits.length) info.el.title = bits.join('\n');
+      },
+    });
+    deadlinesCalendar.render();
+    return;
+  }
+  deadlinesCalendar.removeAllEvents();
+  events.forEach((ev) => deadlinesCalendar.addEvent(ev));
+}
+
+function setDeadlinesView(mode) {
+  const isList = mode === 'list';
+  deadlinesListView?.classList.toggle('d-none', !isList);
+  deadlinesCalendarView?.classList.toggle('d-none', isList);
+  deadlinesViewListBtn?.classList.toggle('active', isList);
+  deadlinesViewCalendarBtn?.classList.toggle('active', !isList);
+  deadlinesViewListBtn?.setAttribute('aria-pressed', isList ? 'true' : 'false');
+  deadlinesViewCalendarBtn?.setAttribute('aria-pressed', !isList ? 'true' : 'false');
+  if (!isList && deadlinesData) {
+    const events = calendarEventsFromDeadlines(deadlinesData.items || []);
+    deadlinesCalendarEmpty?.classList.toggle('d-none', events.length > 0);
+    ensureDeadlinesCalendar(deadlinesData.items || []);
+    deadlinesCalendar?.updateSize();
+  }
+}
+
+async function loadDeadlinesPanel() {
+  if (!deadlinesStatus) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/deadlines`);
+    if (!r.ok) throw new Error('deadlines failed');
+    deadlinesData = await r.json();
+    const items = deadlinesData.items || [];
+    const total = deadlinesData.total || items.length;
+    if (deadlinesCountBadge) {
+      deadlinesCountBadge.textContent = SKKKK.count(total, ['срок', 'срока', 'сроков']);
+    }
+    const parsed = deadlinesData.with_parsed_date || 0;
+    const textOnly = deadlinesData.with_text_only_deadline || 0;
+    deadlinesStatus.textContent = total
+      ? `${SKKKK.count(total, ['срок', 'срока', 'сроков'])} · ${parsed} на календаре${textOnly ? ` · ${textOnly} без даты` : ''}`
+      : 'Сроки появятся, когда в материалах будут озвучены дедлайны и поручения со сроком';
+    renderDeadlinesTable(items);
+    if (deadlinesCalendarView && !deadlinesCalendarView.classList.contains('d-none')) {
+      setDeadlinesView('calendar');
+    }
+  } catch (err) {
+    deadlinesStatus.textContent = 'Не удалось загрузить дедлайны';
+    if (deadlinesTableBody) {
+      deadlinesTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Ошибка загрузки</td></tr>';
+    }
+  }
+}
+
+deadlinesViewListBtn?.addEventListener('click', () => setDeadlinesView('list'));
+deadlinesViewCalendarBtn?.addEventListener('click', () => setDeadlinesView('calendar'));
+deadlinesTableBody?.addEventListener('click', (ev) => {
+  const link = ev.target.closest('a');
+  if (link) return;
+  const row = ev.target.closest('tr.deadline-row');
+  if (!row) return;
+  openDeadlineDetail(row.dataset.deadlineId);
+});
+deadlinesTableBody?.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const row = ev.target.closest('tr.deadline-row');
+  if (!row) return;
+  ev.preventDefault();
+  openDeadlineDetail(row.dataset.deadlineId);
+});
+document.getElementById('deadlines-reextract')?.addEventListener('click', async () => {
+  const btn = document.getElementById('deadlines-reextract');
+  await SKKKK.guardButton(btn, async () => {
+    if (deadlinesStatus) deadlinesStatus.textContent = 'Переизвлечение сроков из материалов…';
+    const r = await SKKKK.api(`/projects/${projectId}/reextract-entities`, { method: 'POST' });
+    if (r.status === 409) {
+      const payload = await r.json().catch(() => ({}));
+      if (deadlinesStatus) deadlinesStatus.textContent = payload.detail || 'Уже выполняется…';
+      return;
+    }
+    if (!r.ok) throw new Error('reextract failed');
+    const data = await r.json();
+    if (deadlinesStatus) {
+      deadlinesStatus.textContent =
+        `Готово: ${data.succeeded}/${data.artifacts} материалов, ` +
+        `${SKKKK.count(data.tasks_with_deadline, ['срок', 'срока', 'сроков'])} в материалах`;
+    }
+    await loadDeadlinesPanel();
+  }, { label: 'Обновление…' });
+});
+if (deadlinesPanel && deadlinesToggleHint) {
+  deadlinesPanel.addEventListener('show.bs.collapse', () => {
+    deadlinesToggleHint.textContent = '(свернуть)';
+    loadDeadlinesPanel();
+    if (!deadlinesCalendarView?.classList.contains('d-none')) {
+      setTimeout(() => deadlinesCalendar?.updateSize(), 200);
+    }
+  });
+  deadlinesPanel.addEventListener('hide.bs.collapse', () => {
+    deadlinesToggleHint.textContent = '(развернуть)';
+  });
+}
+
+const meetingsPanel = document.getElementById('meetings-panel');
+const meetingsToggleHint = document.getElementById('meetings-toggle-hint');
+const meetingsStatus = document.getElementById('meetings-status');
+const meetingsBody = document.getElementById('meetings-body');
+const meetingsNewLink = document.getElementById('meetings-new-link');
+const meetingsNewLinkValue = document.getElementById('meetings-new-link-value');
+const deleteMeetingModalEl = document.getElementById('deleteMeetingModal');
+const deleteMeetingNameEl = document.getElementById('delete-meeting-name');
+const deleteMeetingAck = document.getElementById('delete-meeting-ack');
+const deleteMeetingConfirmBtn = document.getElementById('delete-meeting-confirm');
+let pendingMeetingDelete = null;
+const MEETING_DELETE_LABEL = 'Удалить созвон';
+const MEETING_DELETE_DONE = 'Удалён созвон';
+const MEETING_DELETE_BUSY = 'Удаляю…';
+const MEETING_DELETE_FAIL = 'Не удалось удалить созвон';
+const MEETING_DELETE_FORBIDDEN = 'Недостаточно прав';
+const MEETING_STATUS = { created: 'создана', live: 'идёт', ended: 'завершена' };
+const MEETING_RETRY = 'Повторить';
+const MEETING_ANALYZE = {
+  ready: 'Проанализировать',
+  queued: 'В очереди',
+  running: 'Идёт…',
+  done: 'Готово',
+  error: MEETING_RETRY,
+};
+const MEETINGS_COLSPAN = 5;
+
+function meetingStatusLabel(status) {
+  return MEETING_STATUS[status] || status || '—';
+}
+
+function meetingParentArtifactId(m) {
+  const jobs = m.analyze_jobs || [];
+  return (jobs[0] && jobs[0].artifact_id) || '';
+}
+
+function meetingLabLink(m) {
+  if (currentRole !== 'admin') return '';
+  const aid = meetingParentArtifactId(m);
+  if (!aid) return '';
+  const href = escapeAttr(`/artifacts/${aid}/report-meeting-lab`);
+  return artifactReportBtn(href, 'лаб встречи', 'Дорожки созвона: стадии и итоговая расшифровка', 'btn-outline-primary');
+}
+
+function meetingLinkState(m) {
+  if (m.status === 'ended') return 'недействительна (встреча завершена)';
+  return m.public_revoked ? 'отозвана' : 'активна';
+}
+
+function meetingAnalyzeCell(m) {
+  const lab = meetingLabLink(m);
+  if (m.status !== 'ended') return lab;
+  if (!m.track_count) {
+    const empty = m.recording_problem === 'empty_tracks'
+      ? '<span class="text-danger small" title="Дорожки голоса записаны пустыми (0 байт): запись была оборвана. Анализ невозможен.">запись пуста</span>'
+      : '<span class="text-muted small">нет записи</span>';
+    return lab ? `${empty} ${lab}` : empty;
+  }
+  const status = m.analyze_status || 'ready';
+  const label = MEETING_ANALYZE[status] || MEETING_ANALYZE.ready;
+  const retryBtn = `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(MEETING_RETRY)}</button>`;
+  let main = `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(label)}</button>`;
+  if (status === 'queued' || status === 'running') {
+    main = `<span class="small">${escapeHtml(label)}</span>`;
+  } else if (status === 'done') {
+    main = `<span class="small">${escapeHtml(label)}</span> ${retryBtn}`;
+  }
+  return lab ? `${main} ${lab}` : main;
+}
+
+function showMeetingLink(url, meetingId) {
+  if (!meetingsNewLink || !meetingsNewLinkValue || !url) return;
+  meetingsNewLinkValue.textContent = url;
+  meetingsNewLink.classList.remove('d-none');
+  if (meetingId) sessionStorage.setItem('skkkk-meeting-invite-' + meetingId, url);
+}
+
+function syncMeetingDeleteConfirmEnabled() {
+  if (!deleteMeetingConfirmBtn || !deleteMeetingAck) return;
+  deleteMeetingConfirmBtn.disabled = !deleteMeetingAck.checked || !pendingMeetingDelete;
+}
+
+function resetMeetingDeleteDialog() {
+  if (deleteMeetingAck) deleteMeetingAck.checked = false;
+  syncMeetingDeleteConfirmEnabled();
+}
+
+async function loadMeetings() {
+  if (!meetingsBody) return;
+  const cards = document.getElementById('meetings-cards');
+  if (deleteMeetingModalEl && deleteMeetingModalEl.classList.contains('show')) return;
+  try {
+    const rows = await SKKKK.apiJson(`/projects/${projectId}/meetings`);
+    const rowsSig = JSON.stringify(rows);
+    if (rowsSig === lastMeetingsSig) return;
+    lastMeetingsSig = rowsSig;
+    if (!rows.length) {
+      meetingsBody.innerHTML = `<tr><td colspan="${MEETINGS_COLSPAN}" class="text-muted small">Встреч пока нет</td></tr>`;
+      if (cards) cards.innerHTML = '<div class="text-muted small">Встреч пока нет</div>';
+      return;
+    }
+    meetingsBody.innerHTML = rows.map((m) => {
+      const linkState = meetingLinkState(m);
+      const startBtn = m.status === 'created' || m.status === 'live'
+        ? (m.status === 'created'
+          ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
+          : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>
+             <button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`)
+        : '';
+      const linkBtns = m.status !== 'ended'
+        ? `<button type="button" class="btn btn-sm btn-outline-danger meeting-revoke" data-id="${m.id}">Отозвать</button>
+           <button type="button" class="btn btn-sm btn-outline-secondary meeting-regen" data-id="${m.id}">Новая ссылка</button>`
+        : '';
+      const delLabel = `${MEETING_DELETE_LABEL} ${m.id}`;
+      const delBtn = `<button type="button" class="btn btn-sm btn-outline-secondary meeting-delete d-inline-flex align-items-center" data-id="${m.id}" data-bs-toggle="modal" data-bs-target="#deleteMeetingModal" title="${escapeAttr(delLabel)}" aria-label="${escapeAttr(delLabel)}">${deleteIconSvg()}</button>`;
+      return `<tr>
+        <td>${m.id}</td>
+        <td>${escapeHtml(meetingStatusLabel(m.status))}</td>
+        <td class="small">${escapeHtml(linkState)}</td>
+        <td>${meetingAnalyzeCell(m)}</td>
+        <td class="text-end text-nowrap">${startBtn} ${linkBtns} ${delBtn}</td>
+      </tr>`;
+    }).join('');
+    if (cards) {
+      cards.innerHTML = rows.map((m) => {
+        const linkState = meetingLinkState(m);
+        const startBtn = m.status === 'created' || m.status === 'live'
+          ? (m.status === 'created'
+            ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
+            : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>
+               <button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`)
+          : '';
+        const linkBtns = m.status !== 'ended'
+          ? `<button type="button" class="btn btn-sm btn-outline-danger meeting-revoke" data-id="${m.id}">Отозвать</button>
+             <button type="button" class="btn btn-sm btn-outline-secondary meeting-regen" data-id="${m.id}">Новая ссылка</button>`
+          : '';
+        const delLabel = `${MEETING_DELETE_LABEL} ${m.id}`;
+        const delBtn = `<button type="button" class="btn btn-sm btn-outline-secondary meeting-delete d-inline-flex align-items-center" data-id="${m.id}" data-bs-toggle="modal" data-bs-target="#deleteMeetingModal" title="${escapeAttr(delLabel)}" aria-label="${escapeAttr(delLabel)}">${deleteIconSvg()}</button>`;
+         return `<div class="border rounded bg-white mobile-data-card ds-card">
+          <div class="ds-card-head">
+            <span class="ds-card-title">Встреча #${escapeHtml(String(m.id))}</span>
+            <span class="badge text-bg-light text-dark border">${escapeHtml(meetingStatusLabel(m.status))}</span>
+          </div>
+          <div class="ds-card-facts">
+            <span>Ссылка</span><span>${escapeHtml(linkState)}</span>
+            <span>Анализ</span><span class="ds-analyze">${meetingAnalyzeCell(m) || '<span class="text-muted">—</span>'}</span>
+          </div>
+          <div class="ds-card-actions">${startBtn}${linkBtns}${delBtn}</div>
+        </div>`;
+      }).join('');
+    }
+    bindMeetingButtons(meetingsBody);
+    bindMeetingButtons(cards);
+  } catch {
+    lastMeetingsSig = null; // после ошибки следующий успешный ответ обязан перерисовать таблицу
+    meetingsBody.innerHTML = `<tr><td colspan="${MEETINGS_COLSPAN}" class="text-muted small">Не удалось загрузить встречи</td></tr>`;
+    if (cards) cards.innerHTML = '<div class="text-danger small">Не удалось загрузить встречи</div>';
+  }
+}
+
+function bindMeetingButtons(root) {
+  if (!root) return;
+  root.querySelectorAll('.meeting-start').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'start', 'Начинаю…'));
+  });
+  root.querySelectorAll('.meeting-end').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'end', 'Завершаю…'));
+  });
+  root.querySelectorAll('.meeting-revoke').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'revoke-link', 'Отзываю…'));
+  });
+  root.querySelectorAll('.meeting-regen').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'regenerate-link', 'Обновляю…', true));
+  });
+  root.querySelectorAll('.meeting-analyze').forEach((btn) => {
+    btn.addEventListener('click', () => meetingAction(btn, 'analyze', 'Ставлю в очередь…'));
+  });
+  root.querySelectorAll('.meeting-delete').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      pendingMeetingDelete = { id: btn.dataset.id };
+      if (deleteMeetingNameEl) deleteMeetingNameEl.textContent = String(btn.dataset.id || '');
+      resetMeetingDeleteDialog();
+    });
+  });
+}
+
+async function meetingAction(btn, action, label, showLink) {
+  const mid = btn.dataset.id;
+  await SKKKK.guardButton(btn, async () => {
+    try {
+      const data = await SKKKK.apiJson(`/projects/${projectId}/meetings/${mid}/${action}`, { method: 'POST' });
+      if (showLink && data.public_url) showMeetingLink(data.public_url, data.id || mid);
+      if (meetingsStatus) {
+        if (action === 'analyze') meetingsStatus.textContent = 'Расшифровка спикеров поставлена в очередь';
+        else meetingsStatus.textContent = showLink && data.public_url ? 'Новая ссылка показана один раз' : '';
+      }
+      await loadMeetings();
+    } catch (err) {
+      if (meetingsStatus) meetingsStatus.textContent = err.message || 'Не удалось выполнить действие';
+    }
+  }, { label });
+}
+
+document.getElementById('meetings-create')?.addEventListener('click', async () => {
+  const btn = document.getElementById('meetings-create');
+  await SKKKK.guardButton(btn, async () => {
+    const data = await SKKKK.apiJson(`/projects/${projectId}/meetings`, { method: 'POST' });
+    showMeetingLink(data.public_url, data.id);
+    if (meetingsStatus) meetingsStatus.textContent = 'Ссылка показана один раз';
+    await loadMeetings();
+  }, { label: 'Создаю…' });
+});
+
+document.getElementById('meetings-copy-link')?.addEventListener('click', async () => {
+  if (!meetingsNewLinkValue?.textContent) return;
+  await navigator.clipboard.writeText(meetingsNewLinkValue.textContent);
+  if (meetingsStatus) meetingsStatus.textContent = 'Ссылка скопирована';
+});
+
+deleteMeetingAck?.addEventListener('change', syncMeetingDeleteConfirmEnabled);
+deleteMeetingModalEl?.addEventListener('hidden.bs.modal', () => {
+  pendingMeetingDelete = null;
+  resetMeetingDeleteDialog();
+});
+deleteMeetingConfirmBtn?.addEventListener('click', async () => {
+  if (!pendingMeetingDelete || !deleteMeetingAck?.checked) return;
+  const target = pendingMeetingDelete;
+  await SKKKK.guardButton(deleteMeetingConfirmBtn, async () => {
+    const r = await SKKKK.api(`/projects/${projectId}/meetings/${target.id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      if (meetingsStatus) {
+        meetingsStatus.textContent = r.status === 403 ? MEETING_DELETE_FORBIDDEN : MEETING_DELETE_FAIL;
+      }
+      return;
+    }
+    pendingMeetingDelete = null;
+    bootstrap.Modal.getOrCreateInstance(deleteMeetingModalEl).hide();
+    if (meetingsStatus) meetingsStatus.textContent = `${MEETING_DELETE_DONE} ${target.id}`;
+    await loadMeetings();
+    if (typeof refreshArtifacts === 'function') await refreshArtifacts();
+  }, { label: MEETING_DELETE_BUSY });
+});
+
+if (meetingsPanel && meetingsToggleHint) {
+  meetingsPanel.addEventListener('show.bs.collapse', () => {
+    meetingsToggleHint.textContent = '(свернуть)';
+    loadMeetings();
+  });
+  meetingsPanel.addEventListener('hide.bs.collapse', () => {
+    meetingsToggleHint.textContent = '(развернуть)';
+  });
+}
+
+const mcpAccessPanel = document.getElementById('mcp-access-panel');
+const mcpToggleHint = document.getElementById('mcp-toggle-hint');
+if (mcpAccessPanel && mcpToggleHint) {
+  mcpAccessPanel.addEventListener('show.bs.collapse', () => {
+    mcpToggleHint.textContent = '(свернуть)';
+  });
+  mcpAccessPanel.addEventListener('hide.bs.collapse', () => {
+    mcpToggleHint.textContent = '(развернуть)';
+  });
+}
+
+const grantAccessPanel = document.getElementById('grant-access-panel');
+const grantToggleHint = document.getElementById('grant-toggle-hint');
+const grantUserSel = document.getElementById('grant-user');
+const grantRoleSel = document.getElementById('grant-role');
+const grantAddBtn = document.getElementById('grant-add');
+const grantStatus = document.getElementById('grant-status');
+const grantMembersBody = document.getElementById('grant-members-body');
+
+function renderGrantPayload(data) {
+  if (grantUserSel) {
+    const opts = ['<option value="">Выберите пользователя</option>']
+      .concat((data.candidates || []).map((u) => (
+        `<option value="${escapeAttr(u.login || u.name || '')}">${escapeHtml(u.name || u.login)}</option>`
+      )));
+    grantUserSel.innerHTML = opts.join('');
+  }
+  if (grantRoleSel && data.roles) {
+    grantRoleSel.innerHTML = data.roles.map((r) => (
+      `<option value="${escapeHtml(r.id)}">${escapeHtml(r.label)}</option>`
+    )).join('');
+  }
+  if (!grantMembersBody) return;
+  const rows = data.members || [];
+  if (!rows.length) {
+    grantMembersBody.innerHTML = '<tr><td colspan="3" class="text-muted small">Пока никого не добавили</td></tr>';
+    return;
+  }
+  grantMembersBody.innerHTML = rows.map((m) => (
+    `<tr>
+      <td>${escapeHtml(m.name)}</td>
+      <td>${escapeHtml(m.role_label || m.role)}</td>
+      <td class="text-end">
+        <button type="button" class="btn btn-sm btn-outline-danger grant-remove" data-user-id="${m.user_id}" aria-label="${escapeAttr('Убрать доступ: ' + (m.name || ''))}">Убрать</button>
+      </td>
+    </tr>`
+  )).join('');
+}
+
+async function loadGrantPanel() {
+  if (!grantMembersBody) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/members`);
+    if (!r.ok) throw new Error('members failed');
+    renderGrantPayload(await r.json());
+    if (grantStatus) grantStatus.textContent = '';
+  } catch (err) {
+    if (grantStatus) grantStatus.textContent = 'Не удалось загрузить список доступа';
+  }
+}
+
+if (grantAccessPanel && grantToggleHint) {
+  grantAccessPanel.addEventListener('show.bs.collapse', () => {
+    grantToggleHint.textContent = '(свернуть)';
+  });
+  grantAccessPanel.addEventListener('hide.bs.collapse', () => {
+    grantToggleHint.textContent = '(развернуть)';
+  });
+}
+if (grantAddBtn) {
+  grantAddBtn.addEventListener('click', async () => {
+    const login = grantUserSel && grantUserSel.value;
+    const role = grantRoleSel && grantRoleSel.value;
+    if (!login || !role) {
+      if (grantStatus) grantStatus.textContent = 'Выберите пользователя и роль';
+      return;
+    }
+    await SKKKK.guardButton(grantAddBtn, async () => {
+      const r = await SKKKK.api(`/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, role }),
+      });
+      if (!r.ok) throw new Error('add failed');
+      renderGrantPayload(await r.json());
+      if (grantStatus) grantStatus.textContent = 'Доступ выдан';
+    }, { label: 'Добавление…' }).catch(() => {
+      if (grantStatus) grantStatus.textContent = 'Не удалось выдать доступ';
+    });
+  });
+}
+if (grantMembersBody) {
+  grantMembersBody.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.grant-remove');
+    if (!btn) return;
+    const userId = Number(btn.getAttribute('data-user-id'));
+    if (!userId) return;
+    btn.disabled = true;
+    try {
+      const r = await SKKKK.api(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('remove failed');
+      await loadGrantPanel();
+      if (grantStatus) grantStatus.textContent = 'Доступ убран';
+    } catch (err) {
+      if (grantStatus) grantStatus.textContent = 'Не удалось убрать доступ';
+      btn.disabled = false;
+    }
+  });
+  loadGrantPanel();
+}
+</script>
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=2"></script>{% endif %}
+{% endblock %}

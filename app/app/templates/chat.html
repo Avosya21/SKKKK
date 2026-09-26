@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{# Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat) #}
+
+{% block content %}
+
+<h1 class="h4 mb-3">Чат по проекту {{ project_id }}</h1>
+
+<style>
+  #log {
+    max-height: min(55vh, 480px);
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+  #q {
+    font-size: 0.8125rem;
+  }
+</style>
+
+<div id="chat-status" class="text-muted small mb-2 d-none" aria-live="polite"></div>
+<div id="log" class="mb-3"></div>
+
+<div class="input-group">
+  <input id="q" class="form-control" placeholder="Вопрос по материалам проекта" enterkeyhint="send"/>
+  <button id="send" class="btn btn-primary skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+if (!SKKKK.requireAuth()) throw new Error('auth');
+
+const projectId = {{ project_id }};
+const log = document.getElementById('log');
+const sendBtn = document.getElementById('send');
+const chatStatus = document.getElementById('chat-status');
+const qInput = document.getElementById('q');
+let chatPollTimer = null;
+
+function escapeHtml(text) {
+  return (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function renderMarkdown(text) {
+  let safe = escapeHtml(SKKKK.cleanSummaryOutput(text || ''));
+  safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
+  safe = safe.replace(/\n/g, '<br>');
+  return safe;
+}
+
+function renderSources(sources) {
+  const names = (sources || []).map(s => s.filename).filter(Boolean);
+  if (!names.length) return '';
+  return `<div class="small text-muted mt-2">Источники: ${escapeHtml(names.join(', '))}</div>`;
+}
+
+function chatPendingHtml() {
+  return `<strong>ИИ:</strong><div class="text-muted d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом...</span></div>`;
+}
+
+function appendMessage(kind, html, extraClass) {
+  log.innerHTML += `<div class="border rounded p-2 mb-2 ${kind === 'q' ? 'bg-white' : 'bg-body'}${extraClass ? ` ${extraClass}` : ''}">${html}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function isChatPending(messages) {
+  return (messages || []).some((m) => m.role === 'assistant' && m.waiting);
+}
+
+function setChatBusy(busy) {
+  SKKKK.setButtonBusy(sendBtn, busy, { label: busy ? 'Думаю…' : undefined });
+  qInput.disabled = busy;
+  qInput.placeholder = busy ? 'ИИ готовит ответ…' : 'Вопрос по материалам проекта';
+  if (!chatStatus) return;
+  chatStatus.classList.toggle('d-none', !busy);
+  chatStatus.textContent = busy ? 'ИИ готовит ответ… подождите' : '';
+}
+
+function renderHistoryMessage(msg) {
+  if (msg.role === 'user') {
+    appendMessage('q', `<strong>Вы:</strong><div>${escapeHtml(msg.content || '')}</div>`);
+    return;
+  }
+  if (msg.waiting) {
+    appendMessage('a', chatPendingHtml());
+    return;
+  }
+  const isClarification = msg.meta && msg.meta.kind === 'clarification';
+  appendMessage(
+    'a',
+    `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(msg.content || '')}</div>${renderSources(msg.sources)}`,
+    isClarification ? 'border-warning-subtle bg-warning-subtle' : ''
+  );
+}
+
+async function reloadChatLog() {
+  const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
+  if (!r.ok) return null;
+  const data = await r.json();
+  log.innerHTML = '';
+  (data.messages || []).forEach(renderHistoryMessage);
+  return data.messages || [];
+}
+
+function startChatPoll() {
+  if (chatPollTimer) return;
+  setChatBusy(true);
+  chatPollTimer = setInterval(async () => {
+    const messages = await reloadChatLog();
+    if (!isChatPending(messages)) {
+      clearInterval(chatPollTimer);
+      chatPollTimer = null;
+      setChatBusy(false);
+    }
+  }, 3000);
+}
+
+async function syncChatUi() {
+  const messages = await reloadChatLog();
+  const pending = isChatPending(messages);
+  setChatBusy(pending);
+  return pending;
+}
+
+async function loadChatHistory() {
+  try {
+    const messages = await reloadChatLog();
+    if (isChatPending(messages)) startChatPoll();
+  } catch (err) {
+    console.warn('chat history', err);
+  }
+}
+
+sendBtn.onclick = async () => {
+  const question = qInput.value.trim();
+  if (!question) return;
+  if (await syncChatUi()) {
+    startChatPoll();
+    return;
+  }
+  await SKKKK.guardButton(sendBtn, async () => {
+    qInput.value = '';
+    appendMessage('q', `<strong>Вы:</strong><div>${escapeHtml(question)}</div>`);
+    appendMessage('a', chatPendingHtml());
+    const pending = log.lastElementChild;
+    setChatBusy(true);
+    try {
+      const r = await SKKKK.api('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, question }),
+      });
+      if (r.status === 409) {
+        pending.remove();
+        await syncChatUi();
+        startChatPoll();
+        return;
+      }
+      if (!r.ok) throw new Error('chat failed');
+      const data = await r.json();
+      pending.innerHTML = `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(data.answer || '')}</div>${renderSources(data.sources)}`;
+      setChatBusy(false);
+    } catch (err) {
+      pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
+      setChatBusy(false);
+      await syncChatUi();
+    }
+  }, { label: 'Отправка…' });
+};
+
+loadChatHistory();
+</script>
+{% endblock %}

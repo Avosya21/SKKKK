@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{# Комната встречи для сотрудника (/projects/{id}/meetings/{mid}/room) #}
+{% block extra_head %}
+<link rel="manifest" href="/meeting.webmanifest?start=/projects/{{ project_id }}/meetings/{{ meeting_id }}/room">
+<style>
+@media (max-width: 768px) {
+  #meeting-screen,
+  #meeting-screen-lead { display: none !important; }
+}
+</style>
+{% endblock %}
+{% block nav_actions %}
+<a class="btn btn-sm btn-outline-light navbar-back meeting-lobby" href="/projects/{{ project_id }}">к проекту</a>
+{% endblock %}
+{% block content %}
+<div id="meeting-stage" class="meeting-stage is-open">
+  <div class="meeting-stage-top">
+    <div id="meeting-room-status" aria-live="polite">Вхожу…</div>
+    <div id="meeting-people"></div>
+  </div>
+  <div id="meeting-tiles" class="meeting-tiles" role="list" aria-label="Участники комнаты"></div>
+  <div id="meeting-toast" class="meeting-toast" hidden role="status"></div>
+  <div id="meeting-roster-backdrop" class="meeting-roster-backdrop" hidden></div>
+  <aside id="meeting-roster-panel" class="meeting-roster" hidden>
+    <div class="meeting-roster-head">
+      <h2>Участники</h2>
+      <button type="button" class="meeting-roster-close" id="meeting-roster-close" aria-label="Закрыть список">×</button>
+    </div>
+    <div id="meeting-roster-list" class="meeting-roster-list"></div>
+  </aside>
+  <div id="meeting-dock" class="meeting-dock" role="toolbar" aria-label="Управление комнатой">
+    <button type="button" class="meeting-dock-btn is-on" id="meeting-mic" aria-pressed="true" aria-label="Выключить микрофон" title="Микрофон"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2z"/></svg><span class="visually-hidden meeting-dock-label">Микрофон</span></button>
+    <button type="button" class="meeting-dock-btn is-on" id="meeting-sound" aria-pressed="true" aria-label="Выключить звук" title="Звук"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.2v7.6A4.5 4.5 0 0 0 16.5 12zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg><span class="visually-hidden meeting-dock-label">Звук</span></button>
+    <button type="button" class="meeting-dock-btn is-off" id="meeting-cam" aria-pressed="false" aria-label="Включить камеру" title="Камера"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3.5l4 4v-11l-4 4z"/></svg><span class="visually-hidden meeting-dock-label">Камера</span></button>
+    <button type="button" class="meeting-dock-btn" id="meeting-cam-switch" hidden aria-label="Сменить камеру" title="Сменить камеру"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 15a5 5 0 0 1-4.6-3H9l-2.5-3L4 15h1.7A7 7 0 0 0 19 13h-2a5 5 0 0 1-5 5zm0-10a5 5 0 0 1 4.6 3H15l2.5 3L20 11h-1.7A7 7 0 0 0 5 13h2a5 5 0 0 1 5-5z"/></svg><span class="visually-hidden meeting-dock-label">Сменить камеру</span></button>
+    <button type="button" class="meeting-dock-btn is-off" id="meeting-screen" aria-pressed="false" aria-label="Включить экран" title="Экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-5v2h2v2H7v-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg><span class="visually-hidden meeting-dock-label">Экран</span></button>
+    <button type="button" class="meeting-dock-btn meeting-more" id="meeting-more" aria-expanded="false" aria-controls="meeting-more-tray" aria-label="Ещё" title="Ещё"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 10a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm6 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm6 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2z"/></svg><span class="visually-hidden">Ещё</span></button>
+    <div id="meeting-more-tray" class="meeting-more-tray">
+    <button type="button" class="meeting-dock-btn" id="meeting-screen-lead" aria-label="Экран сверху" title="Экран сверху"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm1 3v7h14V8H5z"/></svg><span class="visually-hidden">Экран сверху</span></button>
+    <button type="button" class="meeting-dock-btn" id="meeting-layout" aria-pressed="false" aria-label="Спикер" title="Спикер"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 4h8v4h-8v-4z"/></svg><span class="visually-hidden">Сетка</span></button>
+    <button type="button" class="meeting-dock-btn" id="meeting-roster" aria-pressed="false" aria-label="Участники" title="Участники"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zM8 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm8 2c-3 0-8 1.5-8 4.5V21h16v-2.5C24 15.5 19 14 16 14zM8 14c-.7 0-1.4.1-2 .2C3.6 15 2 16.2 2 18v3h6v-3c0-.7.2-1.3.5-1.9A11 11 0 0 1 8 14z"/></svg><span class="visually-hidden">Участники</span></button>
+    <button type="button" class="meeting-dock-btn" id="meeting-copy" aria-label="Скопировать ссылку" title="Скопировать ссылку"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 1H4a2 2 0 0 0-2 2v12h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg><span class="visually-hidden">Скопировать ссылку</span></button>
+    <div class="meeting-dock-speaker" id="meeting-speaker-wrap" hidden>
+      <button type="button" class="meeting-dock-btn" id="meeting-speaker-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="meeting-speaker-menu" aria-label="Динамик" title="Динамик"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h12M2.5 9.5h12M2.5 14.5h8"/><rect x="5.6" y="2.6" width="2.4" height="3.8" rx=".5"/><rect x="10" y="7.6" width="2.4" height="3.8" rx=".5"/><rect x="3.2" y="12.6" width="2.2" height="3.8" rx=".5"/><rect x="10.6" y="12.6" width="2.2" height="5" rx=".4"/><path d="M12.8 13.2l6-2.6v10l-6-2.6"/><path d="M19.4 14a2 2 0 0 1 0 3.2"/></svg><span class="visually-hidden">Динамик</span></button>
+      <div id="meeting-speaker-menu" class="meeting-speaker-menu" hidden role="listbox" aria-label="Динамик"></div>
+      <select id="meeting-speaker" class="visually-hidden" aria-hidden="true" tabindex="-1"></select>
+    </div>
+    <button type="button" class="meeting-dock-btn" id="meeting-fs" aria-pressed="false" aria-label="На весь экран" title="На весь экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm12 5h-5v-2h3v-3h2v5zM7 7h3V5H5v5h2V7zm12 3h-2V7h-3V5h5v5z"/></svg><span class="visually-hidden meeting-dock-label">На весь экран</span></button>
+    <button type="button" class="meeting-dock-btn meeting-denoise is-on" id="meeting-denoise" aria-pressed="true" aria-label="Выключить шумодав" title="Шумодав"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3c-1.5 3-4 5-7 6 3 1 5.5 3 7 6 1.5-3 4-5 7-6-3-1-5.5-3-7-6zm-6 12c-.8 1.6-2.2 2.7-4 3.2 1.8.5 3.2 1.6 4 3.2.8-1.6 2.2-2.7 4-3.2-1.8-.5-3.2-1.6-4-3.2zm12 0c-.8 1.6-2.2 2.7-4 3.2 1.8.5 3.2 1.6 4 3.2.8-1.6 2.2-2.7 4-3.2-1.8-.5-3.2-1.6-4-3.2z"/></svg><span class="visually-hidden meeting-dock-label">Шумодав</span></button>
+    </div>
+    <button type="button" class="meeting-dock-btn meeting-dock-btn-leave" id="meeting-leave" aria-label="Выйти из комнаты" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 17l1.4-1.4L8.8 13H20v-2H8.8l2.6-2.6L10 7l-5 5 5 5zM4 19h6v2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6v2H4v14z"/></svg><span class="visually-hidden">Выйти</span></button>
+    <button type="button" class="meeting-dock-btn meeting-dock-btn-end" id="meeting-end" aria-label="Завершить для всех" title="Завершить для всех"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm5 13.6L15.6 17 12 13.4 8.4 17 7 15.6 10.6 12 7 8.4 8.4 7 12 10.6 15.6 7 17 8.4 13.4 12z"/></svg><span class="visually-hidden">Завершить</span></button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/livekit/livekit-client.umd.js"></script>
+<script src="/static/meeting_layout.js?v=a5"></script>
+<script src="/static/meeting_room.js?v=a54"></script>
+<script>
+window.SKKKK_MEETING_VOICE = {{ meeting_voice | tojson }};
+const projectId = {{ project_id }};
+const meetingId = {{ meeting_id }};
+const stageEl = document.getElementById('meeting-stage');
+const statusEl = document.getElementById('meeting-room-status');
+const peopleEl = document.getElementById('meeting-people');
+const tilesEl = document.getElementById('meeting-tiles');
+const micBtn = document.getElementById('meeting-mic');
+const camBtn = document.getElementById('meeting-cam');
+const screenBtn = document.getElementById('meeting-screen');
+
+if (window.SKKKK && typeof SKKKK.requireAuth === 'function') {
+  if (!SKKKK.requireAuth()) {
+    statusEl.textContent = 'Требуется авторизация.';
+  }
+}
+
+document.body.classList.add('meeting-is-live');
+
+(async () => {
+  try {
+    const data = await SKKKK.apiJson(`/projects/${projectId}/meetings/${meetingId}/join`, { method: 'POST' });
+    await SKKKKMeeting.connect(data.livekit, {
+      statusEl,
+      peopleEl,
+      tilesEl,
+      stageEl,
+      micBtn,
+      camBtn,
+      camSwitchBtn: document.getElementById('meeting-cam-switch'),
+      screenBtn,
+      fsBtn: document.getElementById('meeting-fs'),
+      moreBtn: document.getElementById('meeting-more'),
+      soundBtn: document.getElementById('meeting-sound'),
+      denoiseBtn: document.getElementById('meeting-denoise'),
+      moreTray: document.getElementById('meeting-more-tray'),
+      rosterBackdrop: document.getElementById('meeting-roster-backdrop'),
+      rosterClose: document.getElementById('meeting-roster-close'),
+      screenLeadBtn: document.getElementById('meeting-screen-lead'),
+      layoutBtn: document.getElementById('meeting-layout'),
+      rosterBtn: document.getElementById('meeting-roster'),
+      rosterPanel: document.getElementById('meeting-roster-panel'),
+      rosterList: document.getElementById('meeting-roster-list'),
+      copyBtn: document.getElementById('meeting-copy'),
+      speakerWrap: document.getElementById('meeting-speaker-wrap'),
+      speakerBtn: document.getElementById('meeting-speaker-btn'),
+      speakerMenu: document.getElementById('meeting-speaker-menu'),
+      speakerSelect: document.getElementById('meeting-speaker'),
+      toastEl: document.getElementById('meeting-toast'),
+      endBtn: document.getElementById('meeting-end'),
+      endUrl: '/projects/' + projectId + '/meetings/' + meetingId + '/end',
+      watchEndedUrl: '/projects/' + projectId + '/meetings/' + meetingId,
+      meetingId: meetingId,
+      leaveUrl: '/projects/' + projectId,
+      identity: data.identity,
+      heartbeatUrl: '/projects/' + projectId + '/meetings/' + meetingId + '/heartbeat',
+      leaveApiUrl: '/projects/' + projectId + '/meetings/' + meetingId + '/leave',
+      // Повторный вход после обрыва связи: тот же пользователь, то же имя участника
+      refreshJoin: async () => {
+        try {
+          return await SKKKK.apiJson(`/projects/${projectId}/meetings/${meetingId}/join`, { method: 'POST' });
+        } catch (err) {
+          if ([404, 409, 410].includes(err && err.status)) {
+            throw Object.assign(new Error('Встреча завершена или недоступна.'), { meetingGone: true });
+          }
+          throw err;
+        }
+      },
+      authedApi: true,
+    });
+  } catch (err) {
+    statusEl.textContent = err && err.message ? err.message : 'Не удалось войти в комнату';
+  }
+})();
+
+micBtn.addEventListener('click', () => SKKKKMeeting.toggleMic(micBtn));
+camBtn.addEventListener('click', () => SKKKKMeeting.toggleCam(camBtn));
+document.getElementById('meeting-cam-switch').addEventListener('click', () => SKKKKMeeting.switchCamera());
+screenBtn.addEventListener('click', () => SKKKKMeeting.toggleScreen(screenBtn));
+document.getElementById('meeting-fs').addEventListener('click', () => SKKKKMeeting.toggleStageFullscreen());
+document.getElementById('meeting-leave').addEventListener('click', () => SKKKKMeeting.leaveRoom());
+</script>
+{% endblock %}

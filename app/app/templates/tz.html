@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{# Отдельная страница ТЗ проекта (/projects/{id}/tz): текст ТЗ и кнопка «Пересобрать ТЗ» #}
+{% block content %}
+<h1 class="h4 mb-3">Техническое задание — проект {{ project_id }}</h1>
+<pre id="tz" class="border rounded bg-white p-3" style="white-space:pre-wrap;"></pre>
+<div id="tz-status" class="text-muted small mb-2" aria-live="polite"></div>
+{% if current_role == 'admin' %}
+<button type="button" id="rebuild" class="btn btn-primary mt-3 skkkk-action-btn" data-idle-label="Пересобрать ТЗ" aria-label="Пересобрать ТЗ">Пересобрать ТЗ</button>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  if (!SKKKK.requireAuth()) return;
+  const projectId = {{ project_id }};
+  const rebuildBtn = document.getElementById('rebuild');
+  const tzStatus = document.getElementById('tz-status');
+  let tzRebuildRunning = false;
+  if (!rebuildBtn) {
+    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    document.getElementById('tz').textContent = SKKKK.plainifyLlmMarkup(
+      (await r.json()).content || '(пусто)',
+    );
+    return;
+  }
+
+  const load = async () => {
+    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    document.getElementById('tz').textContent = SKKKK.plainifyLlmMarkup(
+      (await r.json()).content || '(пусто)',
+    );
+  };
+
+  async function syncTaskUi() {
+    const r = await SKKKK.api(`/projects/${projectId}/tasks/active`);
+    if (!r.ok) return tzRebuildRunning;
+    const task = (await r.json()).tasks.find((t) => t.task_type === 'tz_rebuild' && t.status === 'running');
+    if (task) {
+      tzRebuildRunning = true;
+      tzStatus.textContent = `${task.label}… подождите`;
+      SKKKK.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
+      return true;
+    }
+    const justFinished = tzRebuildRunning;
+    tzRebuildRunning = false;
+    SKKKK.setButtonBusy(rebuildBtn, false);
+    tzStatus.textContent = '';
+    if (justFinished) await load();
+    return false;
+  }
+
+  rebuildBtn.onclick = async () => {
+    if (tzRebuildRunning || rebuildBtn.disabled || rebuildBtn.dataset.busy === '1') return;
+    if (await syncTaskUi()) return;
+    tzRebuildRunning = true;
+    tzStatus.textContent = 'Пересборка итоговой выжимки...';
+    SKKKK.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
+    try {
+      const r = await SKKKK.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
+      if (r.status === 409) {
+        const payload = await r.json().catch(() => ({}));
+        tzStatus.textContent = payload.detail || 'Пересборка уже выполняется…';
+        await syncTaskUi();
+        return;
+      }
+      if (!r.ok) throw new Error('rebuild failed');
+      tzRebuildRunning = false;
+      SKKKK.setButtonBusy(rebuildBtn, false);
+      await load();
+    } catch (err) {
+      tzStatus.textContent = 'Не удалось пересобрать выжимку';
+      if (!(await syncTaskUi())) {
+        tzRebuildRunning = false;
+        SKKKK.setButtonBusy(rebuildBtn, false);
+      }
+    }
+  };
+
+  await syncTaskUi();
+  await load();
+  setInterval(syncTaskUi, 3000);
+})();
+</script>
+{% endblock %}
