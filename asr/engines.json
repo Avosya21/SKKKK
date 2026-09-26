@@ -1,0 +1,23 @@
+{
+  "_comment": "Пути к интерпретаторам трёх изолированных окружений. Отдельные venv нужны потому, что движки тянут разные версии torch/transformers и разные сборки CUDA.",
+  "engines": [
+    {
+      "name": "whisper",
+      "python": "C:\\1C_NEW_SKKKK\\venvs\\whisper\\Scripts\\python.exe",
+      "script": "run_whisper.py",
+      "audio_key": "wav_16k"
+    },
+    {
+      "name": "gigaam",
+      "python": "C:\\1C_NEW_SKKKK\\venvs\\gigaam\\Scripts\\python.exe",
+      "script": "run_gigaam.py",
+      "audio_key": "wav_16k"
+    },
+    {
+      "name": "tone",
+      "python": "C:\\1C_NEW_SKKKK\\venvs\\tone\\Scripts\\python.exe",
+      "script": "run_tone.py",
+      "audio_key": "wav_8k"
+    }
+  ]
+}

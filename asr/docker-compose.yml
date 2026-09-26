@@ -1,0 +1,125 @@
+# GigaAM — прод. Whisper и T-one только с профилем legacy:
+#   docker compose --env-file ..\.env --profile legacy up -d
+#
+#   cd C:\1C_NEW_SKKKK\asr
+#   docker compose --env-file ..\.env up -d --build gigaam
+#
+# Хост: 18101 Whisper (legacy) / 18102 GigaAM / 18103 T-one (legacy).
+
+name: skkkk-asr
+
+services:
+  whisper:
+    profiles: ["legacy"]
+    image: hwdsl2/whisper-server:cuda
+    container_name: skkkk-whisper
+    restart: unless-stopped
+    gpus: all
+    ports:
+      - "127.0.0.1:18101:9000"
+    env_file:
+      - ./whisper.env
+    environment:
+      WHISPER_MODEL: large-v3
+      WHISPER_LANGUAGE: ru
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: float16
+      WHISPER_API_KEY: ""
+      HF_HUB_DISABLE_XET: "1"
+      WHISPER_LOCAL_ONLY: "true"
+      WHISPER_DIARIZATION: "true"
+    volumes:
+      - whisper_data:/var/lib/whisper
+      - ./whisper-cache/models--Systran--faster-whisper-large-v3/refs:/var/lib/whisper/models--Systran--faster-whisper-large-v3/refs:ro
+      - ./models/faster-whisper-large-v3:/var/lib/whisper/models--Systran--faster-whisper-large-v3/snapshots/edaa852ec7e145841d8ffdb056a99866b5f0a478:ro
+      - ./work:/data:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  gigaam:
+    build:
+      context: ../vendor/GigaAMGUI
+      dockerfile: Dockerfile
+    container_name: skkkk-gigaam
+    restart: unless-stopped
+    gpus: all
+    ports:
+      - "127.0.0.1:18102:8000"
+    entrypoint: ["python"]
+    command: ["api.py"]
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_CACHE: /data/models/huggingface/hub
+      PYANNOTE_DIARIZATION_CONFIG: /data/models/pyannote/diarization_config.yaml
+      PYANNOTE_SEGMENTATION_MODEL: /data/models/pyannote/segmentation-3.0/pytorch_model.bin
+      DIARIZATION_MIN_SPEAKERS: "4"
+      DIARIZATION_MAX_SPEAKERS: "8"
+      ASR_BACKEND: pytorch
+      ASR_MODEL: v3_e2e_rnnt
+      MODEL_NAME: ai-sage/GigaAM-v3
+      MODEL_REVISION: e2e_rnnt
+      ASR_VAD_DEVICE: cpu
+      AUDIO_PREPROCESSING_MODE: off
+      MAX_FILE_SIZE: "2147483648"
+      MAX_CONCURRENT_TASKS: "1"
+      API_KEYS_FILE: /app/keys/.api_keys
+      GIGAAM_DATA_DIR: /data
+      GIGAAM_RUNTIME_DIR: /data/runtimes
+      GIGAAM_PYTORCH_MODEL_DIR: /data/models/gigaam
+      HF_HOME: /data/models/huggingface
+      HUGGINGFACE_HUB_CACHE: /data/models/huggingface/hub
+      TORCH_HOME: /data/models/torch
+      ONNX_MODEL_DIR: /data/models/onnx
+      HOME: /data/runtime-home
+      UPLOAD_DIR: uploads
+      RESULTS_DIR: results
+    volumes:
+      - ./gigaam-keys:/app/keys
+      - ./gigaam-uploads:/app/uploads
+      - ./gigaam-results:/app/results
+      - ./gigaam-logs:/app/logs
+      - ../data/gigaam:/data
+      - ../vendor/GigaAMGUI/src/utils/diarization.py:/app/src/utils/diarization.py:ro
+      - ./gigaam-patches/vad.py:/app/src/core/asr/vad.py:ro
+      - ./work:/work:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  tone:
+    profiles: ["legacy"]
+    build:
+      context: .
+      dockerfile: docker/tone.Dockerfile
+    container_name: skkkk-tone
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18103:8080"
+    environment:
+      ASR_ENGINE: tone
+      OUT_DIR: /out
+      LOAD_FROM_FOLDER: /models
+    volumes:
+      - ./work:/data:ro
+      - ./out:/out
+
+volumes:
+  whisper_data:
