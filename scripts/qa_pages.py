@@ -142,6 +142,8 @@ def start_instance(passwords: dict[str, str]):
         "ADMIN_PASSWORD_HASH": hash_password(passwords["admin"]), "MANAGER_PASSWORD_HASH": hash_password(passwords["manager"]), "USER_PASSWORD_HASH": hash_password(passwords["user"]),
         "DATA_DIR": str(data), "DATABASE_URL": f"sqlite:///{data / 'app.db'}", "LOGIN_ALLOWLIST_PATH": str(allow),
         "SKKKK_DISABLE_EDGE": "1", "WEB_HOST": "127.0.0.1", "WEB_PORT": str(PORT), "PYTHONIOENCODING": "utf-8",
+        # Вёрстка и сценарии портала, не вход: личный пароль и карточку не проходим. База паролей — своя в DATA_DIR.
+        "PERSONAL_PASSWORD": "off", "CREDENTIALS_DB_PATH": str(data / "credentials.db"),
     }
     log = open(tmp / "server.log", "w", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.app.main:app", "--host", "127.0.0.1", "--port", str(PORT), "--log-level", "warning"],
@@ -158,11 +160,11 @@ def start_instance(passwords: dict[str, str]):
 
 def ui_login(page, base: str, name: str, password: str) -> None:
     page.goto(base + "/login")
-    ins = page.locator("form input")
+    ins = page.locator("#login-form input")
     ins.nth(0).fill(name)
     ins.nth(1).fill("audit-" + name[-5:])
     ins.nth(2).fill(password)
-    page.locator("form button[type=submit]").click()
+    page.locator("#login-form button[type=submit]").click()
     page.wait_for_url(lambda u: "/login" not in u, timeout=20000)
 
 

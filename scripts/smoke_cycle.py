@@ -29,6 +29,15 @@ def login(client: httpx.Client, base_url: str, name: str, telegram_id: str, pass
     )
     response.raise_for_status()
     data = response.json()
+    if data.get("step") == "personal":
+        personal = os.environ.get("SMOKE_PERSONAL_PW", "")
+        if not personal:
+            raise SystemExit("вход требует личный пароль: задайте SMOKE_PERSONAL_PW")
+        response = client.post(f"{base_url}/auth/login/personal", json={"ticket": data["ticket"], "password": personal})
+        response.raise_for_status()
+        data = response.json()
+    if data.get("step"):
+        raise SystemExit(f"у логина {name} нет личного пароля или карточки: войдите им один раз в браузере")
     _say(f"вход выполнен: {data['name']} role={data['role']}")
     return data["access_token"]
 

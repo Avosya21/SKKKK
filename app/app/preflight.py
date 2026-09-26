@@ -119,7 +119,7 @@ def check_personal_passwords(settings: Settings) -> CheckResult:
         return CheckResult(
             "personal_passwords",
             FAIL,
-            f"режим {mode}, база {settings.credentials_db_path} недоступна: {exc}",
+            f"режим {mode}, база {settings.credentials_db_file} недоступна: {exc}",
             "pip install -r app/requirements.txt; проверьте CREDENTIALS_DB_PATH",
         )
     return CheckResult("personal_passwords", OK, f"режим {mode}, личных паролей задано: {count}")
