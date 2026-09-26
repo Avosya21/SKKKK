@@ -97,6 +97,8 @@ class Settings(BaseSettings):
     personal_password: str = "required"
     credentials_db_path: Path = ROOT / "data" / "credentials.db"
     personal_password_min_len: int = 10
+    # Компании для карточки пользователя (как Login_up.txt): «Название | Исполнитель|Заказчик».
+    companies_path: Path = ROOT / "Companies.txt"
 
     livekit_url: str = ""
     livekit_api_key: str = ""
@@ -131,7 +133,7 @@ class Settings(BaseSettings):
             raise ValueError("PERSONAL_PASSWORD: required | off (off — только тесты и аварийный откат)")
         return mode
 
-    @field_validator("data_dir", "login_allowlist_path", "credentials_db_path", mode="before")
+    @field_validator("data_dir", "login_allowlist_path", "credentials_db_path", "companies_path", mode="before")
     @classmethod
     def _path(cls, v: str | Path) -> Path:
         return Path(v)

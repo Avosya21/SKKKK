@@ -125,6 +125,26 @@ def check_personal_passwords(settings: Settings) -> CheckResult:
     return CheckResult("personal_passwords", OK, f"режим {mode}, личных паролей задано: {count}")
 
 
+def check_companies(settings: Settings) -> CheckResult:
+    """Без компаний анкету при первом входе не заполнить — вход новых людей встанет."""
+    from app.app.services.companies import load_companies_file
+
+    path = settings.companies_path
+    lines = load_companies_file(path)
+    if not lines:
+        return CheckResult(
+            "companies",
+            FAIL,
+            f"нет компаний в {path}",
+            "создайте файл по образцу Companies.example.txt: «ACME | Исполнитель»",
+        )
+    no_side = [c.name for c in lines if not c.side]
+    detail = f"{len(lines)}: " + ", ".join(c.name for c in lines[:5])
+    if no_side:
+        return CheckResult("companies", WARN, detail, "без стороны (Исполнитель/Заказчик): " + ", ".join(no_side[:5]))
+    return CheckResult("companies", OK, detail)
+
+
 def check_vector_store() -> CheckResult:
     from app.app.db import get_engine
     from app.app.services.vector_index import init_vector_store
@@ -281,6 +301,7 @@ def _plan(settings: Settings, mode: str) -> list[tuple[str, object]]:
         ("data_dir", lambda: check_data_dir(settings)),
         ("database", lambda: check_database(settings)),
         ("personal_passwords", lambda: check_personal_passwords(settings)),
+        ("companies", lambda: check_companies(settings)),
         ("vector_store", check_vector_store),
     ]
     if mode in {"all", "api"}:

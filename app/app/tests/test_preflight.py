@@ -161,3 +161,15 @@ def test_personal_passwords_check(monkeypatch):
     personal_password.set_initial("admin", "correct-horse-battery", "correct-horse-battery")
     on = check_personal_passwords(Settings(personal_password="required"))
     assert on.status == OK and "задано: 1" in on.detail and "required" in on.detail
+
+
+def test_companies_check(tmp_path):
+    from app.app.config import Settings
+    from app.app.preflight import FAIL, OK, WARN, check_companies
+
+    path = tmp_path / "Companies.txt"
+    assert check_companies(Settings(companies_path=path)).status == FAIL  # файла нет — анкету не заполнить
+    path.write_text("ACME | Исполнитель\n", encoding="utf-8")
+    assert check_companies(Settings(companies_path=path)).status == OK
+    path.write_text("ACME\n", encoding="utf-8")
+    assert check_companies(Settings(companies_path=path)).status == WARN

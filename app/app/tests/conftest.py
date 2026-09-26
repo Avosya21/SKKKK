@@ -143,6 +143,9 @@ def tmp_data(tmp_path: Path, monkeypatch) -> Path:
         encoding="utf-8",
     )
     monkeypatch.setenv("LOGIN_ALLOWLIST_PATH", str(allow))
+    companies = tmp_path / "Companies.txt"
+    companies.write_text("ACME | Исполнитель\nЗаказчик Тест | Заказчик\n", encoding="utf-8")
+    monkeypatch.setenv("COMPANIES_PATH", str(companies))
 
     return data
 
