@@ -46,7 +46,7 @@ _lock = threading.Lock()
 
 
 def db_path() -> Path:
-    return PATH_OVERRIDE or get_settings().credentials_db_path
+    return PATH_OVERRIDE or get_settings().credentials_db_file
 
 
 def _make_engine(path: Path) -> Engine:

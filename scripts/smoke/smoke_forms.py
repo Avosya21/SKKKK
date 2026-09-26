@@ -11,7 +11,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(headless=True, args=CHROME_ARGS)
     pg = b.new_context(ignore_https_errors=True, viewport={"width": 1280, "height": 800}).new_page()
     pg.goto(BASE + "/login")
-    ins = pg.locator("form input")
+    ins = pg.locator("#login-form input")
     ins.nth(0).fill(LOGIN); ins.nth(1).fill(TG); ins.nth(2).fill(password("admin"))
     ins.nth(2).press("Enter")
     check(bool(wait_until(lambda: pg.evaluate("location.pathname") != "/login", 10)), "вход отправляется по Enter")

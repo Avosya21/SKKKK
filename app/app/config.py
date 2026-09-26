@@ -95,7 +95,8 @@ class Settings(BaseSettings):
     login_allowlist_path: Path = ROOT / "Login_up.txt"
     # Личный пароль после пароля роли: required (всегда) | off — только тесты и аварийный откат.
     personal_password: str = "required"
-    credentials_db_path: Path = ROOT / "data" / "credentials.db"
+    # Пусто — `DATA_DIR/credentials.db`: изолированный экземпляр со своим DATA_DIR (QA, тесты) не трогает боевую базу.
+    credentials_db_path: Path | None = None
     personal_password_min_len: int = 10
     # Компании для карточки пользователя (как Login_up.txt): «Название | Исполнитель|Заказчик».
     companies_path: Path = ROOT / "Companies.txt"
@@ -133,10 +134,19 @@ class Settings(BaseSettings):
             raise ValueError("PERSONAL_PASSWORD: required | off (off — только тесты и аварийный откат)")
         return mode
 
-    @field_validator("data_dir", "login_allowlist_path", "credentials_db_path", "companies_path", mode="before")
+    @field_validator("data_dir", "login_allowlist_path", "companies_path", mode="before")
     @classmethod
     def _path(cls, v: str | Path) -> Path:
         return Path(v)
+
+    @field_validator("credentials_db_path", mode="before")
+    @classmethod
+    def _optional_path(cls, v: str | Path | None) -> Path | None:
+        return Path(v) if v else None
+
+    @property
+    def credentials_db_file(self) -> Path:
+        return self.credentials_db_path or self.data_dir / "credentials.db"
 
 
 @lru_cache

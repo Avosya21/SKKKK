@@ -121,3 +121,20 @@ def test_mode_validation(monkeypatch):
     assert Settings(personal_password="Required").personal_password == "required"
     with pytest.raises(ValidationError):
         Settings(personal_password="requird")
+
+
+def test_default_credentials_db_follows_data_dir(tmp_path, monkeypatch):
+    """Экземпляр со своим DATA_DIR (QA, копия базы) не должен писать в боевую data/credentials.db."""
+    from app.app import credentials_db
+    from app.app.config import Settings, get_settings
+
+    monkeypatch.setattr(credentials_db, "PATH_OVERRIDE", None)
+    monkeypatch.delenv("CREDENTIALS_DB_PATH", raising=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "qa"))
+    get_settings.cache_clear()
+    try:
+        assert credentials_db.db_path() == tmp_path / "qa" / "credentials.db"
+        explicit = Settings(credentials_db_path=str(tmp_path / "x.db"))
+        assert explicit.credentials_db_file == tmp_path / "x.db"
+    finally:
+        get_settings.cache_clear()

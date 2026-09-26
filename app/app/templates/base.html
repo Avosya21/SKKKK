@@ -44,6 +44,10 @@
     </div>
   </div>
 </nav>
+<main class="container pb-5">
+  {% block content %}{% endblock %}
+</main>
+{# Окна «Личный пароль» и «Моя карточка» — после содержимого страницы: первые поля формы на странице — её собственные. #}
 <div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="password-title" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" id="password-form" novalidate>
@@ -121,9 +125,6 @@
     </form>
   </div>
 </div>
-<main class="container pb-5">
-  {% block content %}{% endblock %}
-</main>
 <script src="/static/errors_ru.js?v=1"></script>
 <script src="/static/app.js?v=4"></script>
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
