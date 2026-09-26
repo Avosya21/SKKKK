@@ -91,7 +91,9 @@ def test_merge_covers_all_user_foreign_keys():
             for fk in col.foreign_keys:
                 if fk.column.table.name == "users" and fk.column.name == "id":
                     expected.add((table.name, col.name))
-    actual = {(model.__tablename__, column) for model, column in _USER_ID_COLUMNS}
+    from app.app.services.user_identity import _USER_ID_SPECIAL
+
+    actual = {(model.__tablename__, column) for model, column in _USER_ID_COLUMNS} | _USER_ID_SPECIAL
     assert actual == expected, f"merge columns {actual} vs FKs {expected}"
 
 

@@ -206,14 +206,11 @@ def withdraw_voice_consent(db: Session, user_id: int) -> int:
     if profile is not None:
         profile.voice_consent_at = None
         profile.voice_consent_text_version = None
-    removed = 0
-    if hasattr(SpeakerProfile, "user_id"):
-        rows = db.scalars(select(SpeakerProfile).where(SpeakerProfile.user_id == user_id)).all()
-        for row in rows:
-            db.delete(row)
-        removed = len(rows)
+    rows = db.scalars(select(SpeakerProfile).where(SpeakerProfile.user_id == user_id)).all()
+    for row in rows:
+        db.delete(row)
     db.commit()
-    return removed
+    return len(rows)
 
 
 def restore_voice_consent(db: Session, user_id: int) -> None:

@@ -17,6 +17,7 @@ from app.app.models.project_mcp_token import ProjectMcpToken
 from app.app.models.project_member import ProjectMember
 from app.app.models.project_task import ProjectTask
 from app.app.models.meeting import Meeting, MeetingParticipant
+from app.app.models.speaker_profile import SpeakerProfile
 from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
 
@@ -37,7 +38,10 @@ _USER_ID_COLUMNS: list[tuple[type, str]] = [
     (Resolution, "resolved_by"),
     (Meeting, "created_by"),
     (MeetingParticipant, "user_id"),
+    (SpeakerProfile, "user_id"),
 ]
+# Ссылки на users, которые переносит не общий UPDATE, а своя функция (PK user_id: одна карточка на человека).
+_USER_ID_SPECIAL: set[tuple[str, str]] = {("user_profiles", "user_id")}  # user_profile.merge_profiles
 
 
 def normalize_login_name(name: str) -> str:

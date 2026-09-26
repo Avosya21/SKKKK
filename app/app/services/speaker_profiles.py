@@ -158,6 +158,8 @@ def sync_confirmed_to_global(db: Session, profile: SpeakerProfile) -> SpeakerPro
 
     if best is not None and best_score >= GLOBAL_VOICE_MERGE_THRESHOLD:
         _blend_embedding(best, vec)
+        if best.user_id is None and profile.user_id is not None:
+            best.user_id = profile.user_id
         db.commit()
         db.refresh(best)
         return best
@@ -165,6 +167,7 @@ def sync_confirmed_to_global(db: Session, profile: SpeakerProfile) -> SpeakerPro
     global_prof = SpeakerProfile(
         scope="global",
         project_id=None,
+        user_id=profile.user_id,
         display_name=profile.display_name,
         embedding=profile.embedding,
         embedding_dim=profile.embedding_dim,

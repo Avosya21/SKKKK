@@ -26,6 +26,9 @@ class SpeakerProfile(Base):
     source_end_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Чей это голос (карточка сотрудника). Пусто — гость или не привязан. Привязка — только
+    # services/voice_link.py и только при согласии на голос; отзыв согласия удаляет такие слепки.
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
 
 
 class ArtifactSpeakerLink(Base):
