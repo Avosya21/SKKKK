@@ -221,7 +221,10 @@ def _join_payload(settings: Settings, meeting: Meeting, identity: str, display_n
 def join_member(db: Session, settings: Settings, meeting: Meeting, user: User) -> dict:
     if meeting.status != STATUS_LIVE:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting is not live")
-    name = (user.name or f"user-{user.id}")[:128]
+    # Имя из карточки («Имя Фамилия»): его видят в плитке и в расшифровке; без карточки — логин.
+    from app.app.services.user_profile import full_name, get_profile
+
+    name = (full_name(get_profile(db, user.id)) or user.name or f"user-{user.id}")[:128]
     identity = f"member:{user.id}"
     row = db.scalar(
         select(MeetingParticipant).where(

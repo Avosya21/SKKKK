@@ -587,6 +587,8 @@ const SKKKKMeeting = {
 
   async connect(livekit, els, devices) {
     const statusEl = els.statusEl;
+    // Гостевая страница берёт фото сотрудников по токену встречи, портал — по сессии.
+    this._publicToken = els.publicToken || null;
     this._joined = false;
     if (!livekit || !livekit.configured || !livekit.url || !livekit.token) {
       statusEl.textContent = "Комната ещё не настроена. Голос появится после запуска LiveKit.";
@@ -2294,6 +2296,16 @@ const SKKKKMeeting = {
     return person.name || person.identity || "Участник";
   },
 
+  /** Фото из карточки для сотрудника (`member:<id>`); у гостей фото нет. */
+  _avatarUrl(person, size) {
+    const m = /^member:(\d+)$/.exec((person && person.identity) || "");
+    if (!m) return null;
+    if (this._publicToken) {
+      return `/api/meetings/public/${encodeURIComponent(this._publicToken)}/avatars/${m[1]}?size=${size}`;
+    }
+    return `/people/${m[1]}/avatar?size=${size}`;
+  },
+
   _renderTiles(room, els) {
     if (!els) return;
     const people = this._participants(room).filter((person) => !isHidden(person));
@@ -2469,6 +2481,18 @@ const SKKKKMeeting = {
       mark.className = "meeting-tile-placeholder";
       mark.textContent = this._label(person).slice(0, 1).toUpperCase();
       stage.appendChild(mark);
+      const photo = this._avatarUrl(person, 512);
+      if (photo) {
+        // Фото сотрудника (карточка); не загрузилось — остаётся буква.
+        const img = new Image();
+        img.className = "meeting-tile-avatar";
+        img.alt = "";
+        img.decoding = "async";
+        img.onload = () => {
+          if (mark.isConnected) mark.replaceWith(img);
+        };
+        img.src = photo;
+      }
       return;
     }
     const node = pub.track.attach();
