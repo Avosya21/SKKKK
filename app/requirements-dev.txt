@@ -1,0 +1,4 @@
+# Инструменты разработки и смоук-проверок (не нужны на проде).
+# Установка: venv\Scripts\pip install -r app\requirements-dev.txt
+#            venv\Scripts\python -m playwright install chromium
+playwright==1.63.0
