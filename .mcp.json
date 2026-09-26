@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "skkkk-index": {
+      "command": "venv/Scripts/python.exe",
+      "args": ["tools/projindex_mcp.py"],
+      "env": { "PYTHONIOENCODING": "utf-8" }
+    }
+  }
+}
