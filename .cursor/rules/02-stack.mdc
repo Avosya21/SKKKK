@@ -1,0 +1,12 @@
+---
+description: Стек FastAPI / SQLite / Jinja на Windows
+alwaysApply: true
+---
+
+# Стек
+
+- Python 3.11, FastAPI, SQLAlchemy 2, Alembic, Jinja2 + Bootstrap 5.
+- БД: SQLite `C:\1C_NEW_SKKKK\data\app.db`. Векторы: sqlite-vec. Граф: таблицы `entities` и `links`.
+- Qdrant и Neo4j не подключать, пока пользователь явно не дойдёт до этапа 10 плана.
+- Telegram: HTTP Bot API, без polling-бота внутри FastAPI.
+- Секреты только в `.env`, не в git. Шаблон — `.env.example`.

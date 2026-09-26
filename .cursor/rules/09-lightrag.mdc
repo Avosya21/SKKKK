@@ -1,0 +1,46 @@
+---
+description: Как ориентироваться в карте SKKKK — search_project_map первичен, LightRAG только для связей.
+globs:
+alwaysApply: true
+---
+
+# Карта проекта — как искать
+
+Два индекса, разные роли. Не путать с prod RAG чата (`entities` / `chunks` в `app.db`).
+
+| Индекс | Что умеет | Когда |
+|--------|-----------|--------|
+| `scripts/search_project_map.py` | Код (функции, JS, шаблоны), карта, решения, символы, вызовы, роуты, БД, окружение, история; ответы с `путь:строка` | **Сначала.** Кнопка, API, статус, «когда видна», какой файл |
+| LightRAG `:9621` | Граф связей поверх тех же docs | Потом. «Что вызывает что», соседи сущности |
+
+```powershell
+venv\Scripts\python.exe scripts\search_project_map.py "speakers-confirm когда видна match"
+venv\Scripts\python.exe scripts\search_project_map.py --callers speakers_confirm   # точные связи — здесь, без LightRAG
+venv\Scripts\python.exe scripts\lightrag_query.py "что вызывает speakers-confirm"
+```
+
+## Как спрашивать
+
+В запрос клади **имена из репо**, не бытовое описание: `speakers-confirm`, `speakerMatchLink`, `speakers_pending`, `search_entities`.
+
+LightRAG **нельзя** считать ответом, если в тексте нет пути, id узла (`ui_btn_…`, `svc_…`) или функции из репо. Типичный провал — инструкция «добавьте `<button>` в HTML». Тогда ответ выкинуть и идти в `search_project_map` / `Grep`.
+
+`lightrag_query` с exit 0 ≠ полезный ответ. Сначала `scripts/lightrag_doctor.py`: сервис OK, inputs не пустые. После правок карты LightRAG сам не обновляется — только `lightrag_sync_docs.py` + `lightrag_index.py --wait`. Для агента достаточно `index_project_map.py`.
+
+## Что карта содержит, чего нет
+
+Источник истины — `docs/PROJECT-MAP.md` + `docs/project-map/manifest.yaml`. Это **кураторский** слой: кнопки, API, пайплайны, модули, рёбра.
+
+Там **нет** каждой функции и ветки `if`. Это работа `Grep` / чтения файла. Неполный граф ≠ дыра в продукте; дыра — если в карте нет **кнопки, роута или смены конвейера**, а в коде они уже есть.
+
+После таких правок: карта + `index_project_map.py`. LightRAG — когда нужен свежий граф в WebUI.
+
+## Запуск LightRAG (если граф нужен)
+
+```powershell
+cd tools\lightrag
+docker compose up -d
+venv\Scripts\python.exe scripts\lightrag_doctor.py
+```
+
+WebUI: http://127.0.0.1:9621
