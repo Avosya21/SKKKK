@@ -27,7 +27,8 @@ class UserOut(BaseModel):
 
 
 class LoginStepResponse(BaseModel):
-    """Пароль роли принят, нужен шаг 2: `setup` — придумать личный пароль, `personal` — ввести его."""
+    """Нужен следующий шаг входа: `setup` — придумать личный пароль, `personal` — ввести его,
+    `profile` — заполнить карточку."""
 
     step: str
     ticket: str
@@ -58,3 +59,21 @@ class PasswordStateResponse(BaseModel):
     mode: str
     has_password: bool
     min_length: int
+
+
+class ProfileCompanyOut(BaseModel):
+    id: int
+    name: str
+
+
+class ProfileOptionsResponse(BaseModel):
+    """Что нужно форме карточки при входе: компании (без стороны) и уведомление о согласии."""
+
+    name: str
+    companies: list[ProfileCompanyOut]
+    company_locked: bool
+    company_id: int | None
+    consent_text: str
+    consent_details: str
+    consent_version: str
+    max_photo_mb: int

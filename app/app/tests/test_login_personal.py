@@ -18,7 +18,11 @@ def _set_mode(monkeypatch, mode: str) -> None:
 
 @pytest.fixture()
 def required(client, monkeypatch):
+    from app.app.services import user_profile
+
     _set_mode(monkeypatch, "required")
+    # Здесь проверяется только личный пароль; шаг «карточка» — в test_login_profile.py.
+    monkeypatch.setattr(user_profile, "is_complete", lambda _profile: True)
     return client
 
 
@@ -136,7 +140,7 @@ def test_setup_when_password_exists_is_conflict(required):
 
 
 def test_session_from_before_personal_passwords_dies_right_away(client, monkeypatch):
-    old_token = _step1(client)["access_token"]  # выдан до включения: без pp
+    old_token = _step1(client)["access_token"]  # выдан до включения: без pp и pf
     _set_mode(monkeypatch, "required")
     assert client.get("/projects", headers=_bearer(old_token)).status_code == 401
 

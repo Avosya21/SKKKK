@@ -44,6 +44,7 @@ from app.app.routers import (  # noqa: E402
     knowledge,
     meetings,
     pages,
+    people,
     project_mcp,
     requirement_review,
     project_members,
@@ -81,6 +82,9 @@ async def lifespan(_app: FastAPI):
         merged = merge_duplicate_logins(db)
         ensure_login_name_unique_index()
         backfilled = backfill_chat_activity(db)
+        from app.app.services.companies import sync_companies
+
+        sync_companies(db)
         from app.app.services.graph import purge_orphan_links
 
         orphan_links = purge_orphan_links(db)
@@ -229,6 +233,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 app.include_router(acme.router)
 app.include_router(pages.router)
 app.include_router(auth.router)
+app.include_router(people.router)
 app.include_router(projects.router)
 app.include_router(upload.router)
 app.include_router(knowledge.router)

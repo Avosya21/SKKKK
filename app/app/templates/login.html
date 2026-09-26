@@ -1,5 +1,21 @@
 {% extends "base.html" %}
-{# Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести) #}
+{# Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести);
+   шаг 3 — карточка (ФИО, компания, должность, фото), если ещё не заполнена #}
+{% block extra_head %}
+<style>
+  .profile-photo { display: flex; gap: 1rem; align-items: center; }
+  .profile-photo-preview {
+    width: 96px; height: 96px; flex: 0 0 96px; border-radius: 50%; overflow: hidden;
+    background: var(--ds-surface-2); border: 1px dashed var(--ds-line-strong);
+    display: flex; align-items: center; justify-content: center; color: var(--ds-muted); font-size: .8rem;
+  }
+  .profile-photo-preview.has-photo { border-style: solid; border-color: var(--ds-line); }
+  .profile-photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .profile-photo-preview.is-invalid { border-color: var(--ds-danger); }
+  .profile-consent { background: var(--ds-surface-2); border-radius: var(--ds-r-md); padding: .6rem .75rem; }
+  .profile-consent summary { color: var(--ds-link); cursor: pointer; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-md-5">
@@ -48,6 +64,53 @@
           <button class="btn btn-primary w-100 skkkk-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
           <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
         </form>
+
+        {# Шаг 3. Карточка: всё обязательно, отправляется одним запросом вместе с фото. #}
+        <form id="profile-form" class="d-none" novalidate>
+          <p class="mb-3" id="profile-hint"></p>
+          <div class="profile-photo mb-3">
+            <div class="profile-photo-preview" id="profile-photo-preview">
+              <span id="profile-photo-empty">Фото</span>
+              <img id="profile-photo-img" alt="Ваше фото" class="d-none">
+            </div>
+            <div>
+              <label class="btn btn-outline-secondary btn-sm mb-1" for="profile-photo">Выбрать фото</label>
+              <input type="file" id="profile-photo" accept="image/*" class="visually-hidden">
+              <label class="btn btn-outline-secondary btn-sm mb-1 d-none" for="profile-camera" id="profile-camera-btn">Сделать снимок</label>
+              <input type="file" id="profile-camera" accept="image/*" capture="user" class="visually-hidden">
+              <div class="form-text">Лицо крупно, по центру: фото обрежется в квадрат. Будет видно в окне созвона.</div>
+              <div class="invalid-feedback" data-for="avatar"></div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="profile-last">Фамилия</label>
+            <input class="form-control" id="profile-last" name="last_name" autocomplete="family-name" enterkeyhint="next" maxlength="100">
+            <div class="invalid-feedback" data-for="last_name"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="profile-first">Имя</label>
+            <input class="form-control" id="profile-first" name="first_name" autocomplete="given-name" enterkeyhint="next" maxlength="100">
+            <div class="invalid-feedback" data-for="first_name"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="profile-company">Компания</label>
+            <select class="form-select" id="profile-company" name="company_id"></select>
+            <div class="form-text d-none" id="profile-company-locked">Компанию назначил администратор.</div>
+            <div class="invalid-feedback" data-for="company_id"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="profile-job">Должность</label>
+            <input class="form-control" id="profile-job" name="job_title" autocomplete="organization-title" enterkeyhint="done" maxlength="150">
+            <div class="invalid-feedback" data-for="job_title"></div>
+          </div>
+          <div class="form-text profile-consent mb-3" id="profile-consent">
+            <span id="profile-consent-text"></span>
+            <details class="mt-1"><summary>Подробнее</summary><div class="mt-1" id="profile-consent-details"></div></details>
+          </div>
+          <div class="alert alert-danger d-none" id="profile-error" role="alert"></div>
+          <button class="btn btn-primary w-100 skkkk-action-btn mb-2" type="submit" id="profile-submit" data-idle-label="Сохранить и войти">Сохранить и войти</button>
+          <button type="button" class="btn btn-link px-0" id="profile-back">Назад</button>
+        </form>
       </div>
     </div>
   </div>
@@ -58,8 +121,10 @@
 (function () {
   const loginForm = document.getElementById('login-form');
   const stepForm = document.getElementById('step-form');
+  const profileForm = document.getElementById('profile-form');
   const $ = (id) => document.getElementById(id);
   let step = null;  // {step, ticket, name, min_length}
+  let profile = null;  // {ticket, options, photo: File|null, photoUrl}
 
   function errorText(payload, status) {
     const detail = payload && payload.detail;
@@ -89,7 +154,9 @@
 
   function backToStart(message) {
     step = null;
+    profile = null;
     stepForm.classList.add('d-none');
+    profileForm.classList.add('d-none');
     loginForm.classList.remove('d-none');
     for (const id of ['step-personal', 'step-new', 'step-confirm']) $(id).value = '';
     $('login-password').value = '';
@@ -115,6 +182,85 @@
     loginForm.classList.add('d-none');
     stepForm.classList.remove('d-none');
     $(setup ? 'step-new' : 'step-personal').focus();
+  }
+
+  // --- шаг 3: карточка ---
+  function fieldError(field, text) {
+    const box = profileForm.querySelector(`.invalid-feedback[data-for="${field}"]`);
+    const input = field === 'avatar' ? $('profile-photo-preview')
+      : profileForm.querySelector(`[name="${field}"]`);
+    if (box) {
+      box.textContent = text || '';
+      box.classList.toggle('d-block', Boolean(text));
+    }
+    if (input) input.classList.toggle('is-invalid', Boolean(text));
+  }
+
+  function clearProfileErrors() {
+    for (const f of ['avatar', 'last_name', 'first_name', 'company_id', 'job_title']) fieldError(f, '');
+    showError($('profile-error'), '');
+  }
+
+  function setPhoto(file) {
+    if (!profile || !file) return;
+    const maxMb = profile.options.max_photo_mb;
+    if (!file.type.startsWith('image/')) {
+      fieldError('avatar', 'Выберите фото (JPEG или PNG)');
+      return;
+    }
+    if (file.size > maxMb * 1024 * 1024) {
+      fieldError('avatar', `Фото больше ${maxMb} МБ`);
+      return;
+    }
+    if (profile.photoUrl) URL.revokeObjectURL(profile.photoUrl);
+    profile.photo = file;
+    profile.photoUrl = URL.createObjectURL(file);
+    $('profile-photo-img').src = profile.photoUrl;
+    $('profile-photo-img').classList.remove('d-none');
+    $('profile-photo-empty').classList.add('d-none');
+    $('profile-photo-preview').classList.add('has-photo');
+    fieldError('avatar', '');
+  }
+
+  async function openProfile(data) {
+    const {r, payload} = await post('/auth/login/profile/options', {ticket: data.ticket});
+    if (!r.ok) {
+      stepFailed(r, payload);
+      return;
+    }
+    profile = {ticket: data.ticket, options: payload, photo: null, photoUrl: null};
+    $('profile-hint').textContent =
+      `${payload.name}, заполните карточку. Это нужно один раз: имя и фото увидят коллеги, в том числе в созвоне.`;
+    const select = $('profile-company');
+    select.replaceChildren();
+    if (!payload.company_locked && payload.companies.length > 1) {
+      select.append(new Option('Выберите компанию', ''));
+    }
+    for (const c of payload.companies) select.append(new Option(c.name, String(c.id)));
+    if (payload.company_locked) {
+      if (!payload.companies.some((c) => c.id === payload.company_id)) {
+        select.append(new Option('Назначена администратором', String(payload.company_id)));
+      }
+      select.value = String(payload.company_id);
+    }
+    select.disabled = payload.company_locked;
+    $('profile-company-locked').classList.toggle('d-none', !payload.company_locked);
+    $('profile-consent-text').textContent = payload.consent_text;
+    $('profile-consent-details').textContent = payload.consent_details;
+    $('profile-camera-btn').classList.toggle('d-none', !matchMedia('(pointer: coarse)').matches);
+    clearProfileErrors();
+    loginForm.classList.add('d-none');
+    stepForm.classList.add('d-none');
+    profileForm.classList.remove('d-none');
+    $('profile-last').focus();
+  }
+
+  function afterStep(payload) {
+    if (payload.step === 'profile') {
+      openProfile(payload);
+      return;
+    }
+    finish(payload);
   }
 
   // Истёк/сгорел пропуск — назад на шаг 1; прочие ошибки — под формой шага 2.
@@ -178,12 +324,72 @@
     await SKKKK.guardSubmit(stepForm, async () => {
       const {r, payload} = await post(url, body);
       if (r.ok) {
-        finish(payload);
+        await afterStep(payload);
         return;
       }
       stepFailed(r, payload);
     }, { busyText: setup ? 'Сохраняю…' : 'Вхожу…' });
   });
+
+  // Исправил поле — подсказка об ошибке под ним уходит сразу, не дожидаясь отправки.
+  for (const type of ['input', 'change']) {
+    profileForm.addEventListener(type, (e) => {
+      if (e.target.name) fieldError(e.target.name, '');
+    });
+  }
+  $('profile-photo').addEventListener('change', (e) => setPhoto(e.target.files[0]));
+  $('profile-camera').addEventListener('change', (e) => setPhoto(e.target.files[0]));
+
+  profileForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!profile) return;
+    clearProfileErrors();
+    const values = {
+      last_name: $('profile-last').value.trim(),
+      first_name: $('profile-first').value.trim(),
+      company_id: $('profile-company').value,
+      job_title: $('profile-job').value.trim(),
+    };
+    const missing = [];
+    if (!profile.photo) missing.push(['avatar', 'Добавьте фото']);
+    if (!values.last_name) missing.push(['last_name', 'Укажите фамилию']);
+    if (!values.first_name) missing.push(['first_name', 'Укажите имя']);
+    if (!values.company_id) missing.push(['company_id', 'Выберите компанию']);
+    if (values.job_title.length < 2) missing.push(['job_title', 'Укажите должность']);
+    if (missing.length) {
+      for (const [f, t] of missing) fieldError(f, t);
+      const first = missing[0][0];
+      (first === 'avatar' ? profileForm.querySelector('label[for="profile-photo"]') : profileForm.querySelector(`[name="${first}"]`))
+        .scrollIntoView({block: 'center'});
+      return;
+    }
+    const fd = new FormData();
+    fd.append('ticket', profile.ticket);
+    for (const [k, v] of Object.entries(values)) fd.append(k, v);
+    fd.append('avatar', profile.photo, profile.photo.name || 'photo.jpg');
+    await SKKKK.guardSubmit(profileForm, async () => {
+      const r = await fetch('/auth/login/profile', {method: 'POST', body: fd});
+      let payload = null;
+      try { payload = await r.json(); } catch (ex) { payload = null; }
+      if (r.ok) {
+        finish(payload);
+        return;
+      }
+      if (payload && payload.field) {
+        fieldError(payload.field, errorText(payload, r.status));
+        return;
+      }
+      if (r.status === 401 || r.status === 409) {
+        backToStart(errorText(payload, r.status));
+        return;
+      }
+      showError($('profile-error'), errorText(payload, r.status));
+    }, { busyText: 'Сохраняю…' });
+    // guardSubmit возвращает прежнее состояние полей — заблокированную админом компанию держим закрытой.
+    $('profile-company').disabled = Boolean(profile && profile.options.company_locked);
+  });
+
+  $('profile-back').addEventListener('click', () => backToStart(''));
 
   $('step-back').addEventListener('click', () => backToStart(''));
 
