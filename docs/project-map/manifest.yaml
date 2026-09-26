@@ -2504,6 +2504,76 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_company
+    kind: model
+    path: app/app/models/company.py
+    title: "Модель Company — компания из файла Companies.txt: название и сторона (исполнитель / заказчик)."
+    tags: [auto]
+    auto: true
+
+  - id: model_user_profile
+    kind: model
+    path: app/app/models/user_profile.py
+    title: "Модель UserProfile — карточка человека (1:1 с users): ФИО, компания, должность, фото, согласие на голос."
+    tags: [auto]
+    auto: true
+
+  - id: router_people
+    kind: router
+    path: app/app/routers/people.py
+    title: "Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_avatars
+    kind: service
+    path: app/app/services/avatars.py
+    title: "Фото пользователя: проверка, выпрямление, удаление метаданных, квадрат 512 и 96 px WebP в `data/people/<user_id>/`."
+    tags: [auto]
+    auto: true
+
+  - id: svc_companies
+    kind: service
+    path: app/app/services/companies.py
+    title: "Компании из файла `Companies.txt` (корень проекта, как `Login_up.txt`): разбор и перенос в таблицу `companies`."
+    tags: [auto]
+    auto: true
+
+  - id: svc_user_profile
+    kind: service
+    path: app/app/services/user_profile.py
+    title: "Карточка пользователя: проверка полей, заполнение при первом входе, правка своей карточки, действия админа."
+    tags: [auto]
+    auto: true
+
+  - id: svc_user_profile_console
+    kind: service
+    path: app/app/services/user_profile_console.py
+    title: "Карточки пользователей из консоли: пункт 8 меню запуска `main` и `scripts/user_profile.py`."
+    tags: [auto]
+    auto: true
+
+  - id: svc_voice_link
+    kind: service
+    path: app/app/services/voice_link.py
+    title: "Привязка слепков голоса к карточке сотрудника (задел: автосбор с дорожки созвона — отдельный план)."
+    tags: [auto]
+    auto: true
+
+  - id: script_link_voice_profiles
+    kind: file
+    path: scripts/link_voice_profiles.py
+    title: "Привязка слепков голоса к карточкам сотрудников — только по подтверждению, ничего не привязывается само."
+    tags: [auto]
+    auto: true
+
+  - id: script_user_profile
+    kind: file
+    path: scripts/user_profile.py
+    title: "Карточки пользователей из командной строки — когда портал запущен службой, а не из PyCharm."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

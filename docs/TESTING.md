@@ -67,7 +67,7 @@ app\app\tests\
 
 ## Фикстуры
 
-`conftest.py` предоставляет: временную БД, временный `DATA_DIR`, `anon_client` (без логина), `cookie_auth_client` (после `/auth/login` в cookie `skkkk_session`), токены трёх ролей и `auth_headers` (Bearer), клиента API, фабрику проектов и артефактов, поддельные ответы LM Studio и Ollama. База личных паролей (`credentials_db`) в каждом тесте — временный файл (`_isolated_credentials_db`), боевая `data/credentials.db` недоступна; режим включается `monkeypatch.setenv("PERSONAL_PASSWORD", "optional")` + `get_settings.cache_clear()`. Login также кладёт тот же JWT в HttpOnly cookie; тесты, которым нужен только Bearer, делают `client.cookies.clear()`.
+`conftest.py` предоставляет: временную БД, временный `DATA_DIR`, `anon_client` (без логина), `cookie_auth_client` (после `/auth/login` в cookie `skkkk_session`), токены трёх ролей и `auth_headers` (Bearer), клиента API, фабрику проектов и артефактов, поддельные ответы LM Studio и Ollama. База личных паролей (`credentials_db`) в каждом тесте — временный файл (`_isolated_credentials_db`), боевая `data/credentials.db` недоступна; по умолчанию в тестах `PERSONAL_PASSWORD=off` (conftest), включается `monkeypatch.setenv("PERSONAL_PASSWORD", "required")` + `get_settings.cache_clear()`; компании — временный `Companies.txt` (`ACME | Исполнитель`, `Заказчик Тест | Заказчик`), фото — `DATA_DIR/people`. Смоук против боевого сервера: `SMOKE_PERSONAL_PW` — личный пароль смоук-логина, его пароль и карточку один раз заводят в браузере (иначе код 77). Login также кладёт тот же JWT в HttpOnly cookie; тесты, которым нужен только Bearer, делают `client.cookies.clear()`.
 
 ## Проверка ответов LLM
 
@@ -148,8 +148,14 @@ app\app\tests\
 | test_llm_settings.py | 3 | 8 passed |
 | test_login_allowlist.py | 6 | 6 passed |
 | test_login_personal.py | 17 | 17 passed |
-| test_personal_password.py | 16 | 16 passed |
+| test_personal_password.py | 17 | 17 passed |
 | test_personal_password_console.py | 8 | 8 passed |
+| test_user_profile.py | 19 | 19 passed |
+| test_avatars.py | 13 | 13 passed |
+| test_login_profile.py | 16 | 16 passed |
+| test_user_profile_console.py | 6 | 6 passed |
+| test_meeting_avatars.py | 5 | 5 passed |
+| test_voice_link.py | 6 | 6 passed |
 | test_media_cleanup.py | 4 | 8 passed |
 | test_meeting_checks.py | 3 | 7 passed |
 | test_meeting_control_call.py | 3 | 1 passed |
