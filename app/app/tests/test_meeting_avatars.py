@@ -71,3 +71,25 @@ def test_portal_avatar_cache_depends_on_version(client, manager_token):
     assert plain.status_code == 200 and "max-age=300" in plain.headers["cache-control"]
     stale = client.get(f"/people/{user_id}/avatar?size=96&v=0000", headers=_auth(manager_token))
     assert "immutable" not in stale.headers["cache-control"]
+
+
+def test_track_gets_company_and_side_for_members_only(client, manager_token):
+    """meeting.json: у сотрудника — user_id, компания и сторона; у гостя — ничего (сторона неизвестна)."""
+    import app.app.db as db_mod
+    from app.app.models.company import Company
+    from app.app.services import user_profile
+    from app.app.services.meeting_analyze import _participant_card
+
+    user_id = _give_card("Manager")
+    with db_mod.SessionLocal() as db:
+        assert _participant_card(db, f"member:{user_id}") == {
+            "user_id": user_id,
+            "company": "ACME",
+            "side": "executor",
+        }
+        customer = db.query(Company).filter_by(name="Заказчик Тест").one()
+        user_profile.set_company(db, user_id, customer.id)
+        assert _participant_card(db, f"member:{user_id}")["side"] == "customer"
+        assert _participant_card(db, "guest:abc") == {}
+        assert _participant_card(db, "member:999999") == {"user_id": 999999}
+        assert _participant_card(db, "member:1x") == {}
