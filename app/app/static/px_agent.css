@@ -1,0 +1,24 @@
+/* Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. */
+.px-card .card-header .px-toggle-btn { border: 0; background: transparent; color: inherit; text-align: left; flex: 1 1 auto; }
+.px-card .card-header .px-toggle-btn:hover { color: var(--ds-text-2, #3f3f46); }
+.px-list { display: flex; flex-direction: column; gap: 0; }
+.px-item { border: 1px solid var(--ds-line, #e4e4e7); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--ds-surface, #fff); }
+.px-statement { color: var(--ds-text, #09090b); overflow-wrap: anywhere; white-space: pre-wrap; }
+.px-quote { margin: 8px 0 0; padding: 6px 12px; border-left: 2px solid var(--ds-line-strong, #d4d4d8); color: var(--ds-text-2, #3f3f46); font-size: .875rem; overflow-wrap: anywhere; }
+.px-quote footer { margin-top: 2px; font-size: .78rem; color: var(--ds-text-3, #71717a); }
+.px-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.px-form-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.px-form-row .form-control, .px-form-row .form-select { flex: 1 1 200px; min-width: 0; }
+.px-filters .px-filter { width: auto; min-width: 150px; }
+.px-filters .px-grow { flex: 1 1 200px; }
+.px-draft, .px-answer { margin-top: 8px; padding: 8px 12px; border-radius: 6px; background: var(--ds-surface-2, #f4f4f5); font-size: .9rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.px-sources li { margin-bottom: 4px; overflow-wrap: anywhere; }
+.px-journal td, .px-journal th { vertical-align: top; }
+.px-tabs .nav-link { color: var(--ds-text-2, #3f3f46); }
+.px-tabs .nav-link.active { color: var(--ds-text, #09090b); font-weight: 600; }
+.px-form .form-text { color: var(--ds-text-3, #71717a); }
+@media (max-width: 576px) {
+  .px-item { padding: 10px 10px; }
+  .px-filters .px-filter { flex: 1 1 100%; }
+  .px-actions .btn { flex: 1 1 auto; }
+}
