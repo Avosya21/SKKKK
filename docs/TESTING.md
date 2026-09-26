@@ -67,7 +67,7 @@ app\app\tests\
 
 ## Фикстуры
 
-`conftest.py` предоставляет: временную БД, временный `DATA_DIR`, `anon_client` (без логина), `cookie_auth_client` (после `/auth/login` в cookie `skkkk_session`), токены трёх ролей и `auth_headers` (Bearer), клиента API, фабрику проектов и артефактов, поддельные ответы LM Studio и Ollama. Login также кладёт тот же JWT в HttpOnly cookie; тесты, которым нужен только Bearer, делают `client.cookies.clear()`.
+`conftest.py` предоставляет: временную БД, временный `DATA_DIR`, `anon_client` (без логина), `cookie_auth_client` (после `/auth/login` в cookie `skkkk_session`), токены трёх ролей и `auth_headers` (Bearer), клиента API, фабрику проектов и артефактов, поддельные ответы LM Studio и Ollama. База личных паролей (`credentials_db`) в каждом тесте — временный файл (`_isolated_credentials_db`), боевая `data/credentials.db` недоступна; режим включается `monkeypatch.setenv("PERSONAL_PASSWORD", "optional")` + `get_settings.cache_clear()`. Login также кладёт тот же JWT в HttpOnly cookie; тесты, которым нужен только Bearer, делают `client.cookies.clear()`.
 
 ## Проверка ответов LLM
 
@@ -147,6 +147,9 @@ app\app\tests\
 | test_llm_provider.py | 2 | 16 passed |
 | test_llm_settings.py | 3 | 8 passed |
 | test_login_allowlist.py | 6 | 6 passed |
+| test_login_personal.py | 17 | 17 passed |
+| test_personal_password.py | 16 | 16 passed |
+| test_personal_password_console.py | 8 | 8 passed |
 | test_media_cleanup.py | 4 | 8 passed |
 | test_meeting_checks.py | 3 | 7 passed |
 | test_meeting_control_call.py | 3 | 1 passed |
