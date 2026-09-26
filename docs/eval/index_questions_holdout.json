@@ -1,0 +1,197 @@
+[
+ {
+  "id": "h01",
+  "group": "где лежит",
+  "q": "разбор дат и сроков из текста созвона",
+  "expect": [
+   "app/app/services/project_deadlines.py"
+  ]
+ },
+ {
+  "id": "h02",
+  "group": "где лежит",
+  "q": "скачивание оригинала файла артефакта",
+  "expect": [
+   "app/app/services/artifact_download.py"
+  ]
+ },
+ {
+  "id": "h03",
+  "group": "где лежит",
+  "q": "чанкование текста для индексации",
+  "expect": [
+   "app/app/services/chunking.py"
+  ]
+ },
+ {
+  "id": "h04",
+  "group": "где лежит",
+  "q": "извлечение текста из изображений OCR",
+  "expect": [
+   "app/app/services/image_extract.py",
+   "app/app/services/tesseract_tools.py"
+  ]
+ },
+ {
+  "id": "h05",
+  "group": "где лежит",
+  "q": "проверка что запущена только одна копия воркера",
+  "expect": [
+   "app/app/services/single_instance.py"
+  ]
+ },
+ {
+  "id": "h06",
+  "group": "где лежит",
+  "q": "пересборка технического задания",
+  "expect": [
+   "app/app/services/tz.py"
+  ]
+ },
+ {
+  "id": "h07",
+  "group": "где лежит",
+  "q": "уведомления в телеграм о готовности файла",
+  "expect": [
+   "app/app/services/notify.py"
+  ]
+ },
+ {
+  "id": "h08",
+  "group": "где лежит",
+  "q": "права доступа к проекту для участника",
+  "expect": [
+   "app/app/services/project_access.py"
+  ]
+ },
+ {
+  "id": "h09",
+  "group": "как работает",
+  "q": "как строится ссылка на страницу отчёта артефакта",
+  "expect": [
+   "app/app/services/artifact_reports.py",
+   "app/app/routers/pages.py"
+  ]
+ },
+ {
+  "id": "h10",
+  "group": "как работает",
+  "q": "как проверяется токен гостя при входе во встречу",
+  "expect": [
+   "app/app/services/meetings.py",
+   "app/app/services/meeting_tokens.py"
+  ]
+ },
+ {
+  "id": "h11",
+  "group": "как работает",
+  "q": "чем заканчивается встреча и что происходит с записью",
+  "expect": [
+   "app/app/services/meetings.py",
+   "app/app/services/meeting_recordings.py"
+  ]
+ },
+ {
+  "id": "h12",
+  "group": "кто вызывает",
+  "q": "кто вызывает get_engine",
+  "expect": [
+   "app/app/main.py",
+   "app/app/db.py"
+  ]
+ },
+ {
+  "id": "h13",
+  "group": "кто вызывает",
+  "q": "какой обработчик у POST /auth/login",
+  "expect": [
+   "app/app/routers/auth.py"
+  ]
+ },
+ {
+  "id": "h14",
+  "group": "кто вызывает",
+  "q": "кто вызывает embed_texts",
+  "expect": [
+   "app/app/routers/knowledge.py",
+   "app/app/services/chat.py",
+   "app/app/services/entities.py",
+   "app/app/services/graph.py",
+   "app/app/services/indexing.py",
+   "app/app/services/project_mcp_data.py",
+   "app/app/services/tz.py",
+   "scripts/fast_summarize_tz.py",
+   "app/app/services/project_index/indexer.py",
+   "app/app/services/project_index/search.py"
+  ]
+ },
+ {
+  "id": "h15",
+  "group": "почему так",
+  "q": "почему логин общий для всех сотрудников",
+  "expect": [
+   "docs/DECISIONS.md",
+   "docs/PLAN.md"
+  ]
+ },
+ {
+  "id": "h16",
+  "group": "почему так",
+  "q": "почему индекс строится без GPU",
+  "expect": [
+   "docs/DECISIONS.md",
+   "docs/plans/PROJECT-INDEX-PLAN.md",
+   "docs/PLAN.md"
+  ]
+ },
+ {
+  "id": "h17",
+  "group": "конфиг/БД",
+  "q": "настройка порога схожести поиска",
+  "expect": [
+   "app/app/config.py",
+   ".env.example"
+  ]
+ },
+ {
+  "id": "h18",
+  "group": "конфиг/БД",
+  "q": "таблица artifacts столбец status",
+  "expect": [
+   "app/app/models/artifact.py"
+  ]
+ },
+ {
+  "id": "h19",
+  "group": "конфиг/БД",
+  "q": "где хранятся ключи доступа MCP таблица",
+  "expect": [
+   "app/app/models/project_mcp_token.py"
+  ]
+ },
+ {
+  "id": "h20",
+  "group": "тесты/запуск",
+  "q": "как запустить проверку комнаты созвона",
+  "expect": [
+   "scripts/qa_room.py",
+   "docs/TESTING.md"
+  ]
+ },
+ {
+  "id": "h21",
+  "group": "тесты/запуск",
+  "q": "тесты для быстрой сводки ТЗ",
+  "expect": [
+   "app/app/tests/test_tz.py"
+  ]
+ },
+ {
+  "id": "h22",
+  "group": "тесты/запуск",
+  "q": "проверка целостности данных",
+  "expect": [
+   "scripts/audit_integrity.py"
+  ]
+ }
+]
