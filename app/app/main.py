@@ -551,6 +551,13 @@ def _confirm(question: str) -> bool:
     return answer in {"да", "д", "yes", "y"}
 
 
+def _reset_personal_password_interactive() -> None:
+    """Пункт 7 меню запуска: список логинов → номер или логин → «да» → сброс личного пароля."""
+    from app.app.services.personal_password_console import interactive_reset
+
+    interactive_reset()
+
+
 def _reset_role_passwords_interactive(host: str, port: int) -> None:
     """Пункт 9 меню запуска: перевыпуск паролей всех ролей с подтверждением."""
     print()
@@ -615,6 +622,7 @@ def main(argv: list[str] | None = None) -> int:
             use_saved=use_saved,
             interactive=interactive,
             actions={
+                "7": ("сбросить личный пароль пользователя", _reset_personal_password_interactive),
                 "9": (
                     "перевыпустить пароли ролей",
                     lambda: _reset_role_passwords_interactive(args.host, args.port),
