@@ -1,0 +1,606 @@
+[
+ {
+  "id": "гд01",
+  "group": "где лежит",
+  "q": "подтверждение требований человеком",
+  "expect": [
+   "app/app/services/requirement_review.py",
+   "app/app/routers/requirement_review.py"
+  ]
+ },
+ {
+  "id": "гд02",
+  "group": "где лежит",
+  "q": "ящик вопросов внешнего агента",
+  "expect": [
+   "app/app/services/agent_inbox.py"
+  ]
+ },
+ {
+  "id": "гд03",
+  "group": "где лежит",
+  "q": "ограничение попыток входа",
+  "expect": [
+   "app/app/services/rate_limit.py"
+  ]
+ },
+ {
+  "id": "гд04",
+  "group": "где лежит",
+  "q": "где создаётся кнопка выбора микрофона в комнате",
+  "expect": [
+   "app/app/static/meeting_room.js"
+  ],
+  "symbol": "_ensureMicPicker"
+ },
+ {
+  "id": "гд05",
+  "group": "где лежит",
+  "q": "кнопка выбора динамика в комнате созвона",
+  "expect": [
+   "app/app/templates/meeting_room.html",
+   "app/app/static/meeting_room.js"
+  ]
+ },
+ {
+  "id": "гд06",
+  "group": "где лежит",
+  "q": "защита от запуска второго GPU-воркера",
+  "expect": [
+   "app/app/services/single_instance.py"
+  ]
+ },
+ {
+  "id": "гд07",
+  "group": "где лежит",
+  "q": "автозапуск Docker и ASR-контейнеров перед аудио",
+  "expect": [
+   "app/app/services/docker_runtime.py"
+  ]
+ },
+ {
+  "id": "гд08",
+  "group": "где лежит",
+  "q": "проверка сертификата TLS при старте",
+  "expect": [
+   "app/app/services/tls_cert.py"
+  ]
+ },
+ {
+  "id": "гд09",
+  "group": "где лежит",
+  "q": "запуск Caddy и LiveKit при старте портала",
+  "expect": [
+   "app/app/services/edge_runtime.py"
+  ]
+ },
+ {
+  "id": "гд10",
+  "group": "где лежит",
+  "q": "письма агенту через MCP",
+  "expect": [
+   "app/app/services/agent_letters.py"
+  ]
+ },
+ {
+  "id": "гд11",
+  "group": "где лежит",
+  "q": "вердикты внешнего агента подтверждение",
+  "expect": [
+   "app/app/services/agent_verdicts.py"
+  ]
+ },
+ {
+  "id": "гд12",
+  "group": "где лежит",
+  "q": "настройки проекта для обмена с агентами",
+  "expect": [
+   "app/app/services/agent_settings.py"
+  ]
+ },
+ {
+  "id": "гд13",
+  "group": "где лежит",
+  "q": "проектный MCP инструменты JSON-RPC",
+  "expect": [
+   "app/app/mcp/project_protocol.py"
+  ]
+ },
+ {
+  "id": "гд14",
+  "group": "где лежит",
+  "q": "векторное хранилище sqlite-vec",
+  "expect": [
+   "app/app/services/vector_index.py"
+  ]
+ },
+ {
+  "id": "гд15",
+  "group": "где лежит",
+  "q": "эмбеддинги Ollama bge-m3",
+  "expect": [
+   "app/app/services/ollama_client.py"
+  ]
+ },
+ {
+  "id": "гд16",
+  "group": "где лежит",
+  "q": "быстрая сводка ТЗ top-K",
+  "expect": [
+   "app/app/services/tz.py",
+   "scripts/fast_summarize_tz.py"
+  ]
+ },
+ {
+  "id": "гд17",
+  "group": "где лежит",
+  "q": "ответ чата с источниками",
+  "expect": [
+   "app/app/services/chat.py"
+  ]
+ },
+ {
+  "id": "гд18",
+  "group": "где лежит",
+  "q": "полное удаление проекта",
+  "expect": [
+   "app/app/services/project_purge.py"
+  ]
+ },
+ {
+  "id": "гд19",
+  "group": "где лежит",
+  "q": "разрезная загрузка файлов resumable upload",
+  "expect": [
+   "app/app/services/resumable_upload.py"
+  ]
+ },
+ {
+  "id": "гд20",
+  "group": "где лежит",
+  "q": "дедлайны проекта",
+  "expect": [
+   "app/app/services/project_deadlines.py"
+  ]
+ },
+ {
+  "id": "гд21",
+  "group": "где лежит",
+  "q": "выдача доступа участникам проекта",
+  "expect": [
+   "app/app/services/project_members.py",
+   "app/app/routers/project_members.py"
+  ]
+ },
+ {
+  "id": "гд22",
+  "group": "где лежит",
+  "q": "белый список логинов Login_up",
+  "expect": [
+   "app/app/services/login_allowlist.py"
+  ]
+ },
+ {
+  "id": "гд23",
+  "group": "где лежит",
+  "q": "запись дорожек встречи",
+  "expect": [
+   "app/app/services/meeting_recordings.py"
+  ]
+ },
+ {
+  "id": "гд24",
+  "group": "где лежит",
+  "q": "единая дизайн-система токены цветов",
+  "expect": [
+   "app/app/static/design.css"
+  ]
+ },
+ {
+  "id": "гд25",
+  "group": "где лежит",
+  "q": "страница ошибки на русском",
+  "expect": [
+   "app/app/templates/error.html",
+   "app/app/static/errors_ru.js"
+  ]
+ },
+ {
+  "id": "гд26",
+  "group": "где лежит",
+  "q": "Telegram уведомления",
+  "expect": [
+   "app/app/services/notify.py"
+  ]
+ },
+ {
+  "id": "гд27",
+  "group": "где лежит",
+  "q": "перезапуск сервера с проверками",
+  "expect": [
+   "scripts/restart.ps1"
+  ]
+ },
+ {
+  "id": "гд28",
+  "group": "где лежит",
+  "q": "предпроверка систем перед стартом",
+  "expect": [
+   "app/app/preflight.py"
+  ]
+ },
+ {
+  "id": "гд29",
+  "group": "где лежит",
+  "q": "нормализация текста документов LLM",
+  "expect": [
+   "app/app/services/normalize.py"
+  ]
+ },
+ {
+  "id": "гд30",
+  "group": "где лежит",
+  "q": "граф знаний узлы и рёбра",
+  "expect": [
+   "app/app/services/graph.py"
+  ]
+ },
+ {
+  "id": "гд31",
+  "group": "где лежит",
+  "q": "выбор провайдера LLM lmstudio или cursor",
+  "expect": [
+   "app/app/services/llm.py",
+   "app/app/startup_llm.py"
+  ]
+ },
+ {
+  "id": "ка32",
+  "group": "как работает",
+  "q": "что делает log_activity с сессией БД",
+  "expect": [
+   "app/app/services/user_activity.py"
+  ],
+  "symbol": "log_activity"
+ },
+ {
+  "id": "ка33",
+  "group": "как работает",
+  "q": "как определяется роль в сессии пользователя",
+  "expect": [
+   "app/app/dependencies.py"
+  ],
+  "symbol": "_user_from_access_token"
+ },
+ {
+  "id": "ка34",
+  "group": "как работает",
+  "q": "почему исчерпывается пул соединений SQLAlchemy QueuePool",
+  "expect": [
+   "app/app/db.py"
+  ]
+ },
+ {
+  "id": "ка35",
+  "group": "как работает",
+  "q": "очистка устаревших участников встречи",
+  "expect": [
+   "app/app/main.py",
+   "app/app/services/meetings.py"
+  ],
+  "symbol": "mark_stale_participants"
+ },
+ {
+  "id": "ка36",
+  "group": "как работает",
+  "q": "выдача токена комнаты LiveKit",
+  "expect": [
+   "app/app/services/meetings.py",
+   "app/app/services/meeting_tokens.py"
+  ],
+  "symbol": "livekit_join"
+ },
+ {
+  "id": "ка37",
+  "group": "как работает",
+  "q": "как работает список артефактов проекта",
+  "expect": [
+   "app/app/routers/upload.py"
+  ],
+  "symbol": "list_artifacts"
+ },
+ {
+  "id": "ка38",
+  "group": "как работает",
+  "q": "сверка статуса артефакта reconcile",
+  "expect": [
+   "app/app/services/pipeline_progress.py"
+  ],
+  "symbol": "reconcile_artifact_status"
+ },
+ {
+  "id": "ка39",
+  "group": "как работает",
+  "q": "заголовки безопасности ответов",
+  "expect": [
+   "app/app/main.py"
+  ],
+  "symbol": "add_security_headers"
+ },
+ {
+  "id": "ка40",
+  "group": "как работает",
+  "q": "приём JS-ошибок браузера client-log",
+  "expect": [
+   "app/app/main.py"
+  ]
+ },
+ {
+  "id": "ка41",
+  "group": "как работает",
+  "q": "как GPU-фазы переключают модель LLM и ASR",
+  "expect": [
+   "app/app/services/gpu_phase.py"
+  ]
+ },
+ {
+  "id": "ка42",
+  "group": "как работает",
+  "q": "обход зависшего reasoning модели no_think",
+  "expect": [
+   "app/app/services/llm.py"
+  ]
+ },
+ {
+  "id": "ка43",
+  "group": "как работает",
+  "q": "воркер берёт задачи из очереди jobs",
+  "expect": [
+   "app/app/workers/gpu_worker.py",
+   "app/app/services/queue.py"
+  ]
+ },
+ {
+  "id": "ка44",
+  "group": "как работает",
+  "q": "миграции столбцов без Alembic",
+  "expect": [
+   "app/app/db.py"
+  ],
+  "symbol": "apply_schema_migrations"
+ },
+ {
+  "id": "ка45",
+  "group": "как работает",
+  "q": "определение говорящего по дорожке участника",
+  "expect": [
+   "app/app/services/meeting_merge.py",
+   "app/app/services/pipeline_meeting.py"
+  ]
+ },
+ {
+  "id": "кт46",
+  "group": "кто вызывает",
+  "q": "кто вызывает log_activity",
+  "expect": [
+   "app/app/routers/upload.py",
+   "app/app/routers/auth.py",
+   "app/app/routers/knowledge.py",
+   "app/app/routers/meetings.py",
+   "app/app/routers/projects.py",
+   "app/app/routers/speaker_profiles.py",
+   "app/app/services/agent_verdicts.py",
+   "app/app/services/chat.py",
+   "app/app/services/project_members.py",
+   "app/app/services/requirement_review.py"
+  ],
+  "symbol": "log_activity"
+ },
+ {
+  "id": "кт47",
+  "group": "кто вызывает",
+  "q": "кто вызывает mark_stale_participants",
+  "expect": [
+   "app/app/main.py"
+  ],
+  "symbol": "mark_stale_participants"
+ },
+ {
+  "id": "кт48",
+  "group": "кто вызывает",
+  "q": "откуда вызывается reconcile_artifact_status",
+  "expect": [
+   "app/app/routers/upload.py"
+  ]
+ },
+ {
+  "id": "кт49",
+  "group": "кто вызывает",
+  "q": "кто использует get_current_user",
+  "expect": [
+   "app/app/dependencies.py"
+  ]
+ },
+ {
+  "id": "кт50",
+  "group": "кто вызывает",
+  "q": "кто вызывает create_access_token",
+  "expect": [
+   "app/app/routers/auth.py"
+  ]
+ },
+ {
+  "id": "кт51",
+  "group": "кто вызывает",
+  "q": "какой обработчик у GET /projects/{project_id}/artifacts",
+  "expect": [
+   "app/app/routers/upload.py"
+  ]
+ },
+ {
+  "id": "кт52",
+  "group": "кто вызывает",
+  "q": "какие роуты у агентного обмена agent-inbox",
+  "expect": [
+   "app/app/routers/project_mcp.py"
+  ]
+ },
+ {
+  "id": "по53",
+  "group": "почему так",
+  "q": "почему Caddy а не Nginx",
+  "expect": [
+   "docs/DECISIONS.md",
+   "docs/PLAN.md"
+  ]
+ },
+ {
+  "id": "по54",
+  "group": "почему так",
+  "q": "почему роль хранится в токене сессии",
+  "expect": [
+   "docs/DECISIONS.md"
+  ]
+ },
+ {
+  "id": "по55",
+  "group": "почему так",
+  "q": "почему токен LiveKit живёт 4 часа",
+  "expect": [
+   "docs/DECISIONS.md"
+  ]
+ },
+ {
+  "id": "по56",
+  "group": "почему так",
+  "q": "почему сырая медиа не удаляется по расписанию",
+  "expect": [
+   "docs/DECISIONS.md"
+  ]
+ },
+ {
+  "id": "по57",
+  "group": "почему так",
+  "q": "почему время хранится в UTC",
+  "expect": [
+   "docs/DECISIONS.md"
+  ]
+ },
+ {
+  "id": "по58",
+  "group": "почему так",
+  "q": "почему нельзя использовать порт 8000",
+  "expect": [
+   "docs/DECISIONS.md",
+   "docs/PLAN.md"
+  ]
+ },
+ {
+  "id": "по59",
+  "group": "почему так",
+  "q": "почему решения шлюза агента не зависят от LLM",
+  "expect": [
+   "docs/DECISIONS.md"
+  ]
+ },
+ {
+  "id": "ко60",
+  "group": "конфиг/БД",
+  "q": "константа LIVEKIT_TOKEN_TTL_HOURS срок токена комнаты",
+  "expect": [
+   "app/app/services/meetings.py"
+  ]
+ },
+ {
+  "id": "ко61",
+  "group": "конфиг/БД",
+  "q": "порт портала WEB_PORT",
+  "expect": [
+   ".env.example",
+   "app/app/config.py"
+  ]
+ },
+ {
+  "id": "ко62",
+  "group": "конфиг/БД",
+  "q": "таблица meeting_participants столбец last_seen_at",
+  "expect": [
+   "app/app/db.py",
+   "app/app/models/meeting.py"
+  ]
+ },
+ {
+  "id": "ко63",
+  "group": "конфиг/БД",
+  "q": "столбец can_submit у ключей MCP",
+  "expect": [
+   "app/app/db.py",
+   "app/app/models/project_mcp_token.py"
+  ]
+ },
+ {
+  "id": "ко64",
+  "group": "конфиг/БД",
+  "q": "модель журнала обмена с агентом",
+  "expect": [
+   "app/app/models/agent_exchange.py"
+  ]
+ },
+ {
+  "id": "ко65",
+  "group": "конфиг/БД",
+  "q": "где хранится DATABASE_URL",
+  "expect": [
+   "app/app/config.py"
+  ]
+ },
+ {
+  "id": "те66",
+  "group": "тесты/запуск",
+  "q": "какие тесты проверяют ограничение входа",
+  "expect": [
+   "app/app/tests/test_login_rate_limit.py"
+  ]
+ },
+ {
+  "id": "те67",
+  "group": "тесты/запуск",
+  "q": "тест-сторож no_think",
+  "expect": [
+   "app/app/tests/test_llm_no_think_guard.py"
+  ]
+ },
+ {
+  "id": "те68",
+  "group": "тесты/запуск",
+  "q": "как запустить смоук-набор",
+  "expect": [
+   "scripts/smoke/run_all.py",
+   "docs/TESTING.md"
+  ]
+ },
+ {
+  "id": "те69",
+  "group": "тесты/запуск",
+  "q": "единая команда QA",
+  "expect": [
+   "scripts/qa_all.py"
+  ]
+ },
+ {
+  "id": "те70",
+  "group": "тесты/запуск",
+  "q": "где лог API и воркера",
+  "expect": [
+   "docs/OPERATIONS.md"
+  ]
+ },
+ {
+  "id": "те71",
+  "group": "тесты/запуск",
+  "q": "проверка комнаты в Chromium с фейковыми устройствами",
+  "expect": [
+   "scripts/qa_room.py"
+  ]
+ }
+]
