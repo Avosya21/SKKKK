@@ -4,15 +4,32 @@ const SKKKK = {
     localStorage.setItem('skkkk_token', data.access_token);
     localStorage.setItem('skkkk_role', data.role);
     localStorage.setItem('skkkk_name', data.name);
+    if (localStorage.getItem('skkkk_session_name') !== data.name) {
+      // Вошёл другой человек — имя и фото прежнего не показываем, пока не загрузится его карточка.
+      localStorage.removeItem('skkkk_display');
+      localStorage.removeItem('skkkk_avatar');
+      localStorage.setItem('skkkk_session_name', data.name);
+    }
     this.updateNav();
   },
   updateNav() {
     const el = document.getElementById('nav-user');
     const session = document.getElementById('nav-session');
-    const name = localStorage.getItem('skkkk_name');
+    const avatar = document.getElementById('nav-avatar');
+    // Имя из карточки («Имя Фамилия»), пока её нет — логин.
+    const name = localStorage.getItem('skkkk_display') || localStorage.getItem('skkkk_name');
     const role = localStorage.getItem('skkkk_role');
+    const photo = localStorage.getItem('skkkk_avatar');
     if (el) {
       el.textContent = name && role ? `${name} (${role})` : '';
+    }
+    if (avatar) {
+      if (photo && role) {
+        if (avatar.getAttribute('src') !== photo) avatar.src = photo;
+        avatar.classList.remove('d-none');
+      } else {
+        avatar.classList.add('d-none');
+      }
     }
     if (session) {
       session.classList.toggle('d-none', !(name && role));
@@ -69,6 +86,8 @@ const SKKKK = {
     localStorage.removeItem('skkkk_token');
     localStorage.removeItem('skkkk_role');
     localStorage.removeItem('skkkk_name');
+    localStorage.removeItem('skkkk_display');
+    localStorage.removeItem('skkkk_avatar');
     this.updateNav();
     if (skipServer) return;
     try {
@@ -468,65 +487,164 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
   SKKKK.logout();
 });
 
-// Личный пароль (кнопка-ключ в шапке): видна, только если PERSONAL_PASSWORD не off.
+// Меню пользователя в шапке: «Моя карточка» и «Личный пароль» (если личные пароли включены).
 (function () {
-  const btn = document.getElementById('nav-password');
-  const form = document.getElementById('password-form');
-  if (!btn || !form || !localStorage.getItem('skkkk_role') || location.pathname === '/login') return;
   const $ = (id) => document.getElementById(id);
+  const passBtn = $('nav-password');
+  const profileBtn = $('nav-profile');
+  const passForm = $('password-form');
+  const meForm = $('me-form');
+  if (!passBtn || !passForm || !localStorage.getItem('skkkk_role') || location.pathname === '/login') return;
   let state = null;
+  let me = null;
+  let newPhoto = null;
+
+  function syncMenu() {
+    const any = !passBtn.classList.contains('d-none') || !profileBtn.classList.contains('d-none');
+    // Пустое меню не раскрываем.
+    if (any) $('nav-me').setAttribute('data-bs-toggle', 'dropdown');
+    else $('nav-me').removeAttribute('data-bs-toggle');
+  }
+  syncMenu();
+
+  function applyProfile(data) {
+    me = data;
+    if (data.full_name) localStorage.setItem('skkkk_display', data.full_name);
+    if (data.avatar_url) localStorage.setItem('skkkk_avatar', data.avatar_url);
+    profileBtn.classList.toggle('d-none', !data.complete);
+    SKKKK.updateNav();
+    syncMenu();
+  }
 
   SKKKK.api('/auth/password/state').then(async (r) => {
     if (!r.ok) return;
     state = await r.json();
-    btn.classList.toggle('d-none', state.mode === 'off');
+    passBtn.classList.toggle('d-none', state.mode === 'off');
+    syncMenu();
   }).catch(() => {});
 
-  function showError(text) {
-    $('password-error').textContent = text;
-    $('password-error').classList.toggle('d-none', !text);
+  SKKKK.api('/me/profile').then(async (r) => {
+    if (r.ok) applyProfile(await r.json());
+  }).catch(() => {});
+
+  function showError(id, text) {
+    $(id).textContent = text;
+    $(id).classList.toggle('d-none', !text);
   }
 
-  btn.addEventListener('click', () => {
+  function readJson(r) {
+    return r.json().catch(() => null);
+  }
+
+  function apiError(payload, status) {
+    return window.SKKKKErrors ? SKKKKErrors.text(payload && payload.detail, status) : String(status);
+  }
+
+  // --- личный пароль ---
+  passBtn.addEventListener('click', () => {
     if (!state) return;
     for (const id of ['password-current', 'password-new', 'password-confirm']) $(id).value = '';
     $('password-username').value = localStorage.getItem('skkkk_name') || '';
     $('password-current-group').classList.toggle('d-none', !state.has_password);
     $('password-title').textContent = state.has_password ? 'Сменить личный пароль' : 'Создать личный пароль';
     $('password-new-help').textContent = `Не короче ${state.min_length} символов. Не совпадает с логином и паролем роли.`;
-    showError('');
+    showError('password-error', '');
     bootstrap.Modal.getOrCreateInstance($('passwordModal')).show();
   });
   $('passwordModal').addEventListener('shown.bs.modal', () => {
     $(state && state.has_password ? 'password-current' : 'password-new').focus();
   });
 
-  form.addEventListener('submit', async (e) => {
+  passForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {
       current_password: $('password-current').value,
       password: $('password-new').value,
       password_confirm: $('password-confirm').value,
     };
-    if (body.password.length < state.min_length) return showError(`Пароль короче ${state.min_length} символов`);
-    if (body.password !== body.password_confirm) return showError('Пароли не совпадают');
-    showError('');
-    await SKKKK.guardSubmit(form, async () => {
+    if (body.password.length < state.min_length) return showError('password-error', `Пароль короче ${state.min_length} символов`);
+    if (body.password !== body.password_confirm) return showError('password-error', 'Пароли не совпадают');
+    showError('password-error', '');
+    await SKKKK.guardSubmit(passForm, async () => {
       const r = await fetch('/auth/password/change', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SKKKK.token()}` },
         body: JSON.stringify(body),
       });
-      let payload = null;
-      try { payload = await r.json(); } catch { payload = null; }
+      const payload = await readJson(r);
       if (!r.ok) {
-        showError(window.SKKKKErrors ? SKKKKErrors.text(payload && payload.detail, r.status) : String(r.status));
+        showError('password-error', apiError(payload, r.status));
         return;
       }
       SKKKK.setSession(payload);
       state.has_password = true;
       bootstrap.Modal.getOrCreateInstance($('passwordModal')).hide();
+    }, { busyText: 'Сохраняю…' });
+  });
+
+  // --- моя карточка ---
+  function setPhotoPreview(url) {
+    $('me-photo').src = url || '';
+  }
+
+  function pickPhoto(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return showError('me-error', 'Выберите фото (JPEG или PNG)');
+    if (file.size > 10 * 1024 * 1024) return showError('me-error', 'Фото больше 10 МБ');
+    newPhoto = file;
+    setPhotoPreview(URL.createObjectURL(file));
+    showError('me-error', '');
+  }
+  $('me-photo-input').addEventListener('change', (e) => pickPhoto(e.target.files[0]));
+  $('me-camera-input').addEventListener('change', (e) => pickPhoto(e.target.files[0]));
+
+  profileBtn.addEventListener('click', () => {
+    if (!me) return;
+    newPhoto = null;
+    $('me-last').value = me.last_name;
+    $('me-first').value = me.first_name;
+    $('me-job').value = me.job_title;
+    $('me-company').textContent = me.company || '—';
+    setPhotoPreview(me.avatar_url ? me.avatar_url.replace('size=96', 'size=512') : '');
+    $('me-consent').textContent = me.voice_consent_at
+      ? `Голос используется для распознавания в записях с ${new Date(me.voice_consent_at).toLocaleDateString()}. Отозвать — через администратора.`
+      : 'Согласие на распознавание голоса отозвано.';
+    $('me-camera-btn').classList.toggle('d-none', !matchMedia('(pointer: coarse)').matches);
+    showError('me-error', '');
+    bootstrap.Modal.getOrCreateInstance($('profileModal')).show();
+  });
+
+  meForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      last_name: $('me-last').value.trim(),
+      first_name: $('me-first').value.trim(),
+      job_title: $('me-job').value.trim(),
+    };
+    if (!body.last_name || !body.first_name || body.job_title.length < 2) {
+      return showError('me-error', 'Заполните фамилию, имя и должность');
+    }
+    showError('me-error', '');
+    await SKKKK.guardSubmit(meForm, async () => {
+      if (newPhoto) {
+        const fd = new FormData();
+        fd.append('avatar', newPhoto, newPhoto.name || 'photo.jpg');
+        const r = await SKKKK.api('/me/avatar', { method: 'PUT', body: fd });
+        const payload = await readJson(r);
+        if (!r.ok) return showError('me-error', apiError(payload, r.status));
+        newPhoto = null;
+        applyProfile(payload);
+      }
+      const r = await SKKKK.api('/me/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const payload = await readJson(r);
+      if (!r.ok) return showError('me-error', apiError(payload, r.status));
+      applyProfile(payload);
+      bootstrap.Modal.getOrCreateInstance($('profileModal')).hide();
     }, { busyText: 'Сохраняю…' });
   });
 })();

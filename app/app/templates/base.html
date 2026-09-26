@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ title }} — Primary Analytics</title>
   <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/app.css?v=12" rel="stylesheet">
+  <link href="/static/app.css?v=13" rel="stylesheet">
   <link href="/static/design.css?v=6" rel="stylesheet">
   {% block extra_head %}{% endblock %}
 </head>
@@ -23,13 +23,17 @@
       {% block nav_changelog %}{% endblock %}
       <span class="badge rounded-pill text-bg-secondary d-none" id="nav-llm" title="LLM-провайдер"></span>
       <div class="nav-session d-none align-items-center gap-1" id="nav-session">
-        <span class="navbar-text text-white-50 mb-0" id="nav-user"></span>
-        <button type="button" class="btn nav-logout d-none" id="nav-password" aria-label="Личный пароль" title="Личный пароль">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M0 8a4 4 0 0 1 7.465-2H14a.5.5 0 0 1 .354.146l1.5 1.5a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0L13 9.207l-.646.647a.5.5 0 0 1-.708 0L11 9.207l-.646.647a.5.5 0 0 1-.708 0L9 9.207l-.646.647A.5.5 0 0 1 8 10h-.535A4 4 0 0 1 0 8m4-3a3 3 0 1 0 2.712 4.285A.5.5 0 0 1 7.163 9h.63l.853-.854a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.793-.793-1-1h-6.63a.5.5 0 0 1-.451-.285A3 3 0 0 0 4 5"/>
-            <path d="M4 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
-          </svg>
-        </button>
+        {# Меню пользователя: фото и имя из карточки; «Моя карточка», «Личный пароль». «Выйти» — отдельной кнопкой. #}
+        <div class="dropdown nav-me">
+          <button type="button" class="btn nav-logout nav-me-btn" id="nav-me" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Меню пользователя" title="Меню пользователя">
+            <img id="nav-avatar" class="nav-avatar d-none" alt="" width="24" height="24">
+            <span class="navbar-text text-white-50 mb-0" id="nav-user"></span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><button type="button" class="dropdown-item d-none" id="nav-profile">Моя карточка</button></li>
+            <li><button type="button" class="dropdown-item d-none" id="nav-password">Личный пароль</button></li>
+          </ul>
+        </div>
         <button type="button" class="btn nav-logout" id="nav-logout" aria-label="Выйти" title="Выйти">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z"/>
@@ -72,11 +76,56 @@
     </form>
   </div>
 </div>
+<div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profile-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" id="me-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="profile-title">Моя карточка</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <img id="me-photo" class="me-photo" alt="Ваше фото" width="96" height="96">
+          <div>
+            <label class="btn btn-outline-secondary btn-sm mb-1" for="me-photo-input">Заменить фото</label>
+            <input type="file" id="me-photo-input" accept="image/*" class="visually-hidden">
+            <label class="btn btn-outline-secondary btn-sm mb-1 d-none" for="me-camera-input" id="me-camera-btn">Сделать снимок</label>
+            <input type="file" id="me-camera-input" accept="image/*" capture="user" class="visually-hidden">
+            <div class="form-text">Лицо крупно, по центру.</div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="me-last">Фамилия</label>
+          <input class="form-control" id="me-last" autocomplete="family-name" maxlength="100">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="me-first">Имя</label>
+          <input class="form-control" id="me-first" autocomplete="given-name" maxlength="100">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="me-job">Должность</label>
+          <input class="form-control" id="me-job" autocomplete="organization-title" maxlength="150">
+        </div>
+        <div class="mb-3">
+          <div class="form-label mb-1">Компания</div>
+          <div id="me-company"></div>
+          <div class="form-text">Компанию меняет администратор.</div>
+        </div>
+        <div class="form-text mb-2" id="me-consent"></div>
+        <div class="alert alert-danger d-none mb-0" id="me-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="submit" class="btn btn-primary skkkk-action-btn" id="me-submit" data-idle-label="Сохранить">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
 <main class="container pb-5">
   {% block content %}{% endblock %}
 </main>
 <script src="/static/errors_ru.js?v=1"></script>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 {% block scripts %}{% endblock %}
 </body>
