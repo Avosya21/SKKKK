@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{# Страница входа: логин из Login_up.txt, Telegram ID, пароль роли #}
+{# Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести) #}
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-md-5">
@@ -19,10 +19,37 @@
           </div>
           <div class="mb-3">
             <label class="form-label" for="login-password">Пароль роли</label>
-            <input class="form-control" id="login-password" type="password" name="password" required autocomplete="current-password" enterkeyhint="go">
+            <input class="form-control" id="login-password" type="password" name="password" required autocomplete="off" enterkeyhint="go">
           </div>
-          <div class="alert alert-danger d-none" id="login-error"></div>
+          <div class="alert alert-danger d-none" id="login-error" role="alert"></div>
           <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="login-submit" data-idle-label="Войти">Войти</button>
+        </form>
+
+        {# Шаг 2. Скрытое поле username — чтобы менеджер паролей браузера связал личный пароль с логином. #}
+        <form id="step-form" class="d-none" novalidate>
+          <input type="text" id="step-username" name="username" autocomplete="username" class="d-none" tabindex="-1" aria-hidden="true">
+          <p class="mb-3" id="step-hint"></p>
+          <div class="mb-3" id="step-personal-group">
+            <label class="form-label" for="step-personal">Личный пароль</label>
+            <input class="form-control" id="step-personal" type="password" autocomplete="current-password" enterkeyhint="go">
+          </div>
+          <div id="step-setup-group">
+            <div class="mb-3">
+              <label class="form-label" for="step-new">Новый пароль</label>
+              <input class="form-control" id="step-new" type="password" autocomplete="new-password" enterkeyhint="next" aria-describedby="step-new-help">
+              <div class="form-text" id="step-new-help"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="step-confirm">Повторите пароль</label>
+              <input class="form-control" id="step-confirm" type="password" autocomplete="new-password" enterkeyhint="go">
+            </div>
+          </div>
+          <div class="alert alert-danger d-none" id="step-error" role="alert"></div>
+          <button class="btn btn-primary w-100 skkkk-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
+          <div class="d-flex justify-content-between">
+            <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
+            <button type="button" class="btn btn-link px-0 d-none" id="step-skip">Позже</button>
+          </div>
         </form>
       </div>
     </div>
@@ -31,36 +58,150 @@
 {% endblock %}
 {% block scripts %}
 <script>
-document.getElementById('login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const fd = new FormData(form);
-  const body = Object.fromEntries(fd.entries());
-  const err = document.getElementById('login-error');
-  err.classList.add('d-none');
+(function () {
+  const loginForm = document.getElementById('login-form');
+  const stepForm = document.getElementById('step-form');
+  const $ = (id) => document.getElementById(id);
+  let step = null;  // {step, ticket, name, can_skip, min_length}
 
-  await SKKKK.guardSubmit(form, async () => {
-    const r = await fetch('/auth/login', {
+  function errorText(payload, status) {
+    const detail = payload && payload.detail;
+    return window.SKKKKErrors ? SKKKKErrors.text(detail, status) : String(detail || status);
+  }
+
+  function showError(el, text) {
+    el.textContent = text;
+    el.classList.toggle('d-none', !text);
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
-    if (!r.ok) {
-      let detail = '';
-      try {
-        const payload = await r.json();
-        detail = window.SKKKKErrors ? SKKKKErrors.text(payload.detail, r.status) : String(payload.detail);
-      } catch (ex) {
-        detail = window.SKKKKErrors ? SKKKKErrors.text('', r.status) : '';
-      }
-      err.textContent = `Вход не выполнен: ${detail}`;
-      err.classList.remove('d-none');
+    let payload = null;
+    try { payload = await r.json(); } catch (ex) { payload = null; }
+    return {r, payload};
+  }
+
+  function finish(payload) {
+    SKKKK.setSession(payload);
+    location.href = '/';
+  }
+
+  function backToStart(message) {
+    step = null;
+    stepForm.classList.add('d-none');
+    loginForm.classList.remove('d-none');
+    for (const id of ['step-personal', 'step-new', 'step-confirm']) $(id).value = '';
+    $('login-password').value = '';
+    showError($('step-error'), '');
+    showError($('login-error'), message || '');
+    $('login-password').focus();
+  }
+
+  function openStep(data) {
+    step = data;
+    const setup = data.step === 'setup';
+    $('step-username').value = data.name;
+    $('step-hint').textContent = setup
+      ? `${data.name}, придумайте личный пароль. Дальше при входе понадобятся пароль роли и он.`
+      : `${data.name}, введите личный пароль.`;
+    $('step-personal-group').classList.toggle('d-none', setup);
+    $('step-setup-group').classList.toggle('d-none', !setup);
+    $('step-new-help').textContent = `Не короче ${data.min_length} символов. Не совпадает с логином и паролем роли.`;
+    $('step-skip').classList.toggle('d-none', !data.can_skip);
+    const submit = $('step-submit');
+    submit.textContent = setup ? 'Сохранить и войти' : 'Войти';
+    submit.dataset.idleLabel = submit.textContent;
+    showError($('step-error'), '');
+    loginForm.classList.add('d-none');
+    stepForm.classList.remove('d-none');
+    $(setup ? 'step-new' : 'step-personal').focus();
+  }
+
+  // Истёк/сгорел пропуск — назад на шаг 1; прочие ошибки — под формой шага 2.
+  function stepFailed(r, payload) {
+    if (r.status === 401 && payload && String(payload.detail || '').startsWith('Время на вход')) {
+      backToStart(payload.detail);
       return;
     }
-    const data = await r.json();
-    SKKKK.setSession(data);
-    location.href = '/';
-  }, { busyText: 'Вхожу…' });
-});
+    if (r.status === 409) {
+      backToStart(errorText(payload, r.status));
+      return;
+    }
+    showError($('step-error'), errorText(payload, r.status));
+  }
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(loginForm).entries());
+    showError($('login-error'), '');
+    await SKKKK.guardSubmit(loginForm, async () => {
+      const {r, payload} = await post('/auth/login', body);
+      if (!r.ok) {
+        showError($('login-error'), `Вход не выполнен: ${errorText(payload, r.status)}`);
+        return;
+      }
+      if (payload.step) {
+        openStep(payload);
+        return;
+      }
+      finish(payload);
+    }, { busyText: 'Вхожу…' });
+  });
+
+  stepForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!step) return;
+    const setup = step.step === 'setup';
+    let url = '/auth/login/personal';
+    let body = {ticket: step.ticket, password: $('step-personal').value};
+    if (setup) {
+      const pwd = $('step-new').value;
+      const confirm = $('step-confirm').value;
+      if (pwd.length < step.min_length) {
+        showError($('step-error'), `Пароль короче ${step.min_length} символов`);
+        $('step-new').focus();
+        return;
+      }
+      if (pwd !== confirm) {
+        showError($('step-error'), 'Пароли не совпадают');
+        $('step-confirm').focus();
+        return;
+      }
+      url = '/auth/login/setup';
+      body = {ticket: step.ticket, password: pwd, password_confirm: confirm};
+    } else if (!body.password) {
+      showError($('step-error'), 'Введите личный пароль');
+      $('step-personal').focus();
+      return;
+    }
+    showError($('step-error'), '');
+    await SKKKK.guardSubmit(stepForm, async () => {
+      const {r, payload} = await post(url, body);
+      if (r.ok) {
+        finish(payload);
+        return;
+      }
+      stepFailed(r, payload);
+    }, { busyText: setup ? 'Сохраняю…' : 'Вхожу…' });
+  });
+
+  $('step-back').addEventListener('click', () => backToStart(''));
+
+  $('step-skip').addEventListener('click', async () => {
+    if (!step) return;
+    await SKKKK.guardSubmit(stepForm, async () => {
+      const {r, payload} = await post('/auth/login/skip', {ticket: step.ticket});
+      if (r.ok) {
+        finish(payload);
+        return;
+      }
+      stepFailed(r, payload);
+    }, { busyText: 'Вхожу…' });
+  });
+})();
 </script>
 {% endblock %}
