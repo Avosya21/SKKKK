@@ -101,9 +101,9 @@ flowchart TB
 | Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
 | ORM | SQLAlchemy **2.0.52**, Alembic **1.19.1**, Pydantic **2.13.4** |
 | Порт UI | Снаружи **Caddy `:777` HTTPS**. Портал — `WEB_HOST=127.0.0.1` `WEB_PORT=1777`. Порт **8000** занят MCP 1С |
-| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `data/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id) |
+| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `DATA_DIR/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id). Карточки: `user_profiles` (1:1 с `users`), `companies` (из `Companies.txt`); фото — файлы `data/people/<user_id>/avatar-<ключ>-512|96.webp` |
 | Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
-| Auth | JWT + cookie `skkkk_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=off|optional|required` — второй шаг входа, личный пароль логина (в токене `pv` — версия пароля, `pp` — пройден) |
+| Auth | JWT + cookie `skkkk_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `pv` — версия пароля, `pp` — пароль пройден, `pf` — карточка заполнена; сессия проверяет ещё и саму карточку (сброс админом закрывает сессии) |
 | Очередь | таблица `jobs`, **один** GPU-воркер |
 | LLM | `LLM_PROVIDER=cursor` **или** `lmstudio` (переключатель при старте) |
 
@@ -236,7 +236,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Остановка | `scripts/stop.ps1` | гасит API и GPU-воркер |
 | Проверка без запуска | `scripts/check_systems.ps1` | только проверки всех систем |
 | Службы Windows | `scripts/install_services.ps1` (от администратора, NSSM) | службы `SKKKK-API` (`main api --use-saved-llm --llm-provider cursor`) и `SKKKK-GPU` (`main worker`); Caddy отдельной службой — `scripts/install_caddy.ps1` (`SKKKK-CADDY`) |
-| Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO`: `app-*.db` и `credentials-*.db` (личные пароли); проверка — `scripts/verify_backup.py` |
+| Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO`: `app-*.db` и `credentials-*.db` (личные пароли), фото — `people-*.zip`; проверка — `scripts/verify_backup.py` |
 | Автоподъём | `scripts/monitor_skkkk_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
 
 Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`). LM Studio — вручную или `run_server.ps1`.
@@ -321,7 +321,8 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Файл | Prefix | Назначение |
 |------|--------|------------|
 | `routers/pages.py` | `/` | HTML-страницы, отчёты арtefact, audio stream |
-| `routers/auth.py` | `/auth` | POST login: логин из `Login_up.txt` (без регистра); пароль = роль (`admin`/`manager`/`user`); Telegram ID пишется; JWT **и** cookie. При `PERSONAL_PASSWORD≠off` login отдаёт `{step: setup|personal, ticket}` (пропуск 5 мин, одноразовый) → `POST /auth/login/setup` (новый + повтор), `/auth/login/personal`, `/auth/login/skip` (только `optional`); `GET /auth/password/state`, `POST /auth/password/change` (кнопка-ключ в шапке) |
+| `routers/auth.py` | `/auth` | POST login: логин из `Login_up.txt` (без регистра); пароль = роль (`admin`/`manager`/`user`); Telegram ID пишется; JWT **и** cookie. При `PERSONAL_PASSWORD=required` login отдаёт `{step: setup|personal, ticket}` (пропуск 5 мин, одноразовый, годится только для своего шага) → `POST /auth/login/setup` (новый + повтор) или `/auth/login/personal`; карточка не заполнена → `{step: profile, ticket}` (15 мин) → `POST /auth/login/profile/options` (компании без стороны, текст уведомления о голосе) и `POST /auth/login/profile` (multipart: ФИО, компания, должность, фото) → сессия. `GET /auth/password/state`, `POST /auth/password/change` (меню в шапке) |
+| `routers/people.py` | `/people`, `/me` | `GET /people/{id}/avatar?size=96|512&v=` (вошедшим; с текущей версией — кеш навсегда, без — 5 мин); `GET|PUT /me/profile` (ФИО, должность; компанию и согласие не меняет — 422), `PUT /me/avatar` |
 | `routers/projects.py` | `/projects` | список, создание, **полное удаление** (`DELETE /{id}`) |
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, reextract-entities, conflicts, notes |
@@ -331,7 +332,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/requirement_review.py` | `/projects/{id}/requirements` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin |
 | `routers/admin_map.py` | `/admin/map`, `/admin/map/search` | страница «Карта проекта» (только admin): поиск по индексу кода и связей; читает `data/project_map.db`, боевую БД не трогает |
 | `routers/acme.py` | `/.well-known/acme-challenge` | HTTP-01 → Caddy (Let's Encrypt на IP) |
-| `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта + гостевой join/leave/heartbeat по токену + сотрудник: `/projects/{id}/meetings/{mid}/heartbeat` и `/leave` (identity только `member:{user.id}`) |
+| `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта + гостевой join/leave/heartbeat по токену + сотрудник: `/projects/{id}/meetings/{mid}/heartbeat` и `/leave` (identity только `member:{user.id}`); `GET /api/meetings/public/{token}/avatars/{user_id}` — фото сотрудника гостю, только участника этой встречи. Сотрудник входит под «Имя Фамилия» из карточки |
 | `routers/speaker_profiles.py` | `/api` | enroll, merge, lab enroll/merge, recalculate, speakers-confirm, rebuild-summary, reindex |
 
 ### 5.2. Общая навигация
@@ -1074,6 +1075,11 @@ data/projects/{project_id}/
 | `login_allowlist.py` | Допуск: `Login_up.txt`, без учёта регистра, файл читается на каждый вход |
 | `personal_password.py` | личный пароль логина: Argon2id, правила (10–128, не логин и не пароль роли), `set_initial` / `change` / `reset`, `current_version` (кеш 5 с) для проверки сессии в `dependencies._check_personal_password` |
 | `personal_password_console.py` | список логинов и сброс личного пароля из консоли: пункт 7 меню запуска и `scripts/personal_password.py` |
+| `companies.py` | `Companies.txt` → таблица `companies` (при старте и при открытии анкеты); сторона `executor`/`customer` пользователю не показывается; убранная из файла — `active=False` |
+| `user_profile.py` | карточка: правила полей, `complete_onboarding` (всё разом + уведомление о голосе = согласие, `CONSENT_TEXT_VERSION`), `update_own`, `replace_avatar`; админ: `set_company`, `withdraw_voice_consent` (удаляет слепки), `restore_voice_consent`, `reset_profile`; `merge_profiles` при склейке дублей |
+| `avatars.py` | фото: тип по содержимому, ≤ 10 МБ, ≤ 40 Мп, поворот по EXIF, **без метаданных**, центральный квадрат 512/96 WebP в `data/people/<user_id>/` |
+| `user_profile_console.py` | карточки из консоли: пункт 8 меню запуска и `scripts/user_profile.py` (компания, согласие на голос, сброс) |
+| `voice_link.py` | задел: `speaker_profiles.user_id` — привязка слепка к человеку только при согласии; предложения по точному совпадению имени |
 | `upload.py` / `resumable_upload.py` | file registration |
 | `normalize.py` / `image_extract.py` / `tesseract_tools.py` | document text |
 | `ffmpeg_tools.py` | audio prep |
@@ -1137,7 +1143,7 @@ data/projects/{project_id}/
 | `main.py` | `all` / `api` / `worker` / `check`; `_ensure_edge` только `all`/`api` |
 | `preflight.py` | проверки до serve; в `all`/`api` — `meeting_voice` (WARN без `venvs/voice`); `personal_passwords` — argon2 и `credentials.db` при `PERSONAL_PASSWORD≠off` |
 | `credentials_db.py` | отдельная база личных паролей `data/credentials.db`: свой движок и `CredentialsBase`, таблица `personal_passwords` (ключ — логин без регистра, хеш, `pwd_version`, `reset_pending`); в тестах `PATH_OVERRIDE` |
-| `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **7** — сбросить личный пароль пользователя (список, номер или логин, «да»); **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
+| `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **7** — сбросить личный пароль пользователя (список, номер или логин, «да»); **8** — карточки пользователей (сменить компанию, отозвать/вернуть согласие на голос, сбросить карточку); **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
 
 ### Workers (`app/app/workers/`)
 
@@ -1317,6 +1323,8 @@ run_pipeline
 | `fast_summarize_tz.py` | быстрая сводка ТЗ из CLI: top-K по sqlite-vec + заметки → один reduce → `current_tz.md` + changelog |
 | `kb_inbox.py` | ящик вопросов внешнего агента из командной строки (`list`, ответ), без входа по паролю |
 | `personal_password.py` | личные пароли без PyCharm: `list`, `reset <логин|номер> [--yes]` (база `credentials.db` напрямую) |
+| `user_profile.py` | карточки без PyCharm: `list`, `set-company`, `withdraw-voice`, `restore-voice`, `reset` (`--yes`) |
+| `link_voice_profiles.py` | слепки голоса ↔ карточки: `list`, `link` (на каждое — подтверждение), `unlink <id>` |
 | `live_meetings.py` | печатает идущие встречи; код выхода 3, если есть люди на связи (для безопасного перезапуска) |
 | `watch_server.py` | наблюдение за сервером, очередью и ошибками конвейера |
 | `qa_pages.py` | аудит вёрстки страниц на разных экранах и движках (изолированный экземпляр с копией БД) |
@@ -1434,6 +1442,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `artifact.py` | Модель Artifact — загруженный файл проекта и его статус обработки (таблица artifacts). |
 | `chat_guidance.py` | Модель ChatGuidance — указания пользователя чату по теме проекта (важнее созвонов при расхождении). |
 | `chat_message.py` | Модель ChatMessage — сообщение чата проекта, в том числе ожидающее ответа. |
+| `company.py` | Модель Company — компания из файла Companies.txt: название и сторона (исполнитель / заказчик). |
 | `contract.py` | Модель ContractItem — элемент контракта обмена с внешним агентом. |
 | `entity.py` | Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ. |
 | `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
@@ -1445,6 +1454,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `speaker_profile.py` | Модели голосов: SpeakerProfile и связь ArtifactSpeakerLink со спикерами артефакта. |
 | `user.py` | Модель User — пользователь (имя, роль, Telegram). |
 | `user_activity_log.py` | Модель UserActivityLog — журнал действий пользователей. |
+| `user_profile.py` | Модель UserProfile — карточка человека (1:1 с users): ФИО, компания, должность, фото, согласие на голос. |
 
 **`app/app/routers/`**
 
@@ -1456,6 +1466,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `knowledge.py` | Знания проекта: поиск по смыслу, граф, сущности, заметки и связи, конфликты, ТЗ и его версии, чат, дедлайны. |
 | `meetings.py` | Встречи проекта и гостевой вход: создание, старт, завершение, отзыв ссылки, вход и выход гостя, присутствие. |
 | `pages.py` | HTML-страницы портала и отчёты: вход, проекты, встречи, отчёты артефактов, отдача аудио и скачивание. |
+| `people.py` | Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`). |
 | `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал. |
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
 | `projects.py` | Проекты: список, создание, карточка, предпросмотр и полное удаление. |
@@ -1480,10 +1491,12 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `artifact_reports.py` | HTML-отчёты по документам: путь и адрес отчёта, запись на диск, панель инструментов, разделы исходного текста и выжимки. |
 | `auth.py` | Хеширование и проверка паролей. |
 | `auto_review.py` | Автопроверка локальной моделью: режим (off / shadow / live), запись вердикта модели, отмена человеком, контрольная выборка. |
+| `avatars.py` | Фото пользователя: проверка, выпрямление, удаление метаданных, квадрат 512 и 96 px WebP в `data/people/<user_id>/`. |
 | `build_info.py` | Признак «код на диске новее запущенного сервера» (пункт плана 1.3). |
 | `chat.py` | Чат с ИИ по материалам проекта: история и указания пользователя, уточняющие вопросы, поиск фрагментов и сущностей, сборка контекста, ответ L |
 | `chunk_fts.py` | Полнотекстовый поиск по фрагментам проекта (SQLite FTS5) — пара к векторному поиску для точных слов и чисел. |
 | `chunking.py` | Нарезка текста на фрагменты для индексации: документы (проза + таблицы), реплики стенограммы, оценка токенов. |
+| `companies.py` | Компании из файла `Companies.txt` (корень проекта, как `Login_up.txt`): разбор и перенос в таблицу `companies`. |
 | `conflict_context.py` | Противоречия проекта для LLM чата и ТЗ — хронологией, человеческими строками (CONFLICT-AUTONOMY-PLAN этап 5, Р4). |
 | `conflict_rules.py` | Правила разрешения противоречий без модели — docs/plans/CONFLICT-AUTONOMY-PLAN.md, решение Р1 (DECISIONS 2026-09-25). |
 | `contract.py` | Контракт обмена «база знаний ↔ агент анализа конфигурации» (v1.0). |
@@ -1563,7 +1576,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `upload.py` | Приём файлов: определение типа, приоритет, длительность через ffprobe, сохранение потока, хеш, поиск дубликатов и создание записи артефакта. |
 | `user_activity.py` | Журнал действий пользователя (аудит). |
 | `user_identity.py` | Учётка по имени (логину). Telegram ID только хранится и обновляется. |
+| `user_profile.py` | Карточка пользователя: проверка полей, заполнение при первом входе, правка своей карточки, действия админа. |
+| `user_profile_console.py` | Карточки пользователей из консоли: пункт 8 меню запуска `main` и `scripts/user_profile.py`. |
 | `vector_index.py` | Хранилище эмбеддингов в SQLite через sqlite-vec. |
+| `voice_link.py` | Привязка слепков голоса к карточке сотрудника (задел: автосбор с дорожки созвона — отдельный план). |
 | `xlsx_extract.py` | Excel/CSV → markdown: ``## Лист: имя`` и GFM-таблицы по блокам листа. |
 
 **`app/app/services/project_index/`**
@@ -1603,7 +1619,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `error.html` | Страница ошибки HTML (403/404/500) с понятным текстом на русском |
 | `graph.html` | Граф знаний проекта в Cytoscape (/projects/{id}/graph) |
 | `index.html` | Список проектов (/): создание, описание, удаление проекта, кнопка «Исправлено» со списком изменений |
-| `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести) |
+| `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести); шаг 3 — карточка (ФИО, компания |
 | `meeting_lab.html` | Лаборатория созвона (admin): этапы обработки каждой дорожки встречи; пока идёт прогон, страница обновляется сама |
 | `meeting_public.html` | Гостевая страница встречи /m/{token}: лобби, проверка камеры и микрофона, комната без входа в портал |
 | `meeting_room.html` | Комната встречи для сотрудника (/projects/{id}/meetings/{mid}/room) |
@@ -1726,6 +1742,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lightrag_index.py` | Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline. |
 | `lightrag_query.py` | Запрос к LightRAG по карте SKKKK. |
 | `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
+| `link_voice_profiles.py` | Привязка слепков голоса к карточкам сотрудников — только по подтверждению, ничего не привязывается само. |
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
@@ -1760,6 +1777,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `start-saved.ps1` | — |
 | `start.ps1` | SKKKK — запуск API + GPU-воркер с выбором LLM |
 | `stop.ps1` | SKKKK — остановить API и GPU-воркер |
+| `user_profile.py` | Карточки пользователей из командной строки — когда портал запущен службой, а не из PyCharm. |
 | `verify_backup.py` | Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить. |
 | `watch_server.py` | Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log). |
 
