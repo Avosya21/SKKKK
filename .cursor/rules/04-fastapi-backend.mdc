@@ -1,0 +1,15 @@
+---
+description: FastAPI and backend conventions for SKKKK services and routers
+globs: app/**/*.py
+alwaysApply: false
+---
+# FastAPI Backend
+
+- Prefer the existing project split: `routers/`, `services/`, `models/`, `schemas/`.
+- Keep route handlers thin; move extraction, orchestration, and side effects into services.
+- Use typed request/response models and explicit return shapes.
+- Reuse FastAPI dependency injection for DB/session/settings/current user.
+- Keep SQLAlchemy writes transactional and avoid opening ad hoc DB connections when a session already exists.
+- For long-running or external work, log start/end/failure with structured fields.
+- For this project, preserve the existing startup/lifespan pattern in `main.py`; do not introduce alternate app entrypoints casually.
+- Follow existing security/auth patterns and do not weaken role checks or token handling.

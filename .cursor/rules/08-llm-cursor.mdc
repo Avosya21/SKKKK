@@ -1,0 +1,21 @@
+---
+description: LLM через Cursor API (не локальная Gemma); merge и ASR-скрипты
+alwaysApply: true
+---
+
+# LLM: Cursor API (текущий режим)
+
+- **`LLM_PROVIDER=cursor`** в `.env` — sense, proof, сущности, vision и прочий LLM идут через **Cursor API**, не через Gemma в VRAM.
+- В речи и комментариях не путать: «вычитка / sense» ≠ «локальная Gemma». Gemma — только при `LLM_PROVIDER=lmstudio`. Merge окон Whisper/T-one/GigaAM больше не прод.
+
+## Запуск lab-скриптов с LLM
+
+1. Python: **`C:\1C_NEW_SKKKK\venv\Scripts\python.exe`** (не голый `py`, если пакетов нет). ONNX-стадии — `venvs\lab\Scripts\python.exe`.
+2. В venv должен быть **`cursor-sdk`** (`app/requirements.txt`).
+3. Перед sense/proof: `DATA_DIR`, `SKKKK_ARTIFACT_ID`, `SKKKK_PROJECT_ID`; `.env` с `CURSOR_API_KEY`.
+4. Канон: `asr/lab_sense.py` → `lab_giga.py` → `lab_reconcile.py` → `lab_proof.py`. Боевой оркестратор — `app/app/services/pipeline_lab.py`.
+
+## Не ломать публикацию
+
+- Канон текста — `proof/transcript.json` / `proof/transcript.txt`, не сырой GigaAM timeline.
+- **`parsed/..._final.txt`** — реплики с таймкодами из proof (после confirm — с именами).

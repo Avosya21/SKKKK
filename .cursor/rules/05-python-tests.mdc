@@ -1,0 +1,14 @@
+---
+description: Python quality and pytest conventions for SKKKK
+globs: app/**/*.py
+alwaysApply: false
+---
+# Python And Tests
+
+- Prefer small, typed Python functions with explicit return types.
+- Keep existing comments unless they are provably wrong.
+- Match current repository style before introducing new abstractions or docstrings everywhere.
+- Use `pytest` for tests; add focused regression coverage when changes affect pipeline, TZ rebuild, reports, auth, or UI-facing API responses.
+- Favor narrow tests near the changed behavior over broad snapshot-like suites.
+- When a behavior depends on project state, prefer fixtures/stubs over real external services.
+- Avoid introducing dependencies or tools that conflict with the current Windows + venv workflow unless necessary.
