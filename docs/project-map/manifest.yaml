@@ -1,0 +1,2785 @@
+# SKKKK project map manifest — nodes & dependency edges for agents and vector index.
+# Update together with docs/PROJECT-MAP.md when adding modules or pipelines.
+version: 1
+updated: "2026-09-21"
+
+nodes:
+  - id: fastapi_main
+    kind: process
+    path: "app/app/main.py"
+    title: "Entry — preflight, edge (Caddy/LiveKit/voice_cleaner), portal :1777, optional GPU worker"
+    tags: [runtime, api]
+
+  - id: svc_preflight
+    kind: service
+    path: "app/app/preflight.py"
+    title: "Checks before serve; meeting_voice in all/api plan, not worker"
+    tags: [runtime]
+
+  - id: svc_edge_runtime
+    kind: service
+    path: "app/app/services/edge_runtime.py"
+    title: "main all/api starts TLS check then Caddy then LiveKit then voice_cleaner; LiveKit fail keeps portal"
+    tags: [runtime, meetings, https]
+
+  - id: svc_tls_cert
+    kind: service
+    path: "app/app/services/tls_cert.py"
+    title: "On main start, inspect :777 cert file and reissue via Caddy :8443 if missing/expired/staging"
+    tags: [https, caddy, acme]
+
+  - id: svc_livekit
+    kind: process
+    path: "tools/livekit/livekit-server.exe"
+    title: "Native LiveKit :7880; ICE public node_ip+LAN+127.0.0.1; TURN SKKKK_PUBLIC_HOST; not Docker"
+    tags: [runtime, meetings, livekit]
+
+  - id: svc_livekit_env
+    kind: service
+    path: "app/app/services/livekit_env.py"
+    title: "livekit.yaml + keys; LAN includes + public node_ip"
+    tags: [meetings, livekit]
+
+  - id: gpu_worker
+    kind: process
+    path: "app/app/workers/gpu_worker.py"
+    title: "Jobs queue worker (one GPU job at a time)"
+    tags: [runtime, worker]
+
+  - id: router_pages
+    kind: router
+    path: "app/app/routers/pages.py"
+    title: "HTML pages, artifact reports, GET /meeting.webmanifest, meeting_voice_flags"
+    tags: [api, ui]
+
+  - id: router_acme
+    kind: router
+    path: "app/app/routers/acme.py"
+    title: "Public ACME HTTP-01 proxy to Caddy — Let's Encrypt on portal :80"
+    tags: [api, https, acme]
+
+  - id: router_auth
+    kind: router
+    path: "app/app/routers/auth.py"
+    title: "Login by allowlist; role from password each time; Telegram ID stored; JWT 30 days"
+    tags: [api, auth]
+
+  - id: svc_user_identity
+    kind: service
+    path: "app/app/services/user_identity.py"
+    title: "Resolve user by login name; merge duplicate names; store Telegram ID"
+    tags: [auth, db]
+
+  - id: svc_login_allowlist
+    kind: service
+    path: "app/app/services/login_allowlist.py"
+    title: "Read Login_up.txt each login; case-insensitive allowlist"
+    tags: [auth]
+
+  - id: file_login_allowlist
+    kind: file
+    path: "Login_up.txt"
+    title: "Allowed login names or emails, one per line"
+    tags: [auth]
+
+  - id: router_projects
+    kind: router
+    path: "app/app/routers/projects.py"
+    title: "List/create projects; non-admin sees created/upload/chat/members; DELETE fully purges"
+    tags: [api, projects]
+
+  - id: svc_project_access
+    kind: service
+    path: "app/app/services/project_access.py"
+    title: "Own-project guard + project_members; 404 foreign; project_role; lab admin; staff match/rebuild"
+    tags: [service, auth, projects]
+
+  - id: svc_project_purge
+    kind: service
+    path: "app/app/services/project_purge.py"
+    title: "Purge project tree or a single artifact files and SQLite rows"
+    tags: [service, projects]
+
+  - id: ui_btn_delete_project
+    kind: ui_action
+    path: "app/app/templates/index.html"
+    title: "Удалить проект — в раскрытом описании справа, DELETE /projects/{id}"
+    tags: [ui, projects]
+
+  - id: router_upload
+    kind: router
+    path: "app/app/routers/upload.py"
+    title: "Resumable upload, artifact list with speaker button flags, DELETE one artifact"
+    tags: [api, upload]
+
+  - id: ui_btn_delete_artifact
+    kind: ui_action
+    path: "app/app/templates/project.html"
+    title: "Удалить артефакт — иконка корзины после Ошибка, DELETE /projects/{id}/artifacts/{art_id}"
+    tags: [ui, artifacts]
+
+  - id: router_knowledge
+    kind: router
+    path: "app/app/routers/knowledge.py"
+    title: "Search, graph, TZ, chat, deadlines, entity reextract"
+    tags: [api, knowledge]
+
+  - id: router_speakers
+    kind: router
+    path: "app/app/routers/speaker_profiles.py"
+    title: "Speaker enroll/merge, lab enroll/merge, recalculate/summary/reindex API"
+    tags: [api, speakers]
+
+  - id: svc_llm
+    kind: service
+    path: "app/app/services/llm.py"
+    title: "Unified LLM adapter (lmstudio | cursor)"
+    tags: [llm]
+
+  - id: svc_pipeline_lab
+    kind: service
+    path: "app/app/services/pipeline_lab.py"
+    title: "Lab ASR orchestrator — dual hearing; resume run only if WAV hash matches"
+    tags: [pipeline, audio, lab]
+
+  - id: svc_docker_runtime
+    kind: service
+    path: "app/app/services/docker_runtime.py"
+    title: "Auto-start Docker Desktop and ASR containers before audio jobs"
+    tags: [pipeline, docker, asr]
+
+  - id: svc_caddy_https
+    kind: service
+    path: "tools/caddy/Caddyfile"
+    title: "Caddy reverse proxy — HTTPS on :777, Let's Encrypt IP cert (shortlived, HTTP-01 on :8088), portal on loopback :1777"
+    tags: [https, caddy, acme, deploy]
+
+  - id: svc_ollama_runtime
+    kind: service
+    path: "app/app/services/ollama_runtime.py"
+    title: "Auto-start Ollama before embeddings and indexing"
+    tags: [pipeline, ollama, index]
+
+  - id: svc_pipeline_knowledge
+    kind: service
+    path: "app/app/services/pipeline_knowledge.py"
+    title: "Entities, index, summary, graph, done"
+    tags: [pipeline, knowledge]
+
+  - id: svc_speaker_profiles
+    kind: service
+    path: "app/app/services/speaker_profiles.py"
+    title: "Speaker DB; speaker_action_flags for match/confirm visibility; recalculate/summary/reindex"
+    tags: [speakers]
+
+  - id: svc_indexing
+    kind: service
+    path: "app/app/services/indexing.py"
+    title: "Chunk artifact text and store in sqlite-vec"
+    tags: [index, ollama]
+
+  - id: svc_vector_index
+    kind: service
+    path: "app/app/services/vector_index.py"
+    title: "sqlite-vec chunks (kNN) and entity embedding cache"
+    tags: [index, sqlite]
+
+  - id: svc_entities
+    kind: service
+    path: "app/app/services/entities.py"
+    title: "LLM extract; встречи — source_span_id / перефраз / needs_review, leak не пишется"
+    tags: [knowledge, llm]
+
+  - id: svc_graph
+    kind: service
+    path: "app/app/services/graph.py"
+    title: "Seed/rebuild graph, purge orphan links, delete_entities_with_deps before entity DELETE"
+    tags: [knowledge, graph]
+
+  - id: svc_tz
+    kind: service
+    path: "app/app/services/tz.py"
+    title: "Rebuild project TZ via map/reduce; entities decision/task only; audio from lab _final.txt"
+    tags: [knowledge, llm, index]
+
+  - id: svc_chat
+    kind: service
+    path: "app/app/services/chat.py"
+    title: "RAG chat over chunks + entity_vectors + TZ excerpt; memory from chat_messages tape"
+    tags: [knowledge, llm]
+
+  - id: svc_user_activity
+    kind: service
+    path: "app/app/services/user_activity.py"
+    title: "User action log; chat Q/A memory for next turns"
+    tags: [db, chat, audit]
+
+  - id: model_user_activity_log
+    kind: model
+    path: "app/app/models/user_activity_log.py"
+    title: "Append-only user_activity_log (who / block / action)"
+    tags: [db, audit]
+
+  - id: svc_retrieval
+    kind: service
+    path: "app/app/services/retrieval.py"
+    title: "Vector hit rerank; search_entities over entity_vectors (decision/task/fact)"
+    tags: [knowledge, search]
+
+  - id: svc_transcript_turns
+    kind: service
+    path: "app/app/services/transcript_turns.py"
+    title: "Реплики созвона из канона _final.txt (кто, когда, что): разбор с кэшем по mtime, без таблицы в БД"
+    tags: [knowledge, transcript, provenance]
+
+  - id: svc_auto_review
+    kind: service
+    path: "app/app/services/auto_review.py"
+    title: "Автопроверка локальной моделью: режим off/shadow/live, вердикт модели в value_json.model_review, «Вернуть», контрольная выборка"
+    tags: [knowledge, review, llm]
+
+  - id: svc_review_requirements
+    kind: service
+    path: "app/app/services/review_requirements.py"
+    title: "Автопроверка decision/task моделью по источнику (окно реплик / абзац), пороги, дубли без LLM, «кто утвердил»"
+    tags: [knowledge, review, llm]
+
+  - id: svc_review_conflicts
+    kind: service
+    path: "app/app/services/review_conflicts.py"
+    title: "Автопроверка POTENTIAL_CONFLICT моделью: newer_wins / older_wins / not_conflict / unsure, Resolution model_*, «Вернуть»"
+    tags: [knowledge, review, llm, graph]
+
+  - id: svc_speaker_auto
+    kind: service
+    path: "app/app/services/speaker_auto.py"
+    title: "Спикеры без лишних подтверждений: автопринятие голоса (0.85/отрыв 0.10), мягкий шлагбаум, подсказка имени моделью"
+    tags: [speakers, review, llm]
+
+  - id: worker_review
+    kind: service
+    path: "app/app/workers/review.py"
+    title: "Задачи очереди kind=auto_review: исполнители по области (artifact / conflicts), ошибка не трогает артефакт"
+    tags: [worker, review, llm]
+
+  - id: svc_recorded_at
+    kind: service
+    path: "app/app/services/recorded_at.py"
+    title: "Дата записи материала (artifacts.recorded_at): встреча / имя файла / ffprobe / дата загрузки"
+    tags: [knowledge, upload, provenance]
+
+  - id: model_chat_guidance
+    kind: model
+    path: "app/app/models/chat_guidance.py"
+    title: "User steering hints from chat (no graph mutation)"
+    tags: [knowledge, db, chat]
+
+  - id: model_chat_message
+    kind: model
+    path: "app/app/models/chat_message.py"
+    title: "Per-user chat history (project_id + user_id)"
+    tags: [knowledge, db]
+
+  - id: model_project_task
+    kind: model
+    path: "app/app/models/project_task.py"
+    title: "Running long API tasks (TZ rebuild, summary, reindex, speakers)"
+    tags: [db, ui]
+
+  - id: svc_project_tasks
+    kind: service
+    path: "app/app/services/project_tasks.py"
+    title: "Task lock, active list, stale cleanup; duplicate POST → 409"
+    tags: [api, ui]
+
+  - id: model_project_mcp_token
+    kind: model
+    path: "app/app/models/project_mcp_token.py"
+    title: "Per-project MCP API keys (read-only remote access)"
+    tags: [api, mcp, db]
+
+  - id: svc_project_mcp
+    kind: service
+    path: "app/app/mcp/project_protocol.py"
+    title: "MCP JSON-RPC tools over project knowledge (read-only)"
+    tags: [api, mcp, knowledge]
+
+  - id: router_project_mcp
+    kind: router
+    path: "app/app/routers/project_mcp.py"
+    title: "MCP tokens CRUD + POST /mcp/projects/{id}"
+    tags: [api, mcp]
+
+  - id: model_meeting
+    kind: model
+    path: "app/app/models/meeting.py"
+    title: "Meeting + MeetingParticipant; public token stored as sha256"
+    tags: [db, meetings]
+
+  - id: svc_meetings
+    kind: service
+    path: "app/app/services/meetings.py"
+    title: "Create/start/end; guest identity = guest: + sha256(token hash + guest_id); LiveKit JWT"
+    tags: [service, meetings]
+
+  - id: svc_meeting_analyze
+    kind: service
+    path: "app/app/services/meeting_analyze.py"
+    title: "Проанализировать — один артефакт встречи, meeting.json, без Sortformer"
+    tags: [service, meetings, asr]
+
+  - id: svc_pipeline_meeting
+    kind: service
+    path: "app/app/services/pipeline_meeting.py"
+    title: "Дорожки → dual hearing → refine_leaks (rank/RMS окон/CONFLICT) → одна стенограмма"
+    tags: [service, meetings, asr]
+
+  - id: svc_meeting_lab
+    kind: service
+    path: "app/app/services/meeting_lab.py"
+    title: "Снимок лаб встречи: проверки шкалы, протечки, silent, итог (время / кто / текст)"
+    tags: [service, meetings, lab]
+
+  - id: svc_meeting_merge
+    kind: service
+    path: "app/app/services/meeting_merge.py"
+    title: "Слова на шкалу встречи + ffmpeg amix одной дорожки"
+    tags: [service, meetings, asr]
+
+  - id: svc_meeting_overlap
+    kind: service
+    path: "app/app/services/meeting_overlap.py"
+    title: "same-room rank/RMS/окно diar или CONFLICT; one-mic unknown, не carry-forward"
+    tags: [service, meetings, asr]
+
+  - id: svc_meeting_checks
+    kind: service
+    path: "app/app/services/meeting_checks.py"
+    title: "Проверки шкалы встречи: span/frames/gaps/leaks/clock; NO_DATA ≠ PASS"
+    tags: [service, meetings, lab]
+
+  - id: svc_lab_errors
+    kind: service
+    path: "app/app/services/lab_errors.py"
+    title: "Ошибка в UI без ANSI и warning ONNX"
+    tags: [service, asr]
+
+  - id: ui_btn_meeting_analyze
+    kind: button
+    path: "app/app/templates/project.html#meetings-body"
+    title: "Проанализировать — POST /projects/{id}/meetings/{mid}/analyze, колонка таблицы"
+    tags: [ui, meetings]
+
+  - id: ui_btn_meeting_lab
+    kind: button
+    path: "app/app/templates/project.html#labReportLink"
+    title: "лаб встречи — GET /artifacts/{id}/report-meeting-lab, только admin"
+    tags: [ui, meetings, lab]
+
+  - id: ui_page_meeting_lab
+    kind: page
+    path: "/artifacts/{id}/report-meeting-lab"
+    title: "Лаб встречи — проверки шкалы, протечки, silent, CONFLICT, итог на шкале"
+    tags: [ui, meetings, lab]
+
+  - id: ui_btn_meeting_delete
+    kind: button
+    path: "app/app/templates/project.html#meetings-body"
+    title: "Удалить созвон — DELETE /projects/{id}/meetings/{mid}, иконка корзины"
+    tags: [ui, meetings]
+
+  - id: router_meetings
+    kind: router
+    path: "app/app/routers/meetings.py"
+    title: "Staff /projects/{id}/meetings + public /api/meetings/public/{token}"
+    tags: [api, meetings]
+
+  - id: svc_artifact_audio
+    kind: service
+    path: "app/app/services/artifact_audio.py"
+    title: "Finalize outputs, sync reports; atomic WAV extract + lock"
+    tags: [audio, reports]
+
+  - id: svc_media_cleanup
+    kind: service
+    path: "app/app/services/media_cleanup.py"
+    title: "Discard video source after verified WAV extraction"
+    tags: [audio, storage]
+
+  - id: asr_docker_stage
+    kind: module
+    path: "asr/docker_stage.py"
+    title: "Stage artifact WAV into asr/work for Docker ASR mounts"
+    tags: [asr, docker, tone]
+
+  - id: asr_run_pipeline
+    kind: script
+    path: "asr/run_pipeline.py"
+    title: "Legacy triple ASR pipeline (worker no longer invokes)"
+    tags: [asr, pipeline, legacy]
+
+  - id: asr_merge_ensemble
+    kind: script
+    path: "asr/merge_ensemble.py"
+    title: "Window merge via LLM (Whisper+Tone+GigaAM → plain)"
+    tags: [asr, merge, llm]
+
+  - id: asr_merge_guard
+    kind: module
+    path: "asr/merge_guard.py"
+    title: "Per-window merge audit and recovery"
+    tags: [asr, merge, quality]
+
+  - id: asr_transcript_integrity
+    kind: module
+    path: "asr/transcript_integrity.py"
+    title: "Global plain audit/repair and view integrity"
+    tags: [asr, merge, quality]
+
+  - id: asr_build_transcript_view
+    kind: script
+    path: "asr/build_transcript_view.py"
+    title: "Legacy UI turns/HTML; lab uses write_prod_view instead"
+    tags: [asr, view]
+
+  - id: asr_match_speakers
+    kind: script
+    path: "asr/match_sortformer_speakers.py"
+    title: "Voice embedding match Sortformer → speaker profiles"
+    tags: [asr, speakers, gigaam]
+
+  - id: asr_summarize_call
+    kind: script
+    path: "asr/summarize_call.py"
+    title: "Map/reduce call_summary.md and call_brief.md from signed speakers JSON"
+    tags: [asr, summary, llm]
+
+  - id: asr_voice_audit
+    kind: script
+    path: "asr/voice_turn_audit.py"
+    title: "Voice/text consistency audit"
+    tags: [asr, speakers, quality]
+
+  - id: asr_llm_client
+    kind: module
+    path: "asr/llm_client.py"
+    title: "LLM client for ASR subprocess scripts"
+    tags: [llm, asr]
+
+  - id: docker_whisper
+    kind: external
+    path: "asr/docker-compose.yml"
+    title: "skkkk-whisper container :18101"
+    tags: [asr, docker, gpu]
+
+  - id: docker_gigaam
+    kind: external
+    path: "asr/docker-compose.yml"
+    title: "skkkk-gigaam container :18102 (ASR + voice embed)"
+    tags: [asr, docker, gpu]
+
+  - id: docker_tone
+    kind: external
+    path: "asr/docker-compose.yml"
+    title: "skkkk-tone container :18103"
+    tags: [asr, docker, gpu]
+
+  - id: prompt_merge
+    kind: prompt
+    path: "docs/prompts/merge_transcript.md"
+    title: "LLM merge window prompt"
+    tags: [prompt, merge]
+
+  - id: prompt_summary
+    kind: prompt
+    path: "docs/prompts/call_summary.md"
+    title: "Call summary map/reduce — итоговый протокол"
+    tags: [prompt, summary]
+
+  - id: prompt_brief
+    kind: prompt
+    path: "docs/prompts/call_brief.md"
+    title: "Call brief map/reduce — краткое резюме созвона"
+    tags: [prompt, summary]
+
+  - id: prompt_doc_summary
+    kind: prompt
+    path: "docs/prompts/doc_summary.md"
+    title: "Document summary map/reduce — протокол документа"
+    tags: [prompt, summary, document]
+
+  - id: svc_summarize_document
+    kind: service
+    path: "app/app/services/summarize_document.py"
+    title: "Map/reduce {id}_doc_summary.md from *_clean.txt"
+    tags: [pipeline, summary, llm]
+
+  - id: svc_artifact_reports
+    kind: service
+    path: "app/app/services/artifact_reports.py"
+    title: "HTML report for documents — protocol + collapsed source"
+    tags: [ui, document]
+
+  - id: file_doc_summary
+    kind: artifact_file
+    path: "parsed/documents/{id}_doc_summary.md"
+    title: "Document protocol for UI"
+    tags: [data, summary, document]
+
+  - id: prompt_entities
+    kind: prompt
+    path: "docs/prompts/extract_entities.md"
+    title: "Entity extraction prompt"
+    tags: [prompt, knowledge]
+
+  - id: prompt_rebuild_tz
+    kind: prompt
+    path: "docs/prompts/rebuild_tz.md"
+    title: "Project TZ map/reduce; entity dump is decision/task only"
+    tags: [prompt, summary, knowledge]
+
+  - id: prompt_rag_chat
+    kind: prompt
+    path: "docs/prompts/rag_chat.md"
+    title: "Chat RAG; use entity hits and TZ excerpt as overview, not as dump"
+    tags: [prompt, knowledge, chat]
+
+  - id: prompt_lab_sense
+    kind: prompt
+    path: "docs/prompts/lab_sense_speakers.md"
+    title: "Лаборатория этап 2 — смысловая разноска спорных слов"
+    tags: [prompt, lab, overlay]
+
+  - id: prompt_lab_proof
+    kind: prompt
+    path: "docs/prompts/lab_proof_text.md"
+    title: "Лаборатория этап 3в — выбор между вариантом lab и giga"
+    tags: [prompt, lab, overlay, asr]
+
+  - id: file_merged_windows
+    kind: artifact_file
+    path: "{artifact}/asr/docker_merged_windows.json"
+    title: "LLM-merged text per silence window"
+    tags: [data, merge]
+
+  - id: file_speakers_json
+    kind: artifact_file
+    path: "{artifact}/asr/docker_gigaam_speakers.json"
+    title: "Canonical turns for UI and summary"
+    tags: [data, view, speakers]
+
+  - id: file_match_json
+    kind: artifact_file
+    path: "{artifact}/reports/sortformer_speaker_match.json"
+    title: "Sortformer label → profile match"
+    tags: [data, speakers]
+
+  - id: file_entities_json
+    kind: artifact_file
+    path: "{project}/structured/{artifact}_entities.json"
+    title: "Extracted decisions/tasks/facts"
+    tags: [data, knowledge]
+
+  - id: script_index_map
+    kind: script
+    path: "scripts/index_project_map.py"
+    title: "Build vector index of project map"
+    tags: [meta, index]
+
+  - id: script_search_map
+    kind: script
+    path: "scripts/search_project_map.py"
+    title: "Semantic search project map"
+    tags: [meta, search]
+
+  - id: script_inspect_index
+    kind: script
+    path: "scripts/inspect_project_index.py"
+    title: "Audit project sqlite-vec chunks vs lab _final.txt"
+    tags: [index, audit]
+
+  - id: ui_project_page
+    kind: ui_page
+    path: "app/app/templates/project.html"
+    title: "Project page — upload, artifacts, TZ+chat, collapsible deadlines, MCP and grant access"
+    tags: [ui, project, layout, mcp]
+
+  - id: ui_project_insights_layout
+    kind: ui_pattern
+    path: "app/app/templates/project.html#project-insights-row"
+    title: "Макет project.html: строка project-insights-row — TZ и чат одной высоты min(70vh,720px), sticky top 0.75rem; #tz-content и #chat-log скроллятся внутри; chat-composer внизу"
+    tags: [ui, layout, project, chat, tz]
+
+  - id: ui_mcp_collapsible
+    kind: ui_pattern
+    path: "app/app/templates/project.html#mcp-access-panel"
+    title: "Сворачиваемый блок Удалённый доступ MCP: Bootstrap collapse #mcp-access-panel, по умолчанию сложен, подсказка #mcp-toggle-hint (развернуть/свернуть)"
+    tags: [ui, mcp, project, collapse]
+
+  - id: ui_meetings_collapsible
+    kind: ui_pattern
+    path: "app/app/templates/project.html#meetings-panel"
+    title: "Сворачиваемый блок Встречи: создать/начать/проанализировать (merge дорожек)/отозвать"
+    tags: [ui, meetings, project, collapse]
+
+  - id: ui_btn_meeting_create
+    kind: ui_action
+    path: "app/app/templates/project.html"
+    title: "Создать встречу — POST /projects/{id}/meetings, гостевой токен один раз"
+    tags: [ui, meetings]
+
+  - id: ui_meeting_public
+    kind: page
+    path: "app/app/templates/meeting_public.html"
+    title: "Гостевой портал /m/{token}: имя, guest_id в localStorage, mic/cam, join"
+    tags: [ui, meetings, public]
+
+  - id: ui_meeting_dock
+    kind: ui_action
+    path: "app/app/templates/meeting_public.html#meeting-dock"
+    title: "Комната — док; чип качества; пресеты h360/h540 + simulcast; #meeting-more с 768px"
+    tags: [ui, meetings]
+
+  - id: ui_btn_meeting_more
+    kind: button
+    path: "app/app/templates/meeting_public.html#meeting-more"
+    title: "Ещё — overflow-tray сетка/участники/ссылка/динамик/fullscreen при max-width 767.98px"
+    tags: [ui, meetings, mobile]
+
+  - id: ui_btn_meeting_denoise
+    kind: button
+    path: "app/app/templates/meeting_public.html#meeting-denoise"
+    title: "Шумодав — opt-out своего мика; publishData skkkk-denoise, свой clean-* не играется"
+    tags: [ui, meetings, voice]
+
+  - id: ui_btn_meeting_sound
+    kind: button
+    path: "app/app/templates/meeting_public.html#meeting-sound"
+    title: "Звук — setSubscribed(false) на чужое аудио (вкл. clean-*), не muted; свой мик не трогает"
+    tags: [ui, meetings, voice]
+
+  - id: ui_meeting_mic_silent_toast
+    kind: ui_action
+    path: "app/app/static/meeting_room.js"
+    title: "Тост «Микрофон молчит» + Перезапустить; setAttributes({mic_silent:1}), не metadata"
+    tags: [ui, meetings, voice]
+
+  - id: ui_meeting_screen_tile
+    kind: ui_action
+    path: "app/app/static/meeting_room.js"
+    title: "Плитка экрана meeting-tile-screen-{sid}; lead = последняя; «Экран сверху»"
+    tags: [ui, meetings, screen]
+
+  - id: ui_meeting_layout_rules
+    kind: module
+    path: "app/app/static/meeting_layout.js"
+    title: "Чистые функции flagState / soundPlan / tileOrder / qualityBadge + selfcheck"
+    tags: [ui, meetings]
+
+  - id: static_meeting_webmanifest
+    kind: page
+    path: "/meeting.webmanifest"
+    title: "PWA манифест комнаты (standalone); start_url из query; без service worker"
+    tags: [ui, meetings, pwa]
+
+  - id: svc_meeting_voice
+    kind: service
+    path: "tools/livekit/voice_cleaner.py"
+    title: "CPU DeepFilterNet, identity skkkk-dfn; сырые дорожки в data/meetings/{room}; не ASR"
+    tags: [meetings, voice, livekit]
+
+  - id: svc_screen_recorder
+    kind: service
+    path: "tools/livekit/screen_recorder.py"
+    title: "skkkk-rec пишет screen_video mp4 в data/meetings/{room}/tracks; identity = кто шарит; не камера"
+    tags: [meetings, screen, livekit]
+
+  - id: svc_meeting_frames
+    kind: service
+    path: "app/app/services/meeting_frames.py"
+    title: "Кадры screen_video по ярусам + speech_screen_links на merge; vision за MEETING_SCREEN_VISION"
+    tags: [meetings, screen, vision]
+
+  - id: svc_meeting_recordings
+    kind: service
+    path: "app/app/services/meeting_recordings.py"
+    title: "manifest.json + WAV на identity в data/meetings/{room_name}; связь = meetings.room_name"
+    tags: [meetings, voice, storage]
+
+  - id: script_install_meeting_voice
+    kind: script
+    path: "scripts/install_meeting_voice.py"
+    title: "Isolated venvs/voice + DeepFilterNet CPU"
+    tags: [meetings, voice]
+
+  - id: ui_btn_meeting_end_all
+    kind: ui_action
+    path: "app/app/templates/meeting_room.html#meeting-end"
+    title: "Завершить для всех — POST /projects/{id}/meetings/{mid}/end из комнаты сотрудника"
+    tags: [ui, meetings]
+
+  - id: ui_btn_guest_devices_check
+    kind: button
+    path: "app/app/templates/meeting_public.html#guest-devices-check"
+    title: "Проверить микрофон и камеру, выбрать #guest-mic и #guest-cam"
+    tags: [ui, meetings, public]
+
+  - id: ui_grant_access
+    kind: ui_pattern
+    path: "app/app/templates/project.html#grant-access-panel"
+    title: "Сворачиваемый блок Выдать доступ: collapse #grant-access-panel, select пользователя и роли manager/user, таблица project_members"
+    tags: [ui, project, collapse, access]
+
+  - id: router_project_members
+    kind: router
+    path: "app/app/routers/project_members.py"
+    title: "GET/POST/DELETE /projects/{id}/members — grant manager or user, never admin"
+    tags: [api, projects, access]
+
+  - id: svc_project_members
+    kind: service
+    path: "app/app/services/project_members.py"
+    title: "project_members upsert/list/remove; MEMBER_ROLES manager and user"
+    tags: [service, projects, access]
+
+  - id: model_project_member
+    kind: model
+    path: "app/app/models/project_member.py"
+    title: "project_members table — project_id + user_id + role + granted_by"
+    tags: [db, projects, access]
+
+  - id: ui_deadlines_collapsible
+    kind: ui_pattern
+    path: "app/app/templates/project.html#deadlines-panel"
+    title: "Сворачиваемый блок Дедлайны: collapse #deadlines-panel, список + FullCalendar, GET /projects/{id}/deadlines"
+    tags: [ui, project, collapse, deadlines, tasks]
+
+  - id: api_project_deadlines
+    kind: api_route
+    path: "app/app/routers/knowledge.py"
+    title: "GET /projects/{project_id}/deadlines — задачи и сроки из entities task"
+    tags: [api, project, deadlines, entities]
+
+  - id: api_project_reextract
+    kind: api_route
+    path: "app/app/routers/knowledge.py"
+    title: "POST /projects/{project_id}/reextract-entities — LLM сущности с lab _final.txt, без reindex"
+    tags: [api, project, deadlines, entities]
+
+  - id: svc_project_deadlines
+    kind: service
+    path: "app/app/services/project_deadlines.py"
+    title: "Агрегация task-сущностей проекта, парсинг сроков, дедупликация"
+    tags: [service, deadlines, entities]
+
+  - id: ui_btn_logout
+    kind: ui_action
+    path: "app/app/templates/base.html"
+    title: "Выйти — иконка у ника в шапке, POST /auth/logout"
+    tags: [ui, auth]
+
+  - id: ui_index_page
+    kind: ui_page
+    path: "app/app/templates/index.html"
+    title: "Projects list and create project modal"
+    tags: [ui, projects]
+
+  - id: ui_transcript_report
+    kind: ui_page
+    path: "asr/transcript_view.py"
+    title: "Transcript HTML — summary block, speaker tools, reindex"
+    tags: [ui, transcript]
+
+  - id: ui_speaker_match_report
+    kind: ui_page
+    path: "asr/build_speaker_match_view.py"
+    title: "Speaker match HTML — voice cards + scrollable pool, no timeline"
+    tags: [ui, speakers]
+
+  - id: svc_pipeline_voice_gate
+    kind: service
+    path: "app/app/services/pipeline_voice_gate.py"
+    title: "Voice gate (legacy) — replaced by pipeline_lab speakers_pending"
+    tags: [pipeline, speakers, asr, legacy]
+
+  - id: ui_btn_download_brief
+    kind: ui_action
+    path: "asr/transcript_view.py"
+    title: "Краткое резюме созвона — GET /artifacts/{id}/download/brief.docx"
+    tags: [ui, transcript, export]
+
+  - id: ui_btn_download_summary
+    kind: ui_action
+    path: "asr/transcript_view.py"
+    title: "Выжимка Word — GET /artifacts/{id}/download/summary.docx"
+    tags: [ui, transcript, export]
+
+  - id: svc_transcript_export
+    kind: service
+    path: "app/app/services/transcript_export.py"
+    title: "Word/txt export of call summary and brief (Calibri, styled tables)"
+    tags: [export, transcript]
+
+  - id: ui_btn_rebuild_tz
+    kind: ui_action
+    path: "app/app/templates/project.html#tz-refresh"
+    title: "Пересобрать — итоговая выжимка по проекту"
+    tags: [ui, tz, llm]
+
+  - id: ui_btn_rebuild_call_summary
+    kind: ui_action
+    path: "asr/transcript_view.py#rebuild-summary"
+    title: "Пересобрать выжимку — созвон или документ"
+    tags: [ui, summary, llm]
+
+  - id: ui_btn_recalculate_speakers
+    kind: ui_action
+    path: "asr/transcript_view.py#recalc"
+    title: "Пересчитать подсказки — lab speaker_N cosine; legacy Sortformer"
+    tags: [ui, speakers, gigaam]
+
+  - id: ui_btn_reindex
+    kind: ui_action
+    path: "asr/transcript_view.py#reindex"
+    title: "Обновить и переиндексировать — chunks sqlite-vec"
+    tags: [ui, index, ollama]
+
+  - id: ui_btn_upload
+    kind: ui_action
+    path: "app/app/templates/project.html#upload-submit"
+    title: "Загрузить — resumable upload + GPU job"
+    tags: [ui, upload, worker]
+
+  - id: ui_btn_chat
+    kind: ui_action
+    path: "app/app/templates/project.html#chat-send"
+    title: "Спросить — RAG chat по проекту, память из ленты chat_messages"
+    tags: [ui, chat, llm]
+
+  - id: ui_btn_confirm_speakers
+    kind: ui_action
+    path: "app/app/templates/project.html#speaker-confirm-btn"
+    title: "Подтвердить спикеров — only after all speaker_N named; then knowledge job"
+    tags: [ui, speakers, knowledge]
+
+  - id: ui_btn_speaker_match
+    kind: ui_action
+    path: "app/app/templates/project.html#speakerMatchLink"
+    title: "match — only when sortformer match.json already has speaker labels"
+    tags: [ui, speakers]
+
+  - id: ui_btn_enroll
+    kind: ui_action
+    path: "asr/transcript_view.py#sp-enroll"
+    title: "Запомнить / Сохранить — enroll + write_prod_view"
+    tags: [ui, speakers]
+
+  - id: ui_btn_merge
+    kind: ui_action
+    path: "asr/transcript_view.py#sp-merge"
+    title: "Слить / Объединить — merge_map + write_prod_view"
+    tags: [ui, speakers]
+
+  - id: fn_write_prod_view
+    kind: function
+    path: "app/app/services/pipeline_lab.py#write_prod_view"
+    title: "Proof + match names → docker_gigaam_speakers.json + transcript.html"
+    tags: [lab, transcript, publish]
+
+  - id: lab_paths
+    kind: module
+    path: "asr/lab/paths.py"
+    title: "Каталоги лабораторного прогона; resolve() без выхода наружу"
+    tags: [lab, isolation]
+
+  - id: lab_run
+    kind: module
+    path: "asr/lab/run.py"
+    title: "Контракт стадии — sha256, stage.json, отпечаток, MissingInput"
+    tags: [lab, contract, hashing]
+
+  - id: lab_pipeline_mod
+    kind: module
+    path: "asr/lab/pipeline.py"
+    title: "Порядок стадий лаборатории и LabOptions"
+    tags: [lab, orchestration]
+
+  - id: lab_sortformer
+    kind: module
+    path: "asr/lab/sortformer.py"
+    title: "Streaming Sortformer 4spk v2.1 на ONNX — матрица вероятностей T×4 (откат); binarize по ширине матрицы"
+    tags: [lab, diarization, onnx]
+
+  - id: lab_diar_models
+    kind: module
+    path: "asr/lab/diar_models.py"
+    title: "Выбор диаризации (DIAR_MODEL): Nemotron 3 8spk по умолчанию, Sortformer 4spk — откат; пороги у каждой модели свои"
+    tags: [lab, diarization]
+
+  - id: lab_nemotron_runner
+    kind: module
+    path: "asr/lab/nemotron_runner.py"
+    title: "Nemotron 3 Diarization отдельным процессом в venvs/nemo-diar: матрица T×8 80 мс, bf16, обходы Windows"
+    tags: [lab, diarization, nemo]
+
+  - id: lab_words
+    kind: module
+    path: "asr/lab/words.py"
+    title: "Слова из токенов SentencePiece (onnx-asr даёт время только на токен)"
+    tags: [lab, asr]
+
+  - id: lab_stage_audio
+    kind: module
+    path: "asr/lab/stages/s01_audio.py"
+    title: "01_audio — рабочая копия исходника 16 кГц, без денойза"
+    tags: [lab, audio]
+
+  - id: lab_stage_asr
+    kind: module
+    path: "asr/lab/stages/s02_asr.py"
+    title: "02_asr — Parakeet-TDT 0.6B v3 через onnx-asr по всему файлу"
+    tags: [lab, asr, onnx]
+
+  - id: lab_stage_diar
+    kind: module
+    path: "asr/lab/stages/s03_diar.py"
+    title: "03_diar — Nemotron 3 (или Sortformer), пороги от модели, paint_defaults в diar.json"
+    tags: [lab, diarization]
+
+  - id: lab_stage_paint
+    kind: module
+    path: "asr/lab/stages/s04_paint.py"
+    title: "04_paint — покраска слов; assigned / contested / unassigned"
+    tags: [lab, speakers]
+
+  - id: lab_stage_voice
+    kind: module
+    path: "asr/lab/stages/s05_voice.py"
+    title: "05_voice — WeSpeaker в skkkk-gigaam, speaker_profiles только на чтение; этап 4 её не перезапускает"
+    tags: [lab, speakers, docker]
+
+  - id: lab_stage_transcript
+    kind: module
+    path: "asr/lab/stages/s06_transcript.py"
+    title: "06_transcript — реплики из слов, без LLM"
+    tags: [lab, transcript]
+
+  - id: lab_stage_verify
+    kind: module
+    path: "asr/lab/stages/s07_verify.py"
+    title: "07_verify — второй проход через Silero VAD, слова в тишине"
+    tags: [lab, verification, vad]
+
+  - id: lab_cli
+    kind: script
+    path: "asr/lab_pipeline.py"
+    title: "CLI лаборатории — новый прогон, --only, --from, --force"
+    tags: [lab, cli]
+
+  - id: lab_sense
+    kind: script
+    path: "asr/lab_sense.py"
+    title: "Этап 2 лаборатории — смысловая разноска Cursor в sense/"
+    tags: [lab, llm, overlay]
+
+  - id: lab_hint
+    kind: script
+    path: "asr/lab_hint.py"
+    title: "Имена с боя как подписи; нарезка GigaAM не копируется"
+    tags: [lab, overlay, speakers]
+
+  - id: lab_giga_mod
+    kind: module
+    path: "asr/lab/giga.py"
+    title: "Разбор ответа GigaAM — реплики, спикеры, перекрытия as-is"
+    tags: [lab, asr, gigaam]
+
+  - id: lab_giga
+    kind: script
+    path: "asr/lab_giga.py"
+    title: "Этап 3a — свой прогон GigaAM на аудио прогона, всё в giga/"
+    tags: [lab, asr, gigaam, docker]
+
+  - id: lab_reconcile_mod
+    kind: module
+    path: "asr/lab/reconcile.py"
+    title: "Сверка с GigaAM — карта спикеров, чистота реплик, приговоры по спорным"
+    tags: [lab, speakers, verification]
+
+  - id: lab_reconcile
+    kind: script
+    path: "asr/lab_reconcile.py"
+    title: "Этап 3b — приговоры по спорным кускам в reconcile/"
+    tags: [lab, speakers, verification]
+
+  - id: lab_proof_mod
+    kind: module
+    path: "asr/lab/proof.py"
+    title: "Пословные расхождения lab/giga и сборка итоговых реплик"
+    tags: [lab, asr, text]
+
+  - id: lab_proof
+    kind: script
+    path: "asr/lab_proof.py"
+    title: "Этап 3в — вычитка текста через Cursor, итоговая стенограмма в proof/"
+    tags: [lab, llm, text]
+
+  - id: lab_voice_mod
+    kind: module
+    path: "asr/lab/voice.py"
+    title: "Клипы из слов paint+sense и вызов WeSpeaker; match.json прогона"
+    tags: [lab, speakers, docker]
+
+  - id: lab_voice
+    kind: script
+    path: "asr/lab_voice.py"
+    title: "Этап 4 — слепки WeSpeaker в voice/, в БД не пишет"
+    tags: [lab, speakers, docker]
+
+  - id: lab_freeze
+    kind: doc
+    path: "asr/lab/FREEZE.md"
+    title: "Снимок лаборатории — SHA256 моделей, Python 3.10.9, ORT 1.23.2, Parakeet 0.6B v3, Sortformer 4spk v2.1"
+    tags: [lab, freeze, versions]
+
+  - id: stack_snapshot
+    kind: doc
+    path: "docs/PROJECT-MAP.md"
+    title: "§1.1 стек 2026-08-27: FastAPI 0.141.1, sqlite-vec 0.1.9, WAV PCM 16k, AAC 48k playback, MP3 64k download, Cursor SDK 1.0.28"
+    tags: [docs, versions, codecs]
+
+  - id: lab_view
+    kind: script
+    path: "asr/build_lab_view.py"
+    title: "Страница прогона report.html: итоговая стенограмма в вёрстке прода"
+    tags: [lab, ui]
+
+  - id: lab_speaker_registry
+    kind: module
+    path: "asr/speaker_registry.py"
+    title: "cosine и unpack_embedding — переиспользуются лабораторией на чтение"
+    tags: [lab, speakers]
+
+  - id: svc_artifact_lab
+    kind: service
+    path: "app/app/services/artifact_lab.py"
+    title: "Прогоны лаборатории для веба; без fallback на чужой прогон"
+    tags: [lab, api]
+
+  - id: ui_page_lab
+    kind: page
+    path: "/artifacts/{id}/report-lab"
+    title: "Лаборатория — стадии, оверлеи, карточки Запомнить/Слить"
+    tags: [ui, lab]
+
+  - id: svc_agent_gateway
+    kind: service
+    path: "app/app/services/agent_gateway.py"
+    title: "Gateway for external agent - whitelist, exchange log, idempotency; deterministic, no LLM"
+    tags: [api, mcp, agent]
+
+  - id: svc_agent_inbox
+    kind: service
+    path: "app/app/services/agent_inbox.py"
+    title: "Agent question inbox - queue, retrieved fragments, local-model draft, human answer"
+    tags: [api, agent]
+
+  - id: svc_agent_verdicts
+    kind: service
+    path: "app/app/services/agent_verdicts.py"
+    title: "Agent verdicts - list, confirm/reject by admin"
+    tags: [api, agent]
+
+  - id: svc_agent_settings
+    kind: service
+    path: "app/app/services/agent_settings.py"
+    title: "Per-project exchange settings (sides, timezone, anchor pack, on/off) in Project.settings_json"
+    tags: [api, agent]
+
+  - id: svc_contract
+    kind: service
+    path: "app/app/services/contract.py"
+    title: "Exchange contract served as virtual contract/*.json via MCP; text helpers in contract_text.py"
+    tags: [api, mcp, agent]
+
+  - id: svc_requirement_review
+    kind: service
+    path: "app/app/services/requirement_review.py"
+    title: "Human confirmation of requirements (decision/task entities); decisions admin-only"
+    tags: [api, knowledge]
+
+  - id: router_requirement_review
+    kind: router
+    path: "app/app/routers/requirement_review.py"
+    title: "/projects/{id}/requirements review, confirm, per-requirement action"
+    tags: [api]
+
+  - id: svc_single_instance
+    kind: service
+    path: "app/app/services/single_instance.py"
+    title: "Guard against a second GPU worker (SQLite single writer)"
+    tags: [runtime, worker]
+
+  - id: svc_rate_limit
+    kind: service
+    path: "app/app/services/rate_limit.py"
+    title: "Login attempt limiter (8 failures / 5 min per IP and login -> 429)"
+    tags: [security]
+
+  - id: ui_agent_cards
+    kind: ui
+    path: "app/app/templates/partials/px_agent_cards.html"
+    title: "Project page cards - requirements review, agent exchange, agent settings; JS px_agent.js, CSS px_agent.css"
+    tags: [ui, agent]
+
+  - id: mod_bootstrap
+    kind: file
+    path: app/app/bootstrap.py
+    title: "Подготовка `.env` до того, как Settings прочитает файл."
+    tags: [auto]
+    auto: true
+
+  - id: mod_config
+    kind: file
+    path: app/app/config.py
+    title: "app/app/config.py"
+    tags: [auto]
+    auto: true
+
+  - id: mod_cursor_compat
+    kind: file
+    path: app/app/cursor_compat.py
+    title: "Совместимость cursor-sdk с Python < 3.12 (os.get_blocking / os.set_blocking)."
+    tags: [auto]
+    auto: true
+
+  - id: mod_db
+    kind: file
+    path: app/app/db.py
+    title: "app/app/db.py"
+    tags: [auto]
+    auto: true
+
+  - id: mod_dependencies
+    kind: file
+    path: app/app/dependencies.py
+    title: "app/app/dependencies.py"
+    tags: [auto]
+    auto: true
+
+  - id: mod_llm_labels
+    kind: file
+    path: app/app/llm_labels.py
+    title: "Подписи LLM для логов и UI в зависимости от провайдера (Gemma / Cursor)."
+    tags: [auto]
+    auto: true
+
+  - id: mod_llm_settings
+    kind: file
+    path: app/app/llm_settings.py
+    title: "Выбор LLM-провайдера (Gemma / Cursor) — чтение и запись в `.env`."
+    tags: [auto]
+    auto: true
+
+  - id: mod_logging_setup
+    kind: file
+    path: app/app/logging_setup.py
+    title: "Единая настройка логов: консоль (PyCharm) плюс файл в `data/logs`."
+    tags: [auto]
+    auto: true
+
+  - id: model_agent_exchange
+    kind: model
+    path: app/app/models/agent_exchange.py
+    title: "app/app/models/agent_exchange.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_agent_question
+    kind: model
+    path: app/app/models/agent_question.py
+    title: "app/app/models/agent_question.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_artifact
+    kind: model
+    path: app/app/models/artifact.py
+    title: "app/app/models/artifact.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_contract
+    kind: model
+    path: app/app/models/contract.py
+    title: "app/app/models/contract.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_entity
+    kind: model
+    path: app/app/models/entity.py
+    title: "app/app/models/entity.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_job
+    kind: model
+    path: app/app/models/job.py
+    title: "app/app/models/job.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_project
+    kind: model
+    path: app/app/models/project.py
+    title: "app/app/models/project.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_speaker_profile
+    kind: model
+    path: app/app/models/speaker_profile.py
+    title: "app/app/models/speaker_profile.py"
+    tags: [auto]
+    auto: true
+
+  - id: model_user
+    kind: model
+    path: app/app/models/user.py
+    title: "app/app/models/user.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_acme_challenge
+    kind: service
+    path: app/app/services/acme_challenge.py
+    title: "app/app/services/acme_challenge.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_agent_guide
+    kind: service
+    path: app/app/services/agent_guide.py
+    title: "Инструкция для внешних агентов: как пользоваться базой знаний, как просить нас о чём-то и как с нами общаться."
+    tags: [auto]
+    auto: true
+
+  - id: svc_agent_letters
+    kind: service
+    path: app/app/services/agent_letters.py
+    title: "Письма базы знаний внешнему агенту: доставка через MCP, без переноса человеком."
+    tags: [auto]
+    auto: true
+
+  - id: svc_artifact_download
+    kind: service
+    path: app/app/services/artifact_download.py
+    title: "app/app/services/artifact_download.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_auth
+    kind: service
+    path: app/app/services/auth.py
+    title: "app/app/services/auth.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_build_info
+    kind: service
+    path: app/app/services/build_info.py
+    title: "Признак «код на диске новее запущенного сервера» (пункт плана 1.3)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_chunking
+    kind: service
+    path: app/app/services/chunking.py
+    title: "app/app/services/chunking.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_contract_text
+    kind: service
+    path: app/app/services/contract_text.py
+    title: "Разбор текста для контракта обмена с агентом анализа: сообщения переписки, дословные цитаты, оценки часов, якоря кода."
+    tags: [auto]
+    auto: true
+
+  - id: svc_ffmpeg_tools
+    kind: service
+    path: app/app/services/ffmpeg_tools.py
+    title: "app/app/services/ffmpeg_tools.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_gpu_phase
+    kind: service
+    path: app/app/services/gpu_phase.py
+    title: "app/app/services/gpu_phase.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_image_extract
+    kind: service
+    path: app/app/services/image_extract.py
+    title: "app/app/services/image_extract.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_meeting_tokens
+    kind: service
+    path: app/app/services/meeting_tokens.py
+    title: "app/app/services/meeting_tokens.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_normalize
+    kind: service
+    path: app/app/services/normalize.py
+    title: "app/app/services/normalize.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_notify
+    kind: service
+    path: app/app/services/notify.py
+    title: "app/app/services/notify.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_ollama_client
+    kind: service
+    path: app/app/services/ollama_client.py
+    title: "app/app/services/ollama_client.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_pipeline_audio
+    kind: service
+    path: app/app/services/pipeline_audio.py
+    title: "app/app/services/pipeline_audio.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_pipeline_documents
+    kind: service
+    path: app/app/services/pipeline_documents.py
+    title: "app/app/services/pipeline_documents.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_pipeline_progress
+    kind: service
+    path: app/app/services/pipeline_progress.py
+    title: "Пошаговый прогресс обработки артефакта для UI (чеклист ASR + фазы knowledge)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_pipeline_resume
+    kind: service
+    path: app/app/services/pipeline_resume.py
+    title: "app/app/services/pipeline_resume.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_plain_text
+    kind: service
+    path: app/app/services/plain_text.py
+    title: "Convert common LLM LaTeX / math markup into plain Unicode for HTML display."
+    tags: [auto]
+    auto: true
+
+  - id: svc_pptx_extract
+    kind: service
+    path: app/app/services/pptx_extract.py
+    title: "Текст из презентаций .pptx → markdown по слайдам (вход для normalize / knowledge-пайплайна)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_project_mcp_contract
+    kind: service
+    path: app/app/services/project_mcp_contract.py
+    title: "MCP-инструменты контракта обмена с агентом анализа (только чтение). Формат и смысл полей — docs/agent-exchange/CONTRACT.md."
+    tags: [auto]
+    auto: true
+
+  - id: svc_project_mcp_data
+    kind: service
+    path: app/app/services/project_mcp_data.py
+    title: "app/app/services/project_mcp_data.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_project_mcp_tokens
+    kind: service
+    path: app/app/services/project_mcp_tokens.py
+    title: "app/app/services/project_mcp_tokens.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_prompts
+    kind: service
+    path: app/app/services/prompts.py
+    title: "Загрузка промптов из docs/prompts/*.md (пункт плана 2.2)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_queue
+    kind: service
+    path: app/app/services/queue.py
+    title: "app/app/services/queue.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_report_embed
+    kind: service
+    path: app/app/services/report_embed.py
+    title: "app/app/services/report_embed.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_resumable_upload
+    kind: service
+    path: app/app/services/resumable_upload.py
+    title: "app/app/services/resumable_upload.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_status
+    kind: service
+    path: app/app/services/status.py
+    title: "app/app/services/status.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_storage
+    kind: service
+    path: app/app/services/storage.py
+    title: "app/app/services/storage.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_tesseract_tools
+    kind: service
+    path: app/app/services/tesseract_tools.py
+    title: "app/app/services/tesseract_tools.py"
+    tags: [auto]
+    auto: true
+
+  - id: svc_upload
+    kind: service
+    path: app/app/services/upload.py
+    title: "app/app/services/upload.py"
+    tags: [auto]
+    auto: true
+
+  - id: mod_startup_llm
+    kind: file
+    path: app/app/startup_llm.py
+    title: "Выбор LLM при запуске SKKKK: LM Studio (локально) или Cursor API."
+    tags: [auto]
+    auto: true
+
+  - id: static_app
+    kind: file
+    path: app/app/static/app.css
+    title: "Shared responsive tweaks for Primary Analytics portal"
+    tags: [auto]
+    auto: true
+
+  - id: static_app_auto
+    kind: file
+    path: app/app/static/app.js
+    title: "const SKKKK = {"
+    tags: [auto]
+    auto: true
+
+  - id: static_design
+    kind: file
+    path: app/app/static/design.css
+    title: "Единая дизайн-система Primary Analytics (v2, 2026-09-19)."
+    tags: [auto]
+    auto: true
+
+  - id: static_errors_ru
+    kind: file
+    path: app/app/static/errors_ru.js
+    title: "Единая карта «английский detail API → русский текст» (пункт плана 3.14)."
+    tags: [auto]
+    auto: true
+
+  - id: static_meeting_layout.selfcheck
+    kind: file
+    path: app/app/static/meeting_layout.selfcheck.js
+    title: "(function () {"
+    tags: [auto]
+    auto: true
+
+  - id: static_px_agent
+    kind: file
+    path: app/app/static/px_agent.css
+    title: "Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии."
+    tags: [auto]
+    auto: true
+
+  - id: static_px_agent_auto
+    kind: file
+    path: app/app/static/px_agent.js
+    title: "Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки."
+    tags: [auto]
+    auto: true
+
+  - id: static_report_theme
+    kind: file
+    path: app/app/static/report-theme.css
+    title: "Тема отчётов (документ и стенограмма созвона) в единой дизайн-системе."
+    tags: [auto]
+    auto: true
+
+  - id: ui_chat
+    kind: file
+    path: app/app/templates/chat.html
+    title: "app/app/templates/chat.html"
+    tags: [auto]
+    auto: true
+
+  - id: ui_conflicts
+    kind: file
+    path: app/app/templates/conflicts.html
+    title: "app/app/templates/conflicts.html"
+    tags: [auto]
+    auto: true
+
+  - id: ui_error
+    kind: file
+    path: app/app/templates/error.html
+    title: "app/app/templates/error.html"
+    tags: [auto]
+    auto: true
+
+  - id: ui_graph
+    kind: file
+    path: app/app/templates/graph.html
+    title: "app/app/templates/graph.html"
+    tags: [auto]
+    auto: true
+
+  - id: ui_login
+    kind: file
+    path: app/app/templates/login.html
+    title: "app/app/templates/login.html"
+    tags: [auto]
+    auto: true
+
+  - id: ui_meeting_lab
+    kind: file
+    path: app/app/templates/meeting_lab.html
+    title: "app/app/templates/meeting_lab.html"
+    tags: [auto]
+    auto: true
+
+  - id: ui_tz
+    kind: file
+    path: app/app/templates/tz.html
+    title: "app/app/templates/tz.html"
+    tags: [auto]
+    auto: true
+
+  - id: mod_pipeline
+    kind: file
+    path: app/app/workers/pipeline.py
+    title: "app/app/workers/pipeline.py"
+    tags: [auto]
+    auto: true
+
+  - id: mod_processor
+    kind: file
+    path: app/app/workers/processor.py
+    title: "app/app/workers/processor.py"
+    tags: [auto]
+    auto: true
+
+  - id: asr_build_raw_diar_view
+    kind: file
+    path: asr/build_raw_diar_view.py
+    title: "Сырая диаризация для прослушивания: без Gemma, без сглаживания, несколько треков."
+    tags: [auto]
+    auto: true
+
+  - id: asr_build_sortformer_transcript_view
+    kind: file
+    path: asr/build_sortformer_transcript_view.py
+    title: "Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF)."
+    tags: [auto]
+    auto: true
+
+  - id: asr_client
+    kind: file
+    path: asr/client.py
+    title: "Клиент SKKKK к трём ASR-контейнерам."
+    tags: [auto]
+    auto: true
+
+  - id: asr_clock_guard
+    kind: file
+    path: asr/clock_guard.py
+    title: "Диагностика петель Whisper и выбор надёжного якоря часов для alignment."
+    tags: [auto]
+    auto: true
+
+  - id: asr_dump_pyannote
+    kind: file
+    path: asr/dump_pyannote.py
+    title: "Снять сырые интервалы PyAnnote из контейнера skkkk-gigaam."
+    tags: [auto]
+    auto: true
+
+  - id: asr_dump_sortformer
+    kind: file
+    path: asr/dump_sortformer.py
+    title: "Sortformer v2.1 GGUF → sortformer_segments.json в OUT (и reports/ артефакта)."
+    tags: [auto]
+    auto: true
+
+  - id: asr_engine_timeline
+    kind: file
+    path: asr/engine_timeline.py
+    title: "Фильтрация таймлайнов ASR-движков перед склейкой и alignment."
+    tags: [auto]
+    auto: true
+
+  - id: asr_hallucination_guard
+    kind: file
+    path: asr/hallucination_guard.py
+    title: "Защита стенограммы от галлюцинаций ASR на тишине и от «простыни в 4 секунды»."
+    tags: [auto]
+    auto: true
+
+  - id: asr_audio
+    kind: file
+    path: asr/lab/audio.py
+    title: "Чтение и ресемпл WAV для стадий лаборатории."
+    tags: [auto]
+    auto: true
+
+  - id: asr_hint
+    kind: file
+    path: asr/lab/hint.py
+    title: "Подписи имён с боевого проекта — не основа лаборатории."
+    tags: [auto]
+    auto: true
+
+  - id: asr_onnx_env
+    kind: file
+    path: asr/lab/onnx_env.py
+    title: "Общая настройка onnxruntime и каталогов моделей для лаборатории."
+    tags: [auto]
+    auto: true
+
+  - id: asr_sense
+    kind: file
+    path: asr/lab/sense.py
+    title: "Смысловая разноска спорных фраз — оверлей над зафиксированной покраской."
+    tags: [auto]
+    auto: true
+
+  - id: asr_paths
+    kind: file
+    path: asr/paths.py
+    title: "Рабочие каталоги ASR: из env (prod) или asr/work + asr/out (dev)."
+    tags: [auto]
+    auto: true
+
+  - id: asr_pipeline_checklist
+    kind: file
+    path: asr/pipeline_checklist.py
+    title: "Чеклист этапов ASR-пайплайна."
+    tags: [auto]
+    auto: true
+
+  - id: asr_prepare_audio
+    kind: file
+    path: asr/prepare_audio.py
+    title: "Готовит аудио для трёх ASR-движков."
+    tags: [auto]
+    auto: true
+
+  - id: asr_run_all
+    kind: file
+    path: asr/run_all.py
+    title: "Запускает три ASR-движка ПАРАЛЛЕЛЬНО, каждый в своём процессе и своём окружении."
+    tags: [auto]
+    auto: true
+
+  - id: asr_run_gigaam
+    kind: file
+    path: asr/run_gigaam.py
+    title: "Движок 2: GigaAM v3 (переработка того, что лежит в AudioToText)."
+    tags: [auto]
+    auto: true
+
+  - id: asr_run_tone
+    kind: file
+    path: asr/run_tone.py
+    title: "Движок 3: T-one (t-tech/T-one), телефонный русский, 8 кГц."
+    tags: [auto]
+    auto: true
+
+  - id: asr_run_whisper
+    kind: file
+    path: asr/run_whisper.py
+    title: "Движок 1: Whisper large-v3 Russian Podlodka (bond005)."
+    tags: [auto]
+    auto: true
+
+  - id: asr_seed_artifact_asr
+    kind: file
+    path: asr/seed_artifact_asr.py
+    title: "asr/seed_artifact_asr.py"
+    tags: [auto]
+    auto: true
+
+  - id: asr_serve
+    kind: file
+    path: asr/serve.py
+    title: "HTTP-сервис ASR-движка. Контейнер живёт постоянно; модель грузится при первом /transcribe."
+    tags: [auto]
+    auto: true
+
+  - id: asr_silence_energy
+    kind: file
+    path: asr/silence_energy.py
+    title: "Грубая оценка «есть ли речь» по энергии WAV без сдвига таймлайна."
+    tags: [auto]
+    auto: true
+
+  - id: asr_speaker_labels
+    kind: file
+    path: asr/speaker_labels.py
+    title: "Подписи Sortformer ID → имена из sortformer_speaker_match.json."
+    tags: [auto]
+    auto: true
+
+  - id: asr_speakers
+    kind: file
+    path: asr/speakers.py
+    title: "Диаризация отдельно от ASR: реплики, сглаживание границ, overlay текста, имена."
+    tags: [auto]
+    auto: true
+
+  - id: asr_timing_align
+    kind: file
+    path: asr/timing_align.py
+    title: "Привязка склейки Gemma к часам ASR и спикерам."
+    tags: [auto]
+    auto: true
+
+  - id: script_audit_integrity
+    kind: file
+    path: scripts/audit_integrity.py
+    title: "Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы. Только чтение."
+    tags: [auto]
+    auto: true
+
+  - id: script_backup_db
+    kind: file
+    path: scripts/backup_db.ps1
+    title: "SKKKK — резервная копия SQLite (VACUUM INTO)"
+    tags: [auto]
+    auto: true
+
+  - id: script_bootstrap
+    kind: file
+    path: scripts/bootstrap.ps1
+    title: "Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне)."
+    tags: [auto]
+    auto: true
+
+  - id: script_check_env
+    kind: file
+    path: scripts/check_env.ps1
+    title: "scripts/check_env.ps1"
+    tags: [auto]
+    auto: true
+
+  - id: script_check_map_drift
+    kind: file
+    path: scripts/check_map_drift.py
+    title: "Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix."
+    tags: [auto]
+    auto: true
+
+  - id: script_check_systems
+    kind: file
+    path: scripts/check_systems.ps1
+    title: "SKKKK — только проверка всех систем, без запуска"
+    tags: [auto]
+    auto: true
+
+  - id: script_collect_ui_copy
+    kind: file
+    path: scripts/collect_ui_copy.py
+    title: "Реестр текстов интерфейса (пункт плана 3.9): собирает русские подписи, подсказки, aria-label и строки JS."
+    tags: [auto]
+    auto: true
+
+  - id: script_dedupe_speaker_profiles
+    kind: file
+    path: scripts/dedupe_speaker_profiles.py
+    title: "Удалить дубликаты speaker_profiles (имена и похожие голоса)."
+    tags: [auto]
+    auto: true
+
+  - id: script_eval_chat
+    kind: file
+    path: scripts/eval_chat.py
+    title: "Оценка чата-ассистента (пункт плана 2.9)."
+    tags: [auto]
+    auto: true
+
+  - id: script_eval_index
+    kind: file
+    path: scripts/eval_index.py
+    title: "Оценка индекса проекта на золотом наборе вопросов (docs/eval/index_questions.json)."
+    tags: [auto]
+    auto: true
+
+  - id: script_eval_tz
+    kind: file
+    path: scripts/eval_tz.py
+    title: "Оценка качества быстрой сводки ТЗ (пункт плана 2.3)."
+    tags: [auto]
+    auto: true
+
+  - id: script_fast_summarize_tz
+    kind: file
+    path: scripts/fast_summarize_tz.py
+    title: "Быстрый векторный свод: retrieval top-K из sqlite-vec (чанки+сущности) + заметки"
+    tags: [auto]
+    auto: true
+
+  - id: script_fetch_meeting_dfn3
+    kind: file
+    path: scripts/fetch_meeting_dfn3.py
+    title: "Download DeepFilterNet3 browser assets. Live meeting only, not lab ASR."
+    tags: [auto]
+    auto: true
+
+  - id: script_health_report
+    kind: file
+    path: scripts/health_report.py
+    title: "Отчёт о здоровье системы (пункт плана 5.2). Только чтение логов и БД."
+    tags: [auto]
+    auto: true
+
+  - id: script_install_caddy
+    kind: file
+    path: scripts/install_caddy.ps1
+    title: "SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора)"
+    tags: [auto]
+    auto: true
+
+  - id: script_install_services
+    kind: file
+    path: scripts/install_services.ps1
+    title: "SKKKK — установка служб Windows через NSSM (запуск от администратора)"
+    tags: [auto]
+    auto: true
+
+  - id: script_kb_inbox
+    kind: file
+    path: scripts/kb_inbox.py
+    title: "Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю)."
+    tags: [auto]
+    auto: true
+
+  - id: script_lightrag_doctor
+    kind: file
+    path: scripts/lightrag_doctor.py
+    title: "Проверка LightRAG: Docker, Ollama embed, LLM, inputs."
+    tags: [auto]
+    auto: true
+
+  - id: script_lightrag_index
+    kind: file
+    path: scripts/lightrag_index.py
+    title: "Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline."
+    tags: [auto]
+    auto: true
+
+  - id: script_lightrag_query
+    kind: file
+    path: scripts/lightrag_query.py
+    title: "Запрос к LightRAG по карте SKKKK."
+    tags: [auto]
+    auto: true
+
+  - id: script_lightrag_sync_docs
+    kind: file
+    path: scripts/lightrag_sync_docs.py
+    title: "Скопировать документацию SKKKK в LightRAG inputs для /documents/scan."
+    tags: [auto]
+    auto: true
+
+  - id: script_live_meetings
+    kind: file
+    path: scripts/live_meetings.py
+    title: "Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть."
+    tags: [auto]
+    auto: true
+
+  - id: script_make_hashes
+    kind: file
+    path: scripts/make_hashes.py
+    title: "Print bcrypt hashes for the three role passwords (paste into .env)."
+    tags: [auto]
+    auto: true
+
+  - id: script_monitor_skkkk_loop
+    kind: file
+    path: scripts/monitor_skkkk_loop.ps1
+    title: "scripts/monitor_skkkk_loop.ps1"
+    tags: [auto]
+    auto: true
+
+  - id: script_monitor_status
+    kind: file
+    path: scripts/monitor_status.py
+    title: "Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_all
+    kind: file
+    path: scripts/qa_all.py
+    title: "Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт»."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_analysis
+    kind: file
+    path: scripts/qa_analysis.py
+    title: "Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_call_stress
+    kind: file
+    path: scripts/qa_call_stress.py
+    title: "Стресс-проверка записи звонка на РЕАЛЬНОМ сервере (рекордеры, LiveKit): песочный проект SMOKE_PROJECT_ID (29), два браузерных гостя."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_flows
+    kind: file
+    path: scripts/qa_flows.py
+    title: "Интерактивные сценарии по всему порталу в браузере (изолированный экземпляр с копией базы, как в qa_pages.py; боевой сервер не затрагивается"
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_mobile_android
+    kind: file
+    path: scripts/qa_mobile_android.py
+    title: "Проверка комнаты на настоящем Chrome для Android: эмулятор Pixel 7 (Android 14, папка tools/android) или телефон по USB с отладкой."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_mobile_webkit
+    kind: file
+    path: scripts/qa_mobile_webkit.py
+    title: "Проверка гостевого входа и комнаты на мобильных профилях: WebKit (движок Safari) для iPhone/iPad и Chromium для Android-профилей."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_navbar
+    kind: file
+    path: scripts/qa_navbar.py
+    title: "Проверка шапки: на разных экранах шапка не шире экрана, не выше 2 строк на телефоне, проект обрезается многоточием, ничего не наезжает."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_pages
+    kind: file
+    path: scripts/qa_pages.py
+    title: "Аудит вёрстки страниц портала на разных экранах и движках: переполнение по ширине, наезд элементов, размеры кнопок и полей, мелкий шрифт,"
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_publish_wav
+    kind: file
+    path: scripts/qa_publish_wav.py
+    title: "Публикует wav-файл как микрофон участника в комнату LiveKit (для проверки записи и анализа без людей)."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_room
+    kind: file
+    path: scripts/qa_room.py
+    title: "Проверка комнаты созвона в настоящем браузере (Chromium + фейковые камера/микрофон), без паролей: встреча создаётся кодом приложения"
+    tags: [auto]
+    auto: true
+
+  - id: script_rebuild_artifact_report
+    kind: file
+    path: scripts/rebuild_artifact_report.py
+    title: "Пересобрать reports/transcript.html для артефакта: Sortformer + match + новый UI."
+    tags: [auto]
+    auto: true
+
+  - id: script_redescribe_screen_frames
+    kind: file
+    path: scripts/redescribe_screen_frames.py
+    title: "Переописать кадры шэринга экрана прогона vision-моделью и пересобрать прод-HTML."
+    tags: [auto]
+    auto: true
+
+  - id: script_refresh_portal_knowledge
+    kind: file
+    path: scripts/refresh_portal_knowledge.py
+    title: "Пересобрать выжимки созвонов, индекс, сущности и ТЗ по проекту(ам)."
+    tags: [auto]
+    auto: true
+
+  - id: script_rerun_cursor_merge
+    kind: file
+    path: scripts/rerun_cursor_merge.py
+    title: "Пересклейка merge + view для артефакта (Cursor, без ASR и без Gemma)."
+    tags: [auto]
+    auto: true
+
+  - id: script_rerun_transcript_integrity
+    kind: file
+    path: scripts/rerun_transcript_integrity.py
+    title: "Пересчёт global integrity + plain без повторного LLM-merge."
+    tags: [auto]
+    auto: true
+
+  - id: script_restart
+    kind: file
+    path: scripts/restart.ps1
+    title: "SKKKK — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health"
+    tags: [auto]
+    auto: true
+
+  - id: script_resume_knowledge
+    kind: file
+    path: scripts/resume_knowledge.py
+    title: "Resume knowledge pipeline for an artifact with finished ASR/transcript."
+    tags: [auto]
+    auto: true
+
+  - id: script_run_all
+    kind: file
+    path: scripts/run_all.ps1
+    title: "SKKKK — весь проект одной командой (LLM из .env)"
+    tags: [auto]
+    auto: true
+
+  - id: script_run_api
+    kind: file
+    path: scripts/run_api.ps1
+    title: "SKKKK — только API (LLM из .env)"
+    tags: [auto]
+    auto: true
+
+  - id: script_run_worker
+    kind: file
+    path: scripts/run_worker.ps1
+    title: "SKKKK — GPU-воркер очереди"
+    tags: [auto]
+    auto: true
+
+  - id: script_setup_env
+    kind: file
+    path: scripts/setup_env.ps1
+    title: "Установка окружения проекта после переноса папки на другой ПК (или с нуля)."
+    tags: [auto]
+    auto: true
+
+  - id: script_common
+    kind: file
+    path: scripts/smoke/common.py
+    title: "Общие настройки смоук-набора. Всё берётся из переменных окружения — секретов в коде нет."
+    tags: [auto]
+    auto: true
+
+  - id: script_run_all_auto
+    kind: file
+    path: scripts/smoke/run_all.py
+    title: "Запуск всего смоук-набора. Код выхода 0 — всё зелёное (SKIP не считается провалом)."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_agent_cards
+    kind: file
+    path: scripts/smoke/smoke_agent_cards.py
+    title: "Карточки обмена с агентами на странице проекта (песочница): раскрываются, грузят данные, нет ошибок консоли и горизонтального скролла;"
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_agent_exchange
+    kind: file
+    path: scripts/smoke/smoke_agent_exchange.py
+    title: "Обмен с внешним агентом (шлюз + MCP-контракт) на живом сервере, только песочница: ключ создаётся и отзывается."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_console
+    kind: file
+    path: scripts/smoke/smoke_console.py
+    title: "Нет ошибок консоли и упавших запросов на основных страницах (пункт 3.6)."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_counters
+    kind: file
+    path: scripts/smoke/smoke_counters.py
+    title: "Согласованность счётчиков проекта (пункт 3.16): Док. + Созвоны = знаменатель «Готово» = число строк таблицы = ответ API."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_delete_live_guest
+    kind: file
+    path: scripts/smoke/smoke_delete_live_guest.py
+    title: "Удаление встречи при подключённом госте (находка аудита 4.9): гость покидает комнату, запись не возобновляется."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_double_click
+    kind: file
+    path: scripts/smoke/smoke_double_click.py
+    title: "Двойной клик = один запрос (пункт 3.18): «Создать встречу» и «Пересобрать» ТЗ. Только песочница."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_duplicate_tab
+    kind: file
+    path: scripts/smoke/smoke_duplicate_tab.py
+    title: "Дубль-вкладка сотрудника (пункт 2.6): первая вкладка получает понятную причину и заблокированные кнопки."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_end_confirm
+    kind: file
+    path: scripts/smoke/smoke_end_confirm.py
+    title: "«Завершить для всех» (пункт 3.13): своё окно подтверждения; «Отмена» встречу не завершает, «Завершить» — завершает."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_flow
+    kind: file
+    path: scripts/smoke/smoke_flow.py
+    title: "Песочница: загрузка документа -> встреча -> гость и сотрудник входят (API)."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_forms
+    kind: file
+    path: scripts/smoke/smoke_forms.py
+    title: "Формы (пункт 3.18): вход по Enter; название проекта из пробелов отклоняется по-русски и ничего не создаёт."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_guest_lobby
+    kind: file
+    path: scripts/smoke/smoke_guest_lobby.py
+    title: "Гостевой вход (пункты 3.3/3.12): кнопка «Войти во встречу» видна без прокрутки на типовых размерах."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_perm
+    kind: file
+    path: scripts/smoke/smoke_perm.py
+    title: "Роли на одной учётке не перебивают друг друга (пункт 1.2)."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_presence
+    kind: file
+    path: scripts/smoke/smoke_presence.py
+    title: "Presence симметричен (пункт 1.1): у сотрудника есть heartbeat и leave."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_room
+    kind: file
+    path: scripts/smoke/smoke_room.py
+    title: "Комната: два участника, завершение встречи замечается, кнопка смены камеры (браузер)."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_stable_dom
+    kind: file
+    path: scripts/smoke/smoke_stable_dom.py
+    title: "Автообновление не перестраивает DOM без изменений (пункт 3.7): узел кнопки встречи живёт дольше двух опросов."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_tiles
+    kind: file
+    path: scripts/smoke/smoke_tiles.py
+    title: "Плитки комнаты (пункт 3.11): N участников × размеры окна — нет пересечений, выходов за экран и перекрытия панелью."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_widths_a11y
+    kind: file
+    path: scripts/smoke/smoke_widths_a11y.py
+    title: "Планшетные ширины и базовая доступность (пункты 4.2, 4.8): нет горизонтального скролла; у кнопок/ссылок/полей есть имя."
+    tags: [auto]
+    auto: true
+
+  - id: script_smoke_cycle
+    kind: file
+    path: scripts/smoke_cycle.py
+    title: "Прогон полного цикла через HTTP API: вход, проект, загрузка, обработка."
+    tags: [auto]
+    auto: true
+
+  - id: script_start_cursor
+    kind: file
+    path: scripts/start-cursor.ps1
+    title: "scripts/start-cursor.ps1"
+    tags: [auto]
+    auto: true
+
+  - id: script_start_gemma
+    kind: file
+    path: scripts/start-gemma.ps1
+    title: "scripts/start-gemma.ps1"
+    tags: [auto]
+    auto: true
+
+  - id: script_start_saved
+    kind: file
+    path: scripts/start-saved.ps1
+    title: "scripts/start-saved.ps1"
+    tags: [auto]
+    auto: true
+
+  - id: script_start
+    kind: file
+    path: scripts/start.ps1
+    title: "SKKKK — запуск API + GPU-воркер с выбором LLM"
+    tags: [auto]
+    auto: true
+
+  - id: script_stop
+    kind: file
+    path: scripts/stop.ps1
+    title: "SKKKK — остановить API и GPU-воркер"
+    tags: [auto]
+    auto: true
+
+  - id: script_verify_backup
+    kind: file
+    path: scripts/verify_backup.py
+    title: "Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить."
+    tags: [auto]
+    auto: true
+
+  - id: script_watch_server
+    kind: file
+    path: scripts/watch_server.py
+    title: "Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log)."
+    tags: [auto]
+    auto: true
+
+  - id: tool__monitor_snapshot
+    kind: file
+    path: tools/_monitor_snapshot.py
+    title: "tools/_monitor_snapshot.py"
+    tags: [auto]
+    auto: true
+
+  - id: tool_ensure_livekit
+    kind: file
+    path: tools/livekit/ensure_livekit.py
+    title: "CLI: write LiveKit keys into .env and tools/livekit/livekit.yaml."
+    tags: [auto]
+    auto: true
+
+  - id: router_admin_map
+    kind: router
+    path: app/app/routers/admin_map.py
+    title: "Страница «Карта проекта» для администратора: поиск по индексу кода, связей, БД, окружения и истории (/admin/map)."
+    tags: [auto]
+    auto: true
+
+  - id: ui_admin_map
+    kind: file
+    path: app/app/templates/admin_map.html
+    title: "app/app/templates/admin_map.html"
+    tags: [auto]
+    auto: true
+
+  - id: script_index_doctor
+    kind: file
+    path: scripts/index_doctor.py
+    title: "Диагностика индекса проекта: всё ли в порядке и что чинить. Только чтение."
+    tags: [auto]
+    auto: true
+
+  - id: script_install_hooks
+    kind: file
+    path: scripts/install_hooks.ps1
+    title: "Установить (или снять) git-хуки, которые после коммита и слияния обновляют индекс проекта."
+    tags: [auto]
+    auto: true
+
+  - id: tool_projindex_mcp
+    kind: file
+    path: tools/projindex_mcp.py
+    title: "Локальный MCP-сервер индекса проекта (stdio): поиск по коду, связям, БД, окружению и истории. Только чтение."
+    tags: [auto]
+    auto: true
+
+  - id: svc_analyzers
+    kind: service
+    path: app/app/services/project_index/analyzers.py
+    title: "Структурные знания о проекте, которые нельзя надёжно получить из текста: роуты, БД, окружение,"
+    tags: [auto]
+    auto: true
+
+  - id: svc_chunkers
+    kind: service
+    path: app/app/services/project_index/chunkers.py
+    title: "Нарезка файлов проекта на фрагменты для индекса: Python, JS, шаблоны, CSS, Markdown, конфиги."
+    tags: [auto]
+    auto: true
+
+  - id: svc_config
+    kind: service
+    path: app/app/services/project_index/config.py
+    title: "Конфигурация индекса проекта: какие файлы читать, что исключать, как прятать секреты."
+    tags: [auto]
+    auto: true
+
+  - id: svc_indexer
+    kind: service
+    path: app/app/services/project_index/indexer.py
+    title: "Индексатор проекта: инкрементально, с кэшем эмбеддингов, устойчиво к обрыву."
+    tags: [auto]
+    auto: true
+
+  - id: svc_search
+    kind: service
+    path: app/app/services/project_index/search.py
+    title: "Поиск по индексу проекта: гибрид (точный FTS5 + смысловой вектор + точное совпадение символа) и структурные режимы."
+    tags: [auto]
+    auto: true
+
+  - id: svc_store
+    kind: service
+    path: app/app/services/project_index/store.py
+    title: "Хранилище индекса проекта: SQLite + sqlite-vec + FTS5 в data/project_map.db (отдельно от app.db)."
+    tags: [auto]
+    auto: true
+
+  - id: script_dev_changelog
+    kind: file
+    path: scripts/dev_changelog.py
+    title: "Журнал разработки из git: docs/CHANGELOG-DEV.md (генерируется, руками не править)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_meeting_track_repair
+    kind: service
+    path: app/app/services/meeting_track_repair.py
+    title: "Ремонт реплик дорожки встречи, когда основной распознаватель (Parakeet) ошибся во времени или в содержании."
+    tags: [auto]
+    auto: true
+
+  - id: script_eval_auto_review
+    kind: file
+    path: scripts/eval_auto_review.py
+    title: "Замер автопроверки требований (план docs/plans/AUTO-REVIEW-PLAN.md, §9)."
+    tags: [auto]
+    auto: true
+
+  - id: script_auto_review_backlog
+    kind: file
+    path: scripts/auto_review_backlog.py
+    title: "Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь."
+    tags: [auto]
+    auto: true
+
+  - id: svc_chunk_fts
+    kind: service
+    path: app/app/services/chunk_fts.py
+    title: "Полнотекстовый поиск по фрагментам проекта (SQLite FTS5) — пара к векторному поиску для точных слов и чисел."
+    tags: [auto]
+    auto: true
+
+  - id: svc_docx_extract
+    kind: service
+    path: app/app/services/docx_extract.py
+    title: "DOCX → markdown в порядке документа: заголовки (#), абзацы, списки, таблицы на своих местах, надписи, колонтитулы."
+    tags: [auto]
+    auto: true
+
+  - id: svc_office_convert
+    kind: service
+    path: app/app/services/office_convert.py
+    title: "Конвертация старых офисных форматов через LibreOffice headless: .doc/.rtf/.odt → .docx, .xls/.ods → .xlsx, .ppt → .pptx."
+    tags: [auto]
+    auto: true
+
+  - id: svc_table_md
+    kind: service
+    path: app/app/services/table_md.py
+    title: "Таблицы документов в markdown: один формат для DOCX, Excel/CSV, PDF и разбор его обратно (нормализация, нарезка)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_xlsx_extract
+    kind: service
+    path: app/app/services/xlsx_extract.py
+    title: "Excel/CSV → markdown: ``## Лист: имя`` и GFM-таблицы по блокам листа."
+    tags: [auto]
+    auto: true
+
+  - id: script_reprocess_documents
+    kind: file
+    path: scripts/reprocess_documents.py
+    title: "Переобработка загруженных документов новым извлечением таблиц (docs/plans/DOCUMENT-TABLES-PLAN.md, шаг 8)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_html_extract
+    kind: service
+    path: app/app/services/html_extract.py
+    title: "HTML → текст с таблицами: блоки разметки дают переносы строк, ``<table>`` — markdown-таблицы на своих местах."
+    tags: [auto]
+    auto: true
+
+  - id: svc_conflict_context
+    kind: service
+    path: app/app/services/conflict_context.py
+    title: "Противоречия проекта для LLM чата и ТЗ — хронологией, человеческими строками (CONFLICT-AUTONOMY-PLAN этап 5, Р4)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_conflict_rules
+    kind: service
+    path: app/app/services/conflict_rules.py
+    title: "Правила разрешения противоречий без модели — docs/plans/CONFLICT-AUTONOMY-PLAN.md, решение Р1 (DECISIONS 2026-09-25)."
+    tags: [auto]
+    auto: true
+
+  - id: script_fix_conflict_links
+    kind: file
+    path: scripts/fix_conflict_links.py
+    title: "Разовая чистка конфликтов после исправления ошибок графа (docs/plans/CONFLICT-AUTONOMY-PLAN.md, этап 1)."
+    tags: [auto]
+    auto: true
+
+edges:
+  - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
+  - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
+  - {from: svc_artifact_lab, to: lab_view, relation: imports}
+  - {from: ui_page_lab, to: svc_artifact_lab, relation: renders}
+  - {from: lab_cli, to: lab_pipeline_mod, relation: imports}
+  - {from: lab_sense, to: lab_paths, relation: overlay_only}
+  - {from: lab_sense, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_sense, to: svc_llm, relation: cursor_chat}
+  - {from: lab_sense, to: prompt_lab_sense, relation: uses_prompt}
+  - {from: lab_hint, to: lab_paths, relation: overlay_only}
+  - {from: lab_hint, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_hint, to: lab_sense, relation: reads_overlay}
+  - {from: lab_giga, to: lab_giga_mod, relation: imports}
+  - {from: lab_giga, to: lab_stage_audio, relation: reads_clean_16k}
+  - {from: lab_giga, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_reconcile, to: lab_reconcile_mod, relation: imports}
+  - {from: lab_reconcile, to: lab_giga, relation: reads_giga_run}
+  - {from: lab_reconcile, to: lab_sense, relation: reads_overlay}
+  - {from: lab_reconcile, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_proof, to: lab_proof_mod, relation: imports}
+  - {from: lab_proof, to: lab_giga, relation: reads_giga_run}
+  - {from: lab_proof, to: svc_llm, relation: cursor_chat}
+  - {from: lab_proof, to: prompt_lab_proof, relation: uses_prompt}
+  - {from: lab_proof, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_voice, to: lab_voice_mod, relation: imports}
+  - {from: lab_voice, to: lab_stage_paint, relation: reads_words}
+  - {from: lab_voice, to: lab_sense, relation: overlay_speakers}
+  - {from: lab_voice, to: docker_gigaam, relation: docker_exec_embed}
+  - {from: lab_voice, to: lab_speaker_registry, relation: cosine_only}
+  - {from: lab_voice, to: lab_freeze, relation: does_not_mutate}
+  - {from: lab_view, to: lab_voice, relation: renders_enroll_cards}
+  - {from: router_speakers, to: svc_speaker_profiles, relation: lab_enroll_merge}
+  - {from: svc_speaker_profiles, to: lab_voice, relation: reads_voice_match}
+  - {from: ui_page_lab, to: router_speakers, relation: enroll_merge_buttons}
+  - {from: lab_view, to: lab_proof, relation: renders_stage_three}
+  - {from: lab_pipeline_mod, to: lab_stage_audio, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_asr, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_diar, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_paint, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_voice, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_transcript, relation: runs_stage}
+  - {from: lab_pipeline_mod, to: lab_stage_verify, relation: runs_stage}
+  - {from: lab_run, to: lab_paths, relation: imports}
+  - {from: lab_stage_asr, to: lab_words, relation: imports}
+  - {from: lab_stage_diar, to: lab_sortformer, relation: imports}
+  - {from: lab_stage_diar, to: lab_diar_models, relation: imports}
+  - {from: lab_diar_models, to: lab_sortformer, relation: imports}
+  - {from: lab_diar_models, to: lab_nemotron_runner, relation: subprocess}
+  - {from: lab_stage_voice, to: lab_voice_mod, relation: imports}
+  - {from: lab_stage_voice, to: asr_docker_stage, relation: stage_gigaam_input}
+  - {from: lab_stage_voice, to: docker_gigaam, relation: docker_exec_embed}
+  - {from: lab_stage_voice, to: lab_speaker_registry, relation: cosine_only}
+  - {from: lab_view, to: lab_run, relation: reads_stage_json}
+  - {from: gpu_worker, to: svc_pipeline_lab, relation: invokes}
+  - {from: gpu_worker, to: svc_pipeline_audio, relation: legacy_resume_only}
+  - {from: gpu_worker, to: svc_pipeline_knowledge, relation: invokes_after_transcript}
+  - {from: svc_pipeline_lab, to: svc_artifact_audio, relation: prepare_wav}
+  - {from: svc_pipeline_lab, to: lab_cli, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_sense, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_giga, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_proof, relation: subprocess}
+  - {from: svc_pipeline_lab, to: lab_voice, relation: subprocess}
+  - {from: svc_pipeline_lab, to: file_speakers_json, relation: publishes}
+  - {from: svc_pipeline_lab, to: file_match_json, relation: publishes}
+  - {from: svc_speaker_profiles, to: svc_pipeline_lab, relation: names_into_prod_view}
+  - {from: svc_artifact_audio, to: svc_pipeline_lab, relation: lab_republish_named}
+  - {from: asr_summarize_call, to: asr_build_transcript_view, relation: legacy_view_only}
+  - {from: svc_pipeline_audio, to: asr_run_pipeline, relation: subprocess}
+  - {from: svc_pipeline_audio, to: svc_media_cleanup, relation: discard_video_after_asr}
+  - {from: asr_run_pipeline, to: svc_media_cleanup, relation: discard_video_after_audio_prep}
+  - {from: asr_run_pipeline, to: svc_docker_runtime, relation: ensure_asr_containers}
+  - {from: asr_run_pipeline, to: docker_whisper, relation: http}
+  - {from: asr_run_pipeline, to: asr_docker_stage, relation: stage_tone_input}
+  - {from: asr_run_pipeline, to: docker_tone, relation: http}
+  - {from: asr_run_pipeline, to: docker_gigaam, relation: http}
+  - {from: asr_run_pipeline, to: asr_merge_ensemble, relation: subprocess}
+  - {from: asr_merge_ensemble, to: asr_merge_guard, relation: imports}
+  - {from: asr_merge_ensemble, to: asr_transcript_integrity, relation: imports}
+  - {from: asr_merge_ensemble, to: asr_llm_client, relation: imports}
+  - {from: asr_merge_ensemble, to: prompt_merge, relation: reads}
+  - {from: asr_merge_ensemble, to: file_merged_windows, relation: writes}
+  - {from: svc_pipeline_audio, to: asr_build_transcript_view, relation: subprocess}
+  - {from: asr_build_transcript_view, to: asr_transcript_integrity, relation: imports}
+  - {from: asr_build_transcript_view, to: file_speakers_json, relation: writes}
+  - {from: asr_build_transcript_view, to: file_match_json, relation: reads}
+  - {from: svc_pipeline_audio, to: asr_match_speakers, relation: subprocess}
+  - {from: asr_match_speakers, to: svc_docker_runtime, relation: ensure_container}
+  - {from: asr_match_speakers, to: docker_gigaam, relation: docker_exec_embed}
+  - {from: svc_pipeline_audio, to: asr_voice_audit, relation: subprocess}
+  - {from: svc_indexing, to: svc_ollama_runtime, relation: ensure_ollama}
+  - {from: svc_ollama_runtime, to: svc_indexing, relation: before_embed}
+  - {from: svc_pipeline_knowledge, to: svc_entities, relation: calls}
+  - {from: svc_entities, to: svc_llm, relation: calls}
+  - {from: svc_entities, to: prompt_entities, relation: reads}
+  - {from: svc_pipeline_knowledge, to: svc_indexing, relation: calls}
+  - {from: svc_indexing, to: svc_vector_index, relation: stores}
+  - {from: svc_entities, to: svc_vector_index, relation: stores_entity_vectors}
+  - {from: svc_graph, to: svc_vector_index, relation: reads_entity_vectors}
+  - {from: svc_entities, to: svc_graph, relation: delete_entities_with_deps}
+  - {from: svc_project_purge, to: svc_graph, relation: delete_entities_with_deps}
+  - {from: script_inspect_index, to: svc_indexing, relation: audits}
+  - {from: svc_pipeline_knowledge, to: asr_summarize_call, relation: subprocess_via_run_call_summary}
+  - {from: svc_pipeline_knowledge, to: svc_summarize_document, relation: after_index_for_documents}
+  - {from: svc_summarize_document, to: prompt_doc_summary, relation: reads}
+  - {from: svc_summarize_document, to: file_doc_summary, relation: writes}
+  - {from: svc_artifact_reports, to: file_doc_summary, relation: renders}
+  - {from: ui_btn_rebuild_call_summary, to: svc_summarize_document, relation: document_branch}
+  - {from: asr_summarize_call, to: file_speakers_json, relation: reads}
+  - {from: asr_summarize_call, to: prompt_summary, relation: reads}
+  - {from: asr_summarize_call, to: prompt_brief, relation: reads}
+  - {from: asr_summarize_call, to: asr_llm_client, relation: imports}
+  - {from: router_speakers, to: svc_speaker_profiles, relation: api}
+  - {from: svc_speaker_profiles, to: asr_match_speakers, relation: legacy_recalculate_only}
+  - {from: svc_speaker_profiles, to: svc_pipeline_lab, relation: lab_cosine_recalculate}
+  - {from: svc_speaker_profiles, to: asr_summarize_call, relation: rebuild_summary}
+  - {from: fastapi_main, to: router_auth, relation: mounts}
+  - {from: ui_btn_logout, to: router_auth, relation: POST_logout}
+  - {from: router_auth, to: svc_user_identity, relation: login_by_name}
+  - {from: router_auth, to: svc_login_allowlist, relation: must_be_listed}
+  - {from: svc_login_allowlist, to: file_login_allowlist, relation: reads}
+  - {from: fastapi_main, to: svc_user_identity, relation: merge_duplicates_on_start}
+  - {from: fastapi_main, to: router_projects, relation: mounts}
+  - {from: router_projects, to: svc_project_access, relation: require_project}
+  - {from: router_pages, to: svc_project_access, relation: require_project}
+  - {from: router_upload, to: svc_project_access, relation: require_project}
+  - {from: router_knowledge, to: svc_project_access, relation: require_project}
+  - {from: router_speakers, to: svc_project_access, relation: require_artifact}
+  - {from: router_project_mcp, to: svc_project_access, relation: portal_keys_owned}
+  - {from: router_projects, to: svc_project_purge, relation: delete_project}
+  - {from: router_upload, to: svc_project_purge, relation: delete_artifact}
+  - {from: ui_index_page, to: ui_btn_delete_project, relation: contains}
+  - {from: ui_btn_delete_project, to: router_projects, relation: calls}
+  - {from: ui_project_page, to: ui_btn_delete_artifact, relation: contains}
+  - {from: ui_btn_delete_artifact, to: router_upload, relation: calls}
+  - {from: fastapi_main, to: router_acme, relation: mounts}
+  - {from: fastapi_main, to: router_pages, relation: mounts}
+  - {from: fastapi_main, to: router_speakers, relation: mounts}
+  - {from: fastapi_main, to: router_knowledge, relation: mounts}
+  - {from: router_knowledge, to: svc_chat, relation: api}
+  - {from: svc_chat, to: model_chat_message, relation: persists}
+  - {from: svc_chat, to: model_chat_guidance, relation: persists}
+  - {from: svc_chat, to: svc_user_activity, relation: writes_audit}
+  - {from: svc_user_activity, to: model_user_activity_log, relation: persists}
+  - {from: router_knowledge, to: svc_user_activity, relation: GET_activity}
+  - {from: router_auth, to: svc_user_activity, relation: logs_login}
+  - {from: router_upload, to: svc_user_activity, relation: logs_upload}
+  - {from: router_upload, to: svc_speaker_profiles, relation: speaker_action_flags}
+  - {from: svc_chat, to: svc_retrieval, relation: rerank_hits}
+  - {from: svc_chat, to: svc_retrieval, relation: search_entities}
+  - {from: svc_chat, to: prompt_rag_chat, relation: reads}
+  - {from: svc_retrieval, to: svc_vector_index, relation: reads_entity_vectors}
+  - {from: router_knowledge, to: svc_retrieval, relation: search_rerank}
+  - {from: router_knowledge, to: svc_tz, relation: api}
+  - {from: router_knowledge, to: svc_project_deadlines, relation: GET_deadlines}
+  - {from: router_knowledge, to: svc_entities, relation: POST_reextract}
+  - {from: api_project_deadlines, to: svc_project_deadlines, relation: calls}
+  - {from: api_project_reextract, to: svc_entities, relation: calls}
+  - {from: api_project_reextract, to: svc_project_tasks, relation: lock}
+  - {from: ui_deadlines_collapsible, to: api_project_deadlines, relation: GET}
+  - {from: ui_deadlines_collapsible, to: api_project_reextract, relation: POST}
+  - {from: router_knowledge, to: svc_project_tasks, relation: tasks_active_and_lock}
+  - {from: router_speakers, to: svc_project_tasks, relation: tasks_active_and_lock}
+  - {from: svc_project_tasks, to: model_project_task, relation: persists}
+  - {from: fastapi_main, to: svc_project_tasks, relation: cleanup_stale_on_start}
+  - {from: svc_tz, to: svc_vector_index, relation: reads_document_chunks}
+  - {from: svc_tz, to: svc_llm, relation: map_reduce}
+  - {from: svc_tz, to: prompt_rebuild_tz, relation: reads}
+  - {from: ui_btn_rebuild_tz, to: svc_project_tasks, relation: lock_then_POST_rebuild-tz}
+  - {from: ui_btn_rebuild_call_summary, to: svc_project_tasks, relation: lock_then_POST_rebuild-summary}
+  - {from: ui_btn_recalculate_speakers, to: svc_project_tasks, relation: lock_then_POST_speaker-recalculate}
+  - {from: ui_btn_reindex, to: svc_project_tasks, relation: lock_then_POST_reindex}
+  - {from: ui_btn_upload, to: gpu_worker, relation: queues_job_after_complete}
+  - {from: ui_btn_chat, to: svc_chat, relation: POST_chat}
+  - {from: ui_btn_confirm_speakers, to: svc_speaker_profiles, relation: POST_speakers-confirm}
+  - {from: ui_btn_confirm_speakers, to: gpu_worker, relation: queues_phase_knowledge}
+  - {from: ui_project_page, to: ui_btn_speaker_match, relation: contains}
+  - {from: ui_btn_speaker_match, to: ui_speaker_match_report, relation: opens}
+  - {from: ui_btn_enroll, to: svc_speaker_profiles, relation: POST_speaker-enroll}
+  - {from: ui_btn_enroll, to: fn_write_prod_view, relation: names_into_html}
+  - {from: ui_btn_merge, to: svc_speaker_profiles, relation: POST_speaker-merge}
+  - {from: ui_btn_merge, to: fn_write_prod_view, relation: names_into_html}
+  - {from: ui_btn_rebuild_call_summary, to: fn_write_prod_view, relation: republish_after_summary}
+  - {from: svc_pipeline_lab, to: fn_write_prod_view, relation: publishes}
+  - {from: ui_project_page, to: ui_btn_confirm_speakers, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_enroll, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_merge, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_recalculate_speakers, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_rebuild_call_summary, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_reindex, relation: contains}
+  - {from: ui_transcript_report, to: ui_btn_download_brief, relation: contains}
+  - {from: ui_btn_download_brief, to: router_pages, relation: GET_brief_docx}
+  - {from: ui_transcript_report, to: ui_btn_download_summary, relation: contains}
+  - {from: ui_btn_download_summary, to: router_pages, relation: GET_summary_docx}
+  - {from: router_pages, to: svc_transcript_export, relation: download_docx}
+  - {from: ui_btn_download_brief, to: svc_transcript_export, relation: renders_docx}
+  - {from: ui_btn_download_summary, to: svc_transcript_export, relation: renders_docx}
+  - {from: ui_transcript_report, to: router_speakers, relation: embeds_actions}
+  - {from: ui_speaker_match_report, to: router_speakers, relation: embeds_actions}
+  - {from: ui_project_page, to: ui_speaker_match_report, relation: match_link}
+  - {from: gpu_worker, to: svc_pipeline_lab, relation: lab_before_speakers_pending}
+  - {from: ui_project_page, to: ui_btn_rebuild_tz, relation: contains}
+  - {from: ui_project_page, to: ui_btn_upload, relation: contains}
+  - {from: ui_project_page, to: ui_project_insights_layout, relation: contains}
+  - {from: ui_project_page, to: ui_meetings_collapsible, relation: contains}
+  - {from: ui_project_page, to: ui_mcp_collapsible, relation: contains}
+  - {from: ui_meetings_collapsible, to: ui_btn_meeting_create, relation: contains}
+  - {from: ui_meetings_collapsible, to: ui_btn_meeting_analyze, relation: contains}
+  - {from: ui_meetings_collapsible, to: ui_btn_meeting_delete, relation: contains}
+  - {from: ui_btn_meeting_delete, to: router_meetings, relation: DELETE_meeting}
+  - {from: router_meetings, to: svc_project_purge, relation: purge_meeting}
+  - {from: ui_btn_meeting_analyze, to: router_meetings, relation: POST_analyze}
+  - {from: ui_btn_meeting_lab, to: ui_page_meeting_lab, relation: opens}
+  - {from: ui_page_meeting_lab, to: svc_meeting_lab, relation: renders}
+  - {from: router_pages, to: svc_meeting_lab, relation: build_meeting_lab}
+  - {from: svc_meeting_lab, to: svc_pipeline_meeting, relation: meeting_tracks}
+  - {from: ui_meetings_collapsible, to: ui_btn_meeting_lab, relation: contains}
+  - {from: router_meetings, to: svc_meeting_analyze, relation: enqueue_tracks}
+  - {from: svc_meeting_analyze, to: svc_meeting_recordings, relation: reads_wav}
+  - {from: svc_meeting_analyze, to: gpu_worker, relation: enqueue_process_artifact}
+  - {from: gpu_worker, to: svc_pipeline_meeting, relation: meeting_bundle}
+  - {from: svc_pipeline_meeting, to: svc_meeting_merge, relation: merge_timecodes}
+  - {from: svc_pipeline_meeting, to: svc_meeting_overlap, relation: refine_leaks}
+  - {from: svc_meeting_overlap, to: svc_meeting_recordings, relation: window_rms}
+  - {from: svc_pipeline_meeting, to: svc_entities, relation: call_source_spans}
+  - {from: svc_entities, to: svc_tz, relation: no_leak_facts}
+  - {from: svc_meeting_lab, to: svc_meeting_checks, relation: shows_checks}
+  - {from: svc_pipeline_meeting, to: svc_pipeline_lab, relation: per_track_lab}
+  - {from: ui_btn_meeting_create, to: router_meetings, relation: POST_meetings}
+  - {from: router_meetings, to: svc_meetings, relation: api}
+  - {from: svc_meetings, to: model_meeting, relation: persists}
+  - {from: router_meetings, to: svc_project_access, relation: staff_only}
+  - {from: router_pages, to: svc_meetings, relation: GET_m_token}
+  - {from: ui_meeting_public, to: router_meetings, relation: public_join}
+  - {from: ui_meeting_public, to: ui_btn_guest_devices_check, relation: contains}
+  - {from: ui_meeting_public, to: ui_meeting_dock, relation: contains}
+  - {from: ui_meeting_dock, to: ui_btn_meeting_more, relation: contains}
+  - {from: ui_meeting_dock, to: ui_btn_meeting_denoise, relation: contains}
+  - {from: ui_meeting_dock, to: ui_btn_meeting_sound, relation: contains}
+  - {from: ui_meeting_dock, to: ui_meeting_mic_silent_toast, relation: contains}
+  - {from: ui_meeting_dock, to: ui_meeting_screen_tile, relation: shares_screen}
+  - {from: ui_meeting_public, to: ui_meeting_layout_rules, relation: uses}
+  - {from: ui_meeting_public, to: static_meeting_webmanifest, relation: links}
+  - {from: router_pages, to: static_meeting_webmanifest, relation: GET_manifest}
+  - {from: ui_meeting_public, to: svc_meeting_voice, relation: hears}
+  - {from: ui_btn_meeting_end_all, to: router_meetings, relation: POST_end}
+  - {from: fastapi_main, to: svc_preflight, relation: runs_before_serve}
+  - {from: fastapi_main, to: svc_edge_runtime, relation: ensure_edge_on_all_api}
+  - {from: svc_edge_runtime, to: svc_tls_cert, relation: checks_then_reissues}
+  - {from: svc_tls_cert, to: svc_caddy_https, relation: issues_on_8443}
+  - {from: svc_edge_runtime, to: svc_caddy_https, relation: starts}
+  - {from: svc_edge_runtime, to: svc_livekit, relation: starts}
+  - {from: svc_edge_runtime, to: svc_meeting_voice, relation: starts_after_livekit}
+  - {from: svc_edge_runtime, to: svc_screen_recorder, relation: starts_after_voice}
+  - {from: svc_screen_recorder, to: svc_meeting_recordings, relation: writes_screen_video}
+  - {from: svc_pipeline_meeting, to: svc_meeting_frames, relation: extracts_after_proof}
+  - {from: svc_meeting_frames, to: svc_llm, relation: vision_on_frame}
+  - {from: svc_livekit, to: svc_livekit_env, relation: reads_yaml}
+  - {from: svc_preflight, to: svc_meeting_voice, relation: checks_venv}
+  - {from: svc_meeting_voice, to: script_install_meeting_voice, relation: installed_by}
+  - {from: svc_meeting_voice, to: svc_meeting_recordings, relation: writes_raw_tracks}
+  - {from: svc_meeting_recordings, to: model_meeting, relation: linked_by_room_name}
+  - {from: svc_project_purge, to: svc_meeting_recordings, relation: deletes_room_dir}
+  - {from: fastapi_main, to: router_meetings, relation: mounts}
+  - {from: svc_project_purge, to: model_meeting, relation: deletes}
+  - {from: ui_project_page, to: ui_grant_access, relation: contains}
+  - {from: ui_project_page, to: ui_deadlines_collapsible, relation: contains}
+  - {from: fastapi_main, to: router_project_mcp, relation: mounts}
+  - {from: fastapi_main, to: router_project_members, relation: mounts}
+  - {from: router_project_members, to: svc_project_members, relation: api}
+  - {from: svc_project_members, to: model_project_member, relation: persists}
+  - {from: svc_project_members, to: svc_project_access, relation: can_grant_access}
+  - {from: ui_grant_access, to: router_project_members, relation: grant_panel}
+  - {from: svc_project_access, to: model_project_member, relation: user_project_ids}
+  - {from: router_project_mcp, to: svc_project_mcp, relation: mcp_jsonrpc}
+  - {from: stack_snapshot, to: lab_freeze, relation: versions_and_sha256}
+  - {from: router_project_mcp, to: model_project_mcp_token, relation: token_auth}
+  - {from: ui_project_page, to: router_project_mcp, relation: mcp_panel}
+  - {from: svc_agent_gateway, to: svc_contract, relation: serves_contract}
+  - {from: svc_agent_gateway, to: svc_agent_settings, relation: reads_project_settings}
+  - {from: svc_agent_inbox, to: svc_agent_gateway, relation: questions_via}
+  - {from: svc_agent_verdicts, to: svc_agent_gateway, relation: verdicts_via}
+  - {from: router_project_mcp, to: svc_agent_gateway, relation: submit_tools}
+  - {from: router_project_mcp, to: svc_agent_inbox, relation: inbox_endpoints}
+  - {from: router_project_mcp, to: svc_agent_verdicts, relation: verdict_endpoints}
+  - {from: router_project_mcp, to: svc_agent_settings, relation: settings_endpoints}
+  - {from: svc_contract, to: svc_requirement_review, relation: confirmed_requirements}
+  - {from: router_requirement_review, to: svc_requirement_review, relation: calls}
+  - {from: ui_agent_cards, to: router_requirement_review, relation: review_panel}
+  - {from: ui_agent_cards, to: router_project_mcp, relation: exchange_panel}
+  - {from: ui_project_page, to: ui_agent_cards, relation: includes}
+  - {from: fastapi_main, to: router_requirement_review, relation: mounts}
+  - {from: router_auth, to: svc_rate_limit, relation: login_limit}
+  - {from: script_index_map, to: svc_indexer, relation: runs}
+  - {from: svc_indexer, to: svc_chunkers, relation: chunk_files}
+  - {from: svc_indexer, to: svc_analyzers, relation: derived_tables}
+  - {from: svc_indexer, to: svc_store, relation: writes_index}
+  - {from: svc_indexer, to: svc_config, relation: file_list_and_redaction}
+  - {from: svc_search, to: svc_store, relation: reads_index}
+  - {from: svc_search, to: svc_analyzers, relation: changed_symbols}
+  - {from: script_search_map, to: svc_search, relation: cli}
+  - {from: tool_projindex_mcp, to: svc_search, relation: mcp_stdio_read_only}
+  - {from: router_admin_map, to: svc_search, relation: admin_page}
+  - {from: ui_admin_map, to: router_admin_map, relation: fetches}
+  - {from: fastapi_main, to: router_admin_map, relation: mounts}
+  - {from: script_eval_index, to: svc_search, relation: measures_quality}
+  - {from: script_index_doctor, to: svc_store, relation: diagnoses}
