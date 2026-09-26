@@ -1,0 +1,189 @@
+"""Каталоги проекта и артефактов на диске: имена, пути к оригиналу, аудио, воспроизведению и отчётам."""
+
+from __future__ import annotations
+
+import re
+import secrets
+from datetime import datetime
+from pathlib import Path
+
+from app.app.config import Settings
+
+PROJECT_SUBDIRS = (
+    "raw_inputs/calls",
+    "raw_inputs/documents",
+    "raw_inputs/notes",
+    "parsed/calls",
+    "parsed/documents",
+    "parsed/notes",
+    "structured",
+    "project_notes",
+    "project_state/versions",
+    "tmp",
+)
+
+_SAFE_NAME = re.compile(r"[^\w\s\-().,]")
+
+
+def normalize_project_name(name: str) -> str:
+    """Название проекта для показа: только пробелы и управляющие символы. Раньше «ООО «Ромашка»» превращалось
+    в «ООО _Ромашка_»; название в путях не участвует (папка проекта — по ID), поэтому кавычки, №, & остаются."""
+    cleaned = "".join(" " if (ord(ch) < 32 or ord(ch) == 127) else ch for ch in (name or ""))
+    cleaned = re.sub(r"[\/]+|\.{2,}", " ", cleaned)  # разделители путей и «..» — на случай, если название где-то попадёт в путь
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def sanitize_display_name(name: str) -> str:
+    cleaned = re.sub(r"[\\/\.]+", "_", name.strip())
+    cleaned = _SAFE_NAME.sub("_", cleaned)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned[:200] or "project"
+
+
+def project_root(settings: Settings, project_id: int) -> Path:
+    return settings.data_dir / "projects" / str(project_id)
+
+
+def artifact_root(settings: Settings, project_id: int, artifact_id: str) -> Path:
+    return project_root(settings, project_id) / "tmp" / artifact_id
+
+
+def artifact_dir(settings: Settings, project_id: int, artifact_id: str) -> Path:
+    return project_root(settings, project_id) / "artifacts" / artifact_id
+
+
+def ensure_artifact_workspace(settings: Settings, project_id: int, artifact_id: str) -> Path:
+    root = artifact_dir(settings, project_id, artifact_id)
+    for sub in ("audio", "asr", "reports", "structured"):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def artifact_audio_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    return artifact_dir(settings, project_id, artifact_id) / "audio" / "input_16k.wav"
+
+
+def artifact_audio_playback_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    """Compressed AAC for HTML <audio> (phones struggle with raw WAV)."""
+    return artifact_dir(settings, project_id, artifact_id) / "audio" / "playback.m4a"
+
+
+def artifact_audio_download_mp3_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    """MP3 для скачивания созвона (легче WAV)."""
+    return artifact_dir(settings, project_id, artifact_id) / "audio" / "download.mp3"
+
+
+def artifact_transcript_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    return artifact_dir(settings, project_id, artifact_id) / "reports" / "transcript.html"
+
+
+def artifact_sortformer_transcript_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    return artifact_dir(settings, project_id, artifact_id) / "reports" / "transcript_sortformer.html"
+
+
+def artifact_raw_diar_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    return artifact_dir(settings, project_id, artifact_id) / "reports" / "diar_raw.html"
+
+
+def artifact_two_voice_diar_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    return artifact_dir(settings, project_id, artifact_id) / "reports" / "diar_two_voice_4min.html"
+
+
+def artifact_speaker_match_path(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    return artifact_dir(settings, project_id, artifact_id) / "reports" / "speaker_match_test.html"
+
+
+def artifact_lab_dir(settings: Settings, artifact_id: str, project_id: int) -> Path:
+    """Каталог лабораторных прогонов артефакта. Внутри — runs/{run_id}/."""
+    return artifact_dir(settings, project_id, artifact_id) / "lab"
+
+
+def artifact_report_url(artifact_id: str) -> str:
+    return f"/artifacts/{artifact_id}/report"
+
+
+def lab_report_url(artifact_id: str) -> str:
+    return f"/artifacts/{artifact_id}/report-lab"
+
+
+def sortformer_report_url(artifact_id: str) -> str:
+    return f"/artifacts/{artifact_id}/report-sortformer"
+
+
+def raw_diar_report_url(artifact_id: str) -> str:
+    return f"/artifacts/{artifact_id}/report-diar-raw"
+
+
+def artifact_audio_url(artifact_id: str) -> str:
+    return f"/artifacts/{artifact_id}/audio"
+
+
+def create_project_tree(settings: Settings, project_id: int) -> Path:
+    root = project_root(settings, project_id)
+    for sub in PROJECT_SUBDIRS:
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def generate_stored_filename(original: str) -> str:
+    ext = Path(original).suffix.lower()[:16]
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    rnd = secrets.token_hex(3)
+    return f"art_{stamp}_{rnd}{ext}"
+
+
+def raw_input_dir(settings: Settings, project_id: int, source_type: str) -> Path:
+    mapping = {
+        "call": "calls",
+        "document": "documents",
+        "note": "notes",
+        "screenshot": "documents",
+    }
+    sub = mapping.get(source_type, "documents")
+    return project_root(settings, project_id) / "raw_inputs" / sub
+
+
+def parsed_dir(settings: Settings, project_id: int, source_type: str) -> Path:
+    mapping = {"call": "calls", "document": "documents", "note": "notes", "screenshot": "documents"}
+    sub = mapping.get(source_type, "documents")
+    return project_root(settings, project_id) / "parsed" / sub
+
+
+def artifact_knowledge_text(settings: Settings, artifact) -> str:
+    """Канон для ТЗ / сущностей / индекса: lab ``_final.txt`` (proof + имена), не Whisper/T-one."""
+    final_path = (
+        parsed_dir(settings, artifact.project_id, artifact.source_type)
+        / f"{artifact.artifact_id}_final.txt"
+    )
+    if final_path.is_file():
+        body = final_path.read_text(encoding="utf-8").strip()
+        if body:
+            return body
+    text = (getattr(artifact, "transcription_text", None) or "").strip()
+    if text:
+        return text
+    stored = getattr(artifact, "transcription_file_path", None)
+    if stored:
+        path = Path(stored)
+        name = path.name.lower()
+        if path.is_file() and "whisper" not in name and "tone" not in name:
+            body = path.read_text(encoding="utf-8").strip()
+            if body:
+                return body
+    return ""
+
+
+def structured_dir(settings: Settings, project_id: int) -> Path:
+    return project_root(settings, project_id) / "structured"
+
+
+def project_notes_dir(settings: Settings, project_id: int) -> Path:
+    return project_root(settings, project_id) / "project_notes"
+
+
+def ensure_inside(base: Path, target: Path) -> Path:
+    base = base.resolve()
+    target = target.resolve()
+    if base not in target.parents and base != target:
+        raise ValueError("path escapes project directory")
+    return target
