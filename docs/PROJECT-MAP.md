@@ -1134,7 +1134,7 @@ data/projects/{project_id}/
 |------|------|
 | `main.py` | `all` / `api` / `worker` / `check`; `_ensure_edge` только `all`/`api` |
 | `preflight.py` | проверки до serve; в `all`/`api` — `meeting_voice` (WARN без `venvs/voice`) |
-| `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows) |
+| `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
 
 ### Workers (`app/app/workers/`)
 

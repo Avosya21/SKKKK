@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 
 from app.app.llm_settings import (
     DEFAULT_LLM_PROVIDER,
@@ -26,29 +27,45 @@ def can_prompt() -> bool:
     return bool(session) and session != _WINDOWS_SERVICE_SESSION
 
 
-def _pick_cli(current: LlmProvider | None) -> LlmProvider:
+# Служебное действие в меню запуска: клавиша → (подпись, функция). После него меню
+# показывается снова, выбор LLM и старт идут как обычно.
+StartupAction = tuple[str, Callable[[], None]]
+
+
+def _pick_cli(current: LlmProvider | None, actions: dict[str, StartupAction] | None = None) -> LlmProvider:
     saved = current or DEFAULT_LLM_PROVIDER
-    print("", flush=True)
-    print("=" * 52, flush=True)
-    print("  Primary Analytics — выбор LLM", flush=True)
-    print("=" * 52, flush=True)
-    print(f"  Сохранено в .env: {saved}", flush=True)
-    print("  1 — LM Studio (локально)", flush=True)
-    print("  2 — Cursor API (облако)", flush=True)
-    print("  Enter — оставить сохранённое", flush=True)
-    print("=" * 52, flush=True)
-    try:
-        choice = input("Выбор [1/2/Enter]: ").strip()
-    except EOFError:
+    actions = actions or {}
+    keys = "/".join(["1", "2", *actions, "Enter"])
+    while True:
+        print("", flush=True)
+        print("=" * 52, flush=True)
+        print("  Primary Analytics — выбор LLM", flush=True)
+        print("=" * 52, flush=True)
+        print(f"  Сохранено в .env: {saved}", flush=True)
+        print("  1 — LM Studio (локально)", flush=True)
+        print("  2 — Cursor API (облако)", flush=True)
+        for key, (label, _run) in actions.items():
+            print(f"  {key} — {label}", flush=True)
+        print("  Enter — оставить сохранённое", flush=True)
+        print("=" * 52, flush=True)
+        try:
+            choice = input(f"Выбор [{keys}]: ").strip()
+        except EOFError:
+            return saved
+        if choice in actions:
+            try:
+                actions[choice][1]()
+            except Exception as exc:  # служебное действие не должно валить запуск
+                print(f"Не удалось: {exc}", file=sys.stderr, flush=True)
+            continue
+        if choice in {"", "0"}:
+            return saved
+        if choice == "1":
+            return "lmstudio"
+        if choice == "2":
+            return "cursor"
+        print(f"Неизвестный ввод {choice!r}, используем {saved}", file=sys.stderr)
         return saved
-    if choice in {"", "0"}:
-        return saved
-    if choice == "1":
-        return "lmstudio"
-    if choice == "2":
-        return "cursor"
-    print(f"Неизвестный ввод {choice!r}, используем {saved}", file=sys.stderr)
-    return saved
 
 
 def _pick_tkinter(current: LlmProvider | None) -> LlmProvider:
@@ -114,6 +131,7 @@ def resolve_llm_provider_at_startup(
     cli_choice: str | None = None,
     use_saved: bool = False,
     interactive: bool = True,
+    actions: dict[str, StartupAction] | None = None,
 ) -> LlmProvider:
     """Вернуть провайдер и записать его в `.env`."""
     saved = read_llm_provider_from_env_file()
@@ -125,7 +143,7 @@ def resolve_llm_provider_at_startup(
     elif interactive and can_prompt():
         # PyCharm Run: stdin не TTY, но input() в консоли работает.
         if os.environ.get("PYCHARM_HOSTED") and not sys.stdin.isatty():
-            provider = _pick_cli(saved)
+            provider = _pick_cli(saved, actions)
         else:
             try:
                 provider = _pick_tkinter(saved)

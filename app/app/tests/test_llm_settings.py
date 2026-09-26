@@ -89,8 +89,44 @@ def test_resolve_prompts_when_pycharm_has_no_tty(monkeypatch):
     monkeypatch.setattr(startup_llm.sys.stdin, "isatty", lambda: False)
     monkeypatch.setenv("PYCHARM_HOSTED", "1")
     monkeypatch.setattr(startup_llm, "read_llm_provider_from_env_file", lambda: "cursor")
-    monkeypatch.setattr(startup_llm, "_pick_cli", lambda saved: "lmstudio")
+    monkeypatch.setattr(startup_llm, "_pick_cli", lambda saved, actions=None: "lmstudio")
     monkeypatch.setattr(startup_llm, "write_llm_provider_to_env", lambda provider: None)
 
     provider = resolve_llm_provider_at_startup(interactive=True, use_saved=False)
     assert provider == "lmstudio"
+
+
+def test_pick_cli_runs_action_then_shows_menu_again(monkeypatch):
+    from app.app import startup_llm
+
+    answers = iter(["9", "2"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    calls = []
+    provider = startup_llm._pick_cli("lmstudio", {"9": ("пароли", lambda: calls.append("9"))})
+    assert calls == ["9"]
+    assert provider == "cursor"
+
+
+def test_pick_cli_action_error_does_not_stop_startup(monkeypatch):
+    from app.app import startup_llm
+
+    def boom():
+        raise RuntimeError("нет .env")
+
+    answers = iter(["9", ""])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    assert startup_llm._pick_cli("cursor", {"9": ("пароли", boom)}) == "cursor"
+
+
+def test_reset_role_passwords_needs_confirmation(monkeypatch):
+    from app.app import main as main_mod
+
+    calls = []
+    monkeypatch.setattr(main_mod, "_run_credentials", lambda **kw: calls.append(kw))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    main_mod._reset_role_passwords_interactive("127.0.0.1", 1777)
+    assert calls == []
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "да")
+    main_mod._reset_role_passwords_interactive("127.0.0.1", 1777)
+    assert calls == [{"reset": True, "host": "127.0.0.1", "port": 1777}]
