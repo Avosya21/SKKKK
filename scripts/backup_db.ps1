@@ -23,3 +23,12 @@ if (Test-Path $Cred) {
     Write-Host "backup: $CredTarget"
     Get-ChildItem $BackupDir -Filter "credentials-*.db" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep | Remove-Item -Force
 }
+
+# Фото пользователей (карточки) — файлы, не в базе: копия архивом рядом с копиями БД.
+$People = Join-Path $Root "data\people"
+if ((Test-Path $People) -and (Get-ChildItem $People -Recurse -File | Select-Object -First 1)) {
+    $PeopleTarget = Join-Path $BackupDir "people-$Stamp.zip"
+    Compress-Archive -Path (Join-Path $People "*") -DestinationPath $PeopleTarget -Force
+    Write-Host "backup: $PeopleTarget"
+    Get-ChildItem $BackupDir -Filter "people-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep | Remove-Item -Force
+}

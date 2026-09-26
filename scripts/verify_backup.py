@@ -51,6 +51,35 @@ def check_credentials_backup() -> list[str]:
     return problems
 
 
+def check_people_backup() -> list[str]:
+    """Фото пользователей: есть свежий архив, он открывается и в нём не меньше фото, чем было при копии."""
+    import zipfile
+
+    live = ROOT / "data" / "people"
+    if not live.is_dir() or not any(live.rglob("*.webp")):
+        return []
+    copies = sorted((ROOT / "data" / "backups").glob("people-*.zip"), key=lambda p: p.stat().st_mtime)
+    if not copies:
+        return ["нет копии фото пользователей (people-*.zip)"]
+    latest = copies[-1]
+    age_h = (time.time() - latest.stat().st_mtime) / 3600
+    print(f"Копия фото: {latest.name}, возраст {age_h:.1f} ч")
+    problems = []
+    if age_h > MAX_AGE_HOURS:
+        problems.append(f"копия фото старше {MAX_AGE_HOURS} ч")
+    try:
+        with zipfile.ZipFile(latest) as zf:
+            bad = zf.testzip()
+            photos = [n for n in zf.namelist() if n.endswith(".webp")]
+        if bad:
+            problems.append(f"архив фото повреждён: {bad}")
+        if not photos:
+            problems.append("в архиве фото нет ни одного .webp")
+    except zipfile.BadZipFile as exc:
+        problems.append(f"архив фото не открывается: {exc}")
+    return problems
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backup", type=Path)
@@ -90,6 +119,7 @@ def main() -> int:
         live.close()
         con.close()
     problems += check_credentials_backup()
+    problems += check_people_backup()
     print("ПРОБЛЕМЫ:" if problems else "Копия пригодна для восстановления.")
     for p in problems:
         print(" -", p)
