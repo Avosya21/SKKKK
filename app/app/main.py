@@ -543,6 +543,26 @@ def _run_credentials(*, reset: bool, host: str, port: int) -> None:
     )
 
 
+def _confirm(question: str) -> bool:
+    try:
+        answer = input(f"{question} [да / Enter — отмена]: ").strip().casefold()
+    except EOFError:
+        return False
+    return answer in {"да", "д", "yes", "y"}
+
+
+def _reset_role_passwords_interactive(host: str, port: int) -> None:
+    """Пункт 9 меню запуска: перевыпуск паролей всех ролей с подтверждением."""
+    print()
+    print("Будут перевыпущены пароли всех трёх ролей (admin, manager, user).")
+    print("Старые перестанут подходить для входа сразу; уже открытые сессии продолжат работать.")
+    if not _confirm("Перевыпустить?"):
+        print("Отменено.")
+        return
+    _run_credentials(reset=True, host=host, port=port)
+    log_event(startup_logger, "credentials.reset", source="startup_menu")
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -594,6 +614,12 @@ def main(argv: list[str] | None = None) -> int:
             cli_choice=cli_choice,
             use_saved=use_saved,
             interactive=interactive,
+            actions={
+                "9": (
+                    "перевыпустить пароли ролей",
+                    lambda: _reset_role_passwords_interactive(args.host, args.port),
+                ),
+            },
         )
         get_settings.cache_clear()
         log_event(
