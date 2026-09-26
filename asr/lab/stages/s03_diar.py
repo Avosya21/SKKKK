@@ -1,0 +1,310 @@
+"""03_diar — диаризация: сырые вероятности плюс своя бинаризация.
+
+Модель — ``diar_models.selected_model()``: Nemotron 3 (8 спикеров) по умолчанию,
+Sortformer 4spk v2.1 для отката (``DIAR_MODEL=sortformer4``). Обе отдают
+матрицу T x S с шагом 80 мс, S — число каналов модели.
+
+Матрица сохраняется целиком: именно по ней потом видно, что в спорном
+месте модель сомневалась (0.5/0.5), а не «уверенно ошиблась». Пороги хранятся
+в параметрах стадии, поэтому перебинаризовать прогон можно без повторного
+инференса — достаточно поменять пороги и перезапустить стадию. Пороги покраски
+слов для ``04_paint`` модель кладёт в ``diar.json`` → ``paint_defaults``.
+
+Прогон по второму WAV (``--compare-source``) — отладочная сверка, не часть
+нормального пути: денойза больше нет, сравнивать нечего.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import wave
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from ..diar_models import NEMOTRON, NEMOTRON_PRECISION, NEMOTRON_SHA256, diarize, selected_model
+from ..paths import LabRun
+from ..run import StageContext, execute_stage, source_audio
+from ..sortformer import (
+    FRAME_DURATION,
+    NUM_SPEAKERS,
+    Binarization,
+    binarize,
+)
+from .s01_audio import clean_wav
+
+STAGE = "03_diar"
+KNOWN_SPEAKER_FILE = "known_speaker.json"
+NATIVE_MODEL = "native_track"
+
+DIAR_JSON = "diar.json"
+PROBS_CLEAN = "probs_clean.npy"
+PROBS_SOURCE = "probs_source.npy"
+HEATMAP_JSON = "heatmap.json"
+COMPARE_JSON = "compare.json"
+
+HEATMAP_MAX_COLUMNS = 2400
+
+
+def diar_path(run: LabRun) -> Path:
+    return run.stage_dir(STAGE) / DIAR_JSON
+
+
+def known_speaker_doc(artifact_root: Path) -> dict | None:
+    path = Path(artifact_root) / KNOWN_SPEAKER_FILE
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def native_track_frame_count(duration_sec: float) -> int:
+    return max(1, math.ceil(float(duration_sec) / FRAME_DURATION - 1e-9))
+
+
+def native_track_probabilities(duration_sec: float) -> np.ndarray:
+    frames = native_track_frame_count(duration_sec)
+    probs = np.zeros((frames, NUM_SPEAKERS), dtype=np.float32)
+    probs[:, 0] = 1.0
+    return probs
+
+
+def native_track_segments(duration_sec: float) -> list[dict[str, Any]]:
+    end = round(float(duration_sec), 3)
+    return [{"speaker": "speaker_0", "speaker_index": 0, "start": 0.0, "end": end}]
+
+
+def wav_duration_sec(path: Path) -> float:
+    with wave.open(str(path), "rb") as handle:
+        rate = handle.getframerate() or 1
+        return max(handle.getnframes() / rate, FRAME_DURATION)
+
+
+def _speaker_stats(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    stats: dict[int, dict[str, Any]] = {}
+    for row in segments:
+        entry = stats.setdefault(
+            row["speaker_index"],
+            {"speaker": row["speaker"], "speaker_index": row["speaker_index"], "segments": 0, "seconds": 0.0},
+        )
+        entry["segments"] += 1
+        entry["seconds"] += row["end"] - row["start"]
+    for entry in stats.values():
+        entry["seconds"] = round(entry["seconds"], 2)
+    return [stats[key] for key in sorted(stats)]
+
+
+def _overlap_seconds(probabilities: np.ndarray, onset: float) -> float:
+    active = (probabilities >= onset).sum(axis=1)
+    return round(float((active >= 2).sum()) * FRAME_DURATION, 2)
+
+
+def _heatmap(probabilities: np.ndarray) -> dict[str, Any]:
+    """Ужать матрицу максимумом по окну: пики важнее среднего для глаза."""
+    frames = probabilities.shape[0]
+    if frames == 0:
+        return {"pool": 1, "frame_sec": FRAME_DURATION, "columns": 0, "values": []}
+    pool = max(1, -(-frames // HEATMAP_MAX_COLUMNS))
+    usable = (frames // pool) * pool
+    trimmed = probabilities[:usable].reshape(-1, pool, probabilities.shape[1]).max(axis=1)
+    tail = probabilities[usable:]
+    if tail.size:
+        trimmed = np.concatenate([trimmed, tail.max(axis=0, keepdims=True)], axis=0)
+    return {
+        "pool": pool,
+        "frame_sec": FRAME_DURATION,
+        "column_sec": round(FRAME_DURATION * pool, 4),
+        "columns": int(trimmed.shape[0]),
+        "speakers": int(trimmed.shape[1]),
+        "values": [[round(float(v), 2) for v in row] for row in trimmed],
+    }
+
+
+def run(
+    lab_run: LabRun,
+    *,
+    device: str = "auto",
+    model: str | None = None,
+    onset: float | None = None,
+    offset: float | None = None,
+    pad_onset: float | None = None,
+    pad_offset: float | None = None,
+    min_duration_on: float | None = None,
+    min_duration_off: float | None = None,
+    compare_with_source: bool = False,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Пороги, не заданные явно, берутся у модели (``diar_models.MODELS``)."""
+    audio = clean_wav(lab_run)
+    original = source_audio(lab_run)
+    spec = selected_model(model)
+    base = spec.binarization
+    rules = Binarization(
+        onset=base.onset if onset is None else onset,
+        offset=base.offset if offset is None else offset,
+        pad_onset=base.pad_onset if pad_onset is None else pad_onset,
+        pad_offset=base.pad_offset if pad_offset is None else pad_offset,
+        min_duration_on=base.min_duration_on if min_duration_on is None else min_duration_on,
+        min_duration_off=base.min_duration_off if min_duration_off is None else min_duration_off,
+    )
+    paint_defaults = {"min_prob": spec.min_prob, "min_margin": spec.min_margin}
+    params: dict[str, Any] = {
+        "model": spec.key,
+        "model_label": spec.label,
+        "device": device,
+        "binarization": rules.as_dict(),
+        "compare_with_source": bool(compare_with_source),
+    }
+    if spec.key == NEMOTRON:
+        params["model_sha256"] = NEMOTRON_SHA256
+        params["model_precision"] = NEMOTRON_PRECISION
+
+    inputs = {"clean_16k": audio}
+    if compare_with_source:
+        inputs["source_wav"] = original
+
+    known = known_speaker_doc(lab_run.artifact_root)
+    if known and (known.get("skip_sortformer") or known.get("speaker")):
+        params["model"] = NATIVE_MODEL
+        params.pop("model_label", None)
+        params.pop("model_sha256", None)
+        params.pop("model_precision", None)
+        params["skip_sortformer"] = True
+        params["speaker"] = known.get("speaker")
+
+        def native_work(ctx: StageContext) -> None:
+            duration = wav_duration_sec(audio)
+            probabilities = native_track_probabilities(duration)
+            np.save(ctx.out(PROBS_CLEAN), probabilities)
+            ctx.add_output(ctx.out(PROBS_CLEAN))
+            segments = native_track_segments(duration)
+            speakers = _speaker_stats(segments)
+            payload = {
+                "run_id": lab_run.run_id,
+                "stage": STAGE,
+                "audio": ctx.inputs["clean_16k"].as_dict(),
+                "model": NATIVE_MODEL,
+                "frame_sec": FRAME_DURATION,
+                "frames": int(probabilities.shape[0]),
+                "audio_duration_sec": round(duration, 2),
+                "max_speakers": NUM_SPEAKERS,
+                "binarization": rules.as_dict(),
+                "paint_defaults": paint_defaults,
+                "speakers": speakers,
+                "segment_count": len(segments),
+                "overlap_sec": 0.0,
+                "segments": segments,
+            }
+            ctx.write_json(DIAR_JSON, payload)
+            ctx.write_json(HEATMAP_JSON, _heatmap(probabilities))
+            ctx.metrics = {
+                "frames": int(probabilities.shape[0]),
+                "segment_count": len(segments),
+                "speakers_detected": len(speakers),
+                "overlap_sec": 0.0,
+                "speech_sec": round(sum(s["seconds"] for s in speakers), 2),
+            }
+            ctx.tool = {"name": NATIVE_MODEL}
+            ctx.log("native track: Sortformer пропущен, один спикер")
+
+        return execute_stage(
+            lab_run,
+            STAGE,
+            inputs=inputs,
+            params=params,
+            work=native_work,
+            force=force,
+        )
+
+    def work(ctx: StageContext) -> None:
+        ctx.log(f"инференс по рабочему WAV: {spec.label}")
+        clean, tool = diarize(spec, audio, device=device, workdir=ctx.out(PROBS_CLEAN).parent, log=ctx.log)
+        np.save(ctx.out(PROBS_CLEAN), clean.probabilities)
+        ctx.add_output(ctx.out(PROBS_CLEAN))
+
+        segments = binarize(clean.probabilities, rules=rules, audio_duration=clean.audio_duration)
+        speakers = _speaker_stats(segments)
+        payload = {
+            "run_id": lab_run.run_id,
+            "stage": STAGE,
+            "audio": ctx.inputs["clean_16k"].as_dict(),
+            "model": clean.model_path.name,
+            "model_key": spec.key,
+            "model_label": spec.label,
+            "frame_sec": FRAME_DURATION,
+            "frames": clean.frames,
+            "audio_duration_sec": round(clean.audio_duration, 2),
+            "max_speakers": int(clean.probabilities.shape[1]),
+            "binarization": rules.as_dict(),
+            "paint_defaults": paint_defaults,
+            "speakers": speakers,
+            "segment_count": len(segments),
+            "overlap_sec": _overlap_seconds(clean.probabilities, rules.onset),
+            "segments": segments,
+        }
+        ctx.write_json(DIAR_JSON, payload)
+        ctx.write_json(HEATMAP_JSON, _heatmap(clean.probabilities))
+
+        ctx.metrics = {
+            "frames": clean.frames,
+            "segment_count": len(segments),
+            "speakers_detected": len(speakers),
+            "overlap_sec": payload["overlap_sec"],
+            "speech_sec": round(sum(s["seconds"] for s in speakers), 2),
+        }
+
+        if compare_with_source:
+            ctx.log("контрольный инференс по исходному WAV")
+            dirty, _ = diarize(spec, original, device=device, workdir=ctx.out(PROBS_CLEAN).parent, log=ctx.log)
+            np.save(ctx.out(PROBS_SOURCE), dirty.probabilities)
+            ctx.add_output(ctx.out(PROBS_SOURCE))
+            dirty_segments = binarize(
+                dirty.probabilities, rules=rules, audio_duration=dirty.audio_duration
+            )
+            dirty_speakers = _speaker_stats(dirty_segments)
+            shared = min(clean.frames, dirty.frames)
+            drift = (
+                float(np.abs(clean.probabilities[:shared] - dirty.probabilities[:shared]).mean())
+                if shared
+                else 0.0
+            )
+            ctx.write_json(
+                COMPARE_JSON,
+                {
+                    "clean": {
+                        "frames": clean.frames,
+                        "segment_count": len(segments),
+                        "speakers": speakers,
+                    },
+                    "source": {
+                        "frames": dirty.frames,
+                        "segment_count": len(dirty_segments),
+                        "speakers": dirty_speakers,
+                    },
+                    "mean_abs_prob_diff": round(drift, 4),
+                    "speaker_count_changed": len(speakers) != len(dirty_speakers),
+                },
+            )
+            ctx.metrics["source_speakers_detected"] = len(dirty_speakers)
+            ctx.metrics["mean_abs_prob_diff"] = round(drift, 4)
+            if len(speakers) != len(dirty_speakers):
+                ctx.log(
+                    f"внимание: спикеров на рабочем WAV {len(speakers)}, на исходном {len(dirty_speakers)}"
+                )
+
+        ctx.tool = tool
+        ctx.log(f"{len(segments)} сегментов, спикеров {len(speakers)}")
+
+    return execute_stage(
+        lab_run,
+        STAGE,
+        inputs=inputs,
+        params=params,
+        work=work,
+        force=force,
+    )

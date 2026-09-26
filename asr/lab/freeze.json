@@ -1,0 +1,246 @@
+{
+  "freeze_id": "lab-2026-08-26",
+  "reference_run_id": "20260826T174104Z_48a796",
+  "artifact_id": "art_2026-08-19_211842_54f88c",
+  "project_id": 1,
+  "command": "venvs\\\\lab\\\\Scripts\\\\python.exe asr\\\\lab_pipeline.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --no-voice --report",
+  "python": "3.10.9",
+  "executable": "C:\\\\1C_NEW_SKKKK\\\\venvs\\\\lab\\\\Scripts\\\\python.exe",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 3090",
+    "driver": "577.00",
+    "vram_mb": 24576
+  },
+  "cuda_toolkit": "12.8.61",
+  "ffmpeg": "9.0-full_build",
+  "stages_frozen": [
+    "01_audio",
+    "02_asr",
+    "03_diar",
+    "04_paint",
+    "06_transcript",
+    "07_verify"
+  ],
+  "skipped": [
+    "05_voice"
+  ],
+  "unused_in_run": [
+    "torch",
+    "torchaudio",
+    "DeepFilterNet"
+  ],
+  "packages": {
+    "onnxruntime-gpu": "1.23.2",
+    "nvidia-cudnn-cu12": "9.16.0.29",
+    "onnx-asr": "0.12.0",
+    "sentencepiece": "0.2.1",
+    "numpy": "1.26.4",
+    "scipy": "1.15.3",
+    "librosa": "0.11.0",
+    "soundfile": "0.13.1",
+    "soxr": "1.0.0",
+    "huggingface-hub": "0.36.0"
+  },
+  "params": {
+    "01_audio": {
+      "mode": "copy_16k",
+      "output_rate_hz": 16000
+    },
+    "02_asr": {
+      "model": "nemo-parakeet-tdt-0.6b-v3",
+      "window_sec": 80.0,
+      "overlap_sec": 8.0,
+      "quantization": null,
+      "device": "auto"
+    },
+    "03_diar": {
+      "model": "diar_streaming_sortformer_4spk-v2.1",
+      "onset": 0.64,
+      "offset": 0.74,
+      "pad_onset": 0.06,
+      "pad_offset": 0.0,
+      "min_duration_on": 0.1,
+      "min_duration_off": 0.15,
+      "compare_with_source": false
+    },
+    "04_paint": {
+      "min_prob": 0.35,
+      "min_margin": 0.15
+    },
+    "06_transcript": {
+      "max_gap": 1.2,
+      "keep_unassigned": true,
+      "llm": false
+    }
+  },
+  "source_wav": {
+    "sha256": "d9b84c208b383ba5199cf3ba18553deafe073bf9472aec64ae22d333b64bd0e0",
+    "bytes": 76852990
+  },
+  "models": {
+    "encoder-model.onnx": "98a74b21b4cc0017c1e7030319a4a96f4a9506e50f0708f3a516d02a77c96bb1",
+    "encoder-model.onnx.data": "9a22d372c51455c34f13405da2520baefb7125bd16981397561423ed32d24f36",
+    "decoder_joint-model.onnx": "e978ddf6688527182c10fde2eb4b83068421648985ef23f7a86be732be8706c1",
+    "vocab.txt": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+    "silero_vad.onnx": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
+    "diar_streaming_sortformer_4spk-v2.1.onnx": "0182539aa7f8ecfc446ec56eb320b6f9131d686f98ca8f40644830af7d4d81c8"
+  },
+  "pip_freeze": [
+    "appdirs==1.4.4",
+    "audioread==3.1.0",
+    "certifi==2026.7.22",
+    "cffi==2.1.1",
+    "charset-normalizer==3.5.1",
+    "colorama==0.4.6",
+    "coloredlogs==15.0.1",
+    "decorator==5.3.1",
+    "DeepFilterLib==0.5.6",
+    "DeepFilterNet==0.5.6",
+    "exceptiongroup==1.3.1",
+    "filelock==3.32.4",
+    "flatbuffers==25.12.19",
+    "fsspec==2026.7.0",
+    "huggingface-hub==0.36.0",
+    "humanfriendly==10.0",
+    "idna==3.19",
+    "iniconfig==2.3.0",
+    "Jinja2==3.1.6",
+    "joblib==1.5.3",
+    "lazy-loader==0.5",
+    "librosa==0.11.0",
+    "llvmlite==0.49.0",
+    "loguru==0.7.3",
+    "MarkupSafe==3.0.3",
+    "mpmath==1.3.0",
+    "msgpack==1.2.1",
+    "networkx==3.4.2",
+    "numba==0.67.0",
+    "numpy==1.26.4",
+    "nvidia-cublas-cu12==12.9.2.10",
+    "nvidia-cuda-nvrtc-cu12==12.9.86",
+    "nvidia-cudnn-cu12==9.16.0.29",
+    "onnx-asr==0.12.0",
+    "onnxruntime-gpu==1.23.2",
+    "packaging==23.2",
+    "platformdirs==4.11.4",
+    "pluggy==1.6.0",
+    "pooch==1.9.0",
+    "protobuf==7.36.0",
+    "pycparser==3.0",
+    "Pygments==2.21.0",
+    "pyreadline3==3.5.6",
+    "pytest==9.0.1",
+    "PyYAML==6.0.3",
+    "requests==2.34.2",
+    "scikit-learn==1.7.2",
+    "scipy==1.15.3",
+    "sentencepiece==0.2.1",
+    "soundfile==0.13.1",
+    "soxr==1.0.0",
+    "sympy==1.14.0",
+    "threadpoolctl==3.6.0",
+    "tomli==2.4.1",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "tqdm==4.70.0",
+    "typing_extensions==4.16.0",
+    "urllib3==2.7.0",
+    "win32_setctime==1.2.0"
+  ],
+  "accepted_lab_stages": {
+    "1": {
+      "name": "pipeline_01_07",
+      "accepted": true,
+      "reference_run_id": "20260826T174104Z_48a796"
+    },
+    "2": {
+      "name": "cursor_sense",
+      "accepted": true,
+      "accepted_on": "2026-08-26",
+      "command": "venv\\Scripts\\python.exe asr\\lab_sense.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --run-id 20260826T174104Z_48a796",
+      "python": "3.10.9",
+      "executable": "C:\\1C_NEW_SKKKK\\venv\\Scripts\\python.exe",
+      "cursor_sdk": "1.0.28",
+      "llm_provider": "cursor",
+      "prompt": "docs/prompts/lab_sense_speakers.md",
+      "does_not_replace": [
+        "02_asr/words.json",
+        "04_paint/paint.json",
+        "06_transcript/transcript.json"
+      ],
+      "result": {
+        "spans": 77,
+        "disputed_words": 107,
+        "decisions": 78,
+        "assigned_words": 106,
+        "replicas": 94,
+        "frozen_replicas": 164
+      },
+      "files": {
+        "04_paint/paint.json": "11063a9163183cd0937153f479839b0ee8ddf811a110791e068d6ac714239621",
+        "06_transcript/transcript.json": "f0d27462453c62c144adc3163df467af71da5218ff6cfdc95a2d771961f2de44",
+        "sense/spans.json": "0e1a600c28454a4911ddf1ba720227d73dc4cd339118b8122c15ec6c787b78ca",
+        "sense/sense.json": "b9c48b0739dbfde80f12ace9d59c9c1a450316b9331ee0a8a5c3893915e84628",
+        "sense/transcript.json": "b2cb21419c346d2c9e2de5a4297e58291b4eedff35505efd5caae204157522ba"
+      }
+    },
+    "3": {
+      "name": "giga_reconcile_proof",
+      "accepted": true,
+      "accepted_on": "2026-08-26",
+      "commands": [
+        "venv\\Scripts\\python.exe asr\\lab_giga.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --run-id 20260826T174104Z_48a796",
+        "venv\\Scripts\\python.exe asr\\lab_reconcile.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --run-id 20260826T174104Z_48a796",
+        "venv\\Scripts\\python.exe asr\\lab_proof.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --run-id 20260826T174104Z_48a796"
+      ],
+      "gigaam_task_id": "341f9eb8a24f4fcf8fa507c9d7c12413",
+      "elapsed_sec": 126.7,
+      "params": {
+        "asr_backend": "pytorch",
+        "asr_model": "v3_e2e_rnnt",
+        "enable_diarization": "true",
+        "diarization_backend": "pyannote"
+      },
+      "does_not_replace": [
+        "02_asr/words.json",
+        "04_paint/paint.json",
+        "06_transcript/transcript.json",
+        "sense/sense.json",
+        "sense/transcript.json"
+      ],
+      "result": {
+        "giga_turns": 138,
+        "giga_speakers": 6,
+        "chars_plain": 31560,
+        "span_counts": {
+          "confirmed": 20,
+          "conflict": 5,
+          "unverified": 51,
+          "open": 1,
+          "closed": 0
+        },
+        "proof": {
+          "diffs": 487,
+          "asked": 429,
+          "answered": 429,
+          "taken_giga": 119,
+          "kept_lab": 310,
+          "changed_words": 156
+        }
+      },
+      "files": {
+        "04_paint/paint.json": "11063a9163183cd0937153f479839b0ee8ddf811a110791e068d6ac714239621",
+        "sense/sense.json": "b9c48b0739dbfde80f12ace9d59c9c1a450316b9331ee0a8a5c3893915e84628",
+        "giga/giga.json": "7e1df19c429d3cbdf720ef098ae286d2ad0d441d80e9bdccd3043327a0ea4960",
+        "giga/timecodes.txt": "5327da40ea93a139f503f20f0274fdd2b40d997805be573ab011973823d22286",
+        "giga/plain.txt": "2c9a8e35ecf08d8f2e7246cb53b3cf2adbb7cdb864b7d2b26d133975567641ba",
+        "reconcile/speakers.json": "cd013e90d12021dcd09f313d26e3e648d8e5a4a1269f0def45e230aef0ea1004",
+        "reconcile/text.json": "d089a4011f4a3eb26066a78cb076dabb5e90fa956ee0b52dc5e1883232f99fc8",
+        "proof/proof.json": "ac3238ea9531916c45262680705cd79f7025be190dd519f3c9aaf47b334deaa3",
+        "proof/transcript.json": "d8d3ebc197d0245d9a03a9b810ab50d61fa37d517aaa416d943a0f7a15d0b7c8",
+        "proof/transcript.txt": "958b20c479b43ef436bf8a5e2d08c7ffe764a1f19c1c078992e3a0ea99bb5fcc"
+      }
+    }
+  }
+}
