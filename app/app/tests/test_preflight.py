@@ -149,3 +149,15 @@ def test_meeting_voice_warns_if_deps_missing(tmp_path, monkeypatch):
     monkeypatch.setattr("app.app.services.edge_runtime.voice_venv_ready", lambda: False)
     result = preflight.check_meeting_voice(_settings(tmp_path, meeting_voice_server=True, dry_run=False))
     assert result.status == WARN
+
+
+def test_personal_passwords_check(monkeypatch):
+    from app.app.config import Settings
+    from app.app.preflight import OK, check_personal_passwords
+    from app.app.services import personal_password
+
+    off = check_personal_passwords(Settings(personal_password="off"))
+    assert off.status == OK and "выключены" in off.detail
+    personal_password.set_initial("admin", "correct-horse-battery", "correct-horse-battery")
+    on = check_personal_passwords(Settings(personal_password="optional"))
+    assert on.status == OK and "задано: 1" in on.detail

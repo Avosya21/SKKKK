@@ -90,6 +90,19 @@ def _forbid_real_db(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_credentials_db(tmp_path, monkeypatch):
+    """База личных паролей в тестах — временный файл, боевая data/credentials.db недоступна."""
+    from app.app import credentials_db
+    from app.app.services import personal_password
+
+    monkeypatch.setattr(credentials_db, "PATH_OVERRIDE", tmp_path / "credentials.db")
+    personal_password.clear_cache()
+    yield
+    personal_password.clear_cache()
+    credentials_db.dispose_all()
+
+
+@pytest.fixture(autouse=True)
 
 def _import_models():
 

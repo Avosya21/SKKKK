@@ -104,6 +104,27 @@ def check_database(settings: Settings) -> CheckResult:
     return CheckResult("database", OK, f"таблиц {len(tables)}", extra={"url": settings.database_url})
 
 
+def check_personal_passwords(settings: Settings) -> CheckResult:
+    """Личные пароли: при optional/required нужна argon2 и база credentials.db (создаётся здесь)."""
+    mode = settings.personal_password
+    if mode == "off":
+        return CheckResult("personal_passwords", OK, "выключены (PERSONAL_PASSWORD=off)")
+    try:
+        import argon2  # noqa: F401
+
+        from app.app.services.personal_password import all_info
+
+        count = sum(1 for info in all_info().values() if info.has_password)
+    except Exception as exc:
+        return CheckResult(
+            "personal_passwords",
+            FAIL,
+            f"режим {mode}, база {settings.credentials_db_path} недоступна: {exc}",
+            "pip install -r app/requirements.txt; проверьте CREDENTIALS_DB_PATH",
+        )
+    return CheckResult("personal_passwords", OK, f"режим {mode}, личных паролей задано: {count}")
+
+
 def check_vector_store() -> CheckResult:
     from app.app.db import get_engine
     from app.app.services.vector_index import init_vector_store
@@ -259,6 +280,7 @@ def _plan(settings: Settings, mode: str) -> list[tuple[str, object]]:
         ("env", lambda: check_env(settings)),
         ("data_dir", lambda: check_data_dir(settings)),
         ("database", lambda: check_database(settings)),
+        ("personal_passwords", lambda: check_personal_passwords(settings)),
         ("vector_store", check_vector_store),
     ]
     if mode in {"all", "api"}:
