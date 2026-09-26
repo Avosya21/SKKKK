@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from functools import lru_cache
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=str(ROOT / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    secret_key: str = Field(min_length=8)
+    admin_password_hash: str = ""
+    manager_password_hash: str = ""
+    user_password_hash: str = ""
+
+    database_url: str = f"sqlite:///{ROOT / 'data' / 'app.db'}"
+    data_dir: Path = ROOT / "data"
+
+    web_host: str = "127.0.0.1"
+    web_port: int = 1111
+    # Публичный URL для ссылок и MCP (если портал доступен из интернета).
+    web_public_url: str = ""
+    # HTTPS / ACME (Caddy). Публичный :80 приходит в портал, не в Apache.
+    skkkk_public_host: str = ""
+    skkkk_https_port: int = 777
+    skkkk_acme_http_port: int = 8088
+    skkkk_acme_tls_port: int = 8443
+    skkkk_acme_email: str = ""
+    skkkk_acme_ca: str = ""
+    skkkk_tls_cert: str = ""
+    skkkk_tls_key: str = ""
+    skkkk_tls_renew_hours: int = 48
+    skkkk_tls_issue_timeout_sec: int = 120
+
+    lmstudio_base_url: str = "http://127.0.0.1:1234/v1"
+    lmstudio_model: str = "swift-qwen3.8-27b-uncensored-dynamic-mtp"
+    lmstudio_api_key: str = "lm-studio"
+    # Рассуждения локальной модели. enable_thinking управляет Jinja-переменной
+    # enable_thinking в шаблоне Qwen, reasoning_effort — уровнем усилия
+    # (none/minimal/low/medium/high/xhigh; см. _LMSTUDIO_REASONING_LEVELS).
+    # По умолчанию мышление ВЫКЛЮЧЕНО: при ~2.4-3k reasoning-токенов на вызов
+    # короткие вызовы (chat/entities/normalize/ASR, max_tokens 2-8k) вернули бы
+    # пустой контент. Включается точечно там, где бюджет рассчитан: ТЗ-конвейер.
+    lmstudio_enable_thinking: bool = False
+    lmstudio_reasoning_effort: str = "medium"
+
+    llm_provider: str = "lmstudio"
+    cursor_api_key: str = ""
+    cursor_model: str = "composer-2.5"
+    cursor_runtime: str = "local"
+    cursor_cloud_repo: str = ""
+
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _llm_provider(cls, v: str | None) -> str:
+        from app.app.llm_settings import normalize_llm_provider
+
+        return normalize_llm_provider(v)
+
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_embed_model: str = "bge-m3"
+    ollama_num_gpu: int = 0
+
+    whisper_url: str = "http://127.0.0.1:18101"
+    gigaam_url: str = "http://127.0.0.1:18102"
+    tone_url: str = "http://127.0.0.1:18103"
+    # Диаризация lab: nemotron3 (до 8 спикеров, venvs/nemo-diar) или sortformer4 (откат, ONNX)
+    diar_model: str = "nemotron3"
+    gigaam_api_key: str = ""
+
+    telegram_bot_token: str = ""
+
+    max_upload_bytes: int = 2_147_483_648
+    upload_chunk_size: int = 4_194_304
+    max_audio_duration_sec: int = 14_400
+    # Порог склейки сущностей в графе: срабатывает на почти дословных повторах.
+    similarity_threshold: float = 0.82
+    # Порог выдачи поиска и RAG-чата. Косинусная близость bge-m3 для осмысленного
+    # совпадения короткого вопроса с абзацем лежит в районе 0.4–0.6, поэтому
+    # порог графа здесь отсекал бы вообще всё.
+    search_min_score: float = 0.35
+    tz_rebuild_every_n: int = 3
+    dry_run: bool = False
+    jwt_expire_minutes: int = 43_200
+    job_max_attempts: int = 3
+    login_allowlist_path: Path = ROOT / "Login_up.txt"
+
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    meeting_voice_dfn3: bool = False
+    meeting_voice_loudness: bool = True
+    meeting_voice_server: bool = True
+    livekit_rtc_internal: str = "ws://127.0.0.1:7880"
+
+    # Пауза после lab-стенограммы: имена спикеров, затем knowledge
+    voice_gate_before_asr: bool = True
+    # strict — ждать, пока все голоса названы (как было); soft — знания строятся сразу, неизвестные голоса остаются
+    # speaker_N и называются позже (R3 docs/plans/AUTO-REVIEW-PLAN.md); off — без паузы. voice_gate_before_asr=false → off.
+    voice_gate_mode: str = "soft"
+
+    # Автопроверка локальной моделью (docs/plans/AUTO-REVIEW-PLAN.md): off | shadow | live.
+    # shadow — вердикты пишутся без последствий (для замера согласия с человеком), live — применяются.
+    auto_review_mode: str = "shadow"
+    auto_review_audit_every: int = 20  # каждое N-е авторешение дополнительно идёт человеку
+    auto_review_batch: int = 5  # сущностей на один вызов LLM
+    voice_auto_accept_min: float = 0.85
+    voice_auto_accept_margin: float = 0.10
+
+    @field_validator("data_dir", "login_allowlist_path", mode="before")
+    @classmethod
+    def _path(cls, v: str | Path) -> Path:
+        return Path(v)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+def external_base_url(settings: Settings, request_base_url: str | None = None) -> str:
+    """Базовый URL для внешних клиентов (MCP, ссылки). WEB_PUBLIC_URL приоритетнее request."""
+    explicit = (settings.web_public_url or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    if request_base_url:
+        return str(request_base_url).rstrip("/")
+    host = settings.web_host
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
+    return f"http://{host}:{settings.web_port}"

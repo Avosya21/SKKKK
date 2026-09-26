@@ -1,0 +1,1 @@
+"""SKKKK FastAPI application."""
