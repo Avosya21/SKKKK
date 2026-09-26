@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import wave
 from datetime import datetime, timezone
@@ -361,6 +362,7 @@ def _track_contract(db: Session, meeting: Meeting, track: dict) -> dict:
     row = {
         "identity": identity,
         "speaker": _speaker_name(db, meeting.id, identity),
+        **_participant_card(db, identity),
         "source": source,
         "src": str(src),
         "started_epoch": track.get("started_epoch"),
@@ -450,6 +452,29 @@ def _enqueue_meeting(db: Session, settings: Settings, meeting: Meeting, tracks: 
         for row in track_rows
         if row.get("source") not in {SOURCE_SCREEN, SOURCE_SCREEN_VIDEO}
     ]
+
+
+def _participant_card(db: Session, identity: str) -> dict:
+    """Сотрудник (`member:<id>`) — кто он по карточке: user_id, компания и сторона (executor/customer).
+
+    Сторона нужна анализу: чья реплика — исполнителя или заказчика — без угадывания моделью.
+    У гостей карточки нет — полей нет (сторона неизвестна).
+    """
+    match = re.fullmatch(r"member:(\d+)", identity or "")
+    if not match:
+        return {}
+    from app.app.models.company import Company
+    from app.app.services.user_profile import get_profile
+
+    user_id = int(match.group(1))
+    profile = get_profile(db, user_id)
+    company = db.get(Company, profile.company_id) if profile and profile.company_id else None
+    card = {"user_id": user_id}
+    if company is not None:
+        card["company"] = company.name
+        if company.side:
+            card["side"] = company.side
+    return card
 
 
 def _speaker_name(db: Session, meeting_id: int, identity: str) -> str:
