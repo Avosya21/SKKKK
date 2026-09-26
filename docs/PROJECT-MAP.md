@@ -101,9 +101,9 @@ flowchart TB
 | Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
 | ORM | SQLAlchemy **2.0.52**, Alembic **1.19.1**, Pydantic **2.13.4** |
 | Порт UI | Снаружи **Caddy `:777` HTTPS**. Портал — `WEB_HOST=127.0.0.1` `WEB_PORT=1777`. Порт **8000** занят MCP 1С |
-| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL |
+| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `data/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id) |
 | Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
-| Auth | JWT + cookie `skkkk_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается |
+| Auth | JWT + cookie `skkkk_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=off|optional|required` — второй шаг входа, личный пароль логина (в токене `pv` — версия пароля, `pp` — пройден) |
 | Очередь | таблица `jobs`, **один** GPU-воркер |
 | LLM | `LLM_PROVIDER=cursor` **или** `lmstudio` (переключатель при старте) |
 
@@ -236,7 +236,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Остановка | `scripts/stop.ps1` | гасит API и GPU-воркер |
 | Проверка без запуска | `scripts/check_systems.ps1` | только проверки всех систем |
 | Службы Windows | `scripts/install_services.ps1` (от администратора, NSSM) | службы `SKKKK-API` (`main api --use-saved-llm --llm-provider cursor`) и `SKKKK-GPU` (`main worker`); Caddy отдельной службой — `scripts/install_caddy.ps1` (`SKKKK-CADDY`) |
-| Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO` |
+| Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO`: `app-*.db` и `credentials-*.db` (личные пароли); проверка — `scripts/verify_backup.py` |
 | Автоподъём | `scripts/monitor_skkkk_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
 
 Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`). LM Studio — вручную или `run_server.ps1`.
@@ -321,7 +321,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Файл | Prefix | Назначение |
 |------|--------|------------|
 | `routers/pages.py` | `/` | HTML-страницы, отчёты арtefact, audio stream |
-| `routers/auth.py` | `/auth` | POST login: логин из `Login_up.txt` (без регистра); пароль = роль (`admin`/`manager`/`user`); Telegram ID пишется; JWT **и** cookie |
+| `routers/auth.py` | `/auth` | POST login: логин из `Login_up.txt` (без регистра); пароль = роль (`admin`/`manager`/`user`); Telegram ID пишется; JWT **и** cookie. При `PERSONAL_PASSWORD≠off` login отдаёт `{step: setup|personal, ticket}` (пропуск 5 мин, одноразовый) → `POST /auth/login/setup` (новый + повтор), `/auth/login/personal`, `/auth/login/skip` (только `optional`); `GET /auth/password/state`, `POST /auth/password/change` (кнопка-ключ в шапке) |
 | `routers/projects.py` | `/projects` | список, создание, **полное удаление** (`DELETE /{id}`) |
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, reextract-entities, conflicts, notes |
@@ -1072,6 +1072,8 @@ data/projects/{project_id}/
 | `auth.py` | JWT, role passwords |
 | `user_identity.py` | Логин по имени; склейка дублей; Telegram ID только хранится |
 | `login_allowlist.py` | Допуск: `Login_up.txt`, без учёта регистра, файл читается на каждый вход |
+| `personal_password.py` | личный пароль логина: Argon2id, правила (10–128, не логин и не пароль роли), `set_initial` / `change` / `reset`, `current_version` (кеш 5 с) для проверки сессии в `dependencies._check_personal_password` |
+| `personal_password_console.py` | список логинов и сброс личного пароля из консоли: пункт 7 меню запуска и `scripts/personal_password.py` |
 | `upload.py` / `resumable_upload.py` | file registration |
 | `normalize.py` / `image_extract.py` / `tesseract_tools.py` | document text |
 | `ffmpeg_tools.py` | audio prep |
@@ -1133,8 +1135,9 @@ data/projects/{project_id}/
 | Файл | Роль |
 |------|------|
 | `main.py` | `all` / `api` / `worker` / `check`; `_ensure_edge` только `all`/`api` |
-| `preflight.py` | проверки до serve; в `all`/`api` — `meeting_voice` (WARN без `venvs/voice`) |
-| `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
+| `preflight.py` | проверки до serve; в `all`/`api` — `meeting_voice` (WARN без `venvs/voice`); `personal_passwords` — argon2 и `credentials.db` при `PERSONAL_PASSWORD≠off` |
+| `credentials_db.py` | отдельная база личных паролей `data/credentials.db`: свой движок и `CredentialsBase`, таблица `personal_passwords` (ключ — логин без регистра, хеш, `pwd_version`, `reset_pending`); в тестах `PATH_OVERRIDE` |
+| `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **7** — сбросить личный пароль пользователя (список, номер или логин, «да»); **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
 
 ### Workers (`app/app/workers/`)
 
@@ -1313,6 +1316,7 @@ run_pipeline
 | `dev_changelog.py` | журнал разработки из git → `docs/CHANGELOG-DEV.md` |
 | `fast_summarize_tz.py` | быстрая сводка ТЗ из CLI: top-K по sqlite-vec + заметки → один reduce → `current_tz.md` + changelog |
 | `kb_inbox.py` | ящик вопросов внешнего агента из командной строки (`list`, ответ), без входа по паролю |
+| `personal_password.py` | личные пароли без PyCharm: `list`, `reset <логин|номер> [--yes]` (база `credentials.db` напрямую) |
 | `live_meetings.py` | печатает идущие встречи; код выхода 3, если есть люди на связи (для безопасного перезапуска) |
 | `watch_server.py` | наблюдение за сервером, очередью и ошибками конвейера |
 | `qa_pages.py` | аудит вёрстки страниц на разных экранах и движках (изолированный экземпляр с копией БД) |
@@ -1380,7 +1384,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 - sqlite-vec + entities/links (не Qdrant/Neo4j до этапа 10)
 - Секреты только в `.env`
 - Обход reasoning имеет самопроверку при старте API и воркера (`llm.lmstudio_no_think_selfcheck`, `LMSTUDIO_NO_THINK=0` — принудительный откат на chat-эндпоинт); статус — `/health/ready.llm_no_think`
-- Вход ограничен по попыткам (`services/rate_limit.py`: 8 неудач/5 мин на IP и логин → 429); заголовки безопасности в `main.SECURITY_HEADERS` (HSTS/CSP сознательно нет)
+- Вход ограничен по попыткам (`services/rate_limit.py`: 8 неудач/5 мин на IP и логин → 429; неверный личный пароль считается так же, счётчик логина сбрасывает только полный вход); заголовки безопасности в `main.SECURITY_HEADERS` (HSTS/CSP сознательно нет)
 - Стили: `static/app.css` (структура) + `static/design.css` (единая дизайн-система, токены `--ds-*`), см. DECISIONS; отчёты (документ и стенограмма) — сгенерированные HTML, тема `static/report-theme.css` подключается при отдаче в `_serve_report`, файлы отчётов не меняются
 - Обмен с внешним агентом: `services/agent_gateway.py` (белый список, журнал `agent_exchange_log`), контракт — `services/contract.py` + `project_mcp_contract.py` (MCP-инструменты 16 шт., файлы `contract/*.json` виртуальные), правила — `docs/agent-exchange/`; файлы `analysis_reply_/analysis_request_*.json` в конвейер не идут
 - `POST /client-log` принимает JS-ошибки браузеров (лимит), событие `client.js_error`; зависимость `livekit-api` обязательна (закрытие комнаты при завершении встречи)
@@ -1404,6 +1408,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `bootstrap.py` | Подготовка `.env` до того, как Settings прочитает файл. |
 | `config.py` | — |
+| `credentials_db.py` | Отдельная база личных паролей `data/credentials.db`: только хеши, отдельно от `app.db`. |
 | `cursor_compat.py` | Совместимость cursor-sdk с Python < 3.12 (os.get_blocking / os.set_blocking). |
 | `db.py` | — |
 | `dependencies.py` | — |
@@ -1513,6 +1518,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `office_convert.py` | Конвертация старых офисных форматов через LibreOffice headless: .doc/.rtf/.odt → .docx, .xls/.ods → .xlsx, .ppt → .pptx. |
 | `ollama_client.py` | Клиент Ollama: эмбеддинги (bge-m3, на CPU) и список моделей. |
 | `ollama_runtime.py` | Автозапуск Ollama перед эмбеддингами и индексацией. |
+| `personal_password.py` | Личный пароль логина: хеш Argon2id, правила, создание, смена, сброс, версия для сессий. |
+| `personal_password_console.py` | Сброс личного пароля из консоли: пункт 7 меню запуска `main` и `scripts/personal_password.py`. |
 | `pipeline_audio.py` | Обработка аудио-артефакта: запуск лабораторного ASR-конвейера, стенограмма, сверка спикеров, аудит реплик и выжимка созвона (`process_audio_ |
 | `pipeline_documents.py` | Извлечение текста из документов и изображений: TXT, RTF, PDF, DOCX, HTML, таблицы в Markdown, OCR. |
 | `pipeline_knowledge.py` | Конвейер знаний после получения текста артефакта: сущности, индекс и граф (`run_knowledge_pipeline`). |
@@ -1596,7 +1603,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `error.html` | Страница ошибки HTML (403/404/500) с понятным текстом на русском |
 | `graph.html` | Граф знаний проекта в Cytoscape (/projects/{id}/graph) |
 | `index.html` | Список проектов (/): создание, описание, удаление проекта, кнопка «Исправлено» со списком изменений |
-| `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли |
+| `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести) |
 | `meeting_lab.html` | Лаборатория созвона (admin): этапы обработки каждой дорожки встречи; пока идёт прогон, страница обновляется сама |
 | `meeting_public.html` | Гостевая страница встречи /m/{token}: лобби, проверка камеры и микрофона, комната без входа в портал |
 | `meeting_room.html` | Комната встречи для сотрудника (/projects/{id}/meetings/{mid}/room) |
@@ -1691,7 +1698,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `audit_integrity.py` | Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы. Только чтение. |
 | `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
-| `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO) |
+| `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db |
 | `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
 | `check_env.ps1` | — |
 | `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
@@ -1723,6 +1730,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
+| `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
 | `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
 | `qa_call_stress.py` | Стресс-проверка записи звонка на РЕАЛЬНОМ сервере (рекордеры, LiveKit): песочный проект SMOKE_PROJECT_ID (29), два браузерных гостя. |

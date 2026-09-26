@@ -2476,6 +2476,34 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: mod_credentials_db
+    kind: file
+    path: app/app/credentials_db.py
+    title: "Отдельная база личных паролей `data/credentials.db`: только хеши, отдельно от `app.db`."
+    tags: [auto]
+    auto: true
+
+  - id: svc_personal_password
+    kind: service
+    path: app/app/services/personal_password.py
+    title: "Личный пароль логина: хеш Argon2id, правила, создание, смена, сброс, версия для сессий."
+    tags: [auto]
+    auto: true
+
+  - id: svc_personal_password_console
+    kind: service
+    path: app/app/services/personal_password_console.py
+    title: "Сброс личного пароля из консоли: пункт 7 меню запуска `main` и `scripts/personal_password.py`."
+    tags: [auto]
+    auto: true
+
+  - id: script_personal_password
+    kind: file
+    path: scripts/personal_password.py
+    title: "Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
