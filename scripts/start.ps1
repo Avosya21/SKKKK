@@ -61,7 +61,7 @@ if ($Llm -eq "cursor") {
 }
 elseif ($Llm -eq "gemma") {
     $args += @("--llm", "gemma")
-    Write-Host "LLM: Gemma (LM Studio)"
+    Write-Host "LLM: Local LLM (LM Studio)"
 }
 else {
     $args += "--use-saved-llm"

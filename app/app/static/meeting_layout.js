@@ -1,3 +1,4 @@
+// Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука.
 (function (root) {
   const FLAG_NONE = "none";
   const FLAG_OFF = "off";

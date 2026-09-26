@@ -340,7 +340,7 @@ def render_html(
 <body>
 <header>
   <h1>{html.escape(title)}</h1>
-  <p class="hint">Только интервалы диаризации — без текста Gemma и без сглаживания UI. Клик по времени ставит плеер.</p>
+  <p class="hint">Только интервалы диаризации — без текста Local LLM и без сглаживания UI. Клик по времени ставит плеер.</p>
   <div class="links">
     <a href="report">Стенogramma PyAnnote</a>
     <a href="report-sortformer">Стенogramma Sortformer</a>

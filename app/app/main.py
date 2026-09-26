@@ -572,7 +572,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--llm-provider",
         choices=("lmstudio", "cursor"),
-        help="LLM: Gemma локально или Cursor API (устар.: используйте --llm gemma|cursor)",
+        help="LLM: Local LLM (LM Studio) или Cursor API (устар.: используйте --llm gemma|cursor)",
     )
     parser.add_argument(
         "--use-saved-llm",

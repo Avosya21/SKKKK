@@ -69,7 +69,7 @@ def ensure_llm_ready() -> None:
     provider = settings.llm_provider
     if not uses_local_gemma(provider):
         logger.info(
-            "llm.ready provider=%s runtime=%s (local Gemma not required)",
+            "llm.ready provider=%s runtime=%s (Local LLM not required)",
             provider,
             llm_runtime_label(provider),
         )

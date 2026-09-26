@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import json
 import sys
 from pathlib import Path
@@ -78,10 +79,21 @@ def first_doc_line(rel: str) -> str:
                 if len(s) > 8:
                     return s[:140]
     if rel.endswith((".js", ".css")):
+        # только комментарий в шапке файла; первая строка кода описанием не считается
         for line in text.splitlines()[:6]:
-            s = line.strip("/*# \t")
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if not stripped.startswith(("/*", "//", "*")):
+                return ""
+            s = stripped.strip("/*# \t")
             if s:
                 return s[:140]
+    if rel.endswith(".html"):
+        # описание шаблона — Jinja-комментарий `{# … #}` в первых строках (в HTML-ответ не попадает)
+        m = re.search(r"\{#\s*(.+?)\s*#\}", "\n".join(text.splitlines()[:5]), re.S)
+        if m:
+            return " ".join(m.group(1).split())[:140]
     return ""
 
 
@@ -131,6 +143,12 @@ def analyse() -> dict:
         for path in sorted((ROOT / folder).glob("*.py")):
             if path.name == "__init__.py":
                 continue
+            rel = path.relative_to(ROOT).as_posix()
+            if not first_doc_line(rel):
+                no_doc.append(rel)
+    # шаблоны и JS тоже должны иметь описание: `{# … #}` / комментарий в шапке
+    for pattern in ("app/app/templates/*.html", "app/app/templates/partials/*.html", "app/app/static/*.js"):
+        for path in sorted(ROOT.glob(pattern)):
             rel = path.relative_to(ROOT).as_posix()
             if not first_doc_line(rel):
                 no_doc.append(rel)

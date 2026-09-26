@@ -1,11 +1,12 @@
 <!DOCTYPE html>
+{# Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц #}
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ title }} — Primary Analytics</title>
   <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/app.css?v=11" rel="stylesheet">
+  <link href="/static/app.css?v=12" rel="stylesheet">
   <link href="/static/design.css?v=6" rel="stylesheet">
   {% block extra_head %}{% endblock %}
 </head>
@@ -19,6 +20,7 @@
     <div class="navbar-actions-row">
       {% block nav_actions %}{% endblock %}
       <span class="badge rounded-pill text-bg-warning d-none" id="nav-stale" role="status">Нужен перезапуск</span>
+      {% block nav_changelog %}{% endblock %}
       <span class="badge rounded-pill text-bg-secondary d-none" id="nav-llm" title="LLM-провайдер"></span>
       <div class="nav-session d-none align-items-center gap-1" id="nav-session">
         <span class="navbar-text text-white-50 mb-0" id="nav-user"></span>
@@ -36,7 +38,7 @@
   {% block content %}{% endblock %}
 </main>
 <script src="/static/errors_ru.js?v=1"></script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 {% block scripts %}{% endblock %}
 </body>

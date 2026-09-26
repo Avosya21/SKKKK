@@ -59,7 +59,7 @@ def _uses_local_gemma() -> bool:
 
 
 def _llm_name() -> str:
-    return "Cursor" if not _uses_local_gemma() else "Gemma"
+    return "Cursor" if not _uses_local_gemma() else "Local LLM"
 
 
 def log(msg: str) -> None:
@@ -396,7 +396,7 @@ def main() -> int:
     elif _step_ok("gemma_unload"):
         log("=== 2. gemma_unload — skip (ok) ===")
     else:
-        log("=== 2. выгрузить Gemma, поднять ASR ===")
+        log("=== 2. выгрузить Local LLM, поднять ASR ===")
         try:
             gate("gemma_unload")
             subprocess.run(["lms", "unload", "--all"], check=False)
@@ -514,7 +514,7 @@ def main() -> int:
     elif _step_ok("gemma_load"):
         log("=== 6. gemma_load — skip (ok) ===")
     else:
-        log("=== 6. загрузить Gemma ===")
+        log("=== 6. загрузить Local LLM ===")
         try:
             gate("gemma_load")
             load = subprocess.run(["lms", "load", MODEL, "-y"], cwd=str(ROOT))
@@ -522,7 +522,7 @@ def main() -> int:
                 raise RuntimeError("lms load вернул ненулевой код")
             models_resp = urllib.request.urlopen(f"{LMSTUDIO}/models", timeout=10).read().decode("utf-8")
             if "gemma" not in models_resp.lower():
-                raise RuntimeError("Gemma не видна в /v1/models после load")
+                raise RuntimeError("Local LLM не видна в /v1/models после load")
             mark_ok("gemma_load", MODEL)
         except PipelineGateError:
             raise

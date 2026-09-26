@@ -1,4 +1,4 @@
-"""Подписи LLM для логов и UI в зависимости от провайдера (Gemma / Cursor)."""
+"""Подписи LLM для логов и UI в зависимости от провайдера (Local LLM / Cursor)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from app.app.llm_settings import normalize_llm_provider, uses_local_gemma
 
 def llm_short_name(provider: str | None) -> str:
     try:
-        return "Cursor" if normalize_llm_provider(provider) == "cursor" else "Gemma"
+        return "Cursor" if normalize_llm_provider(provider) == "cursor" else "Local LLM"
     except ValueError:
-        return "Gemma"
+        return "Local LLM"
 
 
 def llm_runtime_label(provider: str | None) -> str:
@@ -60,5 +60,5 @@ def llm_empty_response_message(provider: str | None) -> str:
 
 def llm_unavailable_hint(provider: str | None) -> str:
     if uses_local_gemma(provider):
-        return "проверьте LM Studio / Gemma"
+        return "проверьте LM Studio (Local LLM)"
     return "проверьте CURSOR_API_KEY и интернет"

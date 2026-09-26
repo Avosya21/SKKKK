@@ -1,3 +1,4 @@
+// Общий JS портала (объект SKKKK): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения.
 const SKKKK = {
   setSession(data) {
     localStorage.setItem('skkkk_token', data.access_token);
@@ -42,7 +43,7 @@ const SKKKK = {
       if (!r.ok) return;
       const data = await r.json();
       const provider = data.llm_provider || '';
-      const labels = { lmstudio: 'Gemma', cursor: 'Cursor' };
+      const labels = { lmstudio: 'Local LLM', cursor: 'Cursor' };
       el.textContent = labels[provider] || provider || 'LLM';
       el.classList.remove('d-none');
       el.title = data.llm_detail || provider;

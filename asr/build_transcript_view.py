@@ -175,25 +175,25 @@ def build(mapping_path: Path | None = None) -> dict:
             audio_end=duration,
         )
         if tone_timed and whisper_health.trusted:
-            source = "Gemma text + Whisper/Tone timing + Sortformer"
+            source = "Local LLM text + Whisper/Tone timing + Sortformer"
         elif tone_timed:
-            source = f"Gemma text + Tone timing ({clock_source}) + Sortformer"
+            source = f"Local LLM text + Tone timing ({clock_source}) + Sortformer"
         elif gigaam_clock:
-            source = f"Gemma text + GigaAM timing ({clock_source}) + Sortformer"
+            source = f"Local LLM text + GigaAM timing ({clock_source}) + Sortformer"
         else:
-            source = "Gemma text + Whisper/Tone timing + Sortformer"
+            source = "Local LLM text + Whisper/Tone timing + Sortformer"
     elif timed and speaker_turns:
         turns = overlay_text(timed, speaker_turns)
-        source = "Whisper timing + Sortformer/PyAnnote (без окон Gemma)"
+        source = "Whisper timing + Sortformer/PyAnnote (без окон Local LLM)"
     elif speaker_turns and windows:
         # запасной путь: старое пропорциональное carve (хуже по часам) — не норма
         if sortformer_path.is_file() or speaker_from_match:
             gemma_turns = [Turn(start=s, end=e, speaker="", text=txt) for s, e, txt in windows]
             turns = carve_text_by_speakers(gemma_turns, speaker_turns)
-            source = "Sortformer + склейка Gemma (без Whisper timing)"
+            source = "Sortformer + склейка Local LLM (без Whisper timing)"
         else:
             turns = apply_merged_windows(speaker_turns, windows)
-            source = "PyAnnote + склейка Gemma (без Whisper timing)"
+            source = "PyAnnote + склейка Local LLM (без Whisper timing)"
     elif speaker_turns:
         turns = carve_text_by_speakers(_gigaam_text_turns(OUT), speaker_turns)
         source = "Sortformer/PyAnnote + carve GigaAM"
@@ -204,11 +204,11 @@ def build(mapping_path: Path | None = None) -> dict:
         source = "gigaam 18s chunks"
         turns = smooth_islands(parse_timecode_lines(_read(diar_tc)))
 
-    keep_phrase_clocks = bool(timed) and "Gemma text" in source
+    keep_phrase_clocks = bool(timed) and "Local LLM text" in source
     join_gap = None if keep_phrase_clocks else 0.35
     turns = reattach_cut_letters(turns, join_gap_sec=join_gap)
     # densе-cut только на legacy carve; канон Gemma не урезаем
-    drop_dense = "Gemma text" not in source and "carve" in source.lower()
+    drop_dense = "Local LLM text" not in source and "carve" in source.lower()
     turns = sanitize_transcript_turns(turns, drop_dense=drop_dense)
     turns = apply_map(turns, mapping, join_gap_sec=join_gap) if mapping else turns
 

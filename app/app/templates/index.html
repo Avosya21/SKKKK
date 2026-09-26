@@ -1,4 +1,8 @@
 {% extends "base.html" %}
+{# Список проектов (/): создание, описание, удаление проекта, кнопка «Исправлено» со списком изменений #}
+{% block nav_changelog %}
+<button type="button" class="btn btn-sm btn-outline-light nav-changelog" data-bs-toggle="modal" data-bs-target="#changelogModal">Исправлено</button>
+{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap projects-page-header">
   <h1 class="h3 mb-0">Проекты</h1>
@@ -7,6 +11,27 @@
   {% endif %}
 </div>
 <div id="projects-list" class="list-group"></div>
+<div class="modal fade" id="changelogModal" tabindex="-1" aria-labelledby="changelog-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="changelog-title">Исправлено</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        {% if changelog %}
+        <ul class="list-unstyled mb-0">
+          {% for item in changelog %}
+          <li class="mb-2"><span class="fw-semibold text-nowrap">{{ item.date }}</span> {{ item.text }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">Пока нет записей.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="deleteProjectModal" tabindex="-1" aria-labelledby="delete-project-title" aria-hidden="true" data-bs-backdrop="static">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">

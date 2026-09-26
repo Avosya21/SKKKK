@@ -108,7 +108,7 @@ def build(
     gigaam_chunks = _gigaam_text_turns(asr_out)
     if windows:
         turns = apply_merged_windows(speaker_turns, windows)
-        source = "Sortformer + склейка Gemma (окна)"
+        source = "Sortformer + склейка Local LLM (окна)"
     else:
         turns = carve_text_by_speakers(gigaam_chunks, speaker_turns)
         source = "Sortformer + carve GigaAM"

@@ -1,3 +1,4 @@
+// Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка.
 (function () {
   const layout = window.SKKKKLayout;
   console.assert(layout.flagState(null, {}) === layout.FLAG_NONE, "publication=null → none");
