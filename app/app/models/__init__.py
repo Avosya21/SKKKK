@@ -3,6 +3,7 @@ from app.app.models.agent_question import AgentQuestion
 from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
+from app.app.models.company import Company
 from app.app.models.contract import ContractItem
 from app.app.models.entity import (
     AsrRun,
@@ -23,6 +24,7 @@ from app.app.models.project_task import ProjectTask
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
+from app.app.models.user_profile import UserProfile
 
 __all__ = [
     "AgentQuestion",
@@ -32,6 +34,8 @@ __all__ = [
     "ChatMessage",
     "User",
     "UserActivityLog",
+    "UserProfile",
+    "Company",
     "ProjectTask",
     "ProjectMcpToken",
     "ProjectMember",

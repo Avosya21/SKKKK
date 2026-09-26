@@ -85,6 +85,10 @@ def merge_users_into(db: Session, winner: User, losers: list[User]) -> int:
     for loser in losers:
         if loser.id == winner.id:
             continue
+        # Карточка — одна на человека (PK user_id), общим UPDATE её не перенести.
+        from app.app.services.user_profile import merge_profiles
+
+        merge_profiles(db, winner_id=winner.id, loser_id=loser.id)
         _reassign_user_rows(db, winner_id=winner.id, loser_id=loser.id)
         db.delete(loser)
         n += 1

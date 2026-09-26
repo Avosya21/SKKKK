@@ -31,6 +31,9 @@ __pycache__/
 *.egg-info/
 .env
 Login_up.txt
+Companies.txt
+# Фото пользователей (карточки)
+data/people/
 data/app.db
 data/app.db-*
 data/projects/
