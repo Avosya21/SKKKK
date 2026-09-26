@@ -11,6 +11,9 @@ data/smoke/
 data/project_map.db
 data/project_map.db-*
 data/project_map.lock
+# Хеши личных паролей — никогда в git
+data/credentials.db
+data/credentials.db-*
 data/locks/
 data/_*
 asr/gigaam-keys/
