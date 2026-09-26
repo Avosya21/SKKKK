@@ -1,0 +1,54 @@
+# SKKKK — HTTPS на :777. :777 отдаёт готовый файл (Chrome к IP часто без SNI).
+# Боевой сертификат Caddy добирает на :8443 (тот же IP, HTTP-01 на :8088).
+
+{
+	auto_https disable_redirects
+	email {$SKKKK_ACME_EMAIL}
+	http_port {$SKKKK_ACME_HTTP_PORT:8088}
+	log {
+		output file {$SKKKK_CADDY_PROC_LOG:C:/1C_NEW_SKKKK/data/logs/caddy-proc.log}
+		level INFO
+	}
+	storage file_system {
+		root {$SKKKK_CADDY_STORAGE:C:/1C_NEW_SKKKK/data/caddy}
+	}
+	cert_issuer acme {$SKKKK_ACME_CA:https://acme-v02.api.letsencrypt.org/directory} {
+		profile shortlived
+		disable_tlsalpn_challenge
+	}
+	servers {
+		protocols h1 h2
+	}
+}
+
+:{$SKKKK_ACME_HTTP_PORT:8088} {
+	@not_acme not path /.well-known/acme-challenge/*
+	redir @not_acme https://{$SKKKK_PUBLIC_HOST}:{$SKKKK_HTTPS_PORT:777}{uri}
+}
+
+:{$SKKKK_HTTPS_PORT:777} {
+	log {
+		output file {$SKKKK_CADDY_LOG:C:/1C_NEW_SKKKK/data/logs/caddy.log}
+	}
+	tls {$SKKKK_TLS_CERT} {$SKKKK_TLS_KEY}
+	handle_path /livekit/* {
+		reverse_proxy 127.0.0.1:7880
+	}
+	handle {
+		reverse_proxy 127.0.0.1:{$SKKKK_WEB_PORT:1777} {
+			transport http {
+				response_header_timeout 15m
+			}
+		}
+	}
+}
+
+https://{$SKKKK_PUBLIC_HOST}:{$SKKKK_ACME_TLS_PORT:8443} {
+	tls force_automate {
+		issuer acme {$SKKKK_ACME_CA:https://acme-v02.api.letsencrypt.org/directory} {
+			profile shortlived
+			disable_tlsalpn_challenge
+		}
+	}
+	respond "ok" 200
+}
