@@ -24,6 +24,12 @@
       <span class="badge rounded-pill text-bg-secondary d-none" id="nav-llm" title="LLM-провайдер"></span>
       <div class="nav-session d-none align-items-center gap-1" id="nav-session">
         <span class="navbar-text text-white-50 mb-0" id="nav-user"></span>
+        <button type="button" class="btn nav-logout d-none" id="nav-password" aria-label="Личный пароль" title="Личный пароль">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M0 8a4 4 0 0 1 7.465-2H14a.5.5 0 0 1 .354.146l1.5 1.5a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0L13 9.207l-.646.647a.5.5 0 0 1-.708 0L11 9.207l-.646.647a.5.5 0 0 1-.708 0L9 9.207l-.646.647A.5.5 0 0 1 8 10h-.535A4 4 0 0 1 0 8m4-3a3 3 0 1 0 2.712 4.285A.5.5 0 0 1 7.163 9h.63l.853-.854a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.793-.793-1-1h-6.63a.5.5 0 0 1-.451-.285A3 3 0 0 0 4 5"/>
+            <path d="M4 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+          </svg>
+        </button>
         <button type="button" class="btn nav-logout" id="nav-logout" aria-label="Выйти" title="Выйти">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z"/>
@@ -34,11 +40,43 @@
     </div>
   </div>
 </nav>
+<div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="password-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="password-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="password-title">Личный пароль</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="password-username" autocomplete="username" class="d-none" tabindex="-1" aria-hidden="true">
+        <div class="mb-3" id="password-current-group">
+          <label class="form-label" for="password-current">Текущий личный пароль</label>
+          <input class="form-control" id="password-current" type="password" autocomplete="current-password">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password-new">Новый пароль</label>
+          <input class="form-control" id="password-new" type="password" autocomplete="new-password" aria-describedby="password-new-help">
+          <div class="form-text" id="password-new-help"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password-confirm">Повторите пароль</label>
+          <input class="form-control" id="password-confirm" type="password" autocomplete="new-password">
+        </div>
+        <div class="form-text mb-2">После смены вход на других устройствах придётся повторить.</div>
+        <div class="alert alert-danger d-none mb-0" id="password-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="submit" class="btn btn-primary skkkk-action-btn" id="password-submit" data-idle-label="Сохранить">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
 <main class="container pb-5">
   {% block content %}{% endblock %}
 </main>
 <script src="/static/errors_ru.js?v=1"></script>
-<script src="/static/app.js?v=2"></script>
+<script src="/static/app.js?v=3"></script>
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 {% block scripts %}{% endblock %}
 </body>

@@ -33,6 +33,8 @@ BLOCK_REPORT = "report"
 
 ACTION_LOGIN = "login"
 ACTION_LOGOUT = "logout"
+ACTION_PASSWORD_SET = "password_set"
+ACTION_PASSWORD_CHANGE = "password_change"
 ACTION_CREATE = "create"
 ACTION_DELETE = "delete"
 ACTION_UPLOAD = "upload"

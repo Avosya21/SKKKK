@@ -24,3 +24,38 @@ class UserOut(BaseModel):
     position: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class LoginStepResponse(BaseModel):
+    """Пароль роли принят, нужен шаг 2: `setup` — придумать личный пароль, `personal` — ввести его."""
+
+    step: str
+    ticket: str
+    name: str
+    can_skip: bool = False
+    min_length: int
+
+
+class TicketRequest(BaseModel):
+    ticket: str = Field(min_length=1, max_length=2048)
+
+
+class PersonalLoginRequest(TicketRequest):
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class PersonalSetupRequest(TicketRequest):
+    password: str = Field(max_length=1024)
+    password_confirm: str = Field(max_length=1024)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(default="", max_length=1024)
+    password: str = Field(max_length=1024)
+    password_confirm: str = Field(max_length=1024)
+
+
+class PasswordStateResponse(BaseModel):
+    mode: str
+    has_password: bool
+    min_length: int

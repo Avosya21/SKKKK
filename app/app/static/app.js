@@ -468,6 +468,69 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
   SKKKK.logout();
 });
 
+// Личный пароль (кнопка-ключ в шапке): видна, только если PERSONAL_PASSWORD не off.
+(function () {
+  const btn = document.getElementById('nav-password');
+  const form = document.getElementById('password-form');
+  if (!btn || !form || !localStorage.getItem('skkkk_role') || location.pathname === '/login') return;
+  const $ = (id) => document.getElementById(id);
+  let state = null;
+
+  SKKKK.api('/auth/password/state').then(async (r) => {
+    if (!r.ok) return;
+    state = await r.json();
+    btn.classList.toggle('d-none', state.mode === 'off');
+  }).catch(() => {});
+
+  function showError(text) {
+    $('password-error').textContent = text;
+    $('password-error').classList.toggle('d-none', !text);
+  }
+
+  btn.addEventListener('click', () => {
+    if (!state) return;
+    for (const id of ['password-current', 'password-new', 'password-confirm']) $(id).value = '';
+    $('password-username').value = localStorage.getItem('skkkk_name') || '';
+    $('password-current-group').classList.toggle('d-none', !state.has_password);
+    $('password-title').textContent = state.has_password ? 'Сменить личный пароль' : 'Создать личный пароль';
+    $('password-new-help').textContent = `Не короче ${state.min_length} символов. Не совпадает с логином и паролем роли.`;
+    showError('');
+    bootstrap.Modal.getOrCreateInstance($('passwordModal')).show();
+  });
+  $('passwordModal').addEventListener('shown.bs.modal', () => {
+    $(state && state.has_password ? 'password-current' : 'password-new').focus();
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      current_password: $('password-current').value,
+      password: $('password-new').value,
+      password_confirm: $('password-confirm').value,
+    };
+    if (body.password.length < state.min_length) return showError(`Пароль короче ${state.min_length} символов`);
+    if (body.password !== body.password_confirm) return showError('Пароли не совпадают');
+    showError('');
+    await SKKKK.guardSubmit(form, async () => {
+      const r = await fetch('/auth/password/change', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SKKKK.token()}` },
+        body: JSON.stringify(body),
+      });
+      let payload = null;
+      try { payload = await r.json(); } catch { payload = null; }
+      if (!r.ok) {
+        showError(window.SKKKKErrors ? SKKKKErrors.text(payload && payload.detail, r.status) : String(r.status));
+        return;
+      }
+      SKKKK.setSession(payload);
+      state.has_password = true;
+      bootstrap.Modal.getOrCreateInstance($('passwordModal')).hide();
+    }, { busyText: 'Сохраняю…' });
+  });
+})();
+
 
 // Отправка JS-ошибок на сервер (пункт 5.2): не больше 5 за загрузку страницы, без персональных данных.
 (function () {
