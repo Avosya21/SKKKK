@@ -218,10 +218,38 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **Whisper / T-one** | Docker (не стартуют) | `:18101` / `:18103` — откат, воркер не вызывает |
 | **Ollama** | вне проекта | `:11434` — `bge-m3`, CPU |
 | **LightRAG** | `docker compose up` в `tools/lightrag/` | `:9621` — граф карты проекта (agents) |
-| **LM Studio** | вне проекта | `:1234` — Gemma (если `LLM_PROVIDER=lmstudio`) |
+| **LM Studio** | вне проекта, запуск `run_server.ps1` | `:1234` — Local LLM (если `LLM_PROVIDER=lmstudio`) |
 | **Cursor API** | облако/local SDK | если `LLM_PROVIDER=cursor` |
 
 **Важно:** кнопки «Пересчитать» / «Пересобрать выжимку» / «Переиндексировать» идут через **API-процесс**, не через GPU-воркер.
+
+### 3.0. Как поднять сервер: установка, запуск, перезапуск, HTTPS
+
+**Порядок старта `python -m app.app.main all`** (его вызывает `scripts/start.ps1`): preflight (проверки `.env`, моделей, портов; `--skip-checks` пропускает) → `edge_runtime`: сертификат (`tls_cert.ensure_tls_cert`) → Caddy → LiveKit → `voice_cleaner` → `screen_recorder` → GPU-воркер (`data/locks/gpu_worker.pid`) → портал Uvicorn `127.0.0.1:WEB_PORT` (1777). Падение LiveKit портал не валит.
+
+| Задача | Команда | Что делает |
+|--------|---------|------------|
+| Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1`; проверка окружения — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`) |
+| Локальная LLM | `run_server.ps1` (корень) | запускает LM Studio и грузит Swift-Qwen 27B с пресетом `swift-qwen-24gb` (один слот, flash-attn, KV q8_0, MTP; `-NoMtp` — без MTP). Сервер SKKKK не поднимает |
+| **Перезапуск (основной способ)** | `scripts/restart.ps1` [`-Llm saved\|gemma\|cursor`] [`-Force`] [`-SkipChecks`] | 1) **отказ, если идёт встреча** (`scripts/live_meetings.py`, код 3) — иначе оборвётся запись голоса; `-Force` перезапускает всё равно; 2) встреч нет — гасит все копии `voice_cleaner` / `screen_recorder` и их pid-файлы; 3) проверки: Ollama `:11434`, при `lmstudio` — LM Studio `:1234` и загружена ли `LMSTUDIO_MODEL`; 4) `start.ps1 -SkipChecks` в фоне, лог `data/logs/restart.log` (+ `.err`); 5) ждёт `/health` **и новый PID воркера** (старый сервер может ещё отвечать); 6) в фоне обновляет индекс проекта |
+| Запуск | `scripts/start.ps1` [`-Llm cursor\|gemma`] [`-NoStop`]; обёртки `start-saved.ps1` (LLM из `.env`), `start-gemma.ps1`, `start-cursor.ps1`, `run_all.ps1` | сначала останавливает старое (PID воркера + процесс на `WEB_PORT`, снимает `gpu_worker.lock/.pid`), затем `main all` |
+| Остановка | `scripts/stop.ps1` | гасит API и GPU-воркер |
+| Проверка без запуска | `scripts/check_systems.ps1` | только проверки всех систем |
+| Службы Windows | `scripts/install_services.ps1` (от администратора, NSSM) | службы `SKKKK-API` (`main api --use-saved-llm --llm-provider cursor`) и `SKKKK-GPU` (`main worker`); Caddy отдельной службой — `scripts/install_caddy.ps1` (`SKKKK-CADDY`) |
+| Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO` |
+| Автоподъём | `scripts/monitor_skkkk_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
+
+Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`). LM Studio — вручную или `run_server.ps1`.
+
+**HTTPS (Caddy, `tools/caddy/Caddyfile`).**
+
+| Порт | Что | Куда |
+|------|-----|------|
+| `:777` (`SKKKK_HTTPS_PORT`) | вход для пользователей, TLS готовым файлом (`SKKKK_TLS_CERT` / `SKKKK_TLS_KEY`) | `/livekit/*` → LiveKit `127.0.0.1:7880`; всё остальное → портал `127.0.0.1:1777` (ожидание ответа до 15 мин) |
+| `:8088` (`SKKKK_ACME_HTTP_PORT`) | HTTP-01 проверка Let's Encrypt | `/.well-known/acme-challenge/*` отвечает Caddy; остальное — редирект на `https://SKKKK_PUBLIC_HOST:777` |
+| `:8443` (`SKKKK_ACME_TLS_PORT`) | выпуск и продление сертификата на IP (профиль `shortlived`) | отвечает `ok` |
+
+Сертификат: Caddy хранит его в `data/caddy/certificates/<CA>/<host>/<host>.crt|.key` (`SKKKK_CADDY_STORAGE`). При старте `tls_cert.py` проверяет файл для `:777`: есть ли, не staging ли, не истекает ли раньше `SKKKK_TLS_RENEW_HOURS`; иначе перевыпускает через `:8443` и перезагружает Caddy. Если явный `SKKKK_TLS_CERT` отсутствует или staging, а CA боевой — берётся файл из хранилища Caddy. Логи: `data/logs/caddy.log` (запросы `:777`), `data/logs/caddy-proc.log` (сам Caddy). Почта для ACME — `SKKKK_ACME_EMAIL`, CA — `SKKKK_ACME_CA`.
 
 ### 3.1. Изоляция арtefactов (не смешивать файлы)
 
@@ -318,7 +346,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
 | `/audio`, `/download`, speaker API | те же URL | — | Без сессии — **401** |
 | `/health` | `/health` | — | Публично только `{"status":"ok"}` |
-| `/health/ready` | `/health/ready` | бейдж LLM в nav + значок «Нужен перезапуск» (админ) | Очередь/VRAM/LLM + `build` (код на диске новее API/воркера, `services/build_info.py`) — только с сессией |
+| `/health/ready` | `/health/ready` | бейдж LLM в nav (`#nav-llm`: «Local LLM» при LM Studio, «Cursor») + значок «Нужен перезапуск» (админ) | Очередь/VRAM/LLM + `build` (код на диске новее API/воркера, `services/build_info.py`) — только с сессией |
 | `/admin/conflicts` | `/admin/conflicts` | `conflicts.html` | Очередь конфликтов (**admin**, HTML 302→login / 403 не-admin) |
 | `/projects/{id}/graph` | graph | `graph.html` | Cytoscape-граф (GET graph/data) |
 | `/projects/{id}/tz` | tz | `tz.html` | Отдельная страница ТЗ (дублирует rebuild-tz) |
@@ -331,9 +359,10 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Новый проект** | — | UI | admin, manager | Открывает модалку |
 | **Создать** | `POST /projects` | FastAPI | admin, manager | Проект + `data/projects/{id}/` tree |
 | **Отмена** | — | UI | — | Закрыть модалку |
+| **Исправлено** (шапка, слева от бейджа LLM, `nav-changelog`) | — | UI | auth | Модалка `#changelogModal`: список изменений для пользователя, новые сверху. Данные — `app/app/changelog.json`, читает `load_changelog()` в `routers/pages.py` при рендере `/`. Дополнять после каждой правки функционала/качества (правило в `AGENTS.md`) |
 | Клик по проекту | — | navigate | свои или admin | `/projects/{id}`; чужой URL — **404** |
 | **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый блок: текст описания слева, **Удалить проект** справа (admin/manager). Без описания стрелка всё равно есть, чтобы открыть удаление |
-| **Удалить проект** | `DELETE /projects/{id}` | FastAPI | admin любой; manager только свой | Сначала модалка «Подтверждение удаления» + чекбокс «Подтверждаю полное удаление»; без галочки кнопка «Удалить» неактивна. Затем полное удаление дерева и записей БД |
+| **Удалить проект** | `GET /projects/{id}/delete-preview` → `DELETE /projects/{id}` | FastAPI | admin любой; manager только свой | Сначала модалка «Подтверждение удаления»: счётчики из `delete-preview` (`#delete-project-counts`: документы, созвоны, встречи, заметки) + чекбокс «Подтверждаю полное удаление» (`#delete-project-ack`); без галочки кнопка «Удалить» неактивна. Затем полное удаление дерева и записей БД |
 | Авто-загрузка | `GET /projects` | FastAPI | auth | admin — все активные; иначе создал / загрузил / чат / `project_members`. Пустой список: «Нет своих проектов.» Кнопка **Новый проект** только admin/manager |
 
 ### 5.4. Страница проекта — `/projects/{id}` (`project.html`)
@@ -431,6 +460,22 @@ Enter в textarea — тоже отправка. Отдельная страни
 | Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:`; `skkkk-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек (как DFN), не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
 | Анализ дорожек | `data/meetings/{room_name}/analyze.json` + `events.jsonl` | `meeting_analyze.py`: очередь GPU на каждую WAV с речью; lab `03_diar` пишет одного `speaker_0` без Sortformer |
 
+**Пульт встречи (`#meeting-dock`, `static/meeting_room.js`)** — одинаков на гостевой странице и в комнате сотрудника; работает в браузере через LiveKit, без API портала (кроме выхода, завершения и пульса).
+
+| Кнопка | Действие |
+|--------|----------|
+| **Микрофон** (`#meeting-mic`) / **Звук** (`#meeting-sound`) / **Камера** (`#meeting-cam`) / **Экран** (`#meeting-screen`) | вкл/выкл своего микрофона, звука собеседников, камеры, показа экрана |
+| **Выбрать микрофон** (`#meeting-mic-pick-btn`, создаётся скриптом) | список микрофонов; смена на ходу `switchActiveDevice(audioinput)` без перезахода |
+| **Динамик** (`#meeting-speaker-btn`) | выбор устройства вывода (`setSinkId`); если браузер не умеет — в меню подсказка |
+| **Сменить камеру** (`#meeting-cam-switch`) | следующая камера `switchActiveDevice(videoinput)`; видна, когда камера включена и камер 2+ |
+| **Ещё** (`#meeting-more`) → **Экран сверху** (`#meeting-screen-lead`), **Спикер** (`#meeting-layout`, раскладка), **Участники** (`#meeting-roster`; закрыть — `#meeting-roster-close`), **Скопировать ссылку** (`#meeting-copy`), **На весь экран** (`#meeting-fs`), **Шумодав** (`#meeting-denoise`) | вид и сервис, без сервера |
+| **Развернуть окно** (у плитки) | плитка на весь экран |
+| **Выйти** (`#meeting-leave`) | гость: `POST /api/meetings/public/{token}/leave`; сотрудник: `POST /projects/{id}/meetings/{mid}/leave` |
+| **Завершить для всех** (`#meeting-end`, только сотрудник) | `POST /projects/{id}/meetings/{mid}/end` |
+| *(фон)* пульс присутствия | гость `POST /api/meetings/public/{token}/heartbeat`, сотрудник `…/meetings/{mid}/heartbeat` |
+
+Лобби гостя: имя (`#guest-name`), свёрнутый блок **Проверить камеру и микрофон (по желанию)** (`#guest-devices-check`, выбор `#guest-mic` / `#guest-cam`), **Войти во встречу** (`#guest-join`).
+
 **Плитки экрана.** Каждая screen-публикация — плитка `meeting-tile-screen-{sid}` (`tileOrder` в `static/meeting_layout.js`). Последняя по `publishedAt` — `lead` (`.meeting-tiles .meeting-tile-screen.is-lead` на всю ширину, правило **вне** phone-media). Новый экран снимает ручной pin; «Экран сверху» в `#meeting-more-tray` возвращает lead. Камера — отдельная плитка (`chosenVideoPub` только `Source.Camera`). Публикация экрана: `contentHint: "detail"`, `ScreenSharePresets.h720fps5`.
 
 Камера у гостя выключена. Join до `start` — 409. Удаление созвона или проекта стирает `meetings`, `meeting_participants`, очередь GPU и `data/meetings/{room_name}/`.
@@ -443,14 +488,37 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 
 | Элемент UI | API | Кто |
 |------------|-----|-----|
-| **Создать ключ** | `POST /projects/{id}/mcp/tokens` | admin, manager |
+| **Копировать** (URL сервера `#mcp-url`) / **Копировать JSON** (`#mcp-copy-config`, пример `.cursor/mcp.json`) | — (буфер обмена) | admin, manager |
+| Права нового ключа (`#mcp-rights`): **Только чтение** / **Чтение + вопросы** / **Чтение + вопросы и вердикты**; **Имя агента** (`#mcp-agent-name`, для журнала); **Лимит за 10 мин** (`#mcp-rate-limit`) | уходят в `POST …/mcp/tokens` | admin, manager |
+| **Создать ключ** | `POST /projects/{id}/mcp/tokens` | admin, manager; ключ показывается один раз (`#mcp-new-token`) |
+| **Права ключа** (select в строке ключа) | `POST /projects/{id}/mcp/tokens/{token_id}/scope` `{scope, agent_name, rate_limit}` | admin, manager |
+| Разрешить ключу класть вопросы/вердикты | `POST /projects/{id}/mcp/tokens/{token_id}/submit` `{enabled}` (флаг `can_submit`, по умолчанию выкл) | admin, manager |
 | **Отозвать ключ** | `DELETE /projects/{id}/mcp/tokens/{token_id}` | admin, manager |
 | **URL / JSON для Cursor** | `GET /projects/{id}/mcp/info` | admin, manager (свой проект) |
 | **MCP endpoint** | `POST /mcp/projects/{id}` + `Authorization: Bearer <ключ>` | держатель ключа |
 
-Инструменты MCP: `project_overview`, `list_artifacts`, `get_project_summary`, `search_project`, `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts`, `get_artifact_content`.
+Инструменты MCP (`app/app/mcp/project_protocol.py`, `MCP_TOOLS`):
+- чтение: `get_guide` (инструкция агенту), `project_overview`, `list_artifacts`, `get_project_summary`, `search_project`, `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts`, `get_artifact_content`, `get_artifact_meta`, `get_requirements`, `get_tz`, `get_changes`, `get_conflicts`, `get_quote` (дословная цитата), `get_code_anchors`;
+- обмен (только ключ с правами «вопросы» / «вопросы и вердикты»): `submit_question`, `submit_verdicts`, `wait_reply`, `exchange_status`.
 
 Публичный URL для MCP задаётся в `.env`: `WEB_PUBLIC_URL=https://203.0.113.10:777`. Без него в UI подставляется адрес из текущего запроса.
+
+#### Обмен с агентами — три карточки (`partials/px_agent_cards.html` + `static/px_agent.js`)
+
+Сворачиваемые карточки (`#px-card-review`, `#px-card-exchange`, `#px-card-settings`), по умолчанию сложены; открытость помнит `localStorage` (`px_open_*`). Все вызовы — `/projects/{id}/…` (`routers/requirement_review.py`, `routers/project_mcp.py`). Читают admin и manager, решения — только admin.
+
+| Карточка / элемент | API | Кто |
+|--------------------|-----|-----|
+| **Подтверждение требований**: фильтры проверки / статуса / стороны (`#px-rv-verification`, `#px-rv-status`, `#px-rv-side`), **Поиск по тексту** (`#px-rv-q`), **Показать ещё** (`#px-rv-more`) | `GET …/requirements/review` | admin, manager |
+| **Подтвердить** / **Отклонить** / **Изменить статус** (с причиной) у требования | `POST …/requirements/{rid}/{action}` | admin |
+| **Вернуть решение модели** | `POST …/requirements/entity/{entity_id}/undo-model` | admin |
+| Галочки + **Подтвердить выбранные** (`#px-rv-confirm-selected`) | `POST …/requirements/confirm` | admin |
+| **Проверить моделью всё накопленное** (`#px-rv-backlog`) | `POST …/auto-review/backlog` `{scope: "all"}` | admin |
+| **Обмен с агентами**: вкладки **Вопросы** / **Вердикты** / **Журнал** (фильтр решения шлюза `#px-j-decision`, источник `#px-j-source`) | `GET …/agent-inbox`, `GET …/agent-verdicts`, `GET …/agent-exchange`, `GET …/agent-exchange/summary` | admin, manager |
+| Вопрос: **Черновик локальной модели** | `POST …/agent-inbox/{qid}/draft` | admin |
+| Вопрос: **Одобрить черновик** / **Ответить** (поле «Ваш ответ агенту») | `POST …/agent-inbox/{qid}/answer` | admin |
+| Вердикт: **Подтвердить** / **Отклонить** | `POST …/agent-verdicts/{entity_id}/{action}` | admin |
+| **Настройки для агентов**: часовой пояс (`#px-s-tz`), пакет якорей кода (`#px-s-pack`), стороны участников (`#px-s-participants`, «Имя = заказчик/исполнитель»), подсказки заказчика/исполнителя (`#px-s-hint-customer`, `#px-s-hint-vendor`), права ключа по умолчанию (`#px-s-key-scope`), обмен вкл/выкл (`#px-s-enabled`), **Сохранить** | `GET` / `PUT …/agent-settings` | чтение admin, manager; сохранение admin |
 
 #### Выдать доступ (после MCP)
 
@@ -648,7 +716,7 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/projects/{id}/chat` | *(авто при открытии)* | `GET /projects/{id}/chat/history` |
 | `/projects/{id}/chat` | *(авто при pending)* | `GET /projects/{id}/chat/status` + poll history |
 | `/projects/{id}/graph` | — | `GET …/graph/data` (Cytoscape) |
-| `/admin/conflicts` | — | `GET …/conflicts` (admin, read-only cards) |
+| `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
 | `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; слушает `skkkk-dfn` | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
 | `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `skkkk_session`) |
@@ -656,7 +724,10 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/auth/logout` | *(JS `clearSession` / `#nav-logout`)* | `POST /auth/logout` — сброс cookie |
 
 API без кнопок в UI (для будущего / интеграций):  
-`GET …/search`, `GET …/activity`, `POST …/notes`, `POST /links`, `POST /entities/{id}/review`, `POST /conflicts/{id}/resolve`.
+`GET /projects/{id}/search`, `GET …/activity`, `POST /projects/{id}/notes`, `POST /links`, `POST /entities/{id}/review`, `GET /projects/{id}/artifacts/{aid}/entities` (сущности одного артефакта), `GET /projects/{id}/tz/versions` (журнал `changelog` + файлы `versions/current_tz_*.md`), `GET /api/projects/{id}/speaker-profiles` (база голосов проекта), `POST /projects/{id}/upload` (простая загрузка multipart без докачки, `source_type`; UI использует `uploads/init`).
+
+Служебные опросы из JS (без отдельной кнопки):  
+`GET /projects/{id}/tasks/active` (блокировка «Пересобрать» на проекте и ТЗ), `GET /api/artifacts/{id}/tasks/active` (стенограмма: идёт ли задача по артефакту), `GET /api/artifacts/{id}/speakers-status` (страница проекта: можно ли «Подтвердить спикеров»), `GET /.well-known/acme-challenge/{token}` (выпуск сертификата).
 
 ### 5.9. Сводка: кто выполняет действие
 
@@ -666,7 +737,7 @@ API без кнопок в UI (для будущего / интеграций):
 | **`main` edge** | Caddy, LiveKit, `voice_cleaner` (`skkkk-dfn`) — только `all`/`api`, не worker |
 | **FastAPI sync** | recalculate, enroll, merge, rebuild-summary, reindex, rebuild-tz, chat |
 | **Docker GigaAM** | второй слух + voice embed |
-| **LLM** (Cursor/Gemma) | sense, proof, summary, entities, TZ, chat |
+| **LLM** (Cursor / Local LLM) | sense, proof, summary, entities, TZ, chat |
 | **Ollama bge-m3** | index/reindex chunks, semantic search |
 | **Browser only** | фильтры, seek, legacy rename localStorage |
 
@@ -1222,7 +1293,7 @@ run_pipeline
 | `inspect_project_index.py` | Сверка чанков sqlite-vec с lab `_final.txt` (`--project 18`) |
 | `refresh_portal_knowledge.py` | Пересборка выжимок созвонов + индекс + сущности + ТЗ (`--project 19` / `--all`) |
 | `rebuild_artifact_report.py` | Пересборка отчёта артефакта |
-| `monitor_status.py` / `monitor_skkkk_loop.ps1` | Мониторинг сервера |
+| `monitor_status.py` / `monitor_skkkk_loop.ps1` | Мониторинг сервера (`monitor_skkkk_loop.ps1` устарел — см. §3.0) |
 | `install_caddy.ps1` | бинарь Caddy + опциональная служба `SKKKK-CADDY` |
 | `install_meeting_voice.py` | изолированный `venvs/voice` + DeepFilterNet CPU (не app venv) |
 | `screen_recorder.py` | `skkkk-rec`: VideoStream I420 → packed yuv420p → ffmpeg mp4 1 fps в `data/meetings/{room}/tracks/`; смена WxH — scale в размер первого кадра, не сырой хвост буфера |
@@ -1336,7 +1407,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `cursor_compat.py` | Совместимость cursor-sdk с Python < 3.12 (os.get_blocking / os.set_blocking). |
 | `db.py` | — |
 | `dependencies.py` | — |
-| `llm_labels.py` | Подписи LLM для логов и UI в зависимости от провайдера (Gemma / Cursor). |
+| `llm_labels.py` | Подписи LLM для логов и UI в зависимости от провайдера (Local LLM / Cursor). |
 | `llm_settings.py` | Выбор LLM-провайдера (Gemma / Cursor) — чтение и запись в `.env`. |
 | `logging_setup.py` | Единая настройка логов: консоль (PyCharm) плюс файл в `data/logs`. |
 | `main.py` | — |
@@ -1503,13 +1574,13 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
-| `app.css` | Shared responsive tweaks for Primary Analytics portal |
-| `app.js` | const SKKKK = { |
+| `app.css` | Общие стили портала Primary Analytics: шапка, адаптив под телефон и планшет, таблицы, кнопки |
+| `app.js` | Общий JS портала (объект SKKKK): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения. |
 | `design.css` | Единая дизайн-система Primary Analytics (v2, 2026-09-19). |
 | `errors_ru.js` | Единая карта «английский detail API → русский текст» (пункт плана 3.14). |
-| `meeting_layout.js` | (function (root) { |
-| `meeting_layout.selfcheck.js` | (function () { |
-| `meeting_room.js` | const SCREEN_HINT = |
+| `meeting_layout.js` | Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
+| `meeting_layout.selfcheck.js` | Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка. |
+| `meeting_room.js` | Клиент встречи LiveKit: вход, микрофон/камера/экран, смена устройств на ходу, плитки, список участников. |
 | `px_agent.css` | Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. |
 | `px_agent.js` | Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. |
 | `report-theme.css` | Тема отчётов (документ и стенограмма созвона) в единой дизайн-системе. |
@@ -1518,25 +1589,25 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
-| `admin_map.html` | — |
-| `base.html` | — |
-| `chat.html` | — |
-| `conflicts.html` | — |
-| `error.html` | — |
-| `graph.html` | — |
-| `index.html` | — |
-| `login.html` | — |
-| `meeting_lab.html` | — |
-| `meeting_public.html` | — |
-| `meeting_room.html` | — |
-| `project.html` | — |
-| `tz.html` | — |
+| `admin_map.html` | Страница «Карта проекта» (/admin/map, только admin): поиск по индексу кода, документов и связей |
+| `base.html` | Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц |
+| `chat.html` | Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat) |
+| `conflicts.html` | Очередь конфликтов фактов (/admin/conflicts, только admin): выбрать верное утверждение с причиной |
+| `error.html` | Страница ошибки HTML (403/404/500) с понятным текстом на русском |
+| `graph.html` | Граф знаний проекта в Cytoscape (/projects/{id}/graph) |
+| `index.html` | Список проектов (/): создание, описание, удаление проекта, кнопка «Исправлено» со списком изменений |
+| `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли |
+| `meeting_lab.html` | Лаборатория созвона (admin): этапы обработки каждой дорожки встречи; пока идёт прогон, страница обновляется сама |
+| `meeting_public.html` | Гостевая страница встречи /m/{token}: лобби, проверка камеры и микрофона, комната без входа в портал |
+| `meeting_room.html` | Комната встречи для сотрудника (/projects/{id}/meetings/{mid}/room) |
+| `project.html` | Страница проекта: загрузка материалов, таблица артефактов, выжимка, чат, дедлайны, встречи, MCP, доступ, обмен с агентом |
+| `tz.html` | Отдельная страница ТЗ проекта (/projects/{id}/tz): текст ТЗ и кнопка «Пересобрать ТЗ» |
 
 **`app/app/templates/partials/`**
 
 | Файл | Назначение |
 |---|---|
-| `px_agent_cards.html` | — |
+| `px_agent_cards.html` | Карточки обмена с агентами: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. Логика: static/px_agent.js |
 
 **`app/app/workers/`**
 
@@ -1650,7 +1721,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
-| `monitor_skkkk_loop.ps1` | — |
+| `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
 | `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |

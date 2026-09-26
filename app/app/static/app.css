@@ -1,4 +1,4 @@
-/* Shared responsive tweaks for Primary Analytics portal */
+/* Общие стили портала Primary Analytics: шапка, адаптив под телефон и планшет, таблицы, кнопки */
 :root {
   --sk-ink: #172033;
   --sk-muted: #667085;
@@ -1367,7 +1367,7 @@ body.meeting-is-live {
 .navbar-skkkk .navbar-actions-row { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; margin-left: auto; }
 .navbar-skkkk .navbar-brand.navbar-project { display: block; flex: 1 1 auto; min-width: 0; max-width: none; }
 .navbar-skkkk #nav-user { max-width: 14rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: end; }
-.navbar-skkkk .navbar-back { flex: 0 0 auto; }
+.navbar-skkkk .navbar-back, .navbar-skkkk .nav-changelog { flex: 0 0 auto; }
 
 /* Планшет: служебные значки («Нужен перезапуск», провайдер LLM) не отнимают место у названия проекта */
 @media (max-width: 991.98px) {
@@ -1389,7 +1389,7 @@ body.meeting-is-live {
   .navbar-skkkk .navbar-brand-row, .navbar-skkkk .navbar-actions-row { display: contents; }
   .navbar-skkkk .navbar-brand[href="/"] { grid-area: brand; font-size: 1.1rem; margin: 0; }
   .navbar-skkkk #nav-session { grid-area: session; justify-self: end; }
-  .navbar-skkkk .navbar-back { grid-area: back; margin: 0.15rem 0 0.35rem; min-height: 36px !important; display: inline-flex; align-items: center; }
+  .navbar-skkkk .navbar-back, .navbar-skkkk .nav-changelog { grid-area: back; justify-self: start; margin: 0.15rem 0 0.35rem; min-height: 36px !important; display: inline-flex; align-items: center; }
   .navbar-skkkk .navbar-divider { display: none; }
   .navbar-skkkk .navbar-brand.navbar-project {
     grid-area: project;

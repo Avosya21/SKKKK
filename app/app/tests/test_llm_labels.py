@@ -8,7 +8,7 @@ from app.app.llm_labels import (
 
 def test_llm_short_name():
     assert llm_short_name("cursor") == "Cursor"
-    assert llm_short_name("lmstudio") == "Gemma"
+    assert llm_short_name("lmstudio") == "Local LLM"
 
 
 def test_asr_lab_labels_cursor():
@@ -22,7 +22,7 @@ def test_asr_lab_labels_cursor():
 def test_asr_lab_labels_gemma():
     labels = asr_step_labels("lmstudio")
     assert labels["lab_onnx"].startswith("Parakeet")
-    assert "Gemma" in labels["lab_proof"]
+    assert "Local LLM" in labels["lab_proof"]
 
 
 def test_knowledge_steps_cursor():

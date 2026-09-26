@@ -1,3 +1,4 @@
+# SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0)
 $ErrorActionPreference = "Continue"
 $root = (Split-Path -Parent $PSScriptRoot)
 $py = Join-Path $root "venv\Scripts\python.exe"

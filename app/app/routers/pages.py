@@ -168,6 +168,20 @@ def meeting_room_page(
     )
 
 
+CHANGELOG_PATH = Path(__file__).resolve().parents[1] / "changelog.json"
+
+
+def load_changelog() -> list[dict[str, str]]:
+    """Список «Исправлено» для шапки: новые сверху, дата ДД.ММ.ГГГГ."""
+    try:
+        items = json.loads(CHANGELOG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    rows = [i for i in items if isinstance(i, dict) and i.get("date") and i.get("text")]
+    rows.sort(key=lambda i: i["date"], reverse=True)
+    return [{"date": ".".join(reversed(r["date"].split("-"))), "text": r["text"]} for r in rows]
+
+
 @router.get("/", response_class=HTMLResponse)
 def index_page(
     request: Request,
@@ -176,7 +190,7 @@ def index_page(
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"title": "Проекты", "current_role": user.role},
+        {"title": "Проекты", "current_role": user.role, "changelog": load_changelog()},
     )
 
 
