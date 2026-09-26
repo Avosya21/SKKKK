@@ -225,6 +225,31 @@ def public_meeting_info(
     return public_payload(meeting_by_token(db, token))
 
 
+@router.get("/api/meetings/public/{token}/avatars/{user_id}")
+def public_meeting_avatar(
+    token: str,
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    size: int = 96,
+):
+    """Фото сотрудника для гостевой страницы созвона — только если он участник этой встречи."""
+    from sqlalchemy import select
+
+    from app.app.models.meeting import MeetingParticipant
+    from app.app.routers.people import avatar_response
+
+    meeting = meeting_by_token(db, token)
+    member = db.scalar(
+        select(MeetingParticipant.id).where(
+            MeetingParticipant.meeting_id == meeting.id,
+            MeetingParticipant.identity == f"member:{user_id}",
+        )
+    )
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return avatar_response(db, user_id, size)
+
+
 @router.post("/api/meetings/public/{token}/join")
 def public_meeting_join(
     token: str,

@@ -350,7 +350,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert "Встреча" in guest
     assert "Выдать доступ" not in guest
     assert 'href="/projects"' not in guest
-    assert "meeting_room.js?v=a54" in guest
+    assert "meeting_room.js?v=a55" in guest
     assert "meeting_layout.js" in guest
     assert 'rel="manifest"' in guest
     assert "meeting-room" in guest
@@ -365,7 +365,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-leave"' in guest
     assert 'id="meeting-fs"' in guest
     staff_room = (templates / "meeting_room.html").read_text(encoding="utf-8")
-    assert "meeting_room.js?v=a54" in staff_room
+    assert "meeting_room.js?v=a55" in staff_room
     assert "meeting_layout.js" in staff_room
     assert 'rel="manifest"' in staff_room
     assert 'id="meeting-screen-lead"' in staff_room
@@ -391,8 +391,8 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-btn"' in staff_room
     assert 'id="meeting-speaker-menu"' in guest
     assert 'id="meeting-speaker-menu"' in staff_room
-    assert "meeting_room.js?v=a54" in guest
-    assert "meeting_room.js?v=a54" in staff_room
+    assert "meeting_room.js?v=a55" in guest
+    assert "meeting_room.js?v=a55" in staff_room
     assert "SKKKK_MEETING_VOICE" in guest
     assert "SKKKK_MEETING_VOICE" in staff_room
     assert "skkkk-guest-" in guest

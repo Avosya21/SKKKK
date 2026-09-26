@@ -25,6 +25,8 @@ from app.app.services import user_profile as profiles
 router = APIRouter(tags=["people"])
 
 AVATAR_CACHE = "private, max-age=31536000, immutable"
+# Адрес без версии (плитка созвона знает только id): фото может смениться — кешируем ненадолго.
+AVATAR_CACHE_SHORT = "private, max-age=300"
 
 
 class ProfileOut(BaseModel):
@@ -80,12 +82,13 @@ def profile_out(db: Session, user: User, profile: UserProfile | None) -> Profile
     )
 
 
-def avatar_response(db: Session, user_id: int, size: int) -> FileResponse:
+def avatar_response(db: Session, user_id: int, size: int, version: str | None = None) -> FileResponse:
     profile = db.get(UserProfile, user_id)
     path = avatars.avatar_path(user_id, profile.avatar_key, size) if profile and profile.avatar_key else None
     if path is None or not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": AVATAR_CACHE})
+    cache = AVATAR_CACHE if version and version == profile.avatar_key else AVATAR_CACHE_SHORT
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": cache})
 
 
 @router.get("/people/{user_id}/avatar")
@@ -94,8 +97,9 @@ def get_avatar(
     _user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     size: Annotated[int, Query()] = 96,
+    v: Annotated[str | None, Query(max_length=64)] = None,
 ):
-    return avatar_response(db, user_id, size)
+    return avatar_response(db, user_id, size, v)
 
 
 @router.get("/me/profile", response_model=ProfileOut)
