@@ -25,6 +25,32 @@ def tables(con: sqlite3.Connection) -> set[str]:
     return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
 
 
+def check_credentials_backup() -> list[str]:
+    """База личных паролей: есть свежая копия, она целая и в ней есть таблица."""
+    live = ROOT / "data" / "credentials.db"
+    if not live.is_file():
+        return []
+    copies = sorted((ROOT / "data" / "backups").glob("credentials-*.db"), key=lambda p: p.stat().st_mtime)
+    if not copies:
+        return ["нет копии базы личных паролей (credentials-*.db)"]
+    latest = copies[-1]
+    age_h = (time.time() - latest.stat().st_mtime) / 3600
+    print(f"Копия личных паролей: {latest.name}, возраст {age_h:.1f} ч")
+    problems = []
+    if age_h > MAX_AGE_HOURS:
+        problems.append(f"копия личных паролей старше {MAX_AGE_HOURS} ч")
+    con = sqlite3.connect(f"file:{latest.as_posix()}?mode=ro", uri=True)
+    try:
+        integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            problems.append(f"личные пароли, integrity_check: {integrity}")
+        if "personal_passwords" not in tables(con):
+            problems.append("в копии личных паролей нет таблицы personal_passwords")
+    finally:
+        con.close()
+    return problems
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backup", type=Path)
@@ -63,6 +89,7 @@ def main() -> int:
                 problems.append(f"{table}: в копии больше строк, чем в боевой ({b} > {l})")
         live.close()
         con.close()
+    problems += check_credentials_backup()
     print("ПРОБЛЕМЫ:" if problems else "Копия пригодна для восстановления.")
     for p in problems:
         print(" -", p)
