@@ -1,7 +1,9 @@
 """Вход и выход: `/auth/login` (роль определяется паролем), `/auth/logout`.
 
-При `PERSONAL_PASSWORD=required` вход в два шага: `/auth/login` проверяет пароль роли
-и выдаёт пропуск (ticket) на шаг 2 — `/auth/login/personal` или `/auth/login/setup`. Смена своего пароля — `/auth/password/change`.
+При `PERSONAL_PASSWORD=required` вход по шагам: `/auth/login` проверяет пароль роли и выдаёт
+пропуск (ticket) на шаг 2 — `/auth/login/personal` или `/auth/login/setup`; если карточка не
+заполнена — пропуск на шаг 3 `/auth/login/profile` (форма: `/auth/login/profile/options`).
+Сессия выдаётся только после всех шагов. Смена своего пароля — `/auth/password/change`.
 """
 
 from __future__ import annotations
@@ -13,7 +15,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -35,14 +38,19 @@ from app.app.schemas.auth import (
     PasswordStateResponse,
     PersonalLoginRequest,
     PersonalSetupRequest,
+    ProfileCompanyOut,
+    ProfileOptionsResponse,
+    TicketRequest,
     TokenResponse,
 )
-from app.app.services import personal_password
+from app.app.services import avatars, personal_password
+from app.app.services import user_profile as profiles
 from app.app.services.user_activity import (
     ACTION_LOGIN,
     ACTION_LOGOUT,
     ACTION_PASSWORD_CHANGE,
     ACTION_PASSWORD_SET,
+    ACTION_PROFILE_SET,
     BLOCK_AUTH,
     log_activity,
 )
@@ -61,6 +69,7 @@ logger = logging.getLogger("skkkk.auth")
 
 
 TICKET_MINUTES = 5
+PROFILE_TICKET_MINUTES = 15  # фото и ввод занимают время
 _TICKET_PURPOSE = "login_step"
 # Использованные пропуска (jti → срок): пропуск одноразовый. В памяти процесса — как и лимитер.
 _used_tickets: dict[str, float] = {}
@@ -86,6 +95,7 @@ def _throttle(*keys: str) -> None:
 
 
 def _make_ticket(settings: Settings, user: User, role: str, *, step: str, created: bool) -> str:
+    minutes = PROFILE_TICKET_MINUTES if step == "profile" else TICKET_MINUTES
     payload = {
         "purpose": _TICKET_PURPOSE,
         "sub": str(user.id),
@@ -93,13 +103,14 @@ def _make_ticket(settings: Settings, user: User, role: str, *, step: str, create
         "step": step,
         "new": created,
         "jti": uuid.uuid4().hex,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=TICKET_MINUTES),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=minutes),
     }
     token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
     return token if isinstance(token, str) else token.decode("utf-8")
 
 
-def _read_ticket(settings: Settings, db: Session, ticket: str) -> tuple[dict, User]:
+def _read_ticket(settings: Settings, db: Session, ticket: str, *steps: str) -> tuple[dict, User]:
+    """Проверить пропуск; `steps` — для каких шагов он годится (пропуск шага 3 не открывает шаг 2)."""
     expired = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Время на вход вышло. Войдите заново.",
@@ -110,6 +121,8 @@ def _read_ticket(settings: Settings, db: Session, ticket: str) -> tuple[dict, Us
     except (JWTError, KeyError, ValueError):
         raise expired from None
     if claims.get("purpose") != _TICKET_PURPOSE or claims.get("role") not in {"admin", "manager", "user"}:
+        raise expired
+    if steps and claims.get("step") not in steps:
         raise expired
     now = time.time()
     with _used_lock:
@@ -139,8 +152,9 @@ def _open_session(
     created: bool,
     pv: int | None = None,
     pp: bool | None = None,
+    pf: bool | None = None,
 ) -> TokenResponse:
-    token = create_access_token(settings, user, role, pv=pv, pp=pp)
+    token = create_access_token(settings, user, role, pv=pv, pp=pp, pf=pf)
     set_session_cookie(response, request, settings, token)
     log_event(
         logger,
@@ -161,6 +175,37 @@ def _open_session(
         meta={"new_user": created},
     )
     return TokenResponse(access_token=token, role=role, name=user.name)
+
+
+def _after_personal(
+    request: Request,
+    response: Response,
+    db: Session,
+    settings: Settings,
+    user: User,
+    claims: dict,
+) -> TokenResponse | LoginStepResponse:
+    """Личный пароль пройден: карточка не заполнена — пропуск на шаг 3, иначе сессия."""
+    if not profiles.is_complete(profiles.get_profile(db, user.id)):
+        log_event(logger, "login.step", user_id=user.id, name=user.name, role=claims["role"], step="profile")
+        return LoginStepResponse(
+            step="profile",
+            ticket=_make_ticket(settings, user, claims["role"], step="profile", created=bool(claims.get("new"))),
+            name=user.name,
+            min_length=personal_password.min_length(),
+        )
+    return _open_session(
+        request,
+        response,
+        db,
+        settings,
+        user,
+        claims["role"],
+        created=bool(claims.get("new")),
+        pv=personal_password.current_version(user.name),
+        pp=True,
+        pf=True,
+    )
 
 
 @router.post("/login", response_model=TokenResponse | LoginStepResponse)
@@ -262,7 +307,7 @@ def login(
     return _open_session(request, response, db, settings, user, role, created=created)
 
 
-@router.post("/login/personal", response_model=TokenResponse)
+@router.post("/login/personal", response_model=TokenResponse | LoginStepResponse)
 def login_personal(
     body: PersonalLoginRequest,
     request: Request,
@@ -270,7 +315,7 @@ def login_personal(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    claims, user = _read_ticket(settings, db, body.ticket)
+    claims, user = _read_ticket(settings, db, body.ticket, "personal")
     ip_key, name_key = _ip_key(request), _name_key(user.name)
     _throttle(ip_key, name_key)
     if not personal_password.has_password(user.name):
@@ -282,20 +327,10 @@ def login_personal(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный личный пароль")
     _burn_ticket(claims)
     LOGIN_LIMITER.reset(name_key)
-    return _open_session(
-        request,
-        response,
-        db,
-        settings,
-        user,
-        claims["role"],
-        created=bool(claims.get("new")),
-        pv=personal_password.current_version(user.name),
-        pp=True,
-    )
+    return _after_personal(request, response, db, settings, user, claims)
 
 
-@router.post("/login/setup", response_model=TokenResponse)
+@router.post("/login/setup", response_model=TokenResponse | LoginStepResponse)
 def login_setup(
     body: PersonalSetupRequest,
     request: Request,
@@ -303,10 +338,10 @@ def login_setup(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    claims, user = _read_ticket(settings, db, body.ticket)
+    claims, user = _read_ticket(settings, db, body.ticket, "setup")
     _throttle(_ip_key(request), _name_key(user.name))
     try:
-        version = personal_password.set_initial(user.name, body.password, body.password_confirm)
+        personal_password.set_initial(user.name, body.password, body.password_confirm)
     except personal_password.PasswordRuleError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
     except personal_password.PasswordStateError:
@@ -318,6 +353,66 @@ def login_setup(
     LOGIN_LIMITER.reset(_name_key(user.name))
     log_event(logger, "personal.set", user_id=user.id, name=user.name)
     log_activity(db, user_id=user.id, block=BLOCK_AUTH, action=ACTION_PASSWORD_SET, title="Создан личный пароль")
+    return _after_personal(request, response, db, settings, user, claims)
+
+
+@router.post("/login/profile/options", response_model=ProfileOptionsResponse)
+def login_profile_options(
+    body: TicketRequest,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """Что показать в форме карточки. Пропуск — в теле запроса, не в адресе."""
+    from app.app.services.companies import active_companies
+
+    _claims, user = _read_ticket(settings, db, body.ticket, "profile")
+    profile = profiles.get_profile(db, user.id)
+    locked = bool(profile and profile.company_id)
+    return ProfileOptionsResponse(
+        name=user.name,
+        companies=[ProfileCompanyOut(id=c.id, name=c.name) for c in active_companies(db)],
+        company_locked=locked,
+        company_id=profile.company_id if locked else None,
+        consent_text=profiles.CONSENT_TEXT,
+        consent_details=profiles.CONSENT_DETAILS,
+        consent_version=profiles.CONSENT_TEXT_VERSION,
+        max_photo_mb=avatars.MAX_BYTES // (1024 * 1024),
+    )
+
+
+@router.post("/login/profile", response_model=TokenResponse)
+async def login_profile(
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    ticket: Annotated[str, Form(max_length=2048)],
+    last_name: Annotated[str, Form(max_length=200)] = "",
+    first_name: Annotated[str, Form(max_length=200)] = "",
+    job_title: Annotated[str, Form(max_length=300)] = "",
+    company_id: Annotated[int | None, Form()] = None,
+    avatar: Annotated[UploadFile | None, File()] = None,
+):
+    """Шаг 3: карточка заполняется разом (поля + фото). Сохранение = согласие на голос (уведомление)."""
+    claims, user = _read_ticket(settings, db, ticket, "profile")
+    _throttle(_ip_key(request))
+    data = await avatar.read(avatars.MAX_BYTES + 1) if avatar is not None else b""
+    try:
+        profiles.complete_onboarding(
+            db,
+            user,
+            last_name=last_name,
+            first_name=first_name,
+            job_title=job_title,
+            company_id=company_id,
+            avatar_bytes=data,
+        )
+    except profiles.ProfileError as exc:
+        code = 413 if exc.field == "avatar" and len(data) > avatars.MAX_BYTES else 400
+        return JSONResponse(status_code=code, content={"detail": str(exc), "field": exc.field})
+    _burn_ticket(claims)
+    log_event(logger, "profile.completed", user_id=user.id, name=user.name)
+    log_activity(db, user_id=user.id, block=BLOCK_AUTH, action=ACTION_PROFILE_SET, title="Заполнена карточка")
     return _open_session(
         request,
         response,
@@ -326,8 +421,9 @@ def login_setup(
         user,
         claims["role"],
         created=bool(claims.get("new")),
-        pv=version,
+        pv=personal_password.current_version(user.name),
         pp=True,
+        pf=True,
     )
 
 
@@ -375,7 +471,8 @@ def password_change(
         action=ACTION_PASSWORD_CHANGE if had else ACTION_PASSWORD_SET,
         title="Изменён личный пароль" if had else "Создан личный пароль",
     )
-    token = create_access_token(settings, user, user.role, pv=version, pp=True)
+    complete = profiles.is_complete(profiles.get_profile(db, user.id))
+    token = create_access_token(settings, user, user.role, pv=version, pp=True, pf=complete)
     set_session_cookie(response, request, settings, token)
     return TokenResponse(access_token=token, role=user.role, name=user.name)
 

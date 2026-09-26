@@ -30,11 +30,12 @@ def create_access_token(
     *,
     pv: int | None = None,
     pp: bool | None = None,
+    pf: bool | None = None,
 ) -> str:
     """Роль сессии — из пароля при входе; в БД (общая учётка) она не перезаписывается.
 
-    `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль пройден
-    (см. `_check_personal_password`).
+    `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль пройден,
+    `pf` — карточка заполнена (см. `_check_session_gates`).
     """
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": str(user.id), "role": role or user.role, "exp": expire}
@@ -42,6 +43,8 @@ def create_access_token(
         payload["pv"] = int(pv)
     if pp is not None:
         payload["pp"] = bool(pp)
+    if pf is not None:
+        payload["pf"] = bool(pf)
     token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
     return token if isinstance(token, str) else token.decode("utf-8")
 
@@ -103,18 +106,20 @@ def authenticate_new_user(settings: Settings, password: str) -> tuple[str, str] 
     return None
 
 
-def _check_personal_password(settings: Settings, user: User, payload: dict) -> None:
+def _check_session_gates(settings: Settings, user: User, payload: dict) -> None:
     """Сессия действительна, только пока версия личного пароля логина не менялась.
 
     Смена или сброс личного пароля увеличивает версию — старые сессии логина получают 401.
-    В режиме `required` сессия без пройденного личного пароля (`pp`) тоже недействительна.
+    В режиме `required` сессия без пройденного личного пароля (`pp`) или без заполненной
+    карточки (`pf`) тоже недействительна: человек уходит на вход и проходит недостающие шаги.
     """
     if settings.personal_password == "off":
         return
     from app.app.services.personal_password import current_version
 
     stale = int(payload.get("pv") or 0) != current_version(user.name)
-    if stale or (settings.personal_password == "required" and not payload.get("pp")):
+    required = settings.personal_password == "required"
+    if stale or (required and not (payload.get("pp") and payload.get("pf"))):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
 
 
@@ -130,7 +135,7 @@ def _user_from_access_token(db: Session, settings: Settings, token: str) -> User
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    _check_personal_password(settings, user, payload)
+    _check_session_gates(settings, user, payload)
     session_role = payload.get("role")
     if session_role in VALID_ROLES and session_role != user.role:
         # Только на время запроса: committed_value не помечает поле изменённым.
