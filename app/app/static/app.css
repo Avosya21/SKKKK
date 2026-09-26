@@ -203,6 +203,12 @@ main.container { max-width: 1180px; }
   line-height: 1.3;
 }
 
+.navbar-skkkk .nav-me-btn { gap: 0.4rem; max-width: 100%; }
+.navbar-skkkk .nav-avatar,
+.me-photo { border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: rgba(127, 127, 127, 0.15); }
+.navbar-skkkk .nav-avatar { width: 24px; height: 24px; }
+.me-photo { width: 96px; height: 96px; }
+
 .navbar-skkkk .nav-logout {
   --bs-btn-padding-y: 0.2rem;
   --bs-btn-padding-x: 0.3rem;
