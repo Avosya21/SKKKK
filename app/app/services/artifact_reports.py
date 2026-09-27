@@ -45,7 +45,11 @@ def write_document_report(
         from app.app.services.summarize_document import load_document_summary_md
 
         summary_md = load_document_summary_md(settings, artifact)
-    html = _render_document_report(artifact, payload, text, summary_md=summary_md)
+    from app.app.services.chat_export import load_artifact_export
+
+    export = load_artifact_export(settings, artifact)  # переписка: сообщения с якорями #m<номер> (SOURCE-ANCHORS-PLAN этап 4)
+    html = _render_document_report(artifact, payload, text, summary_md=summary_md,
+                                   messages=(export or {}).get("messages") or None)
     path.write_text(html, encoding="utf-8")
     return path
 
@@ -54,7 +58,10 @@ def ensure_document_report(settings: Settings, artifact: Artifact) -> Path:
     path = document_report_path(settings, artifact)
     if path.is_file():
         body = path.read_text(encoding="utf-8")
-        if DOC_REPORT_MARKER in body and not has_llm_markup_artifacts(body):
+        from app.app.services.chat_export import artifact_messages_path
+
+        chat_without_anchors = artifact_messages_path(settings, artifact).is_file() and 'class="chat-msg"' not in body
+        if DOC_REPORT_MARKER in body and not has_llm_markup_artifacts(body) and not chat_without_anchors:
             return path
     payload = load_document_payload(settings, artifact)
     text = artifact.transcription_text or ""
@@ -82,6 +89,7 @@ def _render_document_report(
     text: str,
     *,
     summary_md: str = "",
+    messages: list[dict] | None = None,
 ) -> str:
     del payload
     title = escape(artifact.original_filename)
@@ -199,7 +207,7 @@ def _render_document_report(
       </div>
     </section>
     {_toolbar_html(artifact.artifact_id)}
-    {_source_section(source)}
+    {_chat_section(messages) if messages else _source_section(source)}
   </main>
   {_document_report_script()}
 </body>
@@ -270,6 +278,35 @@ if (rebuildBtn) {
 }
 </script>
 """
+
+
+def _chat_section(messages: list[dict]) -> str:
+    """Переписка: каждое сообщение — блок с якорем ``#m<номер>``, автором и временем (ссылка «открыть сообщение»)."""
+    from datetime import datetime
+
+    rows = []
+    for msg in messages:
+        at = datetime.fromisoformat(msg["at"])
+        reply = f' · в ответ на <a href="#m{int(msg["reply_to"])}">сообщение</a>' if msg.get("reply_to") is not None else ""
+        rows.append(
+            f'<div class="chat-msg" id="m{int(msg["id"])}"><div class="chat-meta">{at:%d.%m.%Y %H:%M} · '
+            f'<strong>{escape(str(msg.get("author") or ""))}</strong>{reply}</div>'
+            f'<div class="chat-text">{escape(str(msg.get("text") or ""))}</div></div>'
+        )
+    return (
+        '<details class="source-collapse" id="doc-source">'
+        '<summary class="source-summary">'
+        '<span class="reg-toggle" aria-hidden="true">▸</span>'
+        f"<strong>Переписка: {len(messages)} сообщений</strong>"
+        '<span class="source-hint source-hint-open">(развернуть)</span>'
+        '<span class="source-hint source-hint-close">(свернуть)</span>'
+        "</summary>"
+        '<div class="source-body">'
+        '<style>.chat-msg{padding:6px 8px;border-bottom:1px solid #eef2f7}.chat-meta{color:#64748b;font-size:.8rem}'
+        '.chat-text{white-space:pre-wrap;word-break:break-word;line-height:1.45}</style>'
+        + "".join(rows)
+        + "</div></details>"
+    )
 
 
 def _source_section(text: str) -> str:

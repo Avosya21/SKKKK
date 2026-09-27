@@ -27,9 +27,19 @@ class Message:
     mm: int
     speaker: str
     text: str  # дословное тело сообщения (без заголовка)
+    msg_id: int | None = None  # номер сообщения в выгрузке Telegram (SOURCE-ANCHORS-PLAN); у разбора текста — нет
 
     def at(self) -> datetime | None:
         return datetime(self.day.year, self.day.month, self.day.day, self.hh, self.mm) if self.day else None
+
+
+def messages_from_export(export: dict, tz) -> list[Message]:
+    """Сообщения из разобранной выгрузки (``chat_export``): номер, автор, время в поясе проекта — без угадывания по тексту."""
+    out: list[Message] = []
+    for msg in export.get("messages") or []:
+        at = datetime.fromisoformat(msg["at"]).astimezone(tz)
+        out.append(Message(len(out), at.date(), at.hour, at.minute, msg["author"], msg["text"], msg.get("id")))
+    return out
 
 
 def parse_chat(text: str) -> list[Message]:
