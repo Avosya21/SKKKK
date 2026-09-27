@@ -64,6 +64,37 @@ def undo_model(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/projects/{project_id}/requirements/reextract")
+def reextract_requirements(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """Переизвлечь требования из всех материалов по новой схеме (REQUIREMENTS-PLAN этап 9) — фоном, через очередь."""
+    from app.app.services.queue import KIND_AUTO_REVIEW, running_worker_kinds
+    from app.app.services.requirements_reextract import queue_project_reextract
+
+    require_project(db, user, project_id)
+    if KIND_AUTO_REVIEW not in running_worker_kinds(settings.data_dir):
+        raise HTTPException(status_code=400, detail="Запущен воркер старой версии: перезапустите сервер, иначе задачи не выполнятся")
+    return queue_project_reextract(db, settings, project_id)
+
+
+@router.post("/projects/{project_id}/requirements/entity/{entity_id}/mark-current")
+def mark_current(
+    project_id: int, entity_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """«Это актуально»: снять вердикт модели «заменено / дубль» (REQUIREMENTS-PLAN этап 8) — только admin."""
+    require_project(db, user, project_id)
+    try:
+        return rr.mark_current(db, project_id, entity_id, user=user)
+    except rr.ReviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/projects/{project_id}/requirements/confirm")
 def confirm_batch(
     project_id: int, body: dict,
@@ -87,6 +118,9 @@ def review_one(
 ):
     require_project(db, user, project_id)
     try:
-        return rr.apply(db, settings, project_id, requirement_id, action, user=user, reason=body.get("reason"), status=body.get("status"))
+        return rr.apply(db, settings, project_id, requirement_id, action, user=user, reason=body.get("reason"), status=body.get("status"),
+                        force=bool(body.get("force")))
+    except rr.ReviewNeedsForce as exc:  # модель считает пункт устаревшим / дублем — нужно явное «всё равно подтвердить» (А6)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except rr.ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

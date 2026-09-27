@@ -28,10 +28,10 @@ from app.app.models.project import Project
 from app.app.services import agent_settings
 from app.app.services import contract_text as ct
 from app.app.services.auto_review import public_model_review, verification_for
-from app.app.services.project_deadlines import artifact_reference_date
-from app.app.services.recorded_at import SOURCE_FILENAME, SOURCE_MEDIA, SOURCE_MEETING, to_local
+from app.app.services.recorded_at import MINUTE_SOURCES, material_date, to_local
+from app.app.services.source_links import source_url
 from app.app.services.storage import project_root
-from app.app.services.transcript_turns import load_turns, turns_in_range
+from app.app.services.transcript_turns import format_timecode, load_turns, turn_at, turns_in_range
 from app.app.services.tz import tz_paths
 
 SCHEMA_VERSION = "1.0"
@@ -134,13 +134,18 @@ def _load_artifacts(db: Session, settings: Settings, project_id: int) -> list[Ar
     arts = db.scalars(select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id)).all()
     for art in arts:
         text = _read_text(settings, art)
-        messages = ct.parse_chat(text) if text and ct.looks_like_chat(text) else []
+        from app.app.services.chat_export import load_artifact_export
+
+        export = load_artifact_export(settings, art) if art.file_type != "audio" else None
+        # Выгрузка Telegram: номер, автор, время из разметки (SOURCE-ANCHORS-PLAN этап 2); иначе — разбор текста
+        messages = (ct.messages_from_export(export, _TZ.get()) if export else
+                    ct.parse_chat(text) if text and ct.looks_like_chat(text) else [])
         ctx = ArtifactCtx(art=art, type=_artifact_type(art, text, bool(messages)), text=text, messages=messages)
         ctx.msg_tokens = [ct.stems(m.text) for m in messages]
         ctx.chunks = list(db.scalars(select(Chunk).where(Chunk.artifact_id == art.id).order_by(Chunk.chunk_index)).all())
         ctx.turns = load_turns(settings, art) if art.file_type == "audio" else []
         dated = [m.at() for m in messages if m.at()]
-        recorded = art.recorded_at if art.recorded_at_source in (SOURCE_MEETING, SOURCE_MEDIA) else None
+        recorded = art.recorded_at if art.recorded_at_source in MINUTE_SOURCES else None  # встреча, метаданные, ручное время (Я5)
         if dated:
             ctx.occurred_at, ctx.occurred_from, ctx.precision = max(dated), min(dated), "minute"
             ctx.occurred_source = "message_timestamps"
@@ -150,12 +155,12 @@ def _load_artifacts(db: Session, settings: Settings, project_id: int) -> list[Ar
             ctx.precision = "minute"
             ctx.occurred_source = f"recorded_at:{art.recorded_at_source}"
         else:
-            ref = artifact_reference_date(art)
-            if ref:
-                ctx.occurred_at = datetime(ref.year, ref.month, ref.day)
-                ctx.occurred_source = (
-                    f"recorded_at:{art.recorded_at_source}" if art.recorded_at_source == SOURCE_FILENAME else "filename_or_upload_date"
-                )
+            # Дата записи с точностью «день» (имя файла, ручная). Нет — occurred_at пуст: дата загрузки не дата записи
+            # (REQUIREMENTS-PLAN А9); когда загрузили, видно в ingested_at.
+            day, source = material_date(art)
+            if day:
+                ctx.occurred_at = datetime(day.year, day.month, day.day)
+                ctx.occurred_source = f"recorded_at:{source}"
         ctxs.append(ctx)
     return ctxs
 
@@ -260,6 +265,8 @@ def _evidence(statement: str, ctx: ArtifactCtx, known_sides: dict[str, str]) -> 
                 "quote": found[0],
                 "match_score": found[1],
                 "message_index": msg.idx,
+                "message_id": msg.msg_id,
+                "url": source_url(ctx.art.artifact_id, message_id=msg.msg_id, quote=found[0]),
             })
         return out
     best: tuple[float, Chunk] | None = None
@@ -287,7 +294,91 @@ def _evidence(statement: str, ctx: ArtifactCtx, known_sides: dict[str, str]) -> 
                 "quote": found[0],
                 "match_score": found[1],
                 "message_index": None,
+                # говорящий найден по совпадению слов цитаты, а не по привязке пункта к реплике (А9)
+                "speaker_basis": "words" if speaker else None,
+                "timecode": format_timecode(turn.start_sec) if turn is not None and turn.start_sec is not None else None,
+                "start_sec": turn.start_sec if turn is not None else None,
+                "url": source_url(ctx.art.artifact_id, start_sec=turn.start_sec if turn is not None else None, quote=found[0]),
             })
+    return out
+
+
+def _bound_chat_evidence(statement: str, value: dict, ctx: ArtifactCtx, known_sides: dict[str, str]) -> dict | None:
+    """Источник пункта переписки из привязки к сообщению (SOURCE-ANCHORS-PLAN этап 2): автор, время, номер — из выгрузки."""
+    mid = value.get("message_id")
+    msg = next((m for m in ctx.messages if m.msg_id == mid), None) if mid is not None else None
+    if msg is None:
+        return None
+    speakers = _ctx_speakers(ctx)
+    found = ct.best_quote(statement, msg.text)
+    quote = found[0] if found else msg.text[: ct.QUOTE_MAX].strip()
+    agreed = [{"name": d.get("name"), "side": _resolve_side(str(d.get("name") or ""), known_sides, speakers),
+               "at": _iso(datetime.fromisoformat(d["at"]).astimezone(_TZ.get()).replace(tzinfo=None)) if d.get("at") else None,
+               "message_id": d.get("message_id")}
+              for d in value.get("decided_by") or [] if isinstance(d, dict) and d.get("name")]
+    return {"artifact_id": ctx.art.artifact_id, "chunk_id": _chunk_for_quote(ctx, quote) if quote else None,
+            "said_at": _iso(msg.at()), "speaker": msg.speaker, "side": _resolve_side(msg.speaker, known_sides, speakers),
+            "quote": quote, "match_score": found[1] if found else None, "message_index": msg.idx, "message_id": mid,
+            "speaker_basis": "chat", "timecode": None, "agreed_by": agreed,
+            "url": source_url(ctx.art.artifact_id, message_id=mid, quote=quote)}
+
+
+def _bound_evidence(statement: str, value: dict, ctx: ArtifactCtx, known_sides: dict[str, str]) -> dict | None:
+    """Источник из привязки самого пункта к реплике созвона (REQUIREMENTS-PLAN А9): кто сказал, таймкод, кто утвердил.
+
+    Привязку делает извлечение (`entities.bind_call_source`): дорожка комнаты (`track`) или голос (`voice`). Совпадение
+    слов — только запасной путь `_evidence`: так «кто сказал» — автор реплики, а не тот, кто повторил похожие слова.
+    """
+    if ctx.type != "call" or value.get("start_sec") is None:
+        return None
+    start = float(value["start_sec"])
+    turn = turn_at(ctx.turns, start) if ctx.turns else None
+    text = turn.text if turn is not None else ""
+    found = ct.best_quote(statement, text) if text else None
+    quote = found[0] if found else text[: ct.QUOTE_MAX].strip()
+    speaker = value.get("speaker") or (turn.known_speaker if turn is not None else None)
+    speakers = _ctx_speakers(ctx)
+    said_at = ctx.occurred_at
+    if said_at is not None and ctx.precision == "minute":
+        said_at = said_at + timedelta(seconds=start)
+    agreed = [{"name": d.get("name"), "side": _resolve_side(str(d.get("name") or ""), known_sides, speakers),
+               "timecode": format_timecode(d.get("start_sec")) if d.get("start_sec") is not None else None}
+              for d in value.get("decided_by") or [] if isinstance(d, dict) and d.get("name")]
+    return {
+        "artifact_id": ctx.art.artifact_id,
+        "chunk_id": _chunk_for_quote(ctx, quote) if quote else None,
+        "said_at": _iso(said_at),
+        "speaker": speaker,
+        "side": _resolve_side(speaker, known_sides, speakers) if speaker else "unknown",
+        "quote": quote,
+        "match_score": found[1] if found else None,
+        "message_index": None,
+        "speaker_basis": value.get("speaker_source") or ("turn" if speaker else None),
+        "timecode": format_timecode(start),
+        "start_sec": start,
+        "agreed_by": agreed,
+        "url": source_url(ctx.art.artifact_id, start_sec=start),
+    }
+
+
+def _requirement_evidence(statement: str, value: dict, ctx: ArtifactCtx, known_sides: dict[str, str]) -> list[dict]:
+    """Источники требования: сначала привязка пункта к реплике, затем совпадение слов (без повтора той же цитаты).
+    У каждого — дата записи материала (`said_date`, None — неизвестна) и откуда она (`date_basis`)."""
+    bound = _bound_chat_evidence(statement, value, ctx, known_sides) if ctx.messages else _bound_evidence(statement, value, ctx, known_sides)
+    rest = _evidence(statement, ctx, known_sides)
+    out = [bound] if bound else []
+    out += [ev for ev in rest if not bound or ev.get("quote") != bound.get("quote")]
+    day = ctx.occurred_at.date().isoformat() if ctx.occurred_at is not None else None
+    for ev in out:
+        if ctx.messages and ev.get("said_at"):
+            ev.setdefault("said_date", str(ev["said_at"])[:10])
+            ev.setdefault("date_basis", "message")
+            ev.setdefault("speaker_basis", "message")
+        else:
+            ev.setdefault("said_date", day)
+            ev.setdefault("date_basis", ctx.occurred_source.split(":", 1)[-1] if ctx.occurred_source and day else "unknown")
+        ev.setdefault("material", ctx.art.original_filename)
+        ev.setdefault("material_type", ctx.type)
     return out
 
 
@@ -390,8 +481,15 @@ def _fingerprint(db: Session, settings: Settings, project_id: int) -> tuple:
     # Вердикты модели меняют только value_json — без этого счётчика кэш контракта их не заметил бы.
     model_reviewed = db.execute(select(func.count(), func.sum(func.length(Entity.value_json))).select_from(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
                                 .where(Artifact.project_id == project_id, Entity.value_json.like('%"model_review"%'))).one()
+    # Темы, вердикты актуальности (в тени меняют только value_json), вопросы к заказчику и даты материалов, поставленные
+    # воркером (переписка, шапка документа), — иначе API до истечения срока кэша показывал бы старую очередь.
+    items = db.execute(select(func.count(), func.sum(func.length(Entity.value_json)), func.sum(Entity.topic_id)).select_from(Entity)
+                       .join(Artifact, Artifact.id == Entity.artifact_id)
+                       .where(Artifact.project_id == project_id, Entity.entity_type.in_(("decision", "task", "open_question")))).one()
+    dates = db.execute(select(Artifact.recorded_at, Artifact.recorded_at_source).where(Artifact.project_id == project_id)
+                       .order_by(Artifact.id)).all()
     return (reviewed, inactive, max_ent, len(n_art), tz_path.stat().st_mtime if tz_path.is_file() else 0, hash(proj.settings_json) if proj else 0,
-            tuple(model_reviewed))
+            tuple(model_reviewed), tuple(items), hash(tuple((str(d), s) for d, s in dates)))
 
 
 def get_contract(db: Session, settings: Settings, project_id: int, *, force: bool = False) -> Contract:
@@ -432,11 +530,13 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
 
     ents = db.execute(
         select(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
-        .where(Artifact.project_id == project_id, Entity.is_active.is_(True), Entity.entity_type.in_(("decision", "task", "analysis_verdict")))
+        .where(Artifact.project_id == project_id, Entity.is_active.is_(True),
+               Entity.entity_type.in_(("decision", "task", "analysis_verdict", "open_question")))
         .order_by(Entity.id)
     ).scalars().all()
     verdicts: dict[str, dict] = {}
     cand: list[tuple[Entity, dict, str]] = []
+    questions: list[tuple[Entity, dict, str]] = []
     for ent in ents:
         value = _entity_value(ent)
         if ent.entity_type == "analysis_verdict":
@@ -444,8 +544,32 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
                 verdicts[str(value["requirement_id"])] = {**value, "human_confirmed": not ent.needs_review}
             continue
         stmt = _statement(ent, value)
-        if stmt:
+        if stmt and ent.entity_type == "open_question":
+            questions.append((ent, value, stmt))
+        elif stmt:
             cand.append((ent, value, stmt))
+
+    # Выключенные моделью (live) пункты: заменённое более поздним остаётся в контракте со статусом superseded
+    # (агент не должен принять его за требование, REQUIREMENTS-PLAN А6); источники дублей показываются у основного пункта.
+    superseded: dict[int, int | None] = {}
+    merged: dict[int, list[tuple[Entity, dict, str]]] = {}
+    retired = db.execute(
+        select(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
+        .where(Artifact.project_id == project_id, Entity.is_active.is_(False), Entity.entity_type.in_(("decision", "task")),
+               Entity.value_json.like('%"model_review"%'))
+        .order_by(Entity.id)
+    ).scalars().all()
+    for ent in retired:
+        value = _entity_value(ent)
+        review = value.get("model_review") if isinstance(value.get("model_review"), dict) else {}
+        stmt = _statement(ent, value)
+        if not stmt or not review.get("deactivated") or review.get("undone") or review.get("mode") != "live":
+            continue
+        if review.get("reject_kind") == "superseded":
+            superseded[ent.id] = review.get("winner")
+            cand.append((ent, value, stmt))
+        elif review.get("reject_kind") == "duplicate" and review.get("merged_into"):
+            merged.setdefault(int(review["merged_into"]), []).append((ent, value, stmt))
 
     # --- требования и решения
     req_items: dict[str, dict] = {}
@@ -454,7 +578,11 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
         ctx = by_pk.get(ent.artifact_id)
         if ctx is None:
             continue
-        evidence = _evidence(stmt, ctx, known)
+        evidence = _requirement_evidence(stmt, value, ctx, known)
+        for dup, dup_value, dup_stmt in merged.get(ent.id, []):
+            dup_ctx = by_pk.get(dup.artifact_id)
+            if dup_ctx is not None:
+                evidence += _requirement_evidence(dup_stmt, dup_value, dup_ctx, known)
         first = evidence[0] if evidence else {}
         tz_refs = _tz_ref(stmt, sections)
         verification = verification_for(ent.needs_review, value)
@@ -468,16 +596,24 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
             "source_entity_id": ent.id,
             "source_artifact_id": ctx.art.artifact_id,
         }
-        if ent.entity_type == "decision":
+        if ent.entity_type == "decision" and ent.id not in superseded:
             dec_items[ct.norm_key(stmt)] = {**base, "decided_at": first.get("said_at"), "decided_by": first.get("speaker"), "side": first.get("side"),
                                              "supersedes": [], "affects_requirements": []}
-        is_req = ent.entity_type == "task" or bool(ct.REQ_VERB_RE.search(stmt))
+        # Виды пунктов (REQUIREMENTS-PLAN А7): организационная задача — не требование; решение по проекту и требование к
+        # системе — требования. Старые пункты без вида — по прежнему правилу.
+        kind = value.get("kind")
+        if ent.entity_type == "task":
+            is_req = kind != "org"
+        else:
+            is_req = kind in ("requirement", "project") or bool(ct.REQ_VERB_RE.search(stmt))
         if not is_req:
             continue
         task_status = str(value.get("status") or "unknown")
         status, status_basis = ct.requirement_status(ent.entity_type, task_status, evidence)
         if value.get("human_status"):  # статус, заданный человеком (admin), важнее эвристики
             status, status_basis = str(value["human_status"]), "human_set"
+        if ent.id in superseded:  # позже заменён другим решением (А6): не требование, а история
+            status, status_basis = "superseded", "superseded_by_later"
         req_items[ct.norm_key(stmt)] = {
             **base,
             "title": stmt[:90],
@@ -494,14 +630,35 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
             "code_anchors": ct.anchors_for(stmt, anchor_rules),
             "assignee": value.get("assignee"),
             "deadline_raw": value.get("deadline"),
+            "item_kind": kind, "object": value.get("object"), "topic_id": ent.topic_id,
+            "unclear_wording": bool(value.get("unclear_wording")),
             "depends_on": [], "supersedes": [], "open_question_ids": [],
+            "superseded_by_entity": superseded.get(ent.id), "merged_from": [d.id for d, _v, _s in merged.get(ent.id, [])],
+            # вердикт актуальности по теме (REQUIREMENTS-PLAN этап 7): в тени пункт активен, но «заменён» / «дубль»
+            "relevance": {k: value["relevance"].get(k) for k in ("state", "by", "quote", "reason", "mode", "note", "undone")}
+                         if isinstance(value.get("relevance"), dict) else None,
         }
 
     req_ids = _assign_ids(db, project_id, slug, "req", {k: _hash(v) for k, v in req_items.items()})
     dec_ids = _assign_ids(db, project_id, slug, "dec", {k: _hash(v) for k, v in dec_items.items()})
+
+    # --- открытые вопросы и варианты без выбора (REQUIREMENTS-PLAN А7): вопросы к заказчику, не требования
+    q_items: dict[str, dict] = {}
+    for ent, value, stmt in questions:
+        ctx = by_pk.get(ent.artifact_id)
+        if ctx is None:
+            continue
+        q_items[ct.norm_key(stmt)] = {"question": stmt, "options": value.get("options") or [], "object": value.get("object"),
+                                      "topic_id": ent.topic_id, "evidence": _requirement_evidence(stmt, value, ctx, known),
+                                      "source_entity_id": ent.id, "source_artifact_id": ctx.art.artifact_id, "status": "open"}
+    q_ids = _assign_ids(db, project_id, slug, "oq", {k: _hash(v) for k, v in q_items.items()})
+    open_questions = [{"id": q_ids[k], **v} for k, v in q_items.items()]
     requirements = []
+    req_by_entity = {item["source_entity_id"]: req_ids[key] for key, item in req_items.items()}
     for key, item in req_items.items():
         item = {"id": req_ids[key], **item}
+        if item.get("superseded_by_entity"):
+            item["superseded_by"] = req_by_entity.get(item["superseded_by_entity"])
         if not item["code_anchors"]:
             item["code_anchors_reason"] = "в формулировке нет терминов, привязываемых к объектам 1С/Битрикс24"
         if not item["acceptance"]:
@@ -596,7 +753,7 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
     ]
     n_evid = sum(1 for r in requirements if r["evidence"])
     gaps = {
-        "open_questions": "не извлекаются: в модели данных нет типа «вопрос»; items пустой",
+        "open_questions": "вопросы и варианты без выбора извлекаются из материалов (извлечение v2); у материалов, извлечённых раньше, их нет, пока материал не переизвлекли",
         "acceptance": "критерии приёмки не генерируются автоматически; поле пустое, acceptance_status=not_generated",
         "side_agreed": "кто согласовал требование, не определяется; поле пустое",
         "supersedes": "цепочки отмены решений не определяются; поле пустое",
@@ -620,7 +777,7 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
     files = {
         "requirements": wrap(requirements),
         "decisions": wrap(decisions),
-        "open_questions": wrap([], note=gaps["open_questions"]),
+        "open_questions": wrap(open_questions, note=gaps["open_questions"]),
         "conflicts": wrap(conflicts, rules=["scope: «обсуждено или обещано, но пункта в текущем ТЗ нет» (реплика содержит «в текущем ТЗ», «по дооценке», «вне ТЗ» и т. п., пункта ТЗ нет)"],
                           not_detected=["contradiction", "stale", "estimate", "owner"]),
         "tz": tz_json,

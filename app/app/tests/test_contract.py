@@ -192,3 +192,47 @@ def test_get_changes_added_and_removed(client, manager_token, tmp_data):
     ctr._cache.clear()
     after = tools.get_changes(db, settings, pid, since="2000-01-01T00:00:00+00:00")
     assert any(c["change"] == "removed" for c in after["items"])
+
+
+def test_call_evidence_who_and_when_from_bound_turn(client, manager_token, tmp_data):
+    """REQUIREMENTS-PLAN А9: кто сказал и кто утвердил — из привязки пункта к реплике; дата неизвестна — не дата загрузки."""
+    from datetime import datetime
+
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Chunk, Entity
+
+    h = {"Authorization": f"Bearer {manager_token}"}
+    pid = client.post("/projects", json={"name": "Кто и когда"}, headers=h).json()["id"]
+    db = SessionLocal()
+    tag = uuid.uuid4().hex[:8]
+    final = ("[00:10 - 00:20] Елена: Мастер-система номенклатуры — Битрикс, так удобнее менеджерам.\n"
+             "[12:34 - 12:50] Елена: Мастер-система номенклатуры будет 1С, справочник ведём там.\n"
+             "[12:51 - 12:55] Павел: Да, согласен, так и делаем.\n")
+    art = Artifact(artifact_id=f"art_2026-09-01_000000_{tag}", project_id=pid, user_id=1, original_filename="созвон.webm",
+                   stored_filename="c.webm", file_path="c.webm", file_type="audio", source_type="call", sha256=tag.ljust(64, "1"),
+                   status="done", upload_date=datetime(2026, 8, 27, 10, 0))
+    db.add(art)
+    db.flush()
+    calls = tmp_data / "projects" / str(pid) / "parsed" / "calls"
+    calls.mkdir(parents=True, exist_ok=True)
+    (calls / f"{art.artifact_id}_final.txt").write_text(final, encoding="utf-8")
+    db.add(Chunk(artifact_id=art.id, project_id=pid, chunk_index=0, text=final, speaker=None, token_estimate=50, start_sec=0.0, end_sec=900.0))
+    bound = {"text": "Мастер-система номенклатуры — 1С", "speaker": "Елена", "speaker_source": "voice", "start_sec": 754.0,
+             "decided_by": [{"name": "Павел", "start_sec": 771.0}]}
+    db.add(Entity(artifact_id=art.id, entity_type="decision", value_json=json.dumps(bound, ensure_ascii=False), confidence=0.7))
+    db.add(Entity(artifact_id=art.id, entity_type="task", value_json=json.dumps({"text": "Вести справочник номенклатуры в 1С"}, ensure_ascii=False), confidence=0.6))
+    db.commit()
+    files = ctr.build_contract(db, get_settings(), pid).files
+    db.close()
+    reqs = {r["statement"]: r for r in files["requirements"]["items"]}
+    ev = reqs["Мастер-система номенклатуры — 1С"]["evidence"][0] if "Мастер-система номенклатуры — 1С" in reqs else None
+    decs = {d["statement"]: d for d in files["decisions"]["items"]} if "decisions" in files else {}
+    ev = ev or decs["Мастер-система номенклатуры — 1С"]["evidence"][0]
+    assert ev["speaker"] == "Елена" and ev["speaker_basis"] == "voice" and ev["timecode"] == "12:34"
+    assert ev["agreed_by"] == [{"name": "Павел", "side": "unknown", "timecode": "12:51"}]
+    assert "1С" in ev["quote"] and ev["material"] == "созвон.webm"
+    assert ev["said_at"] is None and ev["said_date"] is None and ev["date_basis"] == "unknown"  # дата загрузки 27.08 — не дата записи
+    task_ev = reqs["Вести справочник номенклатуры в 1С"]["evidence"]
+    assert task_ev and task_ev[0]["speaker_basis"] == "words"  # не привязан к реплике: говорящий по совпадению слов
