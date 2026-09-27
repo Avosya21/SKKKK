@@ -236,3 +236,51 @@ def test_call_evidence_who_and_when_from_bound_turn(client, manager_token, tmp_d
     assert ev["said_at"] is None and ev["said_date"] is None and ev["date_basis"] == "unknown"  # дата загрузки 27.08 — не дата записи
     task_ev = reqs["Вести справочник номенклатуры в 1С"]["evidence"]
     assert task_ev and task_ev[0]["speaker_basis"] == "words"  # не привязан к реплике: говорящий по совпадению слов
+
+def test_contract_ids_survive_concurrent_builds(client, manager_token, tmp_data):
+    """Урок 2026-09-28: после переизвлечения страница одновременно просит очередь и счётчики — два построения контракта
+    дрались за новые ключи (UNIQUE contract_items → 500). Теперь: замок в процессе и вставка «если нет»."""
+    import threading
+    from datetime import datetime, timezone
+
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.contract import ContractItem
+
+    db, pid, _art, _ents = _seed(client, manager_token, tmp_data)
+    db.close()
+    settings = get_settings()
+    # другой процесс (воркер) уже вставил ключ — вставка не падает, а берёт его строку
+    s = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        first = ctr._insert_item(s, pid, "req", "ключ из другого процесса", "h1", now, 1)
+        again = ctr._insert_item(s, pid, "req", "ключ из другого процесса", "h2", now, 1)
+        assert again.id == first.id and again.seq == first.seq
+        s.commit()
+    finally:
+        s.close()
+    ctr._cache.clear()
+    errors, ids = [], []
+
+    def build():
+        session = SessionLocal()
+        try:
+            ids.append(sorted(r["id"] for r in ctr.get_contract(session, settings, pid).files["requirements"]["items"]))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=build) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len(ids) == 4 and all(i == ids[0] for i in ids)
+    s = SessionLocal()
+    try:
+        seqs = [r.seq for r in s.query(ContractItem).filter(ContractItem.project_id == pid, ContractItem.kind == "req")]
+        assert len(seqs) == len(set(seqs))  # номера не повторяются
+    finally:
+        s.close()

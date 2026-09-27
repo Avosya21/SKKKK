@@ -11,6 +11,7 @@ import contextvars
 import hashlib
 import json
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -43,6 +44,8 @@ MAX_PAGE_BYTES = 200_000
 MIN_EVIDENCE_COVERAGE = 0.4
 _CACHE_TTL = 30.0
 _cache: dict[int, tuple[float, tuple, "Contract"]] = {}
+_build_locks: dict[int, threading.Lock] = {}
+_locks_guard = threading.Lock()
 
 _TRANSLIT = dict(zip("абвгдежзийклмнопрстуфхцчшщыэюяё", "a b v g d e zh z i y k l m n o p r s t u f h c ch sh sch y e yu ya e".split()))
 _TRANSLIT.update({"ь": "", "ъ": ""})
@@ -431,6 +434,23 @@ def _tz_ref(statement: str, sections: list[dict]) -> list[str]:
 
 # ---------------------------------------------------------------- стабильные id
 
+def _insert_item(db: Session, project_id: int, kind: str, key: str, chash: str, now: datetime, seq: int) -> ContractItem:
+    """Новый элемент контракта, устойчиво к гонке: другой процесс (воркер, второй запрос API) мог вставить тот же ключ между
+    чтением ключей и вставкой — тогда берём его строку, а не падаем на UNIQUE (урок 2026-09-28: 500 при первой загрузке
+    очереди после переизвлечения). Номер — не меньше текущего максимума в базе, чтобы два построения не выдали один номер."""
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    top = db.scalar(select(func.max(ContractItem.seq)).where(ContractItem.project_id == project_id, ContractItem.kind == kind)) or 0
+    values = {"project_id": project_id, "kind": kind, "key": key, "seq": max(seq, top + 1), "content_hash": chash,
+              "first_seen_at": now, "updated_at": now}
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(sqlite_insert(ContractItem).values(**values).on_conflict_do_nothing(index_elements=["project_id", "kind", "key"]))
+    else:
+        db.add(ContractItem(**values))
+    db.flush()
+    return db.scalar(select(ContractItem).where(ContractItem.project_id == project_id, ContractItem.kind == kind, ContractItem.key == key))
+
+
 def _assign_ids(db: Session, project_id: int, slug: str, kind: str, items: dict[str, str]) -> dict[str, str]:
     """items: norm_key → content_hash. Возвращает norm_key → id. Переиспользует id при близкой формулировке."""
     now = datetime.now(timezone.utc)
@@ -450,10 +470,8 @@ def _assign_ids(db: Session, project_id: int, slug: str, kind: str, items: dict[
                 row.key = key[:512]
                 rows[key] = row
         if row is None:
-            row = ContractItem(project_id=project_id, kind=kind, key=key[:512], seq=next_seq, content_hash=chash, first_seen_at=now, updated_at=now)
-            db.add(row)
-            db.flush()
-            next_seq += 1
+            row = _insert_item(db, project_id, kind, key[:512], chash, now, next_seq)
+            next_seq = max(next_seq, row.seq) + 1
             rows[key] = row
         elif row.content_hash != chash:
             row.content_hash, row.updated_at = chash, now
@@ -492,14 +510,25 @@ def _fingerprint(db: Session, settings: Settings, project_id: int) -> tuple:
             tuple(model_reviewed), tuple(items), hash(tuple((str(d), s) for d, s in dates)))
 
 
+def _project_lock(project_id: int) -> threading.Lock:
+    with _locks_guard:
+        return _build_locks.setdefault(project_id, threading.Lock())
+
+
 def get_contract(db: Session, settings: Settings, project_id: int, *, force: bool = False) -> Contract:
     fp = _fingerprint(db, settings, project_id)
     hit = _cache.get(project_id)
     if hit and not force and hit[1] == fp and time.time() - hit[0] < _CACHE_TTL:
         return hit[2]
-    contract = build_contract(db, settings, project_id)
-    _cache[project_id] = (time.time(), fp, contract)
-    return contract
+    # Страница проекта одновременно просит очередь и счётчики: без замка два запроса строили бы контракт параллельно
+    # и дрались за одни и те же новые ключи. Второй дожидается первого и берёт готовое из кэша.
+    with _project_lock(project_id):
+        hit = _cache.get(project_id)
+        if hit and not force and hit[1] == fp and time.time() - hit[0] < _CACHE_TTL:
+            return hit[2]
+        contract = build_contract(db, settings, project_id)
+        _cache[project_id] = (time.time(), fp, contract)
+        return contract
 
 
 def build_contract(db: Session, settings: Settings, project_id: int) -> Contract:
