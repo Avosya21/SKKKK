@@ -186,6 +186,8 @@ def _entity_body(entity_type: str, value: dict[str, Any]) -> str:
         extra = value.get("role") or (value.get("relation") if entity_type == "mention" else None)
         return f"{value['name']} ({extra})" if extra else str(value["name"])
     body = str(value.get("text") or value.get("description") or "").strip()
+    if entity_type == "open_question" and value.get("options"):
+        body = f"{body} (варианты: {'; '.join(str(o) for o in value['options'])})"
     if entity_type == "task":
         extra = []
         if value.get("assignee"):
