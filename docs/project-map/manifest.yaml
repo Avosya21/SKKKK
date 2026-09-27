@@ -2574,6 +2574,76 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_extraction_context
+    kind: service
+    path: app/app/services/extraction_context.py
+    title: "Контекст для извлечения требований (docs/plans/REQUIREMENTS-PLAN.md, этап 3): карточка проекта, оглавление созвона,"
+    tags: [auto]
+    auto: true
+
+  - id: svc_requirements_reextract
+    kind: service
+    path: app/app/services/requirements_reextract.py
+    title: "Переизвлечение требований проекта по новой схеме (docs/plans/REQUIREMENTS-PLAN.md, этап 9; решение А10)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_review_relevance
+    kind: service
+    path: app/app/services/review_relevance.py
+    title: "Актуальность пунктов по теме (docs/plans/REQUIREMENTS-PLAN.md, этапы 6–7; решения А1, А3–А6)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_topics
+    kind: service
+    path: app/app/services/topics.py
+    title: "Темы проекта (docs/plans/REQUIREMENTS-PLAN.md, этап 5, решение А2): модель раскладывает решения, задачи и открытые"
+    tags: [auto]
+    auto: true
+
+  - id: script_material_dates
+    kind: file
+    path: scripts/material_dates.py
+    title: "Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). Только отчёт, база не меняется."
+    tags: [auto]
+    auto: true
+
+  - id: script_reextract_project
+    kind: file
+    path: scripts/reextract_project.py
+    title: "Переизвлечь требования проекта по новой схеме (docs/plans/REQUIREMENTS-PLAN.md, этап 9). Без --apply — только отчёт."
+    tags: [auto]
+    auto: true
+
+  - id: svc_chat_export
+    kind: service
+    path: app/app/services/chat_export.py
+    title: "Выгрузка переписки Telegram Desktop (``messages.html``) → сообщения с номером, автором, временем и ответом"
+    tags: [auto]
+    auto: true
+
+  - id: svc_source_links
+    kind: service
+    path: app/app/services/source_links.py
+    title: "Ссылка на место источника (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4): момент созвона, сообщение переписки, абзац документа."
+    tags: [auto]
+    auto: true
+
+  - id: static_report_jump
+    kind: file
+    path: app/app/static/report-jump.js
+    title: "Переход по ссылке к месту источника на странице отчёта (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4)."
+    tags: [auto]
+    auto: true
+
+  - id: script_chat_exports
+    kind: file
+    path: scripts/chat_exports.py
+    title: "Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

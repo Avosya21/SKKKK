@@ -1014,6 +1014,14 @@ data/projects/{project_id}/
 | `conflict_rules.py` | правила Р1 без модели: `source_weight` (документ заказчика 3 > утверждённое решение / внутренний документ 2 > высказывание 1 > вопрос 0), `cancel_allowed`, `winner_by_weight`, `CANCEL_PATTERNS` (без «исправляем»), `is_material_topic` (деньги, сроки; «8.3» — не дата) |
 | `conflict_context.py` | противоречия для LLM чата (`_supplement_context`, только по найденным материалам) и ТЗ (`_collect_project_material`): «В силе / Раньше считалось / Основание», открытые — «Не решено: 1) … 2) …»; `model_dismissed` не выводится; сырой `value_json` не отдаётся (и в `_graph_snippet` тоже) |
 | Эталон конфликтов | один постоянный `data/eval/conflicts_gold.csv` на все проекты: `scripts/eval_auto_review.py --export-gold --project N [--only-undone]` (дописать пары для разметки), `--gold` (контрольный прогон на копии БД: правила + модель; код 0 — можно live: 0 неверных победителей, ≥ 20 размеченных, «не уверена» ≤ 30 %); обязателен при смене модели, промпта или извлечения |
+| `extraction_context.py` | REQUIREMENTS-PLAN этап 3: контекст извлечения — карточка проекта `project_state/project_card.md` (+ `project_card.json`: source model/human; черновик моделью `project_card.md` из выжимки проекта, выжимок созвонов, участников; правка admin главнее), оглавление созвона `parsed/calls/<aid>_outline.json` (`call_outline.md`, части по 20000 знаков), темы проекта; `build_extraction_context` вызывают `pipeline_knowledge` и `reextract_artifact_entities`. API: `GET/PUT /projects/{id}/card`, `POST …/card/rebuild` (409, если правил человек и нет `discard_human`) |
+| `topics.py` | REQUIREMENTS-PLAN этап 5: таблица `topics`, `entities.topic_id`; раскладка по темам моделью (`assign_topics.md`, пачки по 60; тема — потребность или объект, не способ решения, А2); подсказка `value.topic`, совпавшая с темой, — без модели; новые пункты сбрасывают `Topic.reviewed_at`; очередь `auto_review` scope `topics` |
+| `review_relevance.py` | REQUIREMENTS-PLAN этапы 6–7: пункты темы по хронологии → `review_relevance.md` → current / superseded / duplicate / done / unclear в `value.relevance` (отдельно от `model_review`). Замена — позже по дате записи (А4: обе даты известны), опора в источнике, вес Р1, А6 (подтверждено человеком до появления заменяющего материала → `over_human`, «Важное»); оформляется `POTENTIAL_CONFLICT` + `apply_conflict_verdict(rule:topic_superseded)`. Дубль в live — `reject_kind=duplicate`, `merged_into`. Scope `relevance` ждёт, пока проект не разобран (`_project_busy`); «Это актуально» — `mark_current` |
+| `requirements_reextract.py` | REQUIREMENTS-PLAN этап 9: `queue_project_reextract` — сброс тем, задача `auto_review` scope `reextract` на каждый готовый материал (без файлов обмена `analysis_*.json`); исполнитель: `reextract_artifact_entities` (v2, перенос ручных решений) → `seed_graph` → проверки artifact/topics/relevance/conflicts. API `POST /projects/{id}/requirements/reextract` (admin, кнопка «Переизвлечь требования»), CLI `scripts/reextract_project.py --project N [--apply]` |
+| `chat_export.py` | SOURCE-ANCHORS-PLAN этап 1: выгрузка Telegram Desktop (`messages.html`) разбирается `html.parser` по разметке — номер (`id="message106"`), время с поясом (`title="25.08.2026 15:58:22 UTC+03:00"`), автор (`joined` — автор предыдущего), ответ, вложения «[фото]» / «[файл: …]»; служебные пропускаются. `pipeline_documents` → `parsed/documents/<aid>_messages.json`, чистый текст «**день**» / «**ЧЧ:ММ Автор:** текст» без нормализации моделью, дата материала — `recorded_at_source=messages` (первое сообщение; период — `material_period_end`). Я1: `owned_elsewhere` — сообщения более ранней выгрузки той же переписки (по названию группы) не извлекаются. CLI `scripts/chat_exports.py --project N [--apply]` (копия прежнего текста `_clean.before_chat.txt`, переиндексация) |
+| Дата материала (автоматически) | `recorded_at.resolve_recorded_at` при загрузке: встреча (минута) → имя файла с временем `filename_time` (минута) → имя файла `filename` → метаданные записи `media` (аудио) → свойства документа `doc_meta` (docx/xlsx/pptx core.xml modified, PDF ModDate, EXIF снимка) → дата загрузки `upload`. После разбора документа `refine_from_text`: дата из шапки («Дата: 14.08.2026», «Протокол от 19 августа 2026») → `doc_text` (главнее `doc_meta` и `upload`; ручную и из имени не трогает). Переписка — `messages`, ручная — `manual` / `manual_time`. Дозаполнить старые — `scripts/material_dates.py --project N --apply`. Карточка проекта-черновик сама пересобирается, когда выжимка новее (`extraction_context._tz_newer_than_card`); отпечаток кэша контракта учитывает темы, вердикты актуальности и даты материалов |
+| `source_links.py` + `static/report-jump.js` | SOURCE-ANCHORS-PLAN этап 4: `source_url` — созвон `/artifacts/<aid>/report?t=754`, переписка `?m=106&q=…`, документ `?q=<80 знаков>`; `pages._serve_report` подмешивает `report-jump.js` (реплика из `data.turns` подсвечивается и прокручивается, плеер перематывается без звука + «▶ Воспроизвести с …», Я4; сообщение по якорю `#m106` — отчёт переписки рисует сообщения `chat-msg`; цитата — поиск без учёта регистра и пробелов, `<mark>`). Ссылки: источники в очереди требований и «Вопросах к заказчику» (`url`), стороны конфликта (`conflict_rows`), источники ответа чата |
+| Эталоны требований | `data/eval/extraction_gold.csv` (`eval_auto_review.py --export-extraction` / `--extraction-gold`: понятно ≥ 90 %, не требование ≤ 5 %, кто и когда ≥ 95 %), `data/eval/relevance_gold.csv` (`--export-relevance` / `--relevance-gold`: 0 ошибочно снятых на ≥ 30) |
 | Автопроверка: накопленное | кнопка admin «Проверить моделью всё накопленное» (карточка «Подтверждение требований») → `POST /projects/{id}/auto-review/backlog` → `auto_review.queue_backlog`; CLI `scripts/auto_review_backlog.py --project N [--mode live] [--dry-list]`; ставит только если `queue.running_worker_kinds` видит `auto_review` в `worker.started kinds=`; live применяет теневые вердикты без модели (`promote_shadow_verdicts`, `_promote_shadow`) |
 | `pipeline_lab.py` | Боевой ASR-оркестратор: `process_lab_artifact`, `publish_lab_to_prod`, `write_prod_view`, `_append_screen_context`, `republish_named_transcript`, `apply_confirmed_speaker_names`; экран автоматически берётся из vision-прогона (`artifact_lab.vision_run_id`); повтор джобы пропускает готовые оверлеи (sense/giga/reconcile), `lab_proof` — нет `proof/transcript.json` |
 | `pipeline_audio.py` | Legacy ASR; `run_call_summary` (выжимка созвона) |
@@ -1036,7 +1044,7 @@ data/projects/{project_id}/
 | `artifact_lab.py` | Лаборатория: список прогонов, выбор прогона, отдача файлов; fallback запрещён; `vision_run_id()` — автовыбор прогона с vision-описаниями экрана |
 | `media_cleanup.py` | удаление видео-оригинала после проверки `input_16k.wav` |
 | `speaker_profiles.py` | enroll/merge/recalculate; lab enroll в `voice/match.json`; **global pool**; `speaker_action_flags` для кнопок match/confirm в таблице; `refresh_artifact_project_index` — lab-rebuild HTML + `finalize_audio_outputs` + `index_artifact` (экран дописывается на уровне `republish_named_transcript`) |
-| `entities.py` | LLM extract + persist; созвон подаётся пронумерованными репликами `T<n>` (`_numbered_turn_parts`), `turns`/`decided_by` от LLM проверяются кодом. Комната: привязка к `source_span_id` (`speaker_source=track`), без источника → `needs_review`. Загруженный созвон: speaker/время по репликам `_final.txt` (`speaker_source=voice`), без совпадения → `source_status=unbound`. `rebind_call_entities` — имена после переименования спикеров, на месте. Leak-текст не пишется в БД и `*_entities.json` |
+| `entities.py` | LLM extract + persist; созвон подаётся пронумерованными репликами `T<n>` (`_numbered_turn_parts`), `turns`/`decided_by` от LLM проверяются кодом. Комната: привязка к `source_span_id` (`speaker_source=track`), без источника → `needs_review`. Загруженный созвон: speaker/время по репликам `_final.txt` (`speaker_source=voice`), без совпадения → `source_status=unbound`. `rebind_call_entities` — имена после переименования спикеров, на месте. Leak-текст не пишется в БД и `*_entities.json`. Промпт `extract_entities_v2.md` (REQUIREMENTS-PLAN этап 4): контекст (карточка, оглавление, темы) + хвост предыдущей части (5 реплик); виды пунктов `kind` (decision: requirement/project, task: work/org), `object`, `topic`, `open_questions` → сущность `open_question`; пометка `unclear_wording`; при переизвлечении ручные решения (подтверждение, статус, отказ, проигрыш в конфликте человека) переносятся на новые пункты по основам слов и времени, отчёт — `project_state/reextract_human_transfer.json` (А10). Промпт `extract_entities_v3.md` (SOURCE-ANCHORS-PLAN этап 2): переписка — сообщения «M<n> [дата время] Автор (в ответ на M<n>): текст» (`_numbered_message_parts`, до 15 сообщений ранней выгрузки — контекст), `bind_chat_source`: `message_id`, `message_at`, `speaker`, `speaker_source=chat`; «утвердил» — другой участник ответом или в пределах 10 сообщений и 24 ч (Я2) |
 | `indexing.py` | chunk → Ollama embed → chunks (+ `start_sec`/`end_sec`) + chunk_vectors; аудио из lab `_final.txt`; после записи — `rebind_call_entities`; `audit_project_index` (выравнивание по строкам окна, `timed_chunks`) |
 | `vector_index.py` | sqlite-vec CRUD чанков (vec0 kNN) и кэш сущностей (`entity_vectors` BLOB по id); `delete_vectors_for_chunks` чистит и `chunk_fts`; `chunk_scores` — близость к заданным чанкам |
 | `chunk_fts.py` | FTS5 `chunk_fts` (rowid = chunks.id, разряды чисел склеены): `init_chunk_fts` (создание + дозаполнение), `upsert_chunk_fts`, `search_chunk_fts` (основы слов + числа, bm25) |
@@ -1101,7 +1109,7 @@ data/projects/{project_id}/
 | `agent_settings.py` | настройки проекта для обмена (`Project.settings_json → agent_exchange`): стороны участников, пояс, пакет якорей `data/anchor_packs/*.json`, вкл/выкл обмена |
 | `agent_guide.py` | инструкции для клиента: что и как спрашивать, отдаются в `initialize` MCP |
 | `contract.py`, `contract_text.py`, `project_mcp_contract.py` | контракт обмена: виртуальные файлы `contract/*.json`, разбор переписки, дословные цитаты, оценки часов, якоря кода |
-| `requirement_review.py` | подтверждение требований (сущности decision/task): очередь, подтвердить / отклонить / сменить статус |
+| `requirement_review.py` | подтверждение требований (сущности decision/task): очередь по темам (вкладки «Ждут вас» / «Устарело» / «Склеено» / …; устаревшее и дубли прячутся из «Ждут вас» уже в тени — А3), у пункта: кто сказал и кто утвердил, где и когда по каждому источнику (`sources`, А9), ход обсуждения (`context`, до 5 реплик), вид пункта, «что заменило»; подтвердить (устаревшее — только с `force`, иначе 409, А6) / отклонить / сменить статус / «Это актуально» (`POST …/requirements/entity/{id}/mark-current`) |
 | `project_mcp_data.py`, `project_mcp_tokens.py` | данные и ключи проектного MCP (`can_submit`); 16 инструментов |
 | `project_deadlines.py`, `project_tasks.py` | дедлайны проекта; фоновые задачи API (зависшие помечаются при старте) |
 
@@ -1494,6 +1502,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `avatars.py` | Фото пользователя: проверка, выпрямление, удаление метаданных, квадрат 512 и 96 px WebP в `data/people/<user_id>/`. |
 | `build_info.py` | Признак «код на диске новее запущенного сервера» (пункт плана 1.3). |
 | `chat.py` | Чат с ИИ по материалам проекта: история и указания пользователя, уточняющие вопросы, поиск фрагментов и сущностей, сборка контекста, ответ L |
+| `chat_export.py` | Выгрузка переписки Telegram Desktop (``messages.html``) → сообщения с номером, автором, временем и ответом |
 | `chunk_fts.py` | Полнотекстовый поиск по фрагментам проекта (SQLite FTS5) — пара к векторному поиску для точных слов и чисел. |
 | `chunking.py` | Нарезка текста на фрагменты для индексации: документы (проза + таблицы), реплики стенограммы, оценка токенов. |
 | `companies.py` | Компании из файла `Companies.txt` (корень проекта, как `Login_up.txt`): разбор и перенос в таблицу `companies`. |
@@ -1505,6 +1514,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `docx_extract.py` | DOCX → markdown в порядке документа: заголовки (#), абзацы, списки, таблицы на своих местах, надписи, колонтитулы. |
 | `edge_runtime.py` | HTTPS (Caddy) and LiveKit room — поднимает main вместе с порталом. |
 | `entities.py` | Извлечение сущностей (задачи, упоминания, участники, решения, факты) из нормализованного текста через LLM: разбиение, промпт, разбор JSON и  |
+| `extraction_context.py` | Контекст для извлечения требований (docs/plans/REQUIREMENTS-PLAN.md, этап 3): карточка проекта, оглавление созвона, |
 | `ffmpeg_tools.py` | Поиск исполняемых файлов ffmpeg и ffprobe. |
 | `gpu_phase.py` | Фазы GPU: замер видеопамяти (nvidia-smi), ожидание освобождения, выгрузка и загрузка модели LM Studio, чтобы ASR и LLM по очереди делили одн |
 | `graph.py` | Граф знаний проекта: тексты сущностей, автосвязи по косинусной близости, пересборка графа, удаление сущностей с зависимостями, чистка «осиро |
@@ -1554,14 +1564,17 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `prompts.py` | Загрузка промптов из docs/prompts/*.md (пункт плана 2.2). |
 | `queue.py` | Очередь задач (таблица jobs): захват следующей задачи, завершение, возврат «осиротевших», постановка обработки и повтора этапа знаний. |
 | `rate_limit.py` | Ограничитель неудачных попыток (пункт плана 4.7): защита входа от перебора паролей ролей. |
-| `recorded_at.py` | Когда записан материал (`artifacts.recorded_at`): встреча из комнаты, дата в имени файла, метаданные файла или дата загрузки. |
+| `recorded_at.py` | Когда записан материал (`artifacts.recorded_at`): встреча из комнаты, имя файла (с временем или без), метаданные записи, шапка и свойства до |
 | `report_embed.py` | Режимы встраивания HTML-отчётов (прозрачный фон, без шапки) и скрытие элементов управления по роли пользователя. |
 | `requirement_review.py` | Подтверждение требований человеком (только admin): очередь, подтвердить / отклонить / сменить статус. |
+| `requirements_reextract.py` | Переизвлечение требований проекта по новой схеме (docs/plans/REQUIREMENTS-PLAN.md, этап 9; решение А10). |
 | `resumable_upload.py` | Загрузка файлов частями с докачкой: сессии, части и сборка на диск. |
 | `retrieval.py` | Поиск сущностей и фрагментов проекта: взвешенные оценки, обогащение и переранжирование результатов, порядок артефактов. |
 | `review_conflicts.py` | Автопроверка конфликтов (POTENTIAL_CONFLICT) локальной моделью — этап 4 docs/plans/AUTO-REVIEW-PLAN.md, |
+| `review_relevance.py` | Актуальность пунктов по теме (docs/plans/REQUIREMENTS-PLAN.md, этапы 6–7; решения А1, А3–А6). |
 | `review_requirements.py` | Автопроверка требований (decision / task) локальной моделью по источнику — этап 2 docs/plans/AUTO-REVIEW-PLAN.md. |
 | `single_instance.py` | Защита от запуска второго GPU-воркера. |
+| `source_links.py` | Ссылка на место источника (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4): момент созвона, сообщение переписки, абзац документа. |
 | `speaker_auto.py` | Спикеры без лишних подтверждений (этап 3 docs/plans/AUTO-REVIEW-PLAN.md). |
 | `speaker_profiles.py` | Голоса и спикеры: профили и эмбеддинги голосов, сопоставление имён, подтверждение спикеров, слияние профилей и синхронизация подтверждённых  |
 | `status.py` | Смена статуса артефакта. |
@@ -1570,6 +1583,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `table_md.py` | Таблицы документов в markdown: один формат для DOCX, Excel/CSV, PDF и разбор его обратно (нормализация, нарезка). |
 | `tesseract_tools.py` | Поиск Tesseract и каталога tessdata, настройка pytesseract. |
 | `tls_cert.py` | Публичный сертификат :777 — проверка при старте и перевыпуск через Caddy :8443. |
+| `topics.py` | Темы проекта (docs/plans/REQUIREMENTS-PLAN.md, этап 5, решение А2): модель раскладывает решения, задачи и открытые |
 | `transcript_export.py` | Экспорт стенограммы созвона в документы (Word): поиск данных спикеров, выжимки и таймкодов, оформление стилей и шрифтов. |
 | `transcript_turns.py` | Реплики созвона из канона ``_final.txt``: кто, с какой по какую секунду, что сказал. |
 | `tz.py` | Техническое задание проекта: пересборка `current_tz.md` из материалов (быстрый путь top-K и полный map/reduce), версии, оценка объёма, челов |
@@ -1606,6 +1620,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_room.js` | Клиент встречи LiveKit: вход, микрофон/камера/экран, смена устройств на ходу, плитки, список участников. |
 | `px_agent.css` | Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. |
 | `px_agent.js` | Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. |
+| `report-jump.js` | Переход по ссылке к месту источника на странице отчёта (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4). |
 | `report-theme.css` | Тема отчётов (документ и стенограмма созвона) в единой дизайн-системе. |
 
 **`app/app/templates/`**
@@ -1716,6 +1731,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
 | `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db |
 | `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
+| `chat_exports.py` | Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1). |
 | `check_env.ps1` | — |
 | `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
 | `check_systems.ps1` | SKKKK — только проверка всех систем, без запуска |
@@ -1745,6 +1761,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `link_voice_profiles.py` | Привязка слепков голоса к карточкам сотрудников — только по подтверждению, ничего не привязывается само. |
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
+| `material_dates.py` | Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
@@ -1760,6 +1777,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `qa_room.py` | Проверка комнаты созвона в настоящем браузере (Chromium + фейковые камера/микрофон), без паролей: встреча создаётся кодом приложения |
 | `rebuild_artifact_report.py` | Пересобрать reports/transcript.html для артефакта: Sortformer + match + новый UI. |
 | `redescribe_screen_frames.py` | Переописать кадры шэринга экрана прогона vision-моделью и пересобрать прод-HTML. |
+| `reextract_project.py` | Переизвлечь требования проекта по новой схеме (docs/plans/REQUIREMENTS-PLAN.md, этап 9). Без --apply — только отчёт. |
 | `refresh_portal_knowledge.py` | Пересобрать выжимки созвонов, индекс, сущности и ТЗ по проекту(ам). |
 | `reprocess_documents.py` | Переобработка загруженных документов новым извлечением таблиц (docs/plans/DOCUMENT-TABLES-PLAN.md, шаг 8). |
 | `rerun_cursor_merge.py` | Пересклейка merge + view для артефакта (Cursor, без ASR и без Gemma). |
