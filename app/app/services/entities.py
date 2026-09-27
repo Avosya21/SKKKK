@@ -34,10 +34,24 @@ from app.app.services.vector_index import (
 logger = logging.getLogger("skkkk.entities")
 
 ROOT = Path(__file__).resolve().parents[3]
-PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities.md"
+# v3 = v2 (контекст проекта, виды пунктов, самодостаточные формулировки — REQUIREMENTS-PLAN этап 4) + переписка по
+# номерам сообщений (SOURCE-ANCHORS-PLAN этап 2); v1 и v2 оставлены файлами.
+PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities_v3.md"
+PROMPT_VERSION = "extract_entities-v3"
 SOURCE_TYPE_CALL = "call"
 TEXT_HASH_LEN = 16
-CALL_BOUND_TYPES = {"decision", "task", "fact"}
+CALL_BOUND_TYPES = {"decision", "task", "fact", "open_question"}
+EXTRACT_OVERLAP_TURNS = 5  # хвост предыдущей части — только контекст, чтобы мысль не резалась на границе
+DECISION_KINDS = ("requirement", "project")
+TASK_KINDS = ("work", "org")
+# Нечёткая формулировка (А8): начинается с местоимения или ссылается на «как обсуждали» — объект не назван.
+UNCLEAR_WORDING_RE = re.compile(
+    r"^\s*(это|эт[аои]|там|туда|он[аио]?|они|такж?е)\b|как\s+(обсуждали|договаривались\s+ранее)|вышеуказанн|то\s+же\s+самое",
+    re.IGNORECASE,
+)
+# Перенос ручных решений на новые пункты при переизвлечении (А10): доля основ слов старого пункта в новом.
+HUMAN_TRANSFER_MIN_COVERAGE = 0.5
+HUMAN_TRANSFER_TIME_WINDOW = 45.0
 REPLICA_MATCH_WINDOW = 3
 TEXT_OVERLAP_MIN_RATIO = 0.35
 EXTRACT_PART_CHARS = 6000
@@ -60,22 +74,85 @@ def _turn_ids(raw: Any) -> list[int]:
     return out
 
 
+def _msg_ids(raw: Any) -> list[int]:
+    """Номера сообщений переписки от LLM: 106, "M106", "M-999698939" → со знаком (у ранних сообщений Telegram он минус)."""
+    if raw is None:
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[int] = []
+    for item in items:
+        m = re.search(r"-?\d+", str(item))
+        if m:
+            out.append(int(m.group(0)))
+    return out
+
+
+def _coerce_kind(value: Any, allowed: tuple[str, ...]) -> str | None:
+    kind = str(value or "").strip().lower()
+    return kind if kind in allowed else None
+
+
 class TaskItem(BaseModel):
     description: str = ""
+    # work — работа по системе (требование), org — организационное (не требование, А7); None — старое извлечение
+    kind: str | None = None
+    object: str | None = None
+    topic: str | None = None
     assignee: str | None = None
     deadline: str | None = None
     status: str = "unknown"
     turns: list[int] = Field(default_factory=list)
+    messages: list[int] = Field(default_factory=list)  # переписка: номера сообщений M<n> (SOURCE-ANCHORS-PLAN этап 2)
 
     @field_validator("turns", mode="before")
     @classmethod
     def _coerce_turns(cls, value: Any) -> list[int]:
         return _turn_ids(value)
 
+    @field_validator("messages", mode="before")
+    @classmethod
+    def _coerce_messages(cls, value: Any) -> list[int]:
+        return _msg_ids(value)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _coerce_task_kind(cls, value: Any) -> str | None:
+        return _coerce_kind(value, TASK_KINDS)
+
+
+class OpenQuestionItem(BaseModel):
+    """Не решено: вопрос без ответа или варианты, между которыми не выбрали (А7) — не требование, а вопрос к заказчику."""
+
+    text: str = ""
+    options: list[str] = Field(default_factory=list)
+    object: str | None = None
+    topic: str | None = None
+    turns: list[int] = Field(default_factory=list)
+    messages: list[int] = Field(default_factory=list)
+
+    @field_validator("turns", mode="before")
+    @classmethod
+    def _coerce_turns(cls, value: Any) -> list[int]:
+        return _turn_ids(value)
+
+    @field_validator("messages", mode="before")
+    @classmethod
+    def _coerce_messages(cls, value: Any) -> list[int]:
+        return _msg_ids(value)
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _coerce_options(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        items = value if isinstance(value, list) else [value]
+        return [str(item) for item in items if str(item).strip()]
+
 
 class DecidedBy(BaseModel):
     name: str = ""
     turn: int | None = None
+    message: int | None = None  # переписка: номер сообщения согласия
 
     @field_validator("turn", mode="before")
     @classmethod
@@ -83,18 +160,39 @@ class DecidedBy(BaseModel):
         ids = _turn_ids(value)
         return ids[0] if ids else None
 
+    @field_validator("message", mode="before")
+    @classmethod
+    def _coerce_message(cls, value: Any) -> int | None:
+        ids = _msg_ids(value)
+        return ids[0] if ids else None
+
 
 class DecisionItem(BaseModel):
     """Решение: текст, реплики-источник (номера T<n>) и кто утвердил/согласился — не тот, кто только спросил."""
 
     text: str = ""
+    # requirement — как работает система, project — решение по проекту (А7); None — старое извлечение
+    kind: str | None = None
+    object: str | None = None
+    topic: str | None = None
     turns: list[int] = Field(default_factory=list)
+    messages: list[int] = Field(default_factory=list)
     decided_by: list[DecidedBy] = Field(default_factory=list)
 
     @field_validator("turns", mode="before")
     @classmethod
     def _coerce_turns(cls, value: Any) -> list[int]:
         return _turn_ids(value)
+
+    @field_validator("messages", mode="before")
+    @classmethod
+    def _coerce_messages(cls, value: Any) -> list[int]:
+        return _msg_ids(value)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _coerce_decision_kind(cls, value: Any) -> str | None:
+        return _coerce_kind(value, DECISION_KINDS)
 
     @field_validator("decided_by", mode="before")
     @classmethod
@@ -122,6 +220,7 @@ class EntitiesPayload(BaseModel):
     summary: str = ""
     decisions: list[DecisionItem] = Field(default_factory=list)
     tasks: list[TaskItem] = Field(default_factory=list)
+    open_questions: list[OpenQuestionItem] = Field(default_factory=list)
     facts: dict[str, Any] = Field(default_factory=dict)
     mentions: list[MentionItem] = Field(default_factory=list)
     participants: list[ParticipantItem] = Field(default_factory=list)
@@ -353,6 +452,8 @@ def normalize_entities_payload(payload: EntitiesPayload) -> EntitiesPayload:
             out.tasks.append(
                 TaskItem(
                     description=decision,
+                    object=item.object,
+                    topic=item.topic,
                     assignee=None,
                     deadline=deadline,
                     status="open",
@@ -498,6 +599,7 @@ def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
         return EntitiesPayload()
     base = parts[0].model_copy(deep=True)
     seen_decisions = {d.text for d in base.decisions}
+    seen_questions = {q.text for q in base.open_questions}
     merged_tasks: list[TaskItem] = list(base.tasks)
     for part in parts[1:]:
         if part.summary and len(part.summary) > len(base.summary):
@@ -506,6 +608,10 @@ def _merge_payloads(parts: list[EntitiesPayload]) -> EntitiesPayload:
             if d.text not in seen_decisions:
                 base.decisions.append(d)
                 seen_decisions.add(d.text)
+        for q in part.open_questions:
+            if q.text and q.text not in seen_questions:
+                base.open_questions.append(q)
+                seen_questions.add(q.text)
         for incoming in part.tasks:
             merged_tasks = _merge_task_into_list(merged_tasks, incoming)
         base.facts.update(part.facts)
@@ -572,13 +678,69 @@ def _numbered_turn_parts(settings: Settings, artifact: Artifact, max_chars: int 
     return out
 
 
+CHAT_CONTEXT_MESSAGES = 15  # сколько «чужих» (уже разобранных) сообщений показать перед своими — только контекст (Я1)
+
+
+def _messages_header() -> str:
+    return (
+        "Переписка разбита на пронумерованные сообщения: «M<номер> [дата время] Автор (в ответ на M<номер>): текст». "
+        "Для decision/task/fact/open_question укажи номера сообщений-источников в messages; для decision — decided_by "
+        "(кто утвердил или явно согласился, с номером ЕГО сообщения в поле message).\n\n"
+    )
+
+
+def _message_line(msg: dict) -> str:
+    at = datetime.fromisoformat(msg["at"])
+    reply = f" (в ответ на M{msg['reply_to']})" if msg.get("reply_to") is not None else ""
+    return f"M{msg['id']} [{at:%d.%m.%Y %H:%M}] {msg['author']}{reply}: {msg['text']}"
+
+
+def _numbered_message_parts(settings: Settings, artifact: Artifact, max_chars: int = EXTRACT_PART_CHARS) -> list[tuple[str, str]] | None:
+    """Переписка (выгрузка Telegram): части по целым сообщениям «M<n> …» (SOURCE-ANCHORS-PLAN этап 2).
+
+    Вернуть [(контекст, часть)]; None — не переписка. Сообщения, которые уже есть в более ранней выгрузке той же
+    переписки (Я1), не извлекаются: до 15 последних из них идут перед частью как контекст."""
+    if getattr(artifact, "file_type", "") == "audio":
+        return None
+    from app.app.services.chat_export import artifact_messages_path, load_export, owned_elsewhere
+
+    path = artifact_messages_path(settings, artifact)
+    export = load_export(path)
+    if not export:
+        return None
+    skip = owned_elsewhere(path.parent, export)
+    out: list[tuple[str, str]] = []
+    buf: list[str] = []
+    size = 0
+    context: list[str] = []
+    part_context = ""
+    for msg in export["messages"]:
+        line = _message_line(msg)
+        if msg.get("id") in skip:
+            context = (context + [line])[-CHAT_CONTEXT_MESSAGES:]
+            continue
+        if buf and size + len(line) + 1 > max_chars:
+            out.append((part_context, "\n".join(buf)))
+            buf, size, part_context = [], 0, ""
+        if not buf and context:
+            part_context = "\n".join(context)
+        context = []
+        buf.append(line)
+        size += len(line) + 1
+    if buf:
+        out.append((part_context, "\n".join(buf)))
+    return out
+
+
 def _parse_entities(raw: str) -> EntitiesPayload:
     cleaned = strip_json_fence(raw)
     data = json.loads(cleaned)
     return EntitiesPayload.model_validate(data)
 
 
-def extract_entities_llm(settings: Settings, artifact: Artifact, text: str) -> EntitiesPayload:
+def extract_entities_llm(settings: Settings, artifact: Artifact, text: str, context: str = "") -> EntitiesPayload:
+    """Извлечь сущности частями. ``context`` — карточка проекта, оглавление созвона, темы (extraction_context);
+    к каждой части созвона добавляется хвост предыдущей части — только для понимания (REQUIREMENTS-PLAN этап 4)."""
     system = _load_system_prompt()
     log_event(
         logger,
@@ -587,18 +749,38 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str) -> E
         llm_provider=settings.llm_provider,
         llm=llm_runtime_label(settings.llm_provider),
         chars=len(text),
+        context_chars=len(context),
+        prompt=PROMPT_VERSION,
     )
-    numbered = _numbered_turn_parts(settings, artifact)
+    chat = _numbered_message_parts(settings, artifact, max_chars=EXTRACT_PART_CHARS)
+    prefixes: list[str] = []
+    if chat is not None:  # переписка Telegram: сообщения с номерами (SOURCE-ANCHORS-PLAN этап 2)
+        if not chat:
+            log_event(logger, "entities.chat.all_owned_elsewhere", artifact=artifact.artifact_id)
+            return EntitiesPayload(artifact_id=artifact.artifact_id, source_type=artifact.source_type)
+        numbered = [c for _ctx, c in chat]
+        prefixes = [ctx for ctx, _c in chat]
+        header = _messages_header()
+    else:
+        numbered = _numbered_turn_parts(settings, artifact, max_chars=EXTRACT_PART_CHARS)
+        header = _turns_header() if numbered else ""
     pieces = numbered or _split_for_extraction(text)
-    header = _turns_header() if numbered else ""
     parts: list[EntitiesPayload] = []
-    for chunk in pieces:
+    previous_tail = ""
+    for number, chunk in enumerate(pieces):
+        tail = f"## Конец предыдущей части (только контекст, не извлекать)\n{previous_tail}\n\n" if previous_tail else ""
+        if number < len(prefixes) and prefixes[number]:
+            tail = f"## Уже разобрано в другой выгрузке этой переписки (только контекст, не извлекать)\n{prefixes[number]}\n\n" + tail
+        body = f"## Основной текст\n{header}{chunk}" if (context or tail) else f"{header}{chunk}"
         user = (
             f"artifact_id={artifact.artifact_id}\n"
             f"source_type={artifact.source_type}\n"
             f"timestamp={_material_timestamp(artifact)}\n\n"
-            f"{header}{chunk}"
+            + (f"{context}\n\n" if context else "")
+            + tail
+            + body
         )
+        previous_tail = "\n".join(chunk.splitlines()[-EXTRACT_OVERLAP_TURNS:]) if numbered else ""
         last_err = ""
         for attempt in range(2):
             try:
@@ -884,12 +1066,182 @@ def bind_call_source(
     return bound
 
 
+SPEAKER_SOURCE_CHAT = "chat"  # переписка: автор из разметки выгрузки — доказательство, как дорожка комнаты
+CHAT_MATCH_HINTED = 0.3  # доля основ слов пункта в сообщении, названном моделью (и соседних)
+CHAT_MATCH_GLOBAL = 0.5  # то же при поиске по всей переписке, если названное не подошло
+CHAT_AGREE_MESSAGES = 10  # Я2: согласие — не дальше стольких сообщений после сообщения пункта…
+CHAT_AGREE_HOURS = 24  # …и не позже стольких часов (или прямым ответом на него)
+
+
+def _chat_score(need: set[str], msg: dict) -> float:
+    from app.app.services.contract_text import coverage, stems
+
+    return coverage(need, stems(msg.get("text") or "")) if need else 0.0
+
+
+def bind_chat_source(value: dict, messages: list[dict], skip: set[int]) -> dict | None:
+    """Привязать пункт переписки к сообщению (SOURCE-ANCHORS-PLAN этап 2): номер, время, автор — из выгрузки.
+
+    Сообщение, которое принадлежит более ранней выгрузке той же переписки (Я1), — не источник: пункт отбрасывается.
+    «Утвердил» (Я2) — другой участник, ответом на сообщение пункта или следующим сообщением в пределах
+    ``CHAT_AGREE_MESSAGES`` сообщений и ``CHAT_AGREE_HOURS`` часов."""
+    from app.app.services.contract_text import stems
+
+    bound = dict(value)
+    ids = _msg_ids(bound.pop("messages", None)) or _msg_ids(bound.pop("turns", None))
+    bound.pop("turns", None)
+    raw_decided = bound.pop("decided_by", None)
+    text = str(bound.get("text") or bound.get("description") or "")
+    need = stems(text)
+    position = {m["id"]: i for i, m in enumerate(messages)}
+    hinted = {j for mid in ids if mid in position for j in range(max(0, position[mid] - 2), min(len(messages), position[mid] + 3))}
+    best = None
+    for pos in sorted(hinted):
+        score = _chat_score(need, messages[pos])
+        if score >= CHAT_MATCH_HINTED and (best is None or score > best[0]):
+            best = (score, pos)
+    if best is None:
+        for pos, msg in enumerate(messages):
+            score = _chat_score(need, msg)
+            if score >= CHAT_MATCH_GLOBAL and (best is None or score > best[0]):
+                best = (score, pos)
+    if best is None:
+        bound["source_status"] = "unbound"
+        return bound
+    anchor = messages[best[1]]
+    if anchor["id"] in skip:
+        return None
+    bound.update({"message_id": anchor["id"], "message_at": anchor["at"], "speaker": anchor["author"],
+                  "speaker_source": SPEAKER_SOURCE_CHAT, "source_type": "chat"})
+    agreed: list[dict] = []
+    anchor_at = datetime.fromisoformat(anchor["at"])
+    for item in raw_decided or []:
+        data = item if isinstance(item, dict) else {"name": str(item)}
+        mid = (_msg_ids(data.get("message")) or _msg_ids(data.get("turn")) or [None])[0]
+        if mid not in position:
+            continue
+        msg = messages[position[mid]]
+        gap = position[mid] - best[1]
+        hours = (datetime.fromisoformat(msg["at"]) - anchor_at).total_seconds() / 3600
+        close = 0 < gap <= CHAT_AGREE_MESSAGES and 0 <= hours <= CHAT_AGREE_HOURS
+        reply = msg.get("reply_to") == anchor["id"] and 0 <= hours <= CHAT_AGREE_HOURS
+        if msg["author"] == anchor["author"] or not (close or reply) or any(a["name"] == msg["author"] for a in agreed):
+            continue
+        agreed.append({"name": msg["author"], "message_id": msg["id"], "at": msg["at"]})
+    if agreed:
+        bound["decided_by"] = agreed
+    return bound
+
+
 def _decision_value(item: DecisionItem) -> dict:
-    return {
+    value: dict[str, Any] = {
         "text": item.text,
         "turns": list(item.turns),
         "decided_by": [d.model_dump() for d in item.decided_by],
     }
+    for key in ("kind", "object", "topic"):
+        if getattr(item, key):
+            value[key] = getattr(item, key)
+    if item.messages:
+        value["messages"] = list(item.messages)
+    return value
+
+
+def unclear_wording(text: str) -> bool:
+    """Формулировка без объекта (А8): «Это сделать…», «как обсуждали…» — в очереди будет пометка «нечёткая формулировка»."""
+    return bool(UNCLEAR_WORDING_RE.search(text or ""))
+
+
+def _clean_value(value: dict) -> dict:
+    """Пустые kind/object/topic не храним (старые пункты их не имеют); нечёткую формулировку помечаем."""
+    out = {k: v for k, v in value.items() if not (k in ("kind", "object", "topic") and not v)}
+    text = str(out.get("text") or out.get("description") or "")
+    if text and unclear_wording(text):
+        out["unclear_wording"] = True
+    return out
+
+
+HUMAN_TYPES = ("decision", "task", "open_question")
+
+
+def _human_snapshot(db: Session, artifact: Artifact) -> list[dict]:
+    """Ручные решения по пунктам артефакта до переизвлечения (А10): подтверждение, статус, отказ, проигрыш в конфликте."""
+    from app.app.models.entity import Resolution
+
+    rows = db.scalars(select(Entity).where(Entity.artifact_id == artifact.id, Entity.entity_type.in_(HUMAN_TYPES))).all()
+    lost = set(db.scalars(select(Resolution.losing_entity_id).where(Resolution.resolved_by.is_not(None))).all()) if rows else set()
+    out: list[dict] = []
+    for ent in rows:
+        try:
+            value = json.loads(ent.value_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        human = value.get("human_review")
+        if not human and ent.id not in lost:
+            continue
+        if not human:
+            human = {"action": "reject", "by": "решение по конфликту", "reason": "проиграл в конфликте, решённом человеком"}
+        out.append({"id": ent.id, "type": ent.entity_type, "text": str(value.get("text") or value.get("description") or ""),
+                    "start_sec": value.get("start_sec"), "human_review": human, "human_status": value.get("human_status"),
+                    "is_active": ent.is_active and ent.id not in lost})
+    return out
+
+
+def _transfer_human(rows: list[Entity], snapshot: list[dict]) -> tuple[int, list[dict]]:
+    """Перенести ручные решения на новые пункты с той же мыслью (основы слов) и рядом по времени. Вернуть (перенесено, не нашлось)."""
+    from app.app.services.contract_text import coverage, stems
+
+    if not snapshot:
+        return 0, []
+    news = []
+    for ent in rows:
+        if ent.entity_type not in HUMAN_TYPES:
+            continue
+        value = json.loads(ent.value_json)
+        news.append((ent, value, stems(str(value.get("text") or value.get("description") or ""))))
+    taken: set[int] = set()
+    moved, missing = 0, []
+    for snap in snapshot:
+        need = stems(snap["text"])
+        best = None
+        for ent, value, have in news:
+            if ent.id in taken or not need:
+                continue
+            score = coverage(need, have)
+            if snap.get("start_sec") is not None and value.get("start_sec") is not None:
+                if abs(float(snap["start_sec"]) - float(value["start_sec"])) <= HUMAN_TRANSFER_TIME_WINDOW:
+                    score += 0.15
+            if best is None or score > best[0]:
+                best = (score, ent, value)
+        if best is None or best[0] < HUMAN_TRANSFER_MIN_COVERAGE:
+            missing.append({"old_entity_id": snap["id"], "type": snap["type"], "text": snap["text"], "human_review": snap["human_review"]})
+            continue
+        _score, ent, value = best
+        taken.add(ent.id)
+        value["human_review"] = {**snap["human_review"], "transferred_from": snap["id"]}
+        if snap.get("human_status"):
+            value["human_status"] = snap["human_status"]
+        ent.value_json = json.dumps(value, ensure_ascii=False)
+        ent.needs_review = False
+        ent.is_active = bool(snap["is_active"])
+        moved += 1
+    return moved, missing
+
+
+def _write_transfer_report(settings: Settings, artifact: Artifact, moved: int, missing: list[dict]) -> None:
+    from app.app.services.storage import project_root
+
+    path = project_root(settings, artifact.project_id) / "project_state" / "reextract_human_transfer.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    data[artifact.artifact_id] = {"file": artifact.original_filename, "transferred": moved, "not_found": missing,
+                                  "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) -> int:
@@ -957,25 +1309,45 @@ def persist_entities(
         recorded_at = stamp or None
         if _has_span_replicas(replicas):
             payload = filter_call_payload(payload, artifact, replicas, leaks)
+    chat_messages: list[dict] = []
+    chat_skip: set[int] = set()
+    if getattr(artifact, "file_type", "") != "audio":
+        from app.app.services.chat_export import artifact_messages_path, load_export, owned_elsewhere
+
+        chat_path = artifact_messages_path(settings, artifact)
+        export = load_export(chat_path)
+        if export:
+            chat_messages = export["messages"]
+            chat_skip = owned_elsewhere(chat_path.parent, export)
     drafts: list[tuple[str, str, float]] = []
 
     def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
         item = value
-        if entity_type in CALL_BOUND_TYPES:
+        if entity_type in CALL_BOUND_TYPES and chat_messages and isinstance(value, dict):
+            item = bind_chat_source(value, chat_messages, chat_skip)  # переписка: сообщение, автор, время (этап 2)
+            if item is None:
+                return
+        elif entity_type in CALL_BOUND_TYPES:
             item = bind_call_source(value, artifact, replicas, leaks, turns=turns, recorded_at=recorded_at)
             if item is None:
                 return
         if isinstance(item, dict):
             item = dict(item)
             item.pop("turns", None)  # номера реплик нестабильны (после «Слить»); якорь — start_sec
+            item.pop("messages", None)  # переписка: якорь — message_id
             if not item.get("decided_by"):
                 item.pop("decided_by", None)
+            if entity_type in HUMAN_TYPES:
+                item = _clean_value(item)
         drafts.append((entity_type, json.dumps(item, ensure_ascii=False), confidence))
 
     for d in payload.decisions:
         draft("decision", _decision_value(d))
     for t in payload.tasks:
         draft("task", t.model_dump())
+    for q in payload.open_questions:
+        if q.text.strip():
+            draft("open_question", q.model_dump())
     for k, v in payload.facts.items():
         draft("fact", {"key": k, "value": v})
     for m in payload.mentions:
@@ -993,6 +1365,7 @@ def persist_entities(
         if len(vectors) != len(texts):
             raise ValueError(f"ollama returned {len(vectors)} embeddings for {len(texts)} entities")
 
+    human = _human_snapshot(db, artifact)
     old_ids = list(db.scalars(select(Entity.id).where(Entity.artifact_id == artifact.id)).all())
     if old_ids:
         delete_vectors_for_entities(db, old_ids)
@@ -1016,6 +1389,10 @@ def persist_entities(
     db.flush()
     if vectors:
         upsert_entity_vectors(db, list(zip((r.id for r in rows), vectors, strict=True)))
+    if human:
+        moved, missing = _transfer_human(rows, human)
+        _write_transfer_report(settings, artifact, moved, missing)
+        log_event(logger, "entities.human_transferred", artifact=artifact.artifact_id, transferred=moved, not_found=len(missing))
 
     out_dir = structured_dir(settings, artifact.project_id)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1046,9 +1423,12 @@ def reextract_artifact_entities(db: Session, settings: Settings, artifact: Artif
         payload = stub_entities(artifact, text)
     else:
         prepare_for_llm(settings.lmstudio_model, settings=settings)
+        from app.app.services.extraction_context import build_extraction_context
+
+        context = build_extraction_context(db, settings, artifact)
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
-        payload = extract_entities_llm(settings, artifact, text)
+        payload = extract_entities_llm(settings, artifact, text, context=context)
     persist_entities(db, settings, artifact, payload)
     db.commit()
     return {

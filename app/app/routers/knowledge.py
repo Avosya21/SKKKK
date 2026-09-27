@@ -374,6 +374,84 @@ def resolve_conflict(
     return {"ok": True}
 
 
+class ProjectCardIn(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+
+
+@router.get("/projects/{project_id}/card")
+def get_project_card(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Карточка проекта — контекст для извлечения требований (REQUIREMENTS-PLAN этап 3): цель, системы, этапы, участники, термины."""
+    from app.app.services.extraction_context import read_project_card
+
+    require_project(db, user, project_id)
+    text, meta = read_project_card(settings, project_id)
+    return {"text": text, "meta": meta, "can_edit": user.role == "admin"}
+
+
+@router.put("/projects/{project_id}/card")
+def put_project_card(
+    project_id: int,
+    body: ProjectCardIn,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    admin: Annotated[User, Depends(require_role("admin"))],
+):
+    """Правка администратора: главнее черновика модели, пересборка черновика её не перетирает."""
+    from app.app.services.extraction_context import save_project_card
+
+    require_project(db, admin, project_id)
+    meta = save_project_card(settings, project_id, body.text, source="human", by=admin.name)
+    log_activity(db, user_id=admin.id, project_id=project_id, block=BLOCK_KNOWLEDGE, action=ACTION_REVIEW,
+                 title="Изменил карточку проекта", content=body.text[:200], target_kind="project", target_id=project_id)
+    return {"text": body.text, "meta": meta}
+
+
+@router.post("/projects/{project_id}/card/rebuild")
+def rebuild_project_card(
+    project_id: int,
+    body: dict,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    admin: Annotated[User, Depends(require_role("admin"))],
+):
+    """Новый черновик карточки моделью. Правка человека заменяется только по явному ``discard_human``."""
+    from app.app.services.extraction_context import build_project_card_draft, read_project_card, save_project_card
+
+    require_project(db, admin, project_id)
+    _text, meta = read_project_card(settings, project_id)
+    if meta.get("source") == "human" and not body.get("discard_human"):
+        raise HTTPException(status_code=409, detail="Карточку правил человек: черновик модели заменит правку. Подтвердите замену.")
+    draft = build_project_card_draft(db, settings, project_id)
+    if not draft:
+        raise HTTPException(status_code=400, detail="Нет материалов для карточки: нужна выжимка проекта или выжимки созвонов")
+    meta = save_project_card(settings, project_id, draft, source="model")
+    log_activity(db, user_id=admin.id, project_id=project_id, block=BLOCK_KNOWLEDGE, action=ACTION_REBUILD,
+                 title="Пересобрал черновик карточки проекта", content="", target_kind="project", target_id=project_id)
+    return {"text": draft, "meta": meta}
+
+
+@router.get("/projects/{project_id}/open-questions")
+def project_open_questions(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Вопросы к заказчику: варианты без выбора и вопросы без ответа из материалов (REQUIREMENTS-PLAN А7)."""
+    from app.app.services import contract as ctr
+    from app.app.services.topics import topic_labels
+
+    require_project(db, user, project_id)
+    items = ctr.get_contract(db, settings, project_id).files["open_questions"]["items"]
+    labels = topic_labels(db, {q.get("topic_id") for q in items if q.get("topic_id")})
+    return {"total": len(items), "items": [{**q, "topic": labels.get(q.get("topic_id"))} for q in items]}
+
+
 @router.get("/projects/{project_id}/tasks/active")
 def project_active_tasks(
     project_id: int,
