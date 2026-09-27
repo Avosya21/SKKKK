@@ -6,6 +6,7 @@
 <div class="btn-group mb-3" role="group" aria-label="Вид">
   <button type="button" class="btn btn-sm btn-outline-secondary active" data-view="pending">Ждут вас</button>
   <button type="button" class="btn btn-sm btn-outline-secondary" data-view="important">Важное</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" data-view="model">Решены моделью</button>
 </div>
 <div id="status" class="small text-muted mb-2" role="status"></div>
 <div id="list" class="vstack gap-2"></div>
@@ -18,7 +19,7 @@
   const status = document.getElementById('status');
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const VERDICT = { newer_wins: 'в силе более новое', older_wins: 'в силе более раннее', not_conflict: 'не конфликт', unsure: 'не уверена' };
-  const RULE = { 'rule:explicit_cancel': 'явная отмена', 'rule:source_weight': 'вес источника', 'rule:later_equal_weight': 'равный вес — более позднее', 'rule:not_a_decision': 'одно из двух — не решение', 'rule:misextracted': 'пункт извлечён неверно' };
+  const RULE = { 'rule:explicit_cancel': 'явная отмена', 'rule:source_weight': 'вес источника', 'rule:later_equal_weight': 'равный вес — более позднее', 'rule:not_a_decision': 'одно из двух — не решение', 'rule:misextracted': 'пункт извлечён неверно', 'rule:topic_superseded': 'позже выбран другой путь (по теме)' };
   let view = 'pending';
 
   function modelNote(c) {
@@ -35,7 +36,8 @@
   function side(label, s, winner) {
     if (!s) return '';
     const mark = winner === s.id ? ' <span class="badge text-bg-success">в силе</span>' : (s.active ? '' : ' <span class="badge text-bg-secondary">выключено</span>');
-    return `<div class="mb-1"><span class="text-muted small">${label}</span>${mark}<div>${esc(s.line || s.value)}</div></div>`;
+    const open = s.url ? ` <a class="small" href="${esc(s.url)}" target="_blank" rel="noopener" title="Открыть источник на этом месте">открыть ▸</a>` : '';
+    return `<div class="mb-1"><span class="text-muted small">${label}</span>${mark}<div>${esc(s.line || s.value)}${open}</div></div>`;
   }
 
   function card(p, c) {
