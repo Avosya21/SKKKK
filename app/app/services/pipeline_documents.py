@@ -224,7 +224,11 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     elif artifact.file_type == "txt" or path.suffix.lower() in TEXT_SUFFIXES:
         raw = _extract_plain(path)
     elif artifact.file_type == "html" or path.suffix.lower() in {".html", ".htm"}:
-        raw = _extract_html(path)
+        from app.app.services.chat_export import ingest_telegram_export
+
+        # Выгрузка Telegram: сообщения с автором и временем из разметки (SOURCE-ANCHORS-PLAN этап 1), не «текст страницы»
+        chat_text = ingest_telegram_export(settings, artifact, _extract_text(path))
+        raw = chat_text if chat_text is not None else _extract_html(path)
     elif artifact.file_type == "image":
         raw = _extract_image(path, settings)
     else:
@@ -246,7 +250,10 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     clean_path = out_dir / f"{base}_clean.txt"
     raw_path.write_text(raw, encoding="utf-8")
 
-    if settings.dry_run:
+    if getattr(artifact, "recorded_at_source", None) == "messages":
+        clean = raw  # переписка: сообщения дословно — модель их не переписывает (цитаты и авторы должны совпадать)
+        mode = "chat export"
+    elif settings.dry_run:
         clean = light_normalize(raw)
         mode = "light (dry_run)"
     elif artifact.file_type == "txt" and len(raw) <= SHORT_TXT_NORMALIZE_CHARS:
@@ -275,5 +282,11 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     clean_path.write_text(clean, encoding="utf-8")
     artifact.transcription_file_path = str(clean_path)
     artifact.transcription_text = clean
+    from app.app.services.recorded_at import refine_from_text
+
+    # Дата документа из его шапки («Протокол от 19.08.2026») главнее свойств файла и даты загрузки
+    if refine_from_text(artifact, raw):
+        log_event(logger, "document.dated", artifact=artifact.artifact_id, source=artifact.recorded_at_source,
+                  day=artifact.recorded_at.date().isoformat())
     set_status(db, artifact, "text_extracted")
     return clean
