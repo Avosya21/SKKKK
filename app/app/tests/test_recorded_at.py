@@ -66,3 +66,65 @@ def test_old_artifact_without_recorded_at_keeps_old_reference():
     art.recorded_at, art.recorded_at_source = datetime(2026, 8, 30, 9, 0), ra.SOURCE_MEDIA
     assert artifact_reference_date(art) == date(2026, 8, 30)
     assert reference_is_explicit(art) is True
+
+
+# --- REQUIREMENTS-PLAN этап 1: форматы дат в имени файла, ручная дата ---
+
+
+import pytest
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("ПИЛОТ встерча с директором 22_07_26.webm", date(2026, 7, 22)),
+    ("созвон 22_07_2026.webm", date(2026, 7, 22)),
+    ("созвон 22-07-2026.webm", date(2026, 7, 22)),
+    ("созвон 2026-07-22.webm", date(2026, 7, 22)),
+    ("созвон 22.07.26.webm", date(2026, 7, 22)),
+    ("Встреча 19.08.2026.webm", date(2026, 8, 19)),
+    ("созвон 19.08.webm", date(2026, 8, 19)),
+    ("созвон 5.09.webm", date(2026, 9, 5)),
+    ("Платформа 8.3 обзор.docx", None),
+    ("1С 8.3.18 релиз.docx", None),
+    ("отчёт v1_2.docx", None),
+    ("созвон 31_02_26.webm", None),
+])
+def test_filename_date_formats(name, expected):
+    assert ra.filename_date(name, datetime(2026, 9, 1)) == expected
+
+
+def test_manual_date_is_explicit_and_wins():
+    art = SimpleNamespace(recorded_at=ra.manual_recorded_at(date(2026, 7, 1)), recorded_at_source=ra.SOURCE_MANUAL,
+                          file_type="audio", original_filename="созвон 19.08.2026.webm", upload_date=datetime(2026, 9, 1))
+    assert ra.material_date(art) == (date(2026, 7, 1), ra.SOURCE_MANUAL)
+    art.recorded_at_source, art.recorded_at = ra.SOURCE_UPLOAD, datetime(2026, 9, 1)
+    assert ra.material_date(art) == (date(2026, 8, 19), ra.SOURCE_FILENAME)
+    art.original_filename = "созвон.webm"
+    assert ra.material_date(art) == (None, ra.SOURCE_UPLOAD)
+
+
+def test_set_recorded_at_api(client, admin_token, tmp_data):
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.project import Project
+    from app.app.models.user import User
+
+    db = SessionLocal()
+    user = db.query(User).first()
+    project = Project(name="Dates", created_by=user.id, is_active=True)
+    db.add(project)
+    db.flush()
+    db.add(Artifact(artifact_id="art_dates_1", project_id=project.id, user_id=user.id, original_filename="созвон.webm",
+                    stored_filename="x.webm", file_path="/x", file_type="audio", source_type="call", sha256="dates1", status="done",
+                    upload_date=datetime(2026, 8, 27, 10, 0)))
+    db.commit()
+    pid = project.id
+    db.close()
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    row = next(a for a in client.get(f"/projects/{pid}/artifacts", headers=headers).json() if a["artifact_id"] == "art_dates_1")
+    assert row["material_date"] is None and row["material_date_source"] == "upload"
+    r = client.patch(f"/projects/{pid}/artifacts/art_dates_1/recorded-at", json={"date": "2026-07-22"}, headers=headers)
+    assert r.status_code == 200 and r.json()["material_date"] == "2026-07-22" and r.json()["material_date_source"] == "manual"
+    row = next(a for a in client.get(f"/projects/{pid}/artifacts", headers=headers).json() if a["artifact_id"] == "art_dates_1")
+    assert row["material_date"] == "2026-07-22"
+    r = client.patch(f"/projects/{pid}/artifacts/art_dates_1/recorded-at", json={"date": None}, headers=headers)
+    assert r.json()["material_date"] is None and r.json()["material_date_source"] == "upload"

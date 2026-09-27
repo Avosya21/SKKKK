@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import shutil
+from datetime import date as date_type
+from datetime import datetime as datetime_type
 from pathlib import Path
 from typing import Annotated
 
@@ -28,6 +30,14 @@ from app.app.services.artifact_reports import document_report_url
 from app.app.services.pipeline_meeting import is_meeting_artifact
 from app.app.services.pipeline_progress import build_artifact_progress, reconcile_artifact_status
 from app.app.services.project_purge import purge_artifact
+from app.app.services.recorded_at import (
+    SOURCE_MANUAL,
+    SOURCE_MANUAL_TIME,
+    manual_recorded_at,
+    manual_recorded_at_time,
+    material_date,
+    resolve_recorded_at,
+)
 from app.app.services.speaker_profiles import speaker_action_flags
 from app.app.services.storage import artifact_report_url
 from app.app.services.storage import ensure_inside, generate_stored_filename, raw_input_dir
@@ -41,7 +51,7 @@ from app.app.services.upload import (
     hash_file,
     save_upload_stream,
 )
-from app.app.services.user_activity import ACTION_DELETE, ACTION_UPLOAD, BLOCK_UPLOAD, log_activity
+from app.app.services.user_activity import ACTION_DELETE, ACTION_REVIEW, ACTION_UPLOAD, BLOCK_UPLOAD, log_activity
 
 router = APIRouter(prefix="/projects", tags=["upload"])
 logger = logging.getLogger("skkkk.upload")
@@ -240,9 +250,57 @@ def list_artifacts(
         }
         if progress is not None:
             updates["progress"] = progress
+        updates["material_date"], updates["material_date_source"] = material_date(row)
+        if updates["material_date_source"] == "messages":
+            from app.app.services.chat_export import load_artifact_export, period
+
+            export = load_artifact_export(settings, row)
+            last = period(export)[1] if export else None
+            updates["material_period_end"] = last.date() if last else None
         item = item.model_copy(update=updates)
         out.append(item)
     return out
+
+
+class RecordedAtIn(BaseModel):
+    # None — вернуть автоматическую дату (имя файла → метаданные → дата загрузки)
+    date: date_type | None = None
+    # местные дата и время начала «2026-07-22T14:30» (Я5): созвон сравнивается с перепиской того же дня
+    datetime_local: datetime_type | None = None
+
+
+@router.patch("/{project_id}/artifacts/{artifact_id}/recorded-at")
+def set_artifact_recorded_at(
+    project_id: int,
+    artifact_id: str,
+    body: RecordedAtIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Дата записи материала вручную (только admin, REQUIREMENTS-PLAN этап 1): от неё зависит «что сказано позже»."""
+    require_project(db, user, project_id)
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Дату материала меняет только администратор")
+    art = db.scalar(select(Artifact).where(Artifact.project_id == project_id, Artifact.artifact_id == artifact_id))
+    if not art:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+    if body.datetime_local is not None:
+        art.recorded_at, art.recorded_at_source = manual_recorded_at_time(body.datetime_local), SOURCE_MANUAL_TIME
+    elif body.date is not None:
+        art.recorded_at, art.recorded_at_source = manual_recorded_at(body.date), SOURCE_MANUAL
+    else:
+        art.recorded_at, art.recorded_at_source = resolve_recorded_at(
+            original_filename=art.original_filename, file_path=None, file_type=art.file_type, upload_date=art.upload_date
+        )
+    db.commit()
+    from app.app.services import contract as ctr
+
+    ctr._cache.pop(project_id, None)
+    day, source = material_date(art)
+    log_activity(db, user_id=user.id, project_id=project_id, block=BLOCK_UPLOAD, action=ACTION_REVIEW,
+                 title="Изменил дату материала", content=f"{art.original_filename}: {day or 'неизвестна'} ({source})",
+                 target_kind="artifact", target_id=artifact_id)
+    return {"artifact_id": artifact_id, "material_date": day, "material_date_source": source}
 
 
 @router.delete("/{project_id}/artifacts/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
