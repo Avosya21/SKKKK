@@ -370,3 +370,12 @@ def test_conflict_lines_filter_and_dismissed(client, admin_token, tmp_data):
         assert conflict_lines(db, project.id, artifact_ids=set(), entity_ids=set()) == ([], [])
     finally:
         db.close()
+
+
+def test_docx_uploaded_as_call_weighs_as_document():
+    """REQUIREMENTS-PLAN этап 1: «Нормализация_НСИ…docx» загружен как созвон (вес 0.5) — по правилам это документ."""
+    from app.app.models.artifact import Artifact
+    from app.app.services.conflict_rules import WEIGHT_AGREED, source_weight
+
+    art = Artifact(source_type="call", file_type="docx", priority_weight=0.5)
+    assert source_weight("task", {}, art, "Нормализовать справочник профнастила") == WEIGHT_AGREED

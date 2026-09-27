@@ -83,16 +83,64 @@
     return `<div class="small px-model mt-1"><span class="text-muted">${esc(what)}${conf}:</span> ${esc(m.reason || '')}</div>`;
   }
 
+  // Кто и когда по источнику требования (REQUIREMENTS-PLAN А9): дата загрузки не выдаётся за дату встречи.
+  const dayRu = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split('-'); return d && m && y ? `${d}.${m}.${y}` : String(iso); };
+  const sideOf = (side) => (side && side !== 'unknown' ? ` (${esc(SIDE[side] || side)})` : '');
+  function whoWhen(s) {
+    const who = s.speaker ? `${esc(s.speaker)}${sideOf(s.side)}` : 'говорящий не опознан';
+    const basis = s.speaker_basis === 'voice' ? ' <span class="badge text-bg-light border" title="Имя определено по голосу, а не по дорожке микрофона">по голосу</span>'
+      : s.speaker_basis === 'words' ? ' <span class="badge text-bg-warning" title="Пункт не привязан к реплике: говорящий найден по совпадению слов и может быть неточен">по совпадению слов</span>' : '';
+    const agreed = (s.agreed_by || []).length ? ` · утвердил: ${s.agreed_by.map((a) => esc(a.name) + sideOf(a.side)).join(', ')}` : '';
+    const where = s.material ? ` · ${esc(s.material)}` : '';
+    let when;
+    if (s.date_basis === 'message' && s.said_at) when = esc(fmt(s.said_at));
+    else if (s.said_date) when = esc(dayRu(s.said_date)) + (s.timecode ? `, ${esc(s.timecode)}` : '');
+    else if (s.said_at && !s.date_basis) when = esc(fmt(s.said_at));
+    else when = '<span class="badge text-bg-warning" title="У материала нет даты записи — поставьте её на странице проекта">дата записи неизвестна</span>' + (s.timecode ? `, ${esc(s.timecode)}` : '');
+    // Ссылка на место источника (SOURCE-ANCHORS-PLAN этап 4): созвон — на реплике, переписка — на сообщении
+    const open = s.url ? ` · <a href="${esc(s.url)}" target="_blank" rel="noopener" title="Открыть источник на этом месте">${s.timecode ? '▶ ' + esc(s.timecode) : 'открыть ▸'}</a>` : '';
+    return `Сказал: ${who}${basis}${agreed}${where} · ${when}${open}`;
+  }
+
+  // Вид пункта (А7), тема (А2), ход обсуждения, что заменило (А6) — REQUIREMENTS-PLAN этап 8.
+  const ITEM_KIND = { requirement: 'требование к системе', project: 'решение по проекту', work: 'работа по системе' };
+  function contextHtml(r) {
+    if (!r.context || !r.context.length) return '';
+    const lines = r.context.map((c) => `<li${c.source ? ' class="fw-semibold"' : ''}>${esc(c.timecode || '')} ${esc(c.speaker || 'говорящий не опознан')}: ${esc(c.text)}</li>`).join('');
+    return `<details class="small mt-1"><summary>Ход обсуждения</summary><ul class="mb-0 list-unstyled">${lines}</ul></details>`;
+  }
+  function replacedHtml(r) {
+    if (r.hidden_state === 'superseded') {
+      const b = r.replaced_by;
+      const rel = r.relevance || {};
+      const shadow = rel.mode === 'shadow' ? ' (так считает модель, решение ещё не применено)' : '';
+      return `<div class="small mt-1 px-replaced"><span class="badge text-bg-secondary">устарело${shadow}</span> `
+        + (b ? `Заменено: <b>${esc(b.statement)}</b><br><span class="text-muted">${whoWhen(b)}</span>` : '')
+        + (rel.quote ? `<div class="text-muted">Основание: «${esc(rel.quote)}»</div>` : '') + '</div>';
+    }
+    if (r.hidden_state === 'duplicate') {
+      const b = r.replaced_by;
+      return `<div class="small mt-1"><span class="badge text-bg-secondary">дубль</span> ${b ? `Та же мысль: <b>${esc(b.statement)}</b>` : ''}</div>`;
+    }
+    const rel = r.relevance || {};
+    return rel.state === 'done' && !rel.undone ? '<div class="small mt-1"><span class="badge text-bg-info">по более поздним материалам — выполнено</span></div>' : '';
+  }
+
   function reqHtml(r) {
     const ok = r.verification === 'human_confirmed';
     const byModel = r.verification === 'model_confirmed' || r.verification === 'model_rejected';
     const undoable = byModel && r.model_review && !r.model_review.undone && r.source_entity_id;
-    const quote = r.quote ? `<blockquote class="px-quote">«${esc(r.quote)}»<footer>${esc(r.speaker || '?')} · ${esc(SIDE[r.side] || r.side || '')} · ${esc(fmt(r.said_at))}</footer></blockquote>`
+    const sources = r.sources && r.sources.length ? r.sources : (r.quote ? [{ quote: r.quote, speaker: r.speaker, side: r.side, said_at: r.said_at }] : []);
+    const first = sources[0];
+    const more = sources.slice(1).map((s) => `<li>${whoWhen(s)}${s.quote ? ` — «${esc(s.quote)}»` : ''}</li>`).join('');
+    const quote = first ? `<blockquote class="px-quote">«${esc(first.quote || '')}»<footer>${whoWhen(first)}</footer></blockquote>`
+      + (more ? `<details class="small mt-1"><summary>Ещё звучало: ${sources.length - 1}</summary><ul class="mb-0">${more}</ul></details>` : '')
       : (r.verification === 'model_rejected' ? '' : '<div class="small text-muted">Цитаты в источнике не найдено.</div>');
     const hr = r.human_review ? `<div class="small text-muted mt-1">Решение человека: ${esc(r.human_review.by)}, ${esc(fmt(r.human_review.at))}${r.human_review.reason ? ' — ' + esc(r.human_review.reason) : ''}</div>` : '';
     const undo = rv.canEdit && undoable ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-rv="undo" data-id="${esc(r.id)}" data-entity="${esc(r.source_entity_id)}">Вернуть решение модели</button>` : '';
     const acts = rv.canEdit && r.verification === 'model_rejected' ? `<div class="px-actions">${undo}</div>` : (rv.canEdit ? `<div class="px-actions">
-        ${ok ? '' : `<button type="button" class="btn btn-sm btn-primary" data-rv="confirm" data-id="${esc(r.id)}">Подтвердить</button>`}
+        ${ok ? '' : `<button type="button" class="btn btn-sm btn-primary" data-rv="confirm" data-id="${esc(r.id)}" title="Подтверждаю: это действительно было сказано / решено на этой встрече">Подтвердить</button>`}
+        ${r.hidden_state && r.source_entity_id ? `<button type="button" class="btn btn-sm btn-outline-success" data-rv="current" data-entity="${esc(r.source_entity_id)}" title="Модель ошиблась: пункт по-прежнему актуален">Это актуально</button>` : ''}
         <button type="button" class="btn btn-sm btn-outline-secondary" data-rv="status" data-id="${esc(r.id)}">Изменить статус</button>
         <button type="button" class="btn btn-sm btn-outline-danger" data-rv="reject" data-id="${esc(r.id)}">Отклонить</button>${undo}</div>` : '');
     return `<div class="px-item" data-item="${esc(r.id)}">
@@ -109,9 +157,11 @@
               : '<span class="badge text-bg-warning">не подтверждено</span>'}
             ${r.model_review && r.model_review.audit && !ok ? '<span class="badge text-bg-info" title="Контрольная выборка: проверьте решение модели">проверка модели</span>' : ''}
             ${r.analysis ? `<span class="badge text-bg-info" title="Вердикт агента анализа">агент: ${esc(VERDICT[r.analysis.verdict] || r.analysis.verdict)}</span>` : ''}
+            ${r.item_kind && ITEM_KIND[r.item_kind] ? `<span class="badge text-bg-light border">${esc(ITEM_KIND[r.item_kind])}</span>` : ''}
+            ${r.unclear_wording ? '<span class="badge text-bg-warning" title="В формулировке не назван объект — уточните при подтверждении">нечёткая формулировка</span>' : ''}
           </div>
           <div class="px-statement">${esc(r.statement)}</div>
-          ${quote}${modelHtml(r)}${hr}${acts}
+          ${quote}${contextHtml(r)}${replacedHtml(r)}${modelHtml(r)}${hr}${acts}
           <div class="px-inline d-none" data-inline="${esc(r.id)}"></div>
         </div>
       </div></div>`;
@@ -129,11 +179,18 @@
       const d = await r.json();
       rv.canEdit = d.can_edit; rv.total = d.total;
       $('px-rv-backlog').classList.toggle('d-none', !d.can_edit);
-      box.insertAdjacentHTML('beforeend', d.items.map(reqHtml).join('') || (append ? '' : '<div class="text-muted small">По этим условиям требований нет.</div>'));
+      $('px-rv-reextract').classList.toggle('d-none', !d.can_edit);
+      if (!append) rv.lastTopic = undefined;
+      const html = d.items.map((it) => {
+        const head = it.topic !== rv.lastTopic ? `<div class="px-topic small fw-semibold text-muted mt-3 mb-1">${esc(it.topic ? 'Тема: ' + it.topic : 'Без темы')}</div>` : '';
+        rv.lastTopic = it.topic;
+        return head + reqHtml(it);
+      }).join('');
+      box.insertAdjacentHTML('beforeend', html || (append ? '' : '<div class="text-muted small">По этим условиям требований нет.</div>'));
       rv.offset += d.items.length;
       $('px-rv-more').classList.toggle('d-none', rv.offset >= d.total);
       setCount('review', d.counts.needs_human, 'ждут вас');
-      say('review', `Показано ${rv.offset} из ${d.total}. Всего требований: ${d.counts.total}; ждут вас: ${d.counts.needs_human}; подтверждено моделью: ${d.counts.model_confirmed}; отклонено моделью: ${d.counts.model_rejected}.` + (d.can_edit ? '' : ' Вы можете только смотреть: подтверждает администратор.'));
+      say('review', `Показано ${rv.offset} из ${d.total}. Всего требований: ${d.counts.total}; ждут вас: ${d.counts.needs_human}; подтверждено моделью: ${d.counts.model_confirmed}; отклонено моделью: ${d.counts.model_rejected}; устарело: ${d.counts.superseded || 0}; склеено дублей: ${d.counts.merged || 0}.` + (d.can_edit ? '' : ' Вы можете только смотреть: подтверждает администратор.'));
       updateBatch();
     } catch (e) { say('review', 'Не удалось загрузить требования', true); }
   }
@@ -157,7 +214,28 @@
     const btn = ev.target.closest('[data-rv]');
     if (!btn) return;
     const id = btn.dataset.id, act = btn.dataset.rv;
-    if (act === 'confirm') { if (await SKKKK.guardButton(btn, async () => { if (await reviewAction('confirm', id)) { await loadReview(false); loadSummary(); } })) return; }
+    if (act === 'confirm') {
+      await SKKKK.guardButton(btn, async () => {
+        let r = await post(`/requirements/${encodeURIComponent(id)}/confirm`, {});
+        if (r.status === 409) {  // модель считает пункт устаревшим или дублем (А6): нужно явное согласие
+          const msg = (await r.json().catch(() => ({}))).detail || 'Модель считает пункт устаревшим. Подтвердить всё равно?';
+          if (!confirm(msg)) return;
+          r = await post(`/requirements/${encodeURIComponent(id)}/confirm`, { force: true });
+        }
+        if (!r.ok) { say('review', await errText(r), true); return; }
+        await loadReview(false); loadSummary();
+      });
+      return;
+    }
+    if (act === 'current') {
+      await SKKKK.guardButton(btn, async () => {
+        const r = await post(`/requirements/entity/${encodeURIComponent(btn.dataset.entity)}/mark-current`, {});
+        if (!r.ok) { say('review', await errText(r), true); return; }
+        await loadReview(false); loadSummary();
+        say('review', 'Вердикт модели снят: пункт снова ждёт вас.');
+      });
+      return;
+    }
     if (act === 'undo') {
       await SKKKK.guardButton(btn, async () => {
         const r = await post(`/requirements/entity/${encodeURIComponent(btn.dataset.entity)}/undo-model`, {});
@@ -202,6 +280,15 @@
     say('review', `Подтверждено: ${d.confirmed.length}` + (d.failed.length ? `, не удалось: ${d.failed.length}` : ''), d.failed.length > 0);
   }));
   $('px-rv-more').addEventListener('click', () => loadReview(true));
+  $('px-rv-reextract').addEventListener('click', (ev) => {
+    if (!confirm('Заново разобрать все материалы проекта по новой схеме? Идёт фоном (десятки минут), расшифровке не мешает. Ваши подтверждения и отказы переносятся на новые пункты; что не перенеслось — будет в отчёте.')) return;
+    SKKKK.guardButton(ev.currentTarget, async () => {
+      const r = await post('/requirements/reextract', {});
+      if (!r.ok) { say('review', await errText(r), true); return; }
+      const d = await r.json();
+      say('review', `Поставлено в очередь: ${d.jobs_queued} из ${d.materials} материалов. Ваших решений к переносу: ${d.human_decisions}. Список обновится по мере разбора.`);
+    });
+  });
   $('px-rv-backlog').addEventListener('click', (ev) => {
     if (!confirm('Поставить в очередь фоновую проверку моделью всех накопленных требований и конфликтов проекта? Расшифровке она не мешает; решения модели можно вернуть.')) return;
     SKKKK.guardButton(ev.currentTarget, async () => {
@@ -361,6 +448,55 @@
     });
   });
 
-  const LOADERS = { review: () => loadReview(false), exchange: loadQuestions, settings: loadSettings };
+  /* ---------- Вопросы к заказчику и карточка проекта (REQUIREMENTS-PLAN А7, этап 3) ---------- */
+  async function loadOpenQuestions() {
+    const box = $('px-oq-list');
+    say('oq', 'Загрузка…');
+    const r = await api('/open-questions');
+    if (!r.ok) { say('oq', await errText(r), true); return; }
+    const d = await r.json();
+    setCount('oq', d.total);
+    say('oq', d.total ? '' : 'Открытых вопросов нет (у материалов, разобранных до новой схемы, их нет, пока материал не переизвлечён).');
+    box.innerHTML = d.items.map((q) => {
+      const src = (q.evidence || [])[0];
+      const opts = (q.options || []).length ? `<ul class="small mb-1">${q.options.map((o) => `<li>${esc(o)}</li>`).join('')}</ul>` : '';
+      return `<div class="px-item"><div class="small text-muted">${esc(q.topic ? 'Тема: ' + q.topic : 'Без темы')}</div>
+        <div class="px-statement">${esc(q.question)}</div>${opts}
+        ${src ? `<blockquote class="px-quote">«${esc(src.quote || '')}»<footer>${whoWhen(src)}</footer></blockquote>` : ''}</div>`;
+    }).join('');
+  }
+
+  async function loadCard() {
+    const r = await api('/card');
+    if (!r.ok) { say('card', await errText(r), true); return; }
+    const d = await r.json();
+    $('px-card-text').value = d.text || '';
+    $('px-card-text').readOnly = !d.can_edit;
+    $('px-card-actions').classList.toggle('d-none', !d.can_edit);
+    const m = d.meta || {};
+    $('px-card-meta').textContent = !d.text ? 'Карточки пока нет: она соберётся при разборе следующего материала или по кнопке.'
+      : m.source === 'human' ? `Правка человека: ${m.by || ''}, ${fmt(m.at)}` : `Черновик модели, ${fmt(m.at)}`;
+  }
+  $('px-card-save').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
+    const text = $('px-card-text').value.trim();
+    if (!text) { say('card', 'Карточка пустая', true); return; }
+    const r = await api('/card', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    if (!r.ok) { say('card', await errText(r), true); return; }
+    say('card', 'Сохранено. Модель увидит карточку при разборе следующих материалов.');
+    loadCard();
+  }));
+  $('px-card-rebuild').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
+    say('card', 'Модель собирает черновик… (до минуты)');
+    let r = await post('/card/rebuild', {});
+    if (r.status === 409) {
+      if (!confirm('Карточку правил человек. Заменить правку новым черновиком модели?')) { say('card', ''); return; }
+      r = await post('/card/rebuild', { discard_human: true });
+    }
+    if (!r.ok) { say('card', await errText(r), true); return; }
+    say('card', 'Черновик обновлён.');
+    loadCard();
+  }));
+
+  const LOADERS = { review: () => loadReview(false), exchange: loadQuestions, settings: loadSettings, oq: loadOpenQuestions, card: loadCard };
   loadSummary();
 })();

@@ -19,10 +19,12 @@
 </div>
 {% endmacro %}
 
-{% call px_card('review', 'Подтверждение требований', 'Требования, которые система извлекла из материалов проекта. Локальная модель проверяет их по реплике-источнику сама; вам остаются спорные и контрольная выборка. Подтверждённое вами агенты видят как проверенное человеком, подтверждённое моделью — отдельно. Подтверждать и возвращать решения модели может только администратор.') %}
+{% call px_card('review', 'Подтверждение требований', 'Требования, которые система извлекла из материалов проекта, по темам. У каждого — кто сказал и кто утвердил, где и когда, ход обсуждения. «Подтвердить» значит «это действительно было сказано / решено на этой встрече»: если позже от пункта отказались, система сама переведёт его в «Устарело». Устаревшее и дубли в «Ждут вас» не попадают — их можно вернуть кнопкой «Это актуально». Подтверждать и возвращать решения модели может только администратор.') %}
 <div class="px-filters d-flex flex-wrap gap-2 mb-3">
   <select class="form-select form-select-sm px-filter" id="px-rv-verification" aria-label="Подтверждение">
     <option value="needs_human">Ждут вас</option>
+    <option value="superseded">Устарело (позже заменено)</option>
+    <option value="merged">Склеено (дубли)</option>
     <option value="model_confirmed">Подтверждены моделью</option>
     <option value="model_rejected">Отклонены моделью</option>
     <option value="human_confirmed">Подтверждены вами</option>
@@ -43,6 +45,7 @@
     <option value="unknown">Неизвестно</option>
   </select>
   <input type="search" class="form-control form-control-sm px-filter px-grow" id="px-rv-q" placeholder="Поиск по тексту" aria-label="Поиск">
+  <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="px-rv-reextract" title="Заново разобрать все материалы проекта по новой схеме: с контекстом проекта, видами пунктов, «кто и когда», темами, дублями и устаревшим. Ваши подтверждения переносятся на новые пункты. Идёт фоном.">Переизвлечь требования</button>
   <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="px-rv-backlog" title="Фоновая проверка локальной моделью всех накопленных требований и конфликтов проекта. Расшифровке не мешает.">Проверить моделью всё накопленное</button>
 </div>
 <div class="px-batch d-none align-items-center gap-2 mb-2" id="px-rv-batch">
@@ -51,6 +54,19 @@
 </div>
 <div id="px-rv-list" class="px-list"></div>
 <button type="button" class="btn btn-sm btn-outline-secondary mt-2 d-none" id="px-rv-more">Показать ещё</button>
+{% endcall %}
+
+{% call px_card('oq', 'Вопросы к заказчику', 'Вопросы без ответа и варианты, между которыми ещё не выбрали, из созвонов и документов. Это не требования: они ждут решения заказчика и попадают в раздел ТЗ «Открытые вопросы и риски».') %}
+<div id="px-oq-list" class="px-list"></div>
+{% endcall %}
+
+{% call px_card('card', 'Карточка проекта', 'Цель, системы, этапы, участники со сторонами и термины. Модель видит карточку, когда разбирает каждый созвон и документ, — поэтому требования формулируются в контексте проекта. Черновик собирает модель; правка администратора главнее черновика.') %}
+<div class="small text-muted mb-2" id="px-card-meta"></div>
+<textarea class="form-control form-control-sm font-monospace" id="px-card-text" rows="14" maxlength="8000" aria-label="Текст карточки проекта"></textarea>
+<div class="d-flex flex-wrap gap-2 mt-2" id="px-card-actions">
+  <button type="button" class="btn btn-sm btn-primary" id="px-card-save">Сохранить правку</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="px-card-rebuild">Пересобрать черновик моделью</button>
+</div>
 {% endcall %}
 
 {% call px_card('exchange', 'Обмен с агентами', 'Вопросы и вердикты внешних агентов, которые подключены к проекту по ключу. Отвечать, подтверждать и отклонять может только администратор; локальная модель пишет лишь черновик ответа.') %}
