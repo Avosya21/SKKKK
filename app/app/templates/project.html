@@ -646,6 +646,7 @@
     <div id="artifacts-cards" class="d-md-none vstack gap-2" aria-live="polite"><div class="text-muted small artifacts-loading">Загружаю материалы…</div></div>
     <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
     <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
+<div id="artifacts-nodate-note" class="small text-warning-emphasis mt-2 d-none"></div>
   </div>
 </div>
 
@@ -1568,9 +1569,16 @@ function appendChat(kind, html, extraClass) {
 }
 
 function renderChatSources(sources) {
-  const names = (sources || []).map(s => s.filename).filter(Boolean);
-  if (!names.length) return '';
-  return `<div class="small text-muted mt-2">Источники: ${escapeHtml(names.join(', '))}</div>`;
+  // У фрагмента созвона — ссылка на момент в стенограмме (SOURCE-ANCHORS-PLAN этап 4)
+  const clock = (sec) => { const s = Math.floor(sec); const two = (n) => String(n).padStart(2, '0'); return `${two(Math.floor(s / 60))}:${two(s % 60)}`; };
+  const items = (sources || []).filter((s) => s.filename).map((s) => {
+    const name = escapeHtml(s.filename);
+    if (!s.url) return name;
+    const label = s.start_sec != null ? `${name} ▶ ${clock(s.start_sec)}` : name;
+    return `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${label}</a>`;
+  });
+  if (!items.length) return '';
+  return `<div class="small text-muted mt-2">Источники: ${items.join(', ')}</div>`;
 }
 
 const tzRefreshEl = document.getElementById('tz-refresh');
@@ -1804,13 +1812,57 @@ function bindDeleteButtons(root) {
   });
 }
 
+// Дата материала (REQUIREMENTS-PLAN этап 1): от неё зависит, что сказано позже. Дата загрузки — не дата записи.
+const DATE_SOURCE = { meeting: 'встреча', filename: 'из имени файла', filename_time: 'из имени файла, со временем', media: 'из файла', manual: 'поставлена вручную', manual_time: 'поставлена вручную, со временем', messages: 'по сообщениям переписки', doc_text: 'из текста документа', doc_meta: 'из свойств файла (дата правки) — проверьте' };
+function fmtDay(iso) { const [y, m, d] = String(iso).split('-'); return `${d}.${m}.${y}`; }
+function materialDateLine(a) {
+  const edit = currentRole === 'admin'
+    ? ` <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-set-date="${escapeAttr(a.artifact_id)}" data-date="${escapeAttr(a.material_date || '')}">${a.material_date ? 'изменить' : 'поставить дату'}</button>`
+    : '';
+  if (!a.material_date) {
+    const up = a.upload_date ? ` (загружен ${escapeHtml(new Date(a.upload_date).toLocaleDateString('ru-RU'))})` : '';
+    return `<div class="small mt-1"><span class="badge text-bg-warning">дата записи неизвестна</span><span class="text-muted">${up}</span>${edit}</div>`;
+  }
+  if (a.material_date_source === 'messages') {
+    const till = a.material_period_end ? `–${escapeHtml(fmtDay(a.material_period_end))}` : '';
+    return `<div class="small text-muted mt-1">Переписка: ${escapeHtml(fmtDay(a.material_date))}${till} · у каждого пункта — время своего сообщения</div>`;
+  }
+  return `<div class="small text-muted mt-1">Дата записи: ${escapeHtml(fmtDay(a.material_date))} · ${escapeHtml(DATE_SOURCE[a.material_date_source] || a.material_date_source)}${edit}</div>`;
+}
+
+async function setMaterialDate(artifactId, current) {
+  const shown = current ? fmtDay(current) : '';
+  const raw = window.prompt('Дата записи материала: ДД.ММ.ГГГГ или со временем начала ДД.ММ.ГГГГ ЧЧ:ММ (время нужно, чтобы сравнить созвон с перепиской того же дня). Пусто — определить автоматически.', shown);
+  if (raw === null) return;
+  const text = raw.trim();
+  const body = { date: null, datetime_local: null };
+  if (text) {
+    const m = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/);
+    if (!m) { alert('Нужна дата вида 22.07.2026 или 22.07.2026 14:30'); return; }
+    const day = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    if (m[4]) body.datetime_local = `${day}T${m[4].padStart(2, '0')}:${m[5]}`;
+    else body.date = day;
+  }
+  const r = await SKKKK.api(`/projects/${projectId}/artifacts/${encodeURIComponent(artifactId)}/recorded-at`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!r.ok) { alert('Не удалось сохранить дату'); return; }
+  lastArtifactsSig = null;
+  refreshArtifacts();
+}
+
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-set-date]');
+  if (btn) setMaterialDate(btn.dataset.setDate, btn.dataset.date);
+});
+
 function buildRow(a) {
   const hasReport = Boolean(a.transcript_html_url);
   const title = hasReport ? reportLink(a) : escapeHtml(a.original_filename);
   const actions = artifactReportActions(a);
-  const nameCell = actions
+  const nameCell = (actions
     ? `<span class="artifact-name-line">${title}${actions}</span>`
-    : title;
+    : title) + materialDateLine(a);
   const err = a.status === 'error' && a.error_message
     ? `<span class="text-danger small">${escapeHtml(a.error_message)}</span>`
     : '<span class="text-muted">—</span>';
@@ -1833,6 +1885,7 @@ function buildCard(a) {
   // Карточка: заголовок и статус в одной строке, действия — отдельной строкой снизу (стили .ds-card в design.css).
   return `<div class="border rounded bg-white artifact-card ds-card">
     <div class="ds-card-head"><span class="ds-card-title">${title}</span>${statusBadge(a.status)}</div>
+    ${materialDateLine(a)}
     <div class="ds-card-actions">${actions}${downloadCell(a)}${deleteCell(a)}</div>
     ${err}
   </div>`;
@@ -1863,6 +1916,13 @@ async function refreshArtifacts() {
   if (hiddenNote) {
     hiddenNote.classList.toggle('d-none', hiddenExchange === 0);
     hiddenNote.textContent = hiddenExchange ? `Служебные файлы обмена с агентами скрыты: ${hiddenExchange} (смотрите блок «Обмен с агентами»).` : '';
+  }
+
+  const noDate = arts.filter((a) => !a.material_date && !a.meeting_lab).length;
+  const noDateNote = document.getElementById('artifacts-nodate-note');
+  if (noDateNote) {
+    noDateNote.classList.toggle('d-none', noDate === 0);
+    noDateNote.textContent = noDate ? `Материалов без даты записи: ${noDate}. Поставьте дату — по ней система понимает, что сказано позже и от чего отказались.` : '';
   }
 
   const total = arts.length;
