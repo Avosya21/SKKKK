@@ -13,6 +13,7 @@ from app.app.models.entity import (
     Link,
     NoteRef,
     Resolution,
+    Topic,
     UserNote,
 )
 from app.app.models.job import Job
@@ -51,6 +52,7 @@ __all__ = [
     "UserNote",
     "NoteRef",
     "Resolution",
+    "Topic",
     "Changelog",
     "SpeakerProfile",
     "ArtifactSpeakerLink",

@@ -111,6 +111,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("chunks", "end_sec", "FLOAT"),
     ("links", "model_review", "TEXT"),
     ("speaker_profiles", "user_id", "INTEGER REFERENCES users(id)"),
+    ("entities", "topic_id", "INTEGER"),
 ]
 
 

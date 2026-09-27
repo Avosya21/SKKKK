@@ -125,9 +125,10 @@ def rebuild_project_graph(db: Session, settings: Settings, project_id: int) -> d
             select(Link.id).where(Link.project_id == project_id, Link.is_automatic.is_(True))
         ).all()
     )
-    # Связи, разрешённые человеком, переживают пересборку: иначе проигравший остаётся выключенным, а причина пропадает.
-    human_links = select(Resolution.link_id).where(Resolution.resolved_by.is_not(None))
-    auto_ids = list(db.scalars(select(Link.id).where(Link.id.in_(auto_ids), Link.id.not_in(human_links))).all()) if auto_ids else []
+    # Решённые связи (человеком или моделью — в том числе замены по теме, REQUIREMENTS-PLAN этап 7) переживают
+    # пересборку: иначе проигравший остаётся выключенным, а причина и «Вернуть» пропадают.
+    resolved_links = select(Resolution.link_id)
+    auto_ids = list(db.scalars(select(Link.id).where(Link.id.in_(auto_ids), Link.id.not_in(resolved_links))).all()) if auto_ids else []
     if auto_ids:
         db.execute(delete(Resolution).where(Resolution.link_id.in_(auto_ids)))
         db.execute(delete(Link).where(Link.id.in_(auto_ids)))
