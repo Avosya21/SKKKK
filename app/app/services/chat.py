@@ -20,6 +20,7 @@ from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import Entity, Link, UserNote
 from app.app.models.job import Job
 from app.app.services.llm import chat_completion_no_think
+from app.app.services.source_links import source_url
 from app.app.services.artifact_reports import load_document_payload
 from app.app.services.summarize_document import load_document_source_text, load_document_summary_md
 from app.app.services.chunk_fts import init_chunk_fts
@@ -558,8 +559,15 @@ def _supplement_context(
     artifacts: list[Artifact],
     entities: list[Entity],
 ) -> str:
-    """Дополнительный контекст проекта: заметки, конфликты, выжимки релевантных созвонов."""
+    """Дополнительный контекст проекта: карточка проекта, заметки, конфликты, выжимки релевантных созвонов."""
     parts: list[str] = []
+
+    # Карточка проекта (REQUIREMENTS-PLAN этап 10): цель, системы, этапы, участники со сторонами, термины — рамка ответа.
+    from app.app.services.extraction_context import read_project_card
+
+    card, _meta = read_project_card(settings, project_id)
+    if card:
+        parts.append("Карточка проекта:\n" + card[:2000])
 
     if entities:
         ent_lines = [f"- {format_entity_line(e.entity_type, e.value_json, e.artifact)}" for e in entities[:30]]
@@ -783,6 +791,8 @@ def _answer_chat_inner(
             }
             if h.get("start_sec") is not None:
                 source["start_sec"] = h["start_sec"]
+            # ссылка на место в стенограмме или документе (SOURCE-ANCHORS-PLAN этап 4)
+            source["url"] = source_url(art.artifact_id, start_sec=h.get("start_sec"), quote=(h.get("text") or "")[:120])
             sources.append(source)
         hit_artifact_db_ids.add(art.id)
         if art.id not in seen_artifacts:

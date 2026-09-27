@@ -73,12 +73,16 @@ REPORT_THEME_LINKS = (
     '<link rel="stylesheet" href="/static/design.css?v=6">'
     '<link rel="stylesheet" href="/static/report-theme.css?v=1">'
 )
+REPORT_JUMP_SCRIPT = '<script src="/static/report-jump.js?v=1" defer></script>'
 
 
 def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None) -> HTMLResponse:
     # Единая дизайн-система для отчётов: подключается при отдаче, сохранённые файлы не меняются.
     if "</head>" in html and "report-theme.css" not in html:
         html = html.replace("</head>", REPORT_THEME_LINKS + "</head>", 1)
+    # Переход по ссылке к месту источника: ?t= момент созвона, ?m= сообщение, ?q= цитата (SOURCE-ANCHORS-PLAN этап 4)
+    if "</body>" in html and "report-jump.js" not in html:
+        html = html.replace("</body>", REPORT_JUMP_SCRIPT + "</body>", 1)
     html = apply_role_chrome(html, role or user.role)
     if embed:
         html = apply_embed_mode(html, kind=kind)
