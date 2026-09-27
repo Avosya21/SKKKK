@@ -18,6 +18,12 @@
     # 3) пополнение — только парами, где человек нажал «Вернуть»
     venv\\Scripts\\python scripts\\eval_auto_review.py --export-gold --only-undone --project 30
 Пороги live: неверных победителей 0, размечено ≥ 20, «не уверена» ≤ 30 %.
+
+Эталоны требований (docs/plans/REQUIREMENTS-PLAN.md, этап 11):
+    venv\\Scripts\\python scripts\\eval_auto_review.py --export-extraction --project 18 --sample 30   # разметить 3 столбца
+    venv\\Scripts\\python scripts\\eval_auto_review.py --extraction-gold          # понятно ≥ 90 %, не требование ≤ 5 %, кто и когда ≥ 95 %
+    venv\\Scripts\\python scripts\\eval_auto_review.py --export-relevance --project 18                # «устарело или дубль»
+    venv\\Scripts\\python scripts\\eval_auto_review.py --relevance-gold           # 0 ошибочно снятых на ≥ 30 размеченных
 """
 from __future__ import annotations
 
@@ -389,6 +395,159 @@ def gold_eval(args: argparse.Namespace) -> int:
     return 0 if result["ready_for_live"] else 1
 
 
+# Эталоны требований (REQUIREMENTS-PLAN этап 11): извлечение — оценка среза (понятно ли, требование ли, кто и когда);
+# актуальность — прогоняется заново при смене модели или промптов: 0 ошибочно снятых актуальных пунктов.
+EXTRACTION_GOLD = ROOT / "data" / "eval" / "extraction_gold.csv"
+RELEVANCE_GOLD = ROOT / "data" / "eval" / "relevance_gold.csv"
+YES = ("да", "yes", "+", "1")
+EXTRACTION_COLS = ("понятно без созвона (да/нет)", "это требование (да/нет)", "кто и когда верно (да/нет)")
+EXTRACTION_LIMITS = {"understandable": 0.90, "not_requirement_in_queue": 0.05, "who_when": 0.95, "min_labeled": 30}
+RELEVANCE_COL = "устарело или дубль (да/нет)"
+
+
+def _append_csv(path: Path, rows: list[dict], fields: list[str], key: str) -> tuple[int, int]:
+    existing = []
+    if path.is_file():
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            existing = [dict(r) for r in csv.DictReader(fh, delimiter=";")]
+    seen = {r.get(key) for r in existing}
+    fresh = [r for r in rows if str(r.get(key)) not in seen]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields, delimiter=";", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(existing + fresh)
+    tmp.replace(path)
+    return len(fresh), len(existing) + len(fresh)
+
+
+def export_extraction(args: argparse.Namespace) -> int:
+    """Выборка пунктов нового извлечения (есть «вид») в эталон: человек отмечает понятность, «требование ли», кто и когда."""
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.services import contract as ctr
+
+    db = SessionLocal()
+    try:
+        items = ctr.get_contract(db, get_settings(), args.project).files["requirements"]["items"]
+    finally:
+        db.close()
+    fresh = [r for r in items if r.get("item_kind")]
+    random.Random(args.seed).shuffle(fresh)
+    rows = []
+    for r in fresh[: args.sample]:
+        src = (r.get("evidence") or [{}])[0]
+        rows.append({"project": args.project, "entity_id": r["source_entity_id"], "вид (модель)": r.get("item_kind"),
+                     "формулировка": r["statement"], "сказал": src.get("speaker") or "", "утвердил": ", ".join(a.get("name", "") for a in src.get("agreed_by") or []),
+                     "где": src.get("material") or "", "дата": src.get("said_date") or "неизвестна", "таймкод": src.get("timecode") or "",
+                     "цитата": src.get("quote") or "", **{c: "" for c in EXTRACTION_COLS}})
+    fields = ["project", "entity_id", "вид (модель)", "формулировка", "сказал", "утвердил", "где", "дата", "таймкод", "цитата", *EXTRACTION_COLS]
+    added, total = _append_csv(args.gold_extraction, rows, fields, "entity_id")
+    print(json.dumps({"project": args.project, "added": added, "total": total, "file": str(args.gold_extraction)}, ensure_ascii=False))
+    return 0
+
+
+def score_extraction(args: argparse.Namespace) -> int:
+    with args.gold_extraction.open(encoding="utf-8-sig", newline="") as fh:
+        rows = [dict(r) for r in csv.DictReader(fh, delimiter=";")]
+    marked = [r for r in rows if all((r.get(c) or "").strip() for c in EXTRACTION_COLS)]
+    yes = lambda r, c: (r.get(c) or "").strip().lower() in YES  # noqa: E731
+    n = max(1, len(marked))
+    result = {"rows": len(rows), "marked": len(marked),
+              "understandable": round(sum(yes(r, EXTRACTION_COLS[0]) for r in marked) / n, 3),
+              "not_requirement_in_queue": round(sum(not yes(r, EXTRACTION_COLS[1]) for r in marked) / n, 3),
+              "who_when": round(sum(yes(r, EXTRACTION_COLS[2]) for r in marked) / n, 3)}
+    lim = EXTRACTION_LIMITS
+    result["ready"] = (len(marked) >= lim["min_labeled"] and result["understandable"] >= lim["understandable"]
+                       and result["not_requirement_in_queue"] <= lim["not_requirement_in_queue"] and result["who_when"] >= lim["who_when"])
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["ready"] else 1
+
+
+def export_relevance(args: argparse.Namespace) -> int:
+    """Темы проекта с 2+ пунктами в эталон: человек отмечает у пунктов «устарело или дубль»."""
+    from sqlalchemy import select
+
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Entity, Topic
+    from app.app.services.recorded_at import material_date
+
+    db = SessionLocal()
+    rows = []
+    try:
+        for topic in db.scalars(select(Topic).where(Topic.project_id == args.project).order_by(Topic.id)).all():
+            ents = db.execute(select(Entity, Artifact).join(Artifact, Artifact.id == Entity.artifact_id)
+                              .where(Entity.topic_id == topic.id, Entity.entity_type.in_(("decision", "task")))).all()
+            if len(ents) < 2:
+                continue
+            for ent, art in sorted(ents, key=lambda row: (material_date(row[1])[0] or datetime.min.date(), row[0].id)):
+                value = json.loads(ent.value_json)
+                rel = value.get("relevance") or {}
+                day = material_date(art)[0]
+                rows.append({"project": args.project, "entity_id": ent.id, "тема": topic.label, "дата": day.isoformat() if day else "неизвестна",
+                             "текст": value.get("text") or value.get("description") or "", "модель": rel.get("state") or "",
+                             "чем заменено (модель)": rel.get("by") or "", RELEVANCE_COL: ""})
+    finally:
+        db.close()
+    fields = ["project", "entity_id", "тема", "дата", "текст", "модель", "чем заменено (модель)", RELEVANCE_COL]
+    added, total = _append_csv(args.gold_relevance, rows, fields, "entity_id")
+    print(json.dumps({"project": args.project, "added": added, "total": total, "file": str(args.gold_relevance)}, ensure_ascii=False))
+    return 0
+
+
+def relevance_gold(args: argparse.Namespace) -> int:
+    """Контрольный прогон актуальности на копии БД по темам из эталона: 0 ошибочно снятых актуальных пунктов."""
+    with args.gold_relevance.open(encoding="utf-8-sig", newline="") as fh:
+        gold = {int(r["entity_id"]): (r.get(RELEVANCE_COL) or "").strip().lower() for r in csv.DictReader(fh, delimiter=";")
+                if (r.get(RELEVANCE_COL) or "").strip()}
+    if not gold:
+        print(f"в {args.gold_relevance} нет размеченных строк («{RELEVANCE_COL}»)", file=sys.stderr)
+        return 2
+    opened = _open_copy(check_llm=True)
+    if opened is None:
+        return 2
+    db, settings = opened
+    from sqlalchemy import select
+
+    from app.app.models.entity import Entity, Topic
+    from app.app.services.review_relevance import review_topics
+
+    ents = {e.id: e for e in db.scalars(select(Entity).where(Entity.id.in_(gold))).all()}
+    topic_ids = {e.topic_id for e in ents.values() if e.topic_id}
+    for ent in ents.values():  # на копии: без прежних вердиктов и решений человека по актуальности
+        value = json.loads(ent.value_json)
+        value.pop("relevance", None)
+        ent.value_json = json.dumps(value, ensure_ascii=False)
+    for topic in db.scalars(select(Topic).where(Topic.id.in_(topic_ids))).all():
+        topic.reviewed_at = None
+    db.commit()
+    by_project: dict[int, set[int]] = {}
+    for topic in db.scalars(select(Topic).where(Topic.id.in_(topic_ids))).all():
+        by_project.setdefault(topic.project_id, set()).add(topic.id)
+    for project_id, ids in by_project.items():
+        review_topics(db, settings, project_id, "shadow", topic_ids=ids)
+    db.expire_all()
+    wrong, missed, hit = [], [], 0
+    for eid, label in gold.items():
+        ent = db.get(Entity, eid)
+        state = ((json.loads(ent.value_json).get("relevance") or {}).get("state") if ent else None) or "current"
+        hidden = state in ("superseded", "duplicate")
+        if hidden and label not in YES:
+            wrong.append(eid)
+        elif not hidden and label in YES:
+            missed.append(eid)
+        else:
+            hit += 1
+    db.close()
+    result = {"labeled": len(gold), "correct": hit, "wrongly_hidden": len(wrong), "missed": len(missed),
+              "wrongly_hidden_ids": wrong[:20], "missed_ids": missed[:20]}
+    result["ready_for_live"] = not wrong and len(gold) >= 30
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["ready_for_live"] else 1
+
+
 def score(path: Path) -> int:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         rows = [r for r in csv.DictReader(fh, delimiter=";")]
@@ -421,9 +580,23 @@ def main() -> int:
     ap.add_argument("--only-undone", action="store_true", help="с --export-gold: только пары, где человек нажал «Вернуть»")
     ap.add_argument("--gold", action="store_true", help="контрольный прогон по размеченному эталону конфликтов")
     ap.add_argument("--gold-file", type=Path, default=GOLD_PATH)
+    ap.add_argument("--export-extraction", action="store_true", help="выборку нового извлечения проекта — в эталон для оценки")
+    ap.add_argument("--extraction-gold", action="store_true", help="метрики по размеченному эталону извлечения")
+    ap.add_argument("--gold-extraction", type=Path, default=EXTRACTION_GOLD)
+    ap.add_argument("--export-relevance", action="store_true", help="темы проекта — в эталон актуальности для разметки")
+    ap.add_argument("--relevance-gold", action="store_true", help="контрольный прогон актуальности по эталону (копия БД)")
+    ap.add_argument("--gold-relevance", type=Path, default=RELEVANCE_GOLD)
     args = ap.parse_args()
     if args.score:
         return score(args.score)
+    if args.extraction_gold:
+        return score_extraction(args)
+    if args.relevance_gold:
+        return relevance_gold(args)
+    if args.export_extraction or args.export_relevance:
+        if not args.project:
+            ap.error("нужен --project")
+        return export_extraction(args) if args.export_extraction else export_relevance(args)
     if args.gold:
         return gold_eval(args)
     if args.export_gold:
