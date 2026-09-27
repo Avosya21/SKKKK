@@ -18,6 +18,16 @@ CONFLICT = "POTENTIAL_CONFLICT"
 MATERIAL_TYPES = frozenset({"decision", "task", "fact"})
 
 
+def open_question_lines(db: Session, project_id: int, *, limit: int = 30) -> list[str]:
+    """Вопросы к заказчику и варианты без выбора (REQUIREMENTS-PLAN А7) — для раздела ТЗ «Открытые вопросы и риски»."""
+    rows = db.scalars(
+        select(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
+        .where(Artifact.project_id == project_id, Entity.entity_type == "open_question", Entity.is_active.is_(True))
+        .order_by(Entity.id.desc()).limit(limit)
+    ).all()
+    return [f"- {_line(db, ent)}" for ent in rows]
+
+
 def _line(db: Session, ent: Entity) -> str:
     from app.app.services.retrieval import format_entity_line
 

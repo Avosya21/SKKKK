@@ -72,6 +72,7 @@ def record_model_review(
     model: str,
     prompt_version: str,
     extra: dict[str, Any] | None = None,
+    over_human: bool = False,
 ) -> dict[str, Any] | None:
     """Записать вердикт модели. Вернуть запись или None, если сущность уже решил человек или режим off.
 
@@ -83,7 +84,9 @@ def record_model_review(
     if mode not in (MODE_SHADOW, MODE_LIVE):
         return None
     value = _load(entity)
-    if value.get("human_review"):
+    # over_human — решение А6 (REQUIREMENTS-PLAN): пункт, подтверждённый человеком до появления заменяющего материала,
+    # может быть заменён; подтверждение «это звучало тогда» не делает пункт вечным.
+    if value.get("human_review") and not over_human:
         return None
     review: dict[str, Any] = {
         "verdict": verdict,
@@ -97,6 +100,8 @@ def record_model_review(
     }
     if extra:
         review.update(extra)
+    if over_human and value.get("human_review"):
+        review["over_human"] = True
     if mode == MODE_LIVE and verdict == "reject" and entity.is_active:
         entity.is_active = False
         review["deactivated"] = True

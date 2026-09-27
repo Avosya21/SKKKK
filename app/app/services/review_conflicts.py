@@ -29,6 +29,7 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Link, Resolution
 from app.app.services.auto_review import MODE_LIVE, MODE_SHADOW, record_model_review, undo_model_review
+from app.app.services.source_links import source_url
 
 logger = logging.getLogger("skkkk.review")
 
@@ -73,8 +74,12 @@ def link_review(link: Link) -> dict[str, Any] | None:
 
 def _order_key(ent: Entity, art: Artifact, value: dict[str, Any]) -> tuple:
     from app.app.services.project_deadlines import artifact_reference_date
+    from app.app.services.recorded_at import item_moment
 
-    return (artifact_reference_date(art) or date.min, float(value.get("start_sec") or 0.0), art.id, ent.id)
+    # День пункта (у переписки — день сообщения), затем момент (время сообщения / начало созвона + таймкод), затем таймкод
+    day, moment = item_moment(art, value)
+    return (day or artifact_reference_date(art) or date.min, moment.timestamp() if moment else 0.0,
+            float(value.get("start_sec") or 0.0), art.id, ent.id)
 
 
 def _source(settings: Settings, ent: Entity, art: Artifact, value: dict[str, Any], cache: dict) -> list[str]:
@@ -254,8 +259,12 @@ def _author(model: str, rule: str | None) -> str:
 
 def apply_conflict_verdict(db: Session, settings: Settings, pair: dict[str, Any], *, verdict: str, reason: str,
                            confidence: float, mode: str, model: str, rule: str | None = None,
-                           reject_kind: str = "superseded", relation: str | None = None) -> str:
-    """Записать вердикт по конфликту. Вернуть итоговый вердикт (может стать unsure, если мешает решение человека)."""
+                           reject_kind: str = "superseded", relation: str | None = None,
+                           over_human: bool = False, important: bool | None = None) -> str:
+    """Записать вердикт по конфликту. Вернуть итоговый вердикт (может стать unsure, если мешает решение человека).
+
+    ``over_human`` — решение А6: проигравшую сторону подтвердил человек ДО появления заменяющего материала, замену можно
+    применить (вызывающий проверил время); ``important`` — принудительно во «Важное»."""
     from app.app.services.conflict_rules import is_material_topic
 
     link = db.get(Link, pair["link_id"])
@@ -265,7 +274,7 @@ def apply_conflict_verdict(db: Session, settings: Settings, pair: dict[str, Any]
         verdict = "unsure"
     older, newer = pair["older"], pair["newer"]
     winner, loser = (newer, older) if verdict == "newer_wins" else (older, newer)
-    if verdict in ("newer_wins", "older_wins") and loser["human"]:
+    if verdict in ("newer_wins", "older_wins") and loser["human"] and not over_human:
         verdict, reason = "unsure", f"проигравшую сторону подтвердил человек; модель: {reason}"
     elif verdict in ("newer_wins", "older_wins") and not _source_supports(winner):
         # Замер 2026-09-24: модель «объяснила» неверно извлечённый факт («24 слайда» из «видеокарта 24 ГБ») и отдала ему
@@ -276,7 +285,7 @@ def apply_conflict_verdict(db: Session, settings: Settings, pair: dict[str, Any]
                               "mode": mode, "model": model, "prompt_version": PROMPT_VERSION, "at": _now(),
                               "older": older["id"], "newer": newer["id"], "rule": rule, "relation": relation,
                               "reject_kind": reject_kind if wins else None,
-                              "important": wins and is_material_topic(older.get("text") or "", newer.get("text") or "")}
+                              "important": (important if important is not None else wins and is_material_topic(older.get("text") or "", newer.get("text") or ""))}
     author = _author(model, rule)
     if mode == MODE_LIVE and wins:
         db.add(Resolution(link_id=link.id, winning_entity_id=winner["id"], losing_entity_id=loser["id"],
@@ -285,7 +294,8 @@ def apply_conflict_verdict(db: Session, settings: Settings, pair: dict[str, Any]
         previous = _value(lose_ent).get("model_review")
         record_model_review(lose_ent, settings, verdict="reject", reason=f"заменено: {reason}", confidence=confidence,
                             mode=MODE_LIVE, model=model, prompt_version=PROMPT_VERSION,
-                            extra={"reject_kind": reject_kind, "conflict_link": link.id, "winner": winner["id"], "previous": previous})
+                            extra={"reject_kind": reject_kind, "conflict_link": link.id, "winner": winner["id"], "previous": previous},
+                            over_human=over_human)
         review["resolution"], review["deactivated"] = "model_resolved", loser["id"]
     elif mode == MODE_LIVE and verdict == "not_conflict":
         db.add(Resolution(link_id=link.id, winning_entity_id=newer["id"], losing_entity_id=older["id"],
@@ -490,9 +500,14 @@ def conflict_rows(db: Session, project_id: int, *, view: str = "pending") -> lis
         for key, ent_id in (("source", link.source_entity_id), ("target", link.target_entity_id)):
             ent = db.get(Entity, ent_id)
             art = db.get(Artifact, ent.artifact_id) if ent else None
+            value = _value(ent) if ent else {}
             side[key] = {"id": ent_id, "type": ent.entity_type if ent else None, "value": ent.value_json if ent else None,
                          "active": bool(ent and ent.is_active),
-                         "line": format_entity_line(ent.entity_type, ent.value_json, art) if ent else None}
+                         "line": format_entity_line(ent.entity_type, ent.value_json, art) if ent else None,
+                         # ссылка на место источника: момент созвона / сообщение переписки (SOURCE-ANCHORS-PLAN этап 4)
+                         "url": source_url(art.artifact_id if art else None, start_sec=value.get("start_sec"),
+                                           message_id=value.get("message_id"),
+                                           quote=str(value.get("text") or value.get("description") or "")) if ent else None}
         out.append({"link_id": link.id, "score": link.similarity_score, **side, "model_review": review,
                     "resolution": {"status": res.status, "reason": res.reason, "winner": res.winning_entity_id} if res else None})
     return out

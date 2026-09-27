@@ -344,6 +344,11 @@ def _collect_project_material(db: Session, settings: Settings, project_id: int) 
         parts.append(("Изменения решений (что в силе и что заменено)", "\n".join(resolved_lines)))
     if open_lines:
         parts.append(("Нерешённые противоречия", "\n".join(open_lines)))
+    from app.app.services.conflict_context import open_question_lines
+
+    questions = open_question_lines(db, project_id, limit=60)
+    if questions:
+        parts.append(("Вопросы к заказчику (варианты без выбора)", "\n".join(questions)))
 
     return parts
 
@@ -733,6 +738,18 @@ def build_tz_fast_body(db: Session, settings: Settings, project_id: int) -> tupl
     note_lines = [f"- (note #{n.id}) {n.text.strip()}" for n in notes if n.text.strip()]
     if note_lines:
         blocks.append("## Заметки пользователей\n\n" + "\n".join(note_lines))
+    # Что чем заменено, что не решено, какие вопросы ждут заказчика (REQUIREMENTS-PLAN этап 10): без этого быстрая сборка
+    # видела только найденные фрагменты и могла вернуть в ТЗ решение, от которого отказались.
+    from app.app.services.conflict_context import conflict_lines, open_question_lines
+
+    resolved_lines, open_lines = conflict_lines(db, project_id, limit=30)
+    if resolved_lines:
+        blocks.append("## Изменения решений (что в силе и что заменено)\n\n" + "\n".join(resolved_lines))
+    if open_lines:
+        blocks.append("## Нерешённые противоречия\n\n" + "\n".join(open_lines))
+    questions = open_question_lines(db, project_id)
+    if questions:
+        blocks.append("## Вопросы к заказчику (варианты без выбора)\n\n" + "\n".join(questions))
 
     if not blocks:
         log_event(logger, "tz.rebuild_fast.empty", project_id=project_id)

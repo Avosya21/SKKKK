@@ -36,13 +36,26 @@ def _enqueue_auto_review(db: Session, settings: Settings, artifact: Artifact) ->
         mode = review_mode(settings, artifact.project)
         if mode == MODE_OFF:
             return
-        for scope in ("artifact", "conflicts"):
+        # требования → темы → актуальность (дубли, заменённое) → конфликты: очередь берёт задачи одного вида по порядку постановки
+        for scope in ("artifact", "topics", "relevance", "conflicts"):
             job = enqueue_auto_review(db, artifact.id, scope=scope, mode=mode)
             if job is not None:
                 log_event(logger, "review.queued", artifact=artifact.artifact_id, job_id=job.id, scope=scope, mode=mode)
     except Exception:  # noqa: BLE001
         db.rollback()
         logger.exception("auto review enqueue failed for %s", artifact.artifact_id)
+
+
+def _extraction_context(db: Session, settings: Settings, artifact: Artifact) -> str:
+    """Карточка проекта, оглавление созвона, темы (REQUIREMENTS-PLAN этап 3). Сбой контекста извлечение не ломает."""
+    from app.app.services.extraction_context import build_extraction_context
+
+    try:
+        return build_extraction_context(db, settings, artifact)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("extraction context failed for %s", artifact.artifact_id)
+        return ""
 
 
 def _suggest_speaker_names(db: Session, settings: Settings, artifact: Artifact) -> None:
@@ -72,9 +85,10 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
         payload = stub_entities(artifact, text)
     else:
         prepare_for_llm(settings.lmstudio_model, settings=settings)
+        context = _extraction_context(db, settings, artifact)
         # Закрыть транзакцию: извлечение идёт минутами, соединение из пула всё это время было бы занято.
         db.commit()
-        payload = extract_entities_llm(settings, artifact, text)
+        payload = extract_entities_llm(settings, artifact, text, context=context)
     log_event(
         logger,
         "entities.extracted",

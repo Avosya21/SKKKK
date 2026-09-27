@@ -18,8 +18,25 @@ class Entity(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     needs_review: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Тема проекта (REQUIREMENTS-PLAN этап 5); без внешнего ключа — тема может пересобираться независимо от сущностей.
+    topic_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     artifact: Mapped["Artifact"] = relationship(back_populates="entities")
+
+
+class Topic(Base):
+    """Тема проекта: потребность или объект («ввод характеристик номенклатуры»), а не способ решения (решение А2).
+    По теме модель склеивает дубли и находит устаревшее (REQUIREMENTS-PLAN этапы 5–7)."""
+
+    __tablename__ = "topics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Когда тему последний раз проверяли на дубли и устаревшее; сбрасывается, когда в тему приходят новые пункты.
+    reviewed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Link(Base):

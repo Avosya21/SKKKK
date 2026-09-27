@@ -19,7 +19,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.contract import ContractItem
-from app.app.models.entity import AsrRun, Changelog, Chunk, Entity, Link, NoteRef, Resolution, UserNote
+from app.app.models.entity import AsrRun, Changelog, Chunk, Entity, Link, NoteRef, Resolution, Topic, UserNote
 from app.app.models.job import Job
 from app.app.models.meeting import Meeting, MeetingParticipant
 from app.app.models.project import Project
@@ -195,6 +195,7 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
         db.execute(delete(AsrRun).where(AsrRun.artifact_id.in_(art_pks)))
         db.execute(delete(Job).where(Job.artifact_id.in_(art_pks)))
 
+    db.execute(delete(Topic).where(Topic.project_id == pid))
     db.execute(delete(ProjectTask).where(ProjectTask.project_id == pid))
     db.execute(delete(ArtifactSpeakerLink).where(ArtifactSpeakerLink.project_id == pid))
     db.execute(delete(SpeakerProfile).where(SpeakerProfile.project_id == pid))

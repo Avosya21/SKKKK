@@ -50,8 +50,11 @@ def source_weight(entity_type: str, value: dict[str, Any], artifact: Artifact | 
     """Вес источника пункта по Р1."""
     if (text or "").strip().endswith("?"):
         return WEIGHT_TENTATIVE
-    is_doc = artifact is not None and artifact.source_type != "call" and artifact.file_type != "audio"
+    # Документ или созвон — по типу файла: docx, загруженный как «созвон», остаётся документом (REQUIREMENTS-PLAN этап 1).
+    is_doc = artifact is not None and artifact.file_type != "audio"
     priority = float(artifact.priority_weight or 0.0) if artifact is not None else 0.0
+    if is_doc and artifact.source_type == "call":
+        priority = max(priority, INTERNAL_DOC_MIN_PRIORITY)  # вес созвона 0.5 достался документу по ошибке загрузки
     if is_doc and priority >= CUSTOMER_DOC_MIN_PRIORITY:
         return WEIGHT_CUSTOMER_DOC
     if is_doc and priority >= INTERNAL_DOC_MIN_PRIORITY:
