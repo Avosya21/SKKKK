@@ -94,6 +94,7 @@
     const where = s.material ? ` · ${esc(s.material)}` : '';
     let when;
     if (s.date_basis === 'message' && s.said_at) when = esc(fmt(s.said_at));
+    else if (s.said_date && s.date_basis === 'upload') when = esc(dayRu(s.said_date)) + ' <span class="badge text-bg-warning" title="Дата записи неизвестна — взята дата загрузки; поставьте дату на странице проекта">по дате загрузки</span>' + (s.timecode ? `, ${esc(s.timecode)}` : '');
     else if (s.said_date) when = esc(dayRu(s.said_date)) + (s.timecode ? `, ${esc(s.timecode)}` : '');
     else if (s.said_at && !s.date_basis) when = esc(fmt(s.said_at));
     else when = '<span class="badge text-bg-warning" title="У материала нет даты записи — поставьте её на странице проекта">дата записи неизвестна</span>' + (s.timecode ? `, ${esc(s.timecode)}` : '');

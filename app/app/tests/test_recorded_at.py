@@ -99,7 +99,18 @@ def test_manual_date_is_explicit_and_wins():
     art.recorded_at_source, art.recorded_at = ra.SOURCE_UPLOAD, datetime(2026, 9, 1)
     assert ra.material_date(art) == (date(2026, 8, 19), ra.SOURCE_FILENAME)
     art.original_filename = "созвон.webm"
+    assert ra.material_date(art) == (date(2026, 9, 1), ra.SOURCE_UPLOAD)  # решение 2026-09-28: нет фактической — дата загрузки
+    art.upload_date = None
     assert ra.material_date(art) == (None, ra.SOURCE_UPLOAD)
+
+
+def test_filename_datetime_two_digit_year_and_month_word():
+    """Телемост: «22.09.26 14-00-34» — день и время начала; «[14 мая 2» — дата словом (замер проектов 2026-09-28)."""
+    assert ra.filename_datetime("Встреча в Телемосте 22.09.26 14-00-34 — запись.webm") == datetime(2026, 9, 22, 11, 0)
+    assert ra.filename_datetime("платформа 8.3.18 10-00.txt") is None
+    assert ra.filename_date("Николай Волков РОП Клиент Б, [14 мая 2.txt", datetime(2026, 9, 1)) == date(2026, 5, 14)
+    assert ra.filename_date("протокол 3 декабря 2025.docx", datetime(2026, 9, 1)) == date(2025, 12, 3)
+    assert ra.filename_date("итоги 20 декабря.docx", datetime(2026, 9, 1)) == date(2025, 12, 20)
 
 
 def test_set_recorded_at_api(client, admin_token, tmp_data):
@@ -121,10 +132,10 @@ def test_set_recorded_at_api(client, admin_token, tmp_data):
     db.close()
     headers = {"Authorization": f"Bearer {admin_token}"}
     row = next(a for a in client.get(f"/projects/{pid}/artifacts", headers=headers).json() if a["artifact_id"] == "art_dates_1")
-    assert row["material_date"] is None and row["material_date_source"] == "upload"
+    assert row["material_date"] == "2026-08-27" and row["material_date_source"] == "upload"
     r = client.patch(f"/projects/{pid}/artifacts/art_dates_1/recorded-at", json={"date": "2026-07-22"}, headers=headers)
     assert r.status_code == 200 and r.json()["material_date"] == "2026-07-22" and r.json()["material_date_source"] == "manual"
     row = next(a for a in client.get(f"/projects/{pid}/artifacts", headers=headers).json() if a["artifact_id"] == "art_dates_1")
     assert row["material_date"] == "2026-07-22"
     r = client.patch(f"/projects/{pid}/artifacts/art_dates_1/recorded-at", json={"date": None}, headers=headers)
-    assert r.json()["material_date"] is None and r.json()["material_date_source"] == "upload"
+    assert r.json()["material_date"] == "2026-08-27" and r.json()["material_date_source"] == "upload"
