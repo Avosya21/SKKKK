@@ -56,6 +56,15 @@ CHAT_DOC_MATCH_LIMIT = 3
 CHAT_DOC_KEYWORDS = ("директор", "вопрос", "последн", "документ", "файл", "заметк", "txt")
 CHAT_PRIORITY_KEYWORDS = ("приоритет", "актуальн", "последн", "главн", "важнее", "считать")
 CLARIFICATION_MARKER = "🤔 Нужно ваше уточнение"
+CHAT_MATERIAL_ENTITIES = 15  # пункты найденных материалов в допконтексте — ближайшие к вопросу
+# Допконтекст без блока «что в силе»: карточка, пункты, заметки, выжимки созвонов. Блок изменений решений идёт первым и
+# не режется — раньше он стоял в конце и отрезался лимитом (урок 2026-09-28: начинался с 10 764-го знака из 8 000).
+CHAT_SUPPLEMENT_CHARS = 8000
+DOC_DUPLICATE_PROBE = 150  # начало фрагмента поиска, по которому видно, что он уже есть в блоке документа
+
+
+def _squash(text: str) -> str:
+    return " ".join((text or "").split())
 
 
 def asr_busy(db: Session) -> bool:
@@ -441,17 +450,36 @@ def _graph_snippet(db: Session, project_id: int, entity_ids: list[int]) -> str:
     return "\n".join(lines)
 
 
-def _entities_for_artifacts(db: Session, artifact_db_ids: set[int]) -> list[Entity]:
+def _entities_for_artifacts(
+    db: Session,
+    artifact_db_ids: set[int],
+    query_vec: list[float] | None = None,
+    *,
+    exclude: set[int] | None = None,
+    min_score: float = 0.0,
+    limit: int = CHAT_MATERIAL_ENTITIES,
+) -> list[Entity]:
+    """Пункты найденных материалов, ближайшие к вопросу; без вектора — после них, по номеру. Раньше — первые 40 по номеру:
+    у созвона это участники и организационные мелочи, а пункты по теме вопроса до модели не доходили (урок 2026-09-28)."""
     if not artifact_db_ids:
         return []
-    return list(
-        db.scalars(
-            select(Entity)
-            .where(Entity.artifact_id.in_(artifact_db_ids), Entity.is_active.is_(True))
-            .order_by(Entity.id)
-            .limit(40)
+    skip = exclude or set()
+    rows = [
+        e
+        for e in db.scalars(
+            select(Entity).where(Entity.artifact_id.in_(artifact_db_ids), Entity.is_active.is_(True)).order_by(Entity.id)
         ).all()
-    )
+        if e.id not in skip
+    ]
+    if query_vec is None:
+        return rows[:limit]
+    from app.app.services.graph import _cosine
+    from app.app.services.vector_index import load_entity_vectors
+
+    vectors = load_entity_vectors(db, [e.id for e in rows])
+    scored = sorted(((_cosine(query_vec, vectors[e.id]), e) for e in rows if e.id in vectors), key=lambda row: -row[0])
+    ranked = [e for score, e in scored if score >= min_score]
+    return (ranked + [e for e in rows if e.id not in vectors])[:limit]
 
 
 def _load_document_raw_excerpt(settings: Settings, artifact: Artifact, *, max_chars: int = CHAT_DOC_EXCERPT_CHARS) -> str:
@@ -525,7 +553,9 @@ def _document_context_blocks(
         if score < min_score:
             continue
         payload = load_document_payload(settings, art)
-        parts = [f"Документ «{art.original_filename}» (artifact_id={art.artifact_id}):"]
+        # дата — чтобы модель видела, что уточнение из переписки или созвона сделано позже документа
+        label = material_date_label(art)
+        parts = [f"Документ «{art.original_filename}»{f' · {label}' if label else ''} (artifact_id={art.artifact_id}):"]
         doc_summary = load_document_summary_md(settings, art)
         if doc_summary:
             parts.append(f"Выжимка документа:\n{doc_summary.strip()[:2500]}")
@@ -559,7 +589,20 @@ def _supplement_context(
     artifacts: list[Artifact],
     entities: list[Entity],
 ) -> str:
-    """Дополнительный контекст проекта: карточка проекта, заметки, конфликты, выжимки релевантных созвонов."""
+    """Дополнительный контекст проекта: изменения решений и противоречия (первыми, без обрезки), карточка проекта,
+    пункты найденных материалов, заметки, выжимки релевантных созвонов."""
+    # Только противоречия по найденным материалам, хронологией (CONFLICT-AUTONOMY-PLAN этап 5).
+    from app.app.services.conflict_context import conflict_lines
+
+    head: list[str] = []
+    resolved_lines, open_lines = conflict_lines(
+        db, project_id, artifact_ids={a.id for a in artifacts}, entity_ids={e.id for e in entities}
+    )
+    if resolved_lines:
+        head.append("Изменения решений (что в силе и что заменено):\n" + "\n".join(resolved_lines))
+    if open_lines:
+        head.append("Нерешённые противоречия:\n" + "\n".join(open_lines))
+
     parts: list[str] = []
 
     # Карточка проекта (REQUIREMENTS-PLAN этап 10): цель, системы, этапы, участники со сторонами, термины — рамка ответа.
@@ -570,7 +613,7 @@ def _supplement_context(
         parts.append("Карточка проекта:\n" + card[:2000])
 
     if entities:
-        ent_lines = [f"- {format_entity_line(e.entity_type, e.value_json, e.artifact)}" for e in entities[:30]]
+        ent_lines = [f"- {format_entity_line(e.entity_type, e.value_json, e.artifact)}" for e in entities]
         parts.append("Сущности по найденным материалам:\n" + "\n".join(ent_lines))
 
     notes = db.scalars(
@@ -580,17 +623,6 @@ def _supplement_context(
         note_lines = [f"- (note #{n.id}) {n.text.strip()}" for n in notes if n.text.strip()]
         if note_lines:
             parts.append("Заметки проекта:\n" + "\n".join(note_lines))
-
-    # Только противоречия по найденным материалам, хронологией (CONFLICT-AUTONOMY-PLAN этап 5).
-    from app.app.services.conflict_context import conflict_lines
-
-    resolved_lines, open_lines = conflict_lines(
-        db, project_id, artifact_ids={a.id for a in artifacts}, entity_ids={e.id for e in entities}
-    )
-    if resolved_lines:
-        parts.append("Изменения решений (что в силе и что заменено):\n" + "\n".join(resolved_lines))
-    if open_lines:
-        parts.append("Нерешённые противоречия:\n" + "\n".join(open_lines))
 
     summary_lines: list[str] = []
     for art in artifacts:
@@ -607,8 +639,8 @@ def _supplement_context(
     if summary_lines:
         parts.append("Выжимки созвонов:\n" + "\n\n".join(summary_lines))
 
-    body = "\n\n".join(parts)
-    return body[:8000]
+    rest = "\n\n".join(parts)[:CHAT_SUPPLEMENT_CHARS]
+    return "\n\n".join([*head, rest] if rest else head)
 
 
 def _project_tz_excerpt(settings: Settings, project_id: int, *, max_chars: int = 2500) -> str:
@@ -752,8 +784,10 @@ def _answer_chat_inner(
     seen_source_keys: set[tuple[str, str]] = set()
 
     doc_blocks = _document_context_blocks(db, settings, project_id, question)
+    # Текст документов уже в контексте: фрагмент поиска из того же документа повторял бы его (пункт ТЗ шёл модели трижды)
+    doc_text = {art.id: _squash(block) for art, block in doc_blocks}
     if doc_blocks:
-        context_lines.append("=== Загруженные документы проекта (приоритет для вопросов директора) ===")
+        context_lines.append("=== Загруженные документы проекта ===")
         for art, block in doc_blocks:
             context_lines.append(block)
             key = (art.artifact_id, art.original_filename)
@@ -779,7 +813,8 @@ def _answer_chat_inner(
             continue
         # Шапка — откуда и когда фрагмент; у окон реплик имена и таймкоды уже в строках текста.
         speaker = f"[{h['speaker']}] " if h.get("speaker") and h.get("start_sec") is None else ""
-        context_lines.append(f"{chunk_header(art, h)}\n{speaker}{h['text']}")
+        if not (art.id in doc_text and _squash(h["text"])[:DOC_DUPLICATE_PROBE] in doc_text[art.id]):
+            context_lines.append(f"{chunk_header(art, h)}\n{speaker}{h['text']}")
         key = (art.artifact_id, art.original_filename)
         if key not in seen_source_keys:
             seen_source_keys.add(key)
@@ -873,9 +908,9 @@ def _answer_chat_inner(
             )
             return {"answer": answer, "sources": sources, "waiting": False, "clarification": True}
 
-        entities = [
-            e for e in _entities_for_artifacts(db, hit_artifact_db_ids) if e.id not in entity_hit_ids
-        ]
+        entities = _entities_for_artifacts(
+            db, hit_artifact_db_ids, q_vecs[0], exclude=entity_hit_ids, min_score=settings.search_min_score
+        )
         entity_ids = [e.id for e in entities] + list(entity_hit_ids)
         graph_part = _graph_snippet(db, project_id, entity_ids)
         supplement = _supplement_context(db, settings, project_id, hit_artifacts, entities)

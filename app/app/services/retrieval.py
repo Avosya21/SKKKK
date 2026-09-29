@@ -105,6 +105,10 @@ def enrich_and_rerank_hits(
 
 RRF_K = 60
 FTS_TRUSTED_TOP = 5  # первые находки по точным словам проходят и ниже порога смысловой близости
+# Первые находки по смыслу проходят всегда: без совпадения слов (опечатка, другая форма слова) RRF ставит их ниже любого
+# фрагмента, найденного обоими способами. Урок 2026-09-28: второй по смыслу фрагмент проекта — ответ «общего списка
+# приходов/уходов достаточно» — выпал из 12 мест из-за «Битркис24» и «опоздан*» ≠ «опоздавших».
+SEMANTIC_TRUSTED_TOP = 3
 
 
 def fuse_chunk_hits(
@@ -149,8 +153,20 @@ def fuse_chunk_hits(
             fused[cid]["score"] = scores.get(cid, 0.0)
     rows = (rerank or enrich_and_rerank_hits)(db, list(fused.values()))
     rows = [h for h in rows if h["score"] >= min_score or h.get("fts_rank", FTS_TRUSTED_TOP) < FTS_TRUSTED_TOP]
-    rows.sort(key=lambda h: h.get("rrf", 0.0) * (0.5 + float(h.get("priority_weight", 0.5))), reverse=True)
-    return rows[:limit]
+
+    def fused_key(h: dict[str, Any]) -> float:
+        return h.get("rrf", 0.0) * (0.5 + float(h.get("priority_weight", 0.5)))
+
+    rows.sort(key=fused_key, reverse=True)
+    picked = rows[:limit]
+    trusted = {h["chunk_id"] for h in sorted(vec_hits, key=lambda h: -float(h["score"]))[:SEMANTIC_TRUSTED_TOP]}
+    picked_ids = {h["chunk_id"] for h in picked}
+    missing = [h for h in rows if h["chunk_id"] in trusted and h["chunk_id"] not in picked_ids]
+    if missing:
+        keep = [h for h in picked if h["chunk_id"] in trusted]
+        others = [h for h in picked if h["chunk_id"] not in trusted][: max(0, limit - len(keep) - len(missing))]
+        picked = sorted(keep + others + missing, key=fused_key, reverse=True)
+    return picked
 
 
 def _source_title(artifact: Artifact | None) -> str:
