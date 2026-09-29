@@ -32,10 +32,15 @@
 	}
 	tls {$SKKKK_TLS_CERT} {$SKKKK_TLS_KEY}
 	handle_path /livekit/* {
-		reverse_proxy 127.0.0.1:7880
+		reverse_proxy 127.0.0.1:7880 {
+			# Не светим апстрим-стек наружу (было Server: uvicorn/livekit).
+			header_down -Server
+		}
 	}
 	handle {
 		reverse_proxy 127.0.0.1:{$SKKKK_WEB_PORT:1777} {
+			# Не светим апстрим-стек наружу (было Server: uvicorn).
+			header_down -Server
 			transport http {
 				response_header_timeout 15m
 			}
