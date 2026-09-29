@@ -124,18 +124,18 @@ def test_word_text_keeps_empty_final():
 
 
 def test_merge_track_replicas_reads_as_dialogue():
-    dasha = [
-        {"word": "Алло.", "final": "Алло.", "start": 171.7, "end": 174.9, "speaker": "Даша"},
-        {"word": "Подожди", "final": "Подожди", "start": 178.9, "end": 179.6, "speaker": "Даша"},
-        {"word": "слышно.", "final": "слышно.", "start": 180.0, "end": 180.4, "speaker": "Даша"},
+    anna = [
+        {"word": "Алло.", "final": "Алло.", "start": 171.7, "end": 174.9, "speaker": "Анна"},
+        {"word": "Подожди", "final": "Подожди", "start": 178.9, "end": 179.6, "speaker": "Анна"},
+        {"word": "слышно.", "final": "слышно.", "start": 180.0, "end": 180.4, "speaker": "Анна"},
     ]
-    petya = [
-        {"word": "Я", "final": "Я", "start": 173.6, "end": 174.0, "speaker": "Петя"},
-        {"word": "слышу.", "final": "слышу.", "start": 174.4, "end": 177.2, "speaker": "Петя"},
-        {"word": "Алло", "final": "Алло", "start": 185.1, "end": 185.8, "speaker": "Петя"},
+    petr = [
+        {"word": "Я", "final": "Я", "start": 173.6, "end": 174.0, "speaker": "Пётр"},
+        {"word": "слышу.", "final": "слышу.", "start": 174.4, "end": 177.2, "speaker": "Пётр"},
+        {"word": "Алло", "final": "Алло", "start": 185.1, "end": 185.8, "speaker": "Пётр"},
     ]
-    rows = merge_track_replicas(dasha, petya)
-    assert [row["speaker"] for row in rows] == ["Даша", "Петя", "Даша", "Петя"]
+    rows = merge_track_replicas(anna, petr)
+    assert [row["speaker"] for row in rows] == ["Анна", "Пётр", "Анна", "Пётр"]
     assert rows[0]["text"] == "Алло."
     assert "Подожди" in rows[2]["text"]
 

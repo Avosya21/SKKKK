@@ -7,10 +7,10 @@ from app.app.services.login_allowlist import load_allowlist, resolve_allowed_log
 
 def test_allowlist_skips_blank_and_comments(tmp_path: Path):
     path = tmp_path / "Login_up.txt"
-    path.write_text("# header\n\nElena\n  demo_user  \n", encoding="utf-8")
+    path.write_text("# header\n\nAnna\n  demo_user  \n", encoding="utf-8")
     entries = load_allowlist(path)
-    assert set(entries) == {"elena", "demo_user"}
-    assert entries["elena"] == "Elena"
+    assert set(entries) == {"anna", "demo_user"}
+    assert entries["anna"] == "Anna"
 
 
 def test_resolve_allowed_login_is_casefold(tmp_path: Path):
@@ -22,7 +22,7 @@ def test_resolve_allowed_login_is_casefold(tmp_path: Path):
 
 
 def test_missing_allowlist_denies(tmp_path: Path):
-    assert resolve_allowed_login("Elena", tmp_path / "missing.txt") is None
+    assert resolve_allowed_login("Anna", tmp_path / "missing.txt") is None
 
 
 def test_login_rejects_name_not_on_list(anon_client):

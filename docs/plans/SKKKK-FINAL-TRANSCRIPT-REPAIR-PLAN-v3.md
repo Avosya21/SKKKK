@@ -231,7 +231,7 @@ venv\Scripts\python.exe -m pytest app -m "not gpu and not slow" -q
 2. Сохранить результаты.
 3. Сохранить текущий HTML meeting lab.
 4. Сохранить текущие `meeting.json`, `manifest.json`, `proof/transcript.json`.
-5. Зафиксировать контрольный созвон или имеющийся артефакт встречи как baseline.
+5. Зафиксировать контрольный созвон или имеющийся артефакт тестовой встречи как baseline.
 
 ## Новые требования
 
