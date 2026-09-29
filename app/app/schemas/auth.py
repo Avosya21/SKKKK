@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 class LoginRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    telegram_id: str = Field(min_length=1, max_length=64)
+    # Необязателен: поле на форме входа скрыто (решение владельца 2026-09-28) — уведомлений в Telegram нет
+    telegram_id: str | None = Field(default=None, max_length=64)
     password: str = Field(min_length=1)
 
 

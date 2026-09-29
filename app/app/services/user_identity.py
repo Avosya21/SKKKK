@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections import defaultdict
 
@@ -141,6 +142,16 @@ def claim_telegram_id(db: Session, user: User, telegram_id: str) -> None:
         return
     free_telegram_id(db, value, keep_user_id=user.id)
     user.telegram_id = value
+
+
+def placeholder_telegram_id(login: str) -> str:
+    """Заглушка Telegram ID учётки без него (столбец обязательный и уникальный): одна на логин. Её пишут участник,
+    добавленный в проект до первого входа, и вход без Telegram ID (поле на форме скрыто с 2026-09-28)."""
+    key = login_name_key(login)
+    raw = f"pending-{key}"
+    if len(raw) <= 64:
+        return raw
+    return "pending-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:48]
 
 
 def ensure_login_name_unique_index() -> None:
