@@ -16,7 +16,13 @@ from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user, require_html_user
 from app.app.services.meeting_recordings import recording_enabled, screen_recording_enabled
-from app.app.services.meetings import get_meeting, meeting_by_token, require_meeting_staff
+from app.app.services.meetings import (
+    get_meeting,
+    meeting_by_token,
+    ongoing_meetings,
+    ongoing_payload,
+    require_meeting_staff,
+)
 from app.app.services.project_access import (
     can_grant_access,
     staff_ui_role,
@@ -217,11 +223,16 @@ def project_page(
 
     names = db.scalars(select(Artifact.original_filename).where(Artifact.project_id == project_id)).all()
     artifact_count = sum(1 for n in names if not re.match(r"^analysis_(reply|request|question)_\d+\.json$", n or "", re.IGNORECASE))
+    # Полоска «Идёт созвон» рисуется сразу с сервера: появись она после загрузки — страница ниже «прыгнула» бы
+    live_meetings = []
+    if role in ("admin", "manager"):
+        live_meetings = [ongoing_payload(m, people) for m, people in ongoing_meetings(db, project_id)]
     return templates.TemplateResponse(
         request,
         "project.html",
         {
             "artifact_count": artifact_count,
+            "live_meetings": live_meetings,
             "title": title,
             "project_id": project_id,
             "project_name": project.name,

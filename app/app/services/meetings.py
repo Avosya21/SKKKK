@@ -1,4 +1,4 @@
-"""Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, токены комнаты LiveKit, закрытие комнаты."""
+"""Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, идущие сейчас встречи, токены комнаты LiveKit, закрытие комнаты."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings
@@ -36,6 +36,8 @@ GUEST_ID_RE = re.compile(r"[A-Za-z0-9-]+")
 GUEST_IDENTITY_HASH_LEN = 32
 GUEST_ID_INVALID = "guest_id invalid"
 DISPLAY_NAME_MAX = 128
+# Участник «на связи», если не вышел и подавал признаки жизни (вход, heartbeat) за это время.
+ONGOING_SEEN_MINUTES = 10
 
 
 def require_meeting_staff(db: Session, user: User, project_id: int) -> Project:
@@ -74,6 +76,38 @@ def list_meetings(db: Session, project_id: int) -> list[Meeting]:
             select(Meeting).where(Meeting.project_id == project_id).order_by(Meeting.id.desc())
         )
     )
+
+
+def ongoing_meetings(db: Session, project_id: int | None = None) -> list[tuple[Meeting, list[MeetingParticipant]]]:
+    """Идущие встречи и кто в них на связи: статус live и есть участник на связи.
+
+    Забытая «live» без людей (её не завершили кнопкой) не считается. Этим правилом пользуются
+    полоска «Идёт созвон» на странице проекта и restart.ps1 (scripts/live_meetings.py)."""
+    cutoff = _now() - timedelta(minutes=ONGOING_SEEN_MINUTES)
+    query = select(Meeting).where(Meeting.status == STATUS_LIVE)
+    if project_id is not None:
+        query = query.where(Meeting.project_id == project_id)
+    result = []
+    for meeting in db.scalars(query.order_by(Meeting.id)).all():
+        people = list(db.scalars(
+            select(MeetingParticipant).where(
+                MeetingParticipant.meeting_id == meeting.id,
+                MeetingParticipant.left_at.is_(None),
+                func.coalesce(MeetingParticipant.last_seen_at, MeetingParticipant.joined_at) >= cutoff,
+            ).order_by(MeetingParticipant.joined_at, MeetingParticipant.id)
+        ).all())
+        if people:
+            result.append((meeting, people))
+    return result
+
+
+def ongoing_payload(meeting: Meeting, people: list[MeetingParticipant]) -> dict:
+    return {
+        "id": meeting.id,
+        "started_at": meeting.started_at.isoformat() if meeting.started_at else None,
+        "people": [p.display_name for p in people],
+        "room_url": f"/projects/{meeting.project_id}/meetings/{meeting.id}/room",
+    }
 
 
 def get_meeting(db: Session, project_id: int, meeting_id: int) -> Meeting:
