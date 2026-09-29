@@ -348,12 +348,21 @@ def _kill_pid_tree(pid: int) -> None:
             pass
 
 
+# Готовность — так же, как грузит модель сам чистильщик: DeepFilterNet импортирует torchaudio.backend, которого нет в
+# torchaudio 2.9+, и voice_cleaner подменяет его (_ensure_df_io_compat). Голый импорт падал и при каждом старте давал
+# ложное «чистильщик не стартует», хотя шумодав работал.
+_VOICE_READY_CODE = (
+    "import sys; sys.path.insert(0, sys.argv[1]); import voice_cleaner; "
+    "voice_cleaner._ensure_df_io_compat(); import df.enhance"
+)
+
+
 def voice_venv_ready() -> bool:
     if not VOICE_PY.is_file():
         return False
     try:
         done = subprocess.run(
-            [str(VOICE_PY), "-c", "import torchaudio; import df.enhance"],
+            [str(VOICE_PY), "-c", _VOICE_READY_CODE, str(VOICE_CLEANER.parent)],
             capture_output=True,
             timeout=45,
         )
