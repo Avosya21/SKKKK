@@ -695,7 +695,7 @@ async def _pump(room, track, participant, model, state, enhance, lock, wanted) -
                 continue
 
 
-async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> None:
+async def _join(url: str, token: str, model, enhance, lock, room_name: str, member_check=None) -> None:
     from livekit import rtc
 
     room = rtc.Room()
@@ -838,11 +838,21 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> N
         print("voice_cleaner: denoise", identity, parsed, flush=True)
         apply_denoise(person)
 
+    left = asyncio.Event()
+
+    @room.on("disconnected")
+    def _on_disconnected(*_args) -> None:
+        left.set()
+
     await room.connect(url, token)
     print("voice_cleaner: joined", room.name, flush=True)
+    watch = rec_mod.MemberWatch()
     try:
         while True:
-            if room.connection_state != rtc.ConnectionState.CONN_CONNECTED:
+            if left.is_set() or room.connection_state != rtc.ConnectionState.CONN_CONNECTED:
+                return
+            if member_check is not None and watch.due() and watch.lost(await asyncio.to_thread(member_check)):
+                print("voice_cleaner: server lost us in", room_name, "- rejoin", flush=True)
                 return
             await asyncio.sleep(POLL_SEC)
     finally:
@@ -850,7 +860,10 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> N
             cancel(identity)
         release_room_slots(room_name)
         await close_records()
-        await room.disconnect()
+        try:
+            await asyncio.wait_for(room.disconnect(), timeout=5.0)
+        except BaseException:  # noqa: BLE001 — SDK мог застрять; комнату всё равно отпускаем, цикл зайдёт заново
+            pass
 
 
 def _b64url(raw: bytes) -> str:
@@ -901,6 +914,17 @@ def _tokens(api_key: str, api_secret: str, room_name: str = "") -> tuple[str, st
     return listed, joined
 
 
+def _member_check(api_key: str, api_secret: str, room_name: str):
+    def check() -> bool | None:
+        now = int(time.time())
+        admin = livekit_jwt(
+            {"iss": api_key, "nbf": now, "exp": now + 300, "video": {"roomAdmin": True, "room": room_name}},
+            api_secret,
+            api_key,
+        )
+        return _recordings().room_member_state(HTTP_URL, admin, room_name, CLEANER_ID)
+
+    return check
 
 
 def _list_rooms(list_jwt: str) -> list[str]:
@@ -963,13 +987,15 @@ async def _loop() -> None:
             _, join_jwt = _tokens(key, secret, name)
             active.add(name)
             backoff.started(name)
-            asyncio.create_task(_watch(name, join_jwt, model, enhance, lock, active, backoff))
+            asyncio.create_task(
+                _watch(name, join_jwt, model, enhance, lock, active, backoff, _member_check(key, secret, name))
+            )
         await asyncio.sleep(POLL_SEC)
 
 
-async def _watch(name: str, token: str, model, enhance, lock, active: set[str], backoff=None) -> None:
+async def _watch(name: str, token: str, model, enhance, lock, active: set[str], backoff=None, member_check=None) -> None:
     try:
-        await _join(INTERNAL_URL, token, model, enhance, lock, name)
+        await _join(INTERNAL_URL, token, model, enhance, lock, name, member_check)
     except Exception as exc:
         print("voice_cleaner:", name, exc, file=sys.stderr)
     finally:
