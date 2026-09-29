@@ -114,3 +114,10 @@ experiments/**/.venv/
 experiments/promo_video/public/fonts/
 experiments/**/*.bak
 .venv/
+
+# Данные клиентских проектов — только локально: эталонные вопросы по проектам, письма агенту проекта,
+# рабочие эксперименты. В git — ни персональных данных, ни содержания проектов.
+docs/eval/chat_questions_*.json
+docs/eval/tz_facts_*.json
+docs/agent-exchange/letters/
+experiments/for_anar/

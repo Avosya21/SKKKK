@@ -17,8 +17,19 @@ def test_old_projects_keep_legacy_behavior_new_projects_get_none(client, manager
     p = db.get(Project, pid)
     assert st.get_settings_for(p)["domain_pack"] == "none"
     old = Project(name="Старый", created_by=p.created_by, settings_json="{}")
-    assert st.get_settings_for(old)["domain_pack"] == "1c_bitrix24" and st.get_settings_for(old)["side_hints"]["customer"] == ["эталон"]
+    assert st.get_settings_for(old)["domain_pack"] == "1c_bitrix24" and st.get_settings_for(old)["side_hints"]["customer"] == []
     db.close()
+
+
+def test_generic_assignee_from_executor_aliases(monkeypatch):
+    """Исполнитель «компания X» — общий: при склейке его заменяет конкретный человек. Названия — из EXECUTOR_ALIASES."""
+    from app.app.config import get_settings
+    from app.app.services.entities import _pick_assignee
+
+    assert _pick_assignee("Акме", "Антон Морозов") == "Акме"  # без настройки название компании — обычный исполнитель
+    monkeypatch.setattr(get_settings(), "executor_aliases", "акме, acme")
+    assert _pick_assignee("Акме", "Антон Морозов") == "Антон Морозов"
+    assert _pick_assignee("команда", "Антон Морозов") == "Антон Морозов"
 
 
 def test_anchor_packs_none_gives_no_1c_anchors():

@@ -527,6 +527,14 @@ def _combine_task_descriptions(primary: str, secondary: str) -> str:
     return f"{a.rstrip('.')}. {b}"
 
 
+def _generic_assignees() -> set[str]:
+    """Исполнитель «вообще», а не человек: команда и названия компании-исполнителя из EXECUTOR_ALIASES."""
+    from app.app.config import get_settings
+
+    aliases = {a.strip().casefold() for a in (get_settings().executor_aliases or "").split(",") if a.strip()}
+    return {"команда"} | aliases
+
+
 def _pick_assignee(current: str | None, incoming: str | None) -> str | None:
     cur = (current or "").strip()
     inc = (incoming or "").strip()
@@ -536,7 +544,7 @@ def _pick_assignee(current: str | None, incoming: str | None) -> str | None:
         return inc
     if _SPEAKER_LABEL.match(cur) and not _SPEAKER_LABEL.match(inc):
         return inc
-    if len(inc) > len(cur) and cur.casefold() in {"акме", "acme", "команда"}:
+    if len(inc) > len(cur) and cur.casefold() in _generic_assignees():
         return inc
     return cur
 

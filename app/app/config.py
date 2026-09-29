@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     personal_password_min_len: int = 10
     # Компании для карточки пользователя (как Login_up.txt): «Название | Исполнитель|Заказчик».
     companies_path: Path = ROOT / "Companies.txt"
+    # Как модель называет компанию-исполнителя в поле «исполнитель» задачи («компании X», через запятую): такой
+    # исполнитель общий, при склейке задач его заменяет конкретный человек. Названия компаний в код не пишем.
+    executor_aliases: str = ""
 
     livekit_url: str = ""
     livekit_api_key: str = ""
