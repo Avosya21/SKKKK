@@ -4,7 +4,9 @@
 проекта (карточка, оглавление созвона, темы), перенос ручных решений на новые пункты (``entities.persist_entities``),
 пересев графа. Затем материал ставит свои проверки: требования → темы → актуальность → конфликты. Проверки идут в
 очереди после всех переизвлечений проекта (FIFO), актуальность ждёт, пока проект не разобран целиком
-(``review_relevance._project_busy``). Расшифровку и разбор документов заново не делаем — текст уже есть.
+(``review_relevance._project_busy``). Последний материал проекта ставит за своими проверками итоговую выжимку
+(scope ``summary``) — она собирается, когда устаревшее уже выключено. Расшифровку и разбор документов заново не
+делаем — текст уже есть.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ logger = logging.getLogger("skkkk.review")
 
 SCOPE = "reextract"
 FOLLOW_UP_SCOPES = ("artifact", "topics", "relevance", "conflicts")
+SUMMARY_SCOPE = "summary"  # итоговая выжимка проекта — за проверками всех материалов (переизвлечение и новые материалы)
 # Файлы обмена с внешним агентом — не материалы проекта (их и на странице проекта нет в списке материалов)
 EXCHANGE_FILE = re.compile(r"^analysis_(reply|request|question)_\d+\.json$", re.IGNORECASE)
 
@@ -80,7 +83,12 @@ def queue_project_reextract(db: Session, settings: Settings, project_id: int) ->
 
 
 def reextract_for_review(db: Session, settings: Settings, artifact: Artifact, mode: str) -> dict[str, Any]:
-    """Исполнитель очереди (scope ``reextract``): извлечение v2 → граф → постановка проверок этого материала."""
+    """Исполнитель очереди (scope ``reextract``): извлечение v2 → граф → постановка проверок этого материала.
+
+    Выжимку проекта здесь не собираем: актуальность и конфликты выключают устаревшее позже, и собранная сразу выжимка
+    сохраняла заменённые пункты (2026-09-28, проект 34: «сводка по опозданиям в Битрикс24», отменённая перепиской).
+    Последнее переизвлечение проекта ставит её отдельной задачей за своими проверками (``_queue_summary_if_last``).
+    """
     from app.app.services import contract as ctr
     from app.app.services.entities import reextract_artifact_entities
     from app.app.services.graph import seed_graph
@@ -88,14 +96,86 @@ def reextract_for_review(db: Session, settings: Settings, artifact: Artifact, mo
     from app.app.services.storage import artifact_knowledge_text
 
     started = time.monotonic()
-    result = reextract_artifact_entities(db, settings, artifact)
-    if result.get("ok") and not settings.dry_run:
-        seed_graph(db, settings, artifact, artifact_knowledge_text(settings, artifact) or artifact.transcription_text or "")
-        db.commit()
-    ctr._cache.pop(artifact.project_id, None)
-    for scope in FOLLOW_UP_SCOPES:
-        enqueue_auto_review(db, artifact.id, scope=scope, mode=mode)
+    try:
+        result = reextract_artifact_entities(db, settings, artifact)
+        if result.get("ok") and not settings.dry_run:
+            seed_graph(db, settings, artifact, artifact_knowledge_text(settings, artifact) or artifact.transcription_text or "")
+            db.commit()
+        ctr._cache.pop(artifact.project_id, None)
+        for scope in FOLLOW_UP_SCOPES:
+            enqueue_auto_review(db, artifact.id, scope=scope, mode=mode)
+    except Exception:
+        db.rollback()
+        _queue_summary_if_last(db, artifact, mode)  # упал последний материал — выжимка по остальным всё равно нужна
+        raise
+    _queue_summary_if_last(db, artifact, mode)
     result["seconds"] = round(time.monotonic() - started, 1)
     log_event(logger, "reextract.done", artifact=artifact.artifact_id, ok=result.get("ok"), tasks=result.get("tasks"),
               seconds=result["seconds"])
     return result
+
+
+def _queue_summary_if_last(db: Session, artifact: Artifact, mode: str) -> None:
+    """Последнее переизвлечение проекта ставит итоговую выжимку в конец очереди. Воркер один, задачи идут по порядку
+    постановки, а проверки всех материалов уже стоят раньше — выжимка соберётся после конфликтов последнего материала."""
+    from app.app.services.queue import enqueue_auto_review
+
+    if not _reextract_left(db, artifact):
+        enqueue_auto_review(db, artifact.id, scope=SUMMARY_SCOPE, mode=mode)
+
+
+def summary_for_review(db: Session, settings: Settings, artifact: Artifact, mode: str) -> dict[str, Any]:
+    """Исполнитель очереди (scope ``summary``): итоговая выжимка проекта по пунктам, оставшимся в силе после проверок
+    переизвлечения или нового материала (как ``scripts/review_project.py``: выжимка — в конце, после конфликтов).
+
+    Новый материал ставит её за своими проверками (``pipeline_knowledge._enqueue_auto_review``). Если в очереди ждёт ещё
+    одна выжимка проекта — она дальше, за проверками следующих материалов, — эта пропускается без вызова модели: партия
+    собирается один раз (решение владельца 2026-09-29).
+    """
+    from app.app.services.tz import summary_jobs_queued
+
+    started = time.monotonic()
+    waiting = summary_jobs_queued(db, artifact.project_id)
+    if waiting:
+        log_event(logger, "summary.deferred", project=artifact.project_id, artifact=artifact.artifact_id, waiting=waiting)
+        return {"rebuilt": False, "deferred": waiting, "seconds": 0.0}
+    rebuilt = rebuild_project_summary(db, settings, artifact.project_id, summary=f"auto after checks {artifact.artifact_id}")
+    return {"rebuilt": rebuilt, "seconds": round(time.monotonic() - started, 1)}
+
+
+def _reextract_left(db: Session, artifact: Artifact) -> int:
+    """Сколько ещё переизвлечений этого проекта в очереди (кроме текущего материала)."""
+    from sqlalchemy import func
+
+    from app.app.models.job import Job
+
+    return int(db.scalar(
+        select(func.count()).select_from(Job).join(Artifact, Artifact.id == Job.artifact_id)
+        .where(Artifact.project_id == artifact.project_id, Artifact.id != artifact.id, Job.status.in_(("queued", "running")),
+               Job.payload_json.like(f'%"scope": "{SCOPE}"%'))
+    ) or 0)
+
+
+def rebuild_project_summary(db: Session, settings: Settings, project_id: int, *,
+                            summary: str = "пересборка после переизвлечения требований") -> bool:
+    """Итоговая выжимка проекта собирается из фрагментов текста и пунктов (``rebuild_tz_fast``) — после переизвлечения и
+    проверок нового материала её нужно пересобрать, иначе в ней старые пункты (один вызов модели). Отчёты материалов пункты
+    не показывают — их не трогаем. Вернуть, собрана ли выжимка."""
+    if settings.dry_run:
+        return False
+    from app.app.services.gpu_phase import prepare_for_llm
+    from app.app.services.project_tasks import TASK_TZ_REBUILD, get_running_task, track_project_task
+    from app.app.services.tz import rebuild_tz_fast
+
+    if get_running_task(db, task_type=TASK_TZ_REBUILD, project_id=project_id):
+        return False
+    db.commit()  # соединение БД не держим на время ответа модели (DECISIONS 2026-09-21)
+    try:
+        prepare_for_llm(settings.lmstudio_model, settings=settings)  # перед задачей очереди мог идти ASR, выгрузивший модель
+        with track_project_task(db, task_type=TASK_TZ_REBUILD, project_id=project_id):
+            rebuild_tz_fast(db, settings, project_id, summary=summary)
+    except Exception:  # noqa: BLE001 — выжимку можно пересобрать кнопкой, требования уже обновлены
+        db.rollback()
+        logger.exception("project summary rebuild failed for project %s", project_id)
+        return False
+    return True

@@ -26,7 +26,11 @@ logger = logging.getLogger("skkkk.knowledge")
 
 
 def _enqueue_auto_review(db: Session, settings: Settings, artifact: Artifact) -> None:
-    """Фоновая автопроверка требований и конфликтов артефакта (низкий приоритет в очереди). Сбой постановки знания не ломает."""
+    """Фоновая автопроверка требований и конфликтов артефакта (низкий приоритет в очереди). Сбой постановки знания не ломает.
+
+    Последней в цепочке — итоговая выжимка проекта (scope ``summary``): к ней актуальность и конфликты уже выключат
+    заменённое. Из партии её собирает только последняя такая задача проекта (``requirements_reextract.summary_for_review``).
+    """
     if settings.dry_run:
         return
     from app.app.services.auto_review import MODE_OFF, review_mode
@@ -36,8 +40,9 @@ def _enqueue_auto_review(db: Session, settings: Settings, artifact: Artifact) ->
         mode = review_mode(settings, artifact.project)
         if mode == MODE_OFF:
             return
-        # требования → темы → актуальность (дубли, заменённое) → конфликты: очередь берёт задачи одного вида по порядку постановки
-        for scope in ("artifact", "topics", "relevance", "conflicts"):
+        # требования → темы → актуальность (дубли, заменённое) → конфликты → выжимка проекта: очередь берёт задачи одного
+        # вида по порядку постановки
+        for scope in ("artifact", "topics", "relevance", "conflicts", "summary"):
             job = enqueue_auto_review(db, artifact.id, scope=scope, mode=mode)
             if job is not None:
                 log_event(logger, "review.queued", artifact=artifact.artifact_id, job_id=job.id, scope=scope, mode=mode)
@@ -154,8 +159,8 @@ def run_knowledge_pipeline(db: Session, settings: Settings, artifact: Artifact, 
         seed_graph(db, settings, artifact, text)
     set_status(db, artifact, "graph_seeded")
 
-    # Документы теперь всегда инициируют пересборку ТЗ после полного завершения
-    # обработки; для аудио оставляем прежнюю пакетную логику по счётчику done.
+    # Выжимка проекта: с автопроверкой — задачей очереди за проверками (одна на партию), сборку здесь
+    # maybe_auto_rebuild_tz пропускает; без автопроверки — сразу: документ — в конце партии, созвон — каждый N-й.
     set_status(db, artifact, "done")
     _enqueue_auto_review(db, settings, artifact)
     maybe_auto_rebuild_tz(db, settings, artifact)

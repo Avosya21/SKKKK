@@ -283,3 +283,36 @@ def test_auto_rebuild_waits_for_batch_then_runs_once(client, monkeypatch):
         assert len(calls) == 1
     finally:
         db.close()
+
+
+def test_rebuild_tz_fast_empty_project_writes_stub_without_model(db_engine, monkeypatch):
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services import tz
+    from app.app.services.vector_index import init_vector_store
+
+    init_vector_store(db_engine)
+    monkeypatch.setattr(tz, "embed_texts", lambda _s, texts: [[0.1] * 1024 for _ in texts])
+    calls = []
+    monkeypatch.setattr(tz, "chat_completion_no_think", lambda *a, **k: calls.append(k) or "выжимка")
+    db = SessionLocal()
+    try:
+        user = User(name="tz-empty", telegram_id="tg-tz-empty", role="user", password_hash="x")
+        db.add(user)
+        db.flush()
+        project = Project(name="TzEmpty", description="", created_by=user.id)
+        db.add(project)
+        db.commit()
+        settings = get_settings()
+
+        body, stats = tz.build_tz_fast_body(db, settings, project.id)  # без материалов — нечего собирать
+        assert body is None
+        assert stats["artifacts_total"] == 0
+
+        path = tz.rebuild_tz_fast(db, settings, project.id, manual=True)
+        assert "Материалов для сборки пока нет" in path.read_text(encoding="utf-8")
+        assert calls == []
+    finally:
+        db.close()
