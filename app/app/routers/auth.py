@@ -62,6 +62,7 @@ from app.app.services.user_identity import (
     free_telegram_id,
     merge_users_into,
     pick_canonical_user,
+    placeholder_telegram_id,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -227,9 +228,10 @@ def login(
             detail="Too many login attempts",
             headers={"Retry-After": str(wait)},
         )
+    # Telegram ID необязателен (поле на форме скрыто, 2026-09-28): указан — пишется на учётку, нет — остаётся прежний
     telegram_id = (body.telegram_id or "").strip()
-    if not (body.name or "").strip() or not telegram_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name and Telegram ID required")
+    if not (body.name or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name required")
     allowlist = settings.login_allowlist_path
     name = resolve_allowed_login(body.name, allowlist)
     if name is None:
@@ -283,6 +285,7 @@ def login(
                 session_role=role,
             )
     else:
+        telegram_id = telegram_id or placeholder_telegram_id(name)  # столбец обязательный и уникальный
         free_telegram_id(db, telegram_id)
         user = User(
             name=name,

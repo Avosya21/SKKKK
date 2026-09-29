@@ -11,6 +11,7 @@
     'Invalid credentials': 'Неверный пароль.',
     'Login is not on the allowlist': 'Этот логин не в списке допущенных.',
     'Name and Telegram ID required': 'Укажите имя и Telegram ID.',
+    'Name required': 'Укажите логин.',
     'Not found': 'Не найдено.',
     'Project name required': 'Введите название проекта.',
     'Project not found': 'Проект не найден.',

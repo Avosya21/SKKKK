@@ -133,7 +133,9 @@ def meeting_webmanifest(start: str = "/"):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"title": "Вход"})
+    # Telegram ID на форме скрыт (решение владельца 2026-09-28): эта версия сервера принимает вход без него. Признак даёт
+    # маршрут, а не шаблон: шаблон подхватывается с диска сразу, код — после перезапуска, и старый код без поля не пустил бы.
+    return templates.TemplateResponse(request, "login.html", {"title": "Вход", "hide_telegram": True})
 
 
 @router.get("/m/{token}", response_class=HTMLResponse)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,7 +13,7 @@ from app.app.models.user import User
 from app.app.services.login_allowlist import load_allowlist, resolve_allowed_login
 from app.app.services.project_access import can_grant_access, project_role, require_project
 from app.app.services.user_activity import ACTION_CREATE, ACTION_DELETE, BLOCK_PROJECT, log_activity
-from app.app.services.user_identity import find_users_by_login_name, login_name_key
+from app.app.services.user_identity import find_users_by_login_name, login_name_key, placeholder_telegram_id
 
 MEMBER_ROLES = ("manager", "user")
 ROLE_LABELS = {"manager": "Менеджер", "user": "Участник"}
@@ -34,11 +32,7 @@ def _user_name(db: Session, user_id: int) -> str:
 
 
 def _pending_telegram_id(login: str) -> str:
-    key = login_name_key(login)
-    raw = f"pending-{key}"
-    if len(raw) <= 64:
-        return raw
-    return "pending-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:48]
+    return placeholder_telegram_id(login)
 
 
 def ensure_allowlist_user(db: Session, settings: Settings, login: str) -> User:
