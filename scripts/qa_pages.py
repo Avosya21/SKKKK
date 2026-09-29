@@ -158,12 +158,18 @@ def start_instance(passwords: dict[str, str]):
     raise RuntimeError("тестовый экземпляр не поднялся: " + (tmp / "server.log").read_text(encoding="utf-8", errors="ignore")[-400:])
 
 
+def fill_login(page, name: str, password: str) -> None:
+    """Поля входа по id. Поле Telegram на странице входа теперь неактивно (hide_telegram) — заполняем, только если оно есть."""
+    page.fill("#login-name", name)
+    tg = page.locator("#login-telegram")
+    if tg.count() and tg.is_enabled():
+        tg.fill("audit-" + name[-5:])
+    page.fill("#login-password", password)
+
+
 def ui_login(page, base: str, name: str, password: str) -> None:
     page.goto(base + "/login")
-    ins = page.locator("#login-form input")
-    ins.nth(0).fill(name)
-    ins.nth(1).fill("audit-" + name[-5:])
-    ins.nth(2).fill(password)
+    fill_login(page, name, password)
     page.locator("#login-form button[type=submit]").click()
     page.wait_for_url(lambda u: "/login" not in u, timeout=20000)
 
