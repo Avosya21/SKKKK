@@ -382,7 +382,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert "Встреча" in guest
     assert "Выдать доступ" not in guest
     assert 'href="/projects"' not in guest
-    assert "meeting_room.js?v=a56" in guest
+    assert "meeting_room.js?v=a57" in guest
     assert "meeting_layout.js" in guest
     assert 'rel="manifest"' in guest
     assert "meeting-room" in guest
@@ -397,7 +397,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-leave"' in guest
     assert 'id="meeting-fs"' in guest
     staff_room = (templates / "meeting_room.html").read_text(encoding="utf-8")
-    assert "meeting_room.js?v=a56" in staff_room
+    assert "meeting_room.js?v=a57" in staff_room
     assert "meeting_layout.js" in staff_room
     assert 'rel="manifest"' in staff_room
     assert 'id="meeting-screen-lead"' in staff_room
@@ -423,8 +423,8 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-btn"' in staff_room
     assert 'id="meeting-speaker-menu"' in guest
     assert 'id="meeting-speaker-menu"' in staff_room
-    assert "meeting_room.js?v=a56" in guest
-    assert "meeting_room.js?v=a56" in staff_room
+    assert "meeting_room.js?v=a57" in guest
+    assert "meeting_room.js?v=a57" in staff_room
     assert "SKKKK_MEETING_VOICE" in guest
     assert "SKKKK_MEETING_VOICE" in staff_room
     assert "skkkk-guest-" in guest
@@ -543,6 +543,11 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "CLEANER_ID" in js
     assert "hasCleaner" in js
     assert "isCleaner" in js
+    # нет очищенной дорожки человека (готовится, снята, шумодав ушёл) — играет сырая, человек не замолкает
+    assert "function hasCleanTrack" in js
+    assert "return !hasCleanTrack(room, person.identity);" in js
+    assert "if (isCleaner(person)) setTimeout(() => this._reattachAudio(), 0);" in js
+    assert 'if (isCleaner(participant) && track.kind === "audio") setTimeout(() => this._reattachAudio(), 0);' in js
     assert "function isHidden" in js
     assert "01_audio" not in js
     assert "function phoneGridCols" in js
