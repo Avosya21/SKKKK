@@ -172,7 +172,12 @@ def close_livekit_room(room_name: str) -> bool:
                     if hasattr(result, "__await__"):
                         await result
 
-        asyncio.run(_delete())
+        # Свой поток со своим циклом событий: asyncio.run() в потоке, где цикл уже идёт (асинхронный обработчик, Playwright
+        # в сценариях проверки), падает — и комната молча оставалась открытой.
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, _delete()).result(timeout=30)
         return True
     except Exception as exc:
         # Комнаты уже нет (все вышли раньше) — цель достигнута. Только ответ LiveKit code=not_found: голый 404

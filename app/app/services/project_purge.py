@@ -210,18 +210,27 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     db.execute(delete(ContractItem).where(ContractItem.project_id == pid))
     meeting_ids = list(db.scalars(select(Meeting.id).where(Meeting.project_id == pid)))
     meeting_rooms = list(db.scalars(select(Meeting.room_name).where(Meeting.project_id == pid)))
+    live_rooms = list(db.scalars(select(Meeting.room_name).where(Meeting.project_id == pid, Meeting.status == "live")))
     if meeting_ids:
         db.execute(delete(MeetingParticipant).where(MeetingParticipant.meeting_id.in_(meeting_ids)))
     db.execute(delete(Meeting).where(Meeting.project_id == pid))
     db.execute(delete(Artifact).where(Artifact.project_id == pid))
     db.delete(project)
     db.commit()
+    # Идущие встречи удалённого проекта: закрыть комнаты, иначе участники и боты записи оставались в них, и запись
+    # писалась в каталог удалённой встречи.
+    from app.app.services.meetings import close_livekit_room
+
+    for room_name in live_rooms:
+        close_livekit_room(room_name)
+    # Каталоги записей — с повторами, как у удаления встречи: рекордер держит файлы ещё несколько секунд после закрытия
+    # комнаты (раньше ошибка «файл занят» обрывала удаление проекта уже после записи в базу).
     for room_name in meeting_rooms:
-        try:
-            remove_room_recordings(settings.data_dir, room_name)
-        except ValueError:
-            pass
-    remove_project_tree(settings, pid)
+        _remove_meeting_room(settings, room_name)
+    try:
+        remove_project_tree(settings, pid)
+    except OSError:
+        logger.warning("project.purge.tree_busy project_id=%s", pid, exc_info=True)
     log_event(logger, "project.purged", project_id=pid, name=name, artifacts=len(art_pks))
 
 

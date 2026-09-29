@@ -669,9 +669,12 @@ async def _loop() -> None:
             print("voice_cleaner: list", exc, file=sys.stderr)
             rooms = []
         backoff.forget_missing(rooms)
+        live = _recordings().live_room_names(_data_dir())
         for name in rooms:
             if name in active or not backoff.allowed(name):
                 continue
+            if live is not None and name not in live:
+                continue  # комната не идущей встречи (могла воскреснуть от старого токена) — не заходим и не пишем
             _, join_jwt = _tokens(key, secret, name)
             active.add(name)
             backoff.started(name)
