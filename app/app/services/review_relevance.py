@@ -2,7 +2,8 @@
 
 Модель читает пункты одной темы по хронологии (промпт ``review_relevance.md``) и говорит про каждый: в силе / заменён
 более поздним / дубль / выполнен / неясно. Код проверяет ответ и применяет:
-- **заменён** — заменивший позже по дате записи, обе даты известны (А4), заменивший подтверждается своим источником и не
+- **заменён** — заменивший позже по дате материала (А4; нет фактической даты — дата загрузки, решение владельца
+  2026-09-28; один день без времени — неясно, Я3), заменивший подтверждается своим источником и не
   слабее по весу (Р1). Оформляется парой «заменённый ↔ заменивший» (``POTENTIAL_CONFLICT`` + ``apply_conflict_verdict``,
   правило ``rule:topic_superseded``): отсюда «Вернуть», «Важное», хронология в чате и ТЗ, автооткат. Подтверждённое
   человеком — по А6: подтверждено до появления заменяющего материала → замена применяется и попадает во «Важное»;
@@ -34,8 +35,8 @@ from app.app.services.auto_review import MODE_LIVE, MODE_SHADOW, record_model_re
 logger = logging.getLogger("skkkk.review")
 
 ROOT = Path(__file__).resolve().parents[3]
-PROMPT_PATH = ROOT / "docs" / "prompts" / "review_relevance.md"
-PROMPT_VERSION = "review_relevance-v1"
+PROMPT_PATH = ROOT / "docs" / "prompts" / "review_relevance_v2.md"  # v2: похожие пункты из других тем; v1 — файлом
+PROMPT_VERSION = "review_relevance-v2.1"  # v2.1: большие темы порциями — все пункты, не только последние 40
 MIN_CONFIDENCE = 0.8
 STATES = ("current", "superseded", "duplicate", "done", "unclear")
 HIDDEN_STATES = ("superseded", "duplicate")  # прячутся из «Ждут вас» уже в тени (А3)
@@ -79,41 +80,112 @@ def _write_relevance(ent: Entity, rel: dict[str, Any]) -> None:
     ent.value_json = json.dumps(value, ensure_ascii=False)
 
 
-def _items(db: Session, settings: Settings, topic: Topic, cache: dict) -> list[dict[str, Any]]:
-    from app.app.services.conflict_rules import source_weight
+def _item(settings: Settings, ent: Entity, art: Artifact, cache: dict, sides: dict[str, str] | None = None) -> dict[str, Any]:
+    from app.app.services.conflict_rules import customer_answer, source_weight
     from app.app.services.project_deadlines import artifact_reference_date
     from app.app.services.recorded_at import item_moment
     from app.app.services.review_conflicts import _source
     from app.app.services.review_requirements import _statement
 
+    value = _value(ent)
+    text = _statement(ent.entity_type, value) or str(value.get("text") or "")
+    day, moment = item_moment(art, value)  # переписка — время сообщения, созвон с временем начала — момент (этап 3)
+    who = value.get("speaker") or ""
+    agreed = ", ".join(str(d.get("name")) for d in value.get("decided_by") or [] if isinstance(d, dict) and d.get("name"))
+    try:
+        quote = " ".join(_source(settings, ent, art, value, cache))[:QUOTE_CHARS]
+    except Exception:  # noqa: BLE001 — без цитаты пункт всё равно участвует
+        quote = ""
+    return {"ent": ent, "art": art, "value": value, "text": text, "day": day, "moment": moment,
+            "order": (day or artifact_reference_date(art) or date.min, moment.timestamp() if moment else 0.0,
+                      float(value.get("start_sec") or 0.0), ent.id),
+            "weight": source_weight(ent.entity_type, value, art, text, sides), "customer_answer": customer_answer(value, sides),
+            "who": who, "agreed": agreed, "quote": quote,
+            "human": value.get("human_review"), "undone": bool((relevance_of(value) or {}).get("undone")), "neighbor": False}
+
+
+def _items(db: Session, settings: Settings, topic: Topic, cache: dict) -> list[dict[str, Any]]:
+    from app.app.services.conflict_rules import project_sides
+
     rows = db.execute(
         select(Entity, Artifact).join(Artifact, Artifact.id == Entity.artifact_id)
         .where(Entity.topic_id == topic.id, Entity.is_active.is_(True), Entity.entity_type.in_(RELEVANCE_TYPES))
     ).all()
-    out = []
-    for ent, art in rows:
-        value = _value(ent)
-        text = _statement(ent.entity_type, value) or str(value.get("text") or "")
-        day, moment = item_moment(art, value)  # переписка — время сообщения, созвон с временем начала — момент (этап 3)
-        who = value.get("speaker") or ""
-        agreed = ", ".join(str(d.get("name")) for d in value.get("decided_by") or [] if isinstance(d, dict) and d.get("name"))
-        try:
-            quote = " ".join(_source(settings, ent, art, value, cache))[:QUOTE_CHARS]
-        except Exception:  # noqa: BLE001 — без цитаты пункт всё равно участвует
-            quote = ""
-        out.append({"ent": ent, "art": art, "value": value, "text": text, "day": day, "moment": moment,
-                    "order": (day or artifact_reference_date(art) or date.min, moment.timestamp() if moment else 0.0,
-                              float(value.get("start_sec") or 0.0), ent.id),
-                    "weight": source_weight(ent.entity_type, value, art, text), "who": who, "agreed": agreed, "quote": quote,
-                    "human": value.get("human_review"), "undone": bool((relevance_of(value) or {}).get("undone"))})
+    sides = project_sides(db, topic.project_id, cache)
+    out = [_item(settings, ent, art, cache, sides) for ent, art in rows]
     out.sort(key=lambda it: it["order"])
-    return out[-MAX_ITEMS:]
+    return out
 
 
-def _prompt(topic: Topic, items: list[dict[str, Any]]) -> str:
+def _batches(items: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Большая тема — порциями по времени, каждый пункт оценивается ровно один раз. Раньше брались только последние
+    MAX_ITEMS: самые старые пункты (их-то и заменяют) не проверялись вовсе — замер «ПИЛОТА», тема из 104 пунктов."""
+    if len(items) <= MAX_ITEMS:
+        return [items]
+    count = -(-len(items) // MAX_ITEMS)
+    size = -(-len(items) // count)
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+NEIGHBOR_MIN_SIMILARITY = 0.55  # замер «ПИЛОТА»: приложение ↔ нормализация номенклатуры — до 0.66, фон проекта — 0.43
+NEIGHBORS_PER_ITEM = 2
+NEIGHBORS_MAX = 12
+
+
+def _neighbors(db: Session, settings: Settings, topic: Topic, items: list[dict[str, Any]], cache: dict) -> list[dict[str, Any]]:
+    """Похожие пункты вне ``items``: из других тем (модель может развести способы решения одной потребности по разным
+    темам — тогда отказ от одного в пользу другого внутри темы не найти) и из других порций той же большой темы.
+    Соседи только кандидаты в «заменивший» / «основной»: сами они здесь не оцениваются."""
+    from app.app.services.graph import _cosine
+    from app.app.services.vector_index import load_entity_vectors
+
+    if not items:
+        return []
+    key = ("project_vectors", topic.project_id)
+    if key not in cache:
+        rows = db.execute(
+            select(Entity, Artifact).join(Artifact, Artifact.id == Entity.artifact_id)
+            .where(Artifact.project_id == topic.project_id, Entity.is_active.is_(True), Entity.entity_type.in_(("decision", "task")))
+        ).all()
+        vectors = load_entity_vectors(db, [e.id for e, _a in rows])
+        cache[key] = ({e.id: (e, a) for e, a in rows}, vectors)
+    pool, vectors = cache[key]
+    mine = {it["ent"].id for it in items}
+    best: dict[int, float] = {}
+    for it in items:
+        vec = vectors.get(it["ent"].id)
+        if vec is None:
+            continue
+        scored = sorted(((_cosine(vec, other), oid) for oid, other in vectors.items() if oid not in mine), reverse=True)
+        for score, oid in scored[:NEIGHBORS_PER_ITEM]:
+            if score >= NEIGHBOR_MIN_SIMILARITY:
+                best[oid] = max(best.get(oid, 0.0), score)
+    from app.app.services.conflict_rules import project_sides
+
+    chosen = sorted(best, key=lambda oid: -best[oid])[:NEIGHBORS_MAX]
+    sides = project_sides(db, topic.project_id, cache)
+    out = []
+    for oid in chosen:
+        ent, art = pool[oid]
+        item = _item(settings, ent, art, cache, sides)
+        item["neighbor"] = True
+        out.append(item)
+    out.sort(key=lambda it: it["order"])
+    return out
+
+
+def _prompt(topic: Topic, items: list[dict[str, Any]], neighbors: list[dict[str, Any]] | None = None) -> str:
+    lines = [f"Тема: {topic.label}", ""] + _item_lines(items)
+    if neighbors:
+        lines += ["", "## Похожие пункты из других тем (только кандидаты в заменивший или основной; сами не оцениваются)", ""]
+        lines += _item_lines(neighbors)
+    return "\n".join(lines)
+
+
+def _item_lines(items: list[dict[str, Any]]) -> list[str]:
     from app.app.services.conflict_rules import WEIGHT_LABELS
 
-    lines = [f"Тема: {topic.label}", ""]
+    lines: list[str] = []
     for it in items:
         ent = it["ent"]
         who = f"сказал: {it['who']}" if it["who"] else "говорящий не опознан"
@@ -129,7 +201,7 @@ def _prompt(topic: Topic, items: list[dict[str, Any]]) -> str:
         lines.append(f"   {it['text']}")
         if it["quote"]:
             lines.append(f"   цитата: «{it['quote']}»")
-    return "\n".join(lines)
+    return lines
 
 
 def _ask(settings: Settings, system: str, user: str) -> dict[str, Any]:
@@ -144,6 +216,10 @@ def _later(a: dict[str, Any], b: dict[str, Any]) -> bool | None:
         return None if a["moment"] == b["moment"] else b["moment"] > a["moment"]
     if a["art"].id == b["art"].id and a["value"].get("start_sec") is not None and b["value"].get("start_sec") is not None:
         return float(b["value"]["start_sec"]) > float(a["value"]["start_sec"])
+    if a["art"].id == b["art"].id and a["value"].get("message_id") is not None and b["value"].get("message_id") is not None:
+        # одна переписка: порядок сообщений известен и без времени (копия чата Битрикс24)
+        a_id, b_id = int(a["value"]["message_id"]), int(b["value"]["message_id"])
+        return None if a_id == b_id else b_id > a_id
     if a["day"] is None or b["day"] is None or a["day"] == b["day"]:
         return None
     return b["day"] > a["day"]
@@ -186,7 +262,8 @@ def _apply_superseded(db: Session, settings: Settings, topic: Topic, item: dict,
 
     later = _later(item, by)
     if later is None:
-        return "unclear", "нельзя понять, что сказано позже: у материала нет даты записи или оба материала одного дня (А4)"
+        return "unclear", ("нельзя понять, что сказано позже: оба материала одного дня без времени начала (Я3) — поставьте время; "
+                           "или у пункта переписки не найдено его сообщение")
     if not later:
         return "unclear", "заменивший пункт сказан раньше заменённого"
     over_human = False
@@ -201,6 +278,8 @@ def _apply_superseded(db: Session, settings: Settings, topic: Topic, item: dict,
     if pair is None or pair["newer"]["id"] != by["ent"].id:
         return "unclear", "по датам заменивший пункт не позже заменённого"
     if not cancel_allowed(pair["newer"], pair["older"]):
+        if pair["newer"].get("customer_answer"):
+            return "unclear", "ответ заказчика в переписке не отменяет документ заказчика (Р1) — ждёт человека"
         return "unclear", "заменивший пункт из более слабого источника (Р1)"
     quote = str(verdict.get("quote") or "")[:200]
     reason = f"тема «{topic.label}»: {verdict.get('reason') or 'заменено более поздним решением'}" + (f" — «{quote}»" if quote else "")
@@ -223,28 +302,42 @@ def _apply_duplicate(item: dict, by: dict, verdict: dict, mode: str, model: str,
 
 
 def review_topic(db: Session, settings: Settings, topic: Topic, mode: str, *, system: str, model: str, cache: dict) -> dict[str, int]:
-    stats = {"items": 0, "current": 0, "superseded": 0, "duplicate": 0, "done": 0, "unclear": 0, "llm_calls": 0, "llm_errors": 0}
-    items = _items(db, settings, topic, cache)
-    stats["items"] = len(items)
-    if len(items) < 2:
-        topic.reviewed_at, topic.prompt_version = _now(), PROMPT_VERSION
-        return stats
-    user = _prompt(topic, items)
+    stats = {"items": 0, "current": 0, "superseded": 0, "duplicate": 0, "done": 0, "unclear": 0, "llm_calls": 0, "llm_errors": 0,
+             "neighbors": 0}
+    done_dups: set[int] = set()
+    for batch in _batches(_items(db, settings, topic, cache)):
+        if not _review_batch(db, settings, topic, batch, mode, system=system, model=model, cache=cache, stats=stats,
+                             done_dups=done_dups):
+            return stats  # ошибка модели: тема останется непроверенной, следующий прогон повторит
+    topic.reviewed_at, topic.prompt_version = _now(), PROMPT_VERSION
+    db.commit()
+    return stats
+
+
+def _review_batch(db: Session, settings: Settings, topic: Topic, items: list[dict[str, Any]], mode: str, *, system: str,
+                  model: str, cache: dict, stats: dict[str, int], done_dups: set[int]) -> bool:
+    """Одна порция темы: один вызов модели. False — модель не ответила."""
+    neighbors = _neighbors(db, settings, topic, items, cache)
+    stats["items"] += len(items)
+    stats["neighbors"] += len(neighbors)
+    # Тема из одного пункта тоже проверяется, если есть похожие пункты в других темах (способы одной потребности)
+    if not items or (len(items) < 2 and not neighbors):
+        return True
+    user = _prompt(topic, items, neighbors)
     db.commit()  # соединение БД не держим на время ответа модели (DECISIONS 2026-09-21)
     try:
         data = _ask(settings, system, user)
-    except Exception as exc:  # noqa: BLE001 — тема останется непроверенной, следующий прогон повторит
+    except Exception as exc:  # noqa: BLE001
         stats["llm_errors"] += 1
         log_event(logger, "relevance.llm_failed", topic=topic.id, error=str(exc)[:300])
-        return stats
+        return False
     stats["llm_calls"] += 1
-    by_id = {f"E{it['ent'].id}": it for it in items}
-    done_dups: set[int] = set()
+    by_id = {f"E{it['ent'].id}": it for it in items + neighbors}
     for raw in data.get("items") or []:
         if not isinstance(raw, dict):
             continue
         item = by_id.get(str(raw.get("id") or "").strip())
-        if item is None or item["undone"]:
+        if item is None or item["undone"] or item["neighbor"]:  # соседа оценивает его собственная тема
             continue
         state = str(raw.get("state") or "").strip().lower()
         state = state if state in STATES else "unclear"
@@ -274,8 +367,59 @@ def review_topic(db: Session, settings: Settings, topic: Topic, mode: str, *, sy
                "note": note or None, "mode": mode, "model": model, "prompt_version": PROMPT_VERSION, "at": _now()}
         _write_relevance(item["ent"], rel)
         stats[state] += 1
-    topic.reviewed_at, topic.prompt_version = _now(), PROMPT_VERSION
     db.commit()
+    return True
+
+
+def promote_shadow_relevance(db: Session, settings: Settings, project_id: int) -> dict[str, int]:
+    """Режим live: применить теневые вердикты «дубль» и «заменено» без повторного вызова модели (как у требований и конфликтов).
+    Проверки те же: человек (А6), опора заменившего в источнике, порог уверенности — их повторяет ``apply_conflict_verdict``."""
+    from app.app.services.review_conflicts import _pair, apply_conflict_verdict, link_review
+
+    stats = {"duplicate": 0, "superseded": 0, "skipped": 0}
+    rows = db.execute(
+        select(Entity, Artifact).join(Artifact, Artifact.id == Entity.artifact_id)
+        .where(Artifact.project_id == project_id, Entity.is_active.is_(True), Entity.value_json.like('%"relevance"%'))
+    ).all()
+    cache: dict = {}
+    for ent, _art in rows:
+        value = _value(ent)
+        rel = relevance_of(value)
+        if not rel or rel.get("mode") != MODE_SHADOW or rel.get("undone") or rel.get("state") not in HIDDEN_STATES:
+            continue
+        by = db.get(Entity, rel.get("by")) if rel.get("by") else None
+        applied = False
+        if rel["state"] == "duplicate" and by is not None and not value.get("human_review"):
+            record_model_review(ent, settings, verdict="reject", reason=f"дубль: {rel.get('reason') or ''}",
+                                confidence=float(rel.get("confidence") or 0.0), mode=MODE_LIVE, model=str(rel.get("model") or ""),
+                                prompt_version=PROMPT_VERSION,
+                                extra={"reject_kind": "duplicate", "merged_into": by.id, "previous": value.get("model_review"),
+                                       "promoted_from_shadow": rel.get("at")})
+            applied = True
+        elif rel["state"] == "superseded" and by is not None:
+            link = db.scalar(select(Link).where(Link.link_type == "POTENTIAL_CONFLICT", or_(
+                (Link.source_entity_id == ent.id) & (Link.target_entity_id == by.id),
+                (Link.source_entity_id == by.id) & (Link.target_entity_id == ent.id))))
+            review = link_review(link) if link is not None else None
+            pair = _pair(db, settings, link, cache) if review and review.get("verdict") == "newer_wins" else None
+            if pair is not None and not db.scalar(select(Resolution.id).where(Resolution.link_id == link.id)):
+                over_human = bool(value.get("human_review")) and _human_before({"human": value.get("human_review")},
+                                                                               {"art": db.get(Artifact, by.artifact_id)})
+                final = apply_conflict_verdict(db, settings, pair, verdict="newer_wins", reason=review.get("reason") or "",
+                                               confidence=float(review.get("confidence") or 0.0), mode=MODE_LIVE,
+                                               model=review.get("model") or "", rule=review.get("rule"), relation="superseded",
+                                               over_human=over_human, important=True if over_human else None)
+                applied = final == "newer_wins"
+        if applied:
+            value = _value(ent)
+            value["relevance"] = {**rel, "mode": MODE_LIVE, "promoted_from_shadow": rel.get("at")}
+            ent.value_json = json.dumps(value, ensure_ascii=False)
+            stats[rel["state"]] += 1
+        else:
+            stats["skipped"] += 1
+    db.commit()
+    if any(stats.values()):
+        log_event(logger, "relevance.promoted", project=project_id, **stats)
     return stats
 
 
@@ -290,9 +434,12 @@ def review_topics(db: Session, settings: Settings, project_id: int, mode: str, *
     project = db.get(Project, project_id)
     mode = effective_mode(project, mode) if project is not None else mode
     q = select(Topic).where(Topic.project_id == project_id)
-    q = q.where(Topic.id.in_(topic_ids)) if topic_ids is not None else q.where(Topic.reviewed_at.is_(None))
+    # непроверенные темы и проверенные прежней версией промпта (новая версия — новый взгляд на все темы)
+    q = q.where(Topic.id.in_(topic_ids)) if topic_ids is not None else q.where(or_(Topic.reviewed_at.is_(None), Topic.prompt_version != PROMPT_VERSION))
     topics = list(db.scalars(q.order_by(Topic.id)).all())
     totals: dict[str, Any] = {"topics": len(topics), "mode": mode}
+    if mode == MODE_LIVE:
+        totals["promoted"] = promote_shadow_relevance(db, settings, project_id)
     if not topics:
         return {**totals, "seconds": 0.0}
     system = load_prompt_block(PROMPT_PATH)

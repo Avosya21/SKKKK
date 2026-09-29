@@ -119,9 +119,9 @@ def test_shadow_records_verdicts_without_effect(client, admin_token, tmp_data, p
         assert vals["dup"][1]["model_review"]["rule"] == "duplicate"
         assert "decided_by" not in vals["decision"][1]  # в тени в само значение не пишется
         assert vals["decision"][1]["model_review"]["decided_by"] == [{"name": "Павел Пилот", "start_sec": 21.0}]
-        # повторный прогон той же версии промпта модель не зовёт
+        # повторный прогон той же версии промпта модель не зовёт; «источник не найден» — не вердикт, его ищут снова
         again = review_artifact_requirements(db, settings, art, "shadow")
-        assert again["total"] == 0 and len(calls) == 1
+        assert again["total"] == 1 and again["no_source"] == 1 and len(calls) == 1
     finally:
         db.close()
 

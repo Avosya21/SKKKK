@@ -690,9 +690,12 @@ def _messages_header() -> str:
 
 
 def _message_line(msg: dict) -> str:
+    from app.app.services.chat_export import day_only
+
     at = datetime.fromisoformat(msg["at"])
     reply = f" (в ответ на M{msg['reply_to']})" if msg.get("reply_to") is not None else ""
-    return f"M{msg['id']} [{at:%d.%m.%Y %H:%M}] {msg['author']}{reply}: {msg['text']}"
+    stamp = f"{at:%d.%m.%Y}" if day_only(msg) else f"{at:%d.%m.%Y %H:%M}"  # копия чата без времени — только день
+    return f"M{msg['id']} [{stamp}] {msg['author']}{reply}: {msg['text']}"
 
 
 def _numbered_message_parts(settings: Settings, artifact: Artifact, max_chars: int = EXTRACT_PART_CHARS) -> list[tuple[str, str]] | None:
@@ -1079,12 +1082,82 @@ def _chat_score(need: set[str], msg: dict) -> float:
     return coverage(need, stems(msg.get("text") or "")) if need else 0.0
 
 
-def bind_chat_source(value: dict, messages: list[dict], skip: set[int]) -> dict | None:
+_QUESTION_END = re.compile(r"\?[\s\"»')\]]*$")
+
+
+def _is_question(text: str) -> bool:
+    """Сообщение — вопрос: его последняя непустая строка кончается «?»."""
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return bool(lines) and _QUESTION_END.search(lines[-1]) is not None
+
+
+def _answer_candidates(messages: list[dict], pos: int) -> list[int]:
+    """Возможные ответы другого участника на вопрос в ``pos``: следующее сообщение (если оно не ответ на что-то другое)
+    и ответы на вопрос (``reply_to``) в пределах окна Я2 — какой из них ответ, говорит модель (``_chat_anchor``)."""
+    question = messages[pos]
+    out: list[int] = []
+    if pos + 1 < len(messages):
+        nxt = messages[pos + 1]
+        if nxt["author"] != question["author"] and nxt.get("reply_to") in (None, question["id"]):
+            out.append(pos + 1)
+    for j in range(pos + 1, min(len(messages), pos + 1 + CHAT_AGREE_MESSAGES)):
+        msg = messages[j]
+        if msg.get("reply_to") == question["id"] and msg["author"] != question["author"] and j not in out:
+            out.append(j)
+    return out
+
+
+def _question_pos(messages: list[dict], pos: int) -> int | None:
+    """Вопрос другого участника, на который отвечает сообщение ``pos`` (ответом на него или следующим сообщением).
+    Вопрос вслед за вопросом — не ответ."""
+    msg = messages[pos]
+    if _is_question(msg.get("text") or ""):
+        return None
+    if msg.get("reply_to") is not None:
+        target = next((j for j in range(pos - 1, -1, -1) if messages[j]["id"] == msg["reply_to"]), None)
+        if target is not None and messages[target]["author"] != msg["author"] and _is_question(messages[target].get("text") or ""):
+            return target
+        return None
+    if pos > 0 and messages[pos - 1]["author"] != msg["author"] and _is_question(messages[pos - 1].get("text") or ""):
+        return pos - 1
+    return None
+
+
+def _chat_anchor(messages: list[dict], pos: int, *, answer_follows: bool = True, evidence: set[int] | None = None) -> tuple[int, dict]:
+    """Сообщение-источник пункта и поля привязки. Совпадение слов тянет пункт к вопросу (вопрос повторяет тему, ответ
+    короткий), но решение — в ответе: если модель назвала ответ среди сообщений пункта или «утвердил» (``evidence``),
+    источник — ответ, вопрос остаётся контекстом (``answer_to`` — номер вопроса, ``asked_by`` — кто спросил). Без такого
+    указания пункт остаётся на вопросе: это может быть предложение, которое ответ отклонил. Урок 2026-09-28: «список
+    опоздавших не отсылается» привязался к вопросу, и проверка выключила верный пункт как «вопрос, а не решение»."""
+    from app.app.services.chat_export import AT_PRECISION_DAY, day_only
+
+    question = None
+    if answer_follows and evidence and _is_question(messages[pos].get("text") or ""):
+        answer = next((j for j in _answer_candidates(messages, pos) if messages[j]["id"] in evidence), None)
+        if answer is not None:
+            question, pos = pos, answer
+    if question is None:
+        question = _question_pos(messages, pos)
+    msg = messages[pos]
+    fields = {"message_id": msg["id"], "message_at": msg["at"], "speaker": msg["author"], "speaker_source": SPEAKER_SOURCE_CHAT,
+              "source_type": "chat"}
+    if day_only(msg):
+        fields["message_at_precision"] = AT_PRECISION_DAY
+    if question is not None:
+        fields["answer_to"], fields["asked_by"] = messages[question]["id"], messages[question]["author"]
+    return pos, fields
+
+
+CHAT_ANCHOR_KEYS = ("message_id", "message_at", "message_at_precision", "speaker", "speaker_source", "source_type", "answer_to", "asked_by")
+
+
+def bind_chat_source(value: dict, messages: list[dict], skip: set[int], *, answer_follows: bool = True) -> dict | None:
     """Привязать пункт переписки к сообщению (SOURCE-ANCHORS-PLAN этап 2): номер, время, автор — из выгрузки.
 
     Сообщение, которое принадлежит более ранней выгрузке той же переписки (Я1), — не источник: пункт отбрасывается.
     «Утвердил» (Я2) — другой участник, ответом на сообщение пункта или следующим сообщением в пределах
-    ``CHAT_AGREE_MESSAGES`` сообщений и ``CHAT_AGREE_HOURS`` часов."""
+    ``CHAT_AGREE_MESSAGES`` сообщений и ``CHAT_AGREE_HOURS`` часов. Лучшее совпадение — вопрос, на который ответили:
+    источник — ответ (``_chat_anchor``); ``answer_follows=False`` — для открытых вопросов, их источник — сам вопрос."""
     from app.app.services.contract_text import stems
 
     bound = dict(value)
@@ -1108,11 +1181,13 @@ def bind_chat_source(value: dict, messages: list[dict], skip: set[int]) -> dict 
     if best is None:
         bound["source_status"] = "unbound"
         return bound
-    anchor = messages[best[1]]
+    evidence = set(ids) | {mid for item in raw_decided or [] if isinstance(item, dict)
+                           for mid in (_msg_ids(item.get("message")) or _msg_ids(item.get("turn")))[:1]}
+    anchor_pos, fields = _chat_anchor(messages, best[1], answer_follows=answer_follows, evidence=evidence)
+    anchor = messages[anchor_pos]
     if anchor["id"] in skip:
         return None
-    bound.update({"message_id": anchor["id"], "message_at": anchor["at"], "speaker": anchor["author"],
-                  "speaker_source": SPEAKER_SOURCE_CHAT, "source_type": "chat"})
+    bound.update(fields)
     agreed: list[dict] = []
     anchor_at = datetime.fromisoformat(anchor["at"])
     for item in raw_decided or []:
@@ -1121,16 +1196,86 @@ def bind_chat_source(value: dict, messages: list[dict], skip: set[int]) -> dict 
         if mid not in position:
             continue
         msg = messages[position[mid]]
-        gap = position[mid] - best[1]
+        gap = position[mid] - anchor_pos
         hours = (datetime.fromisoformat(msg["at"]) - anchor_at).total_seconds() / 3600
         close = 0 < gap <= CHAT_AGREE_MESSAGES and 0 <= hours <= CHAT_AGREE_HOURS
         reply = msg.get("reply_to") == anchor["id"] and 0 <= hours <= CHAT_AGREE_HOURS
         if msg["author"] == anchor["author"] or not (close or reply) or any(a["name"] == msg["author"] for a in agreed):
             continue
-        agreed.append({"name": msg["author"], "message_id": msg["id"], "at": msg["at"]})
+        entry = {"name": msg["author"], "message_id": msg["id"], "at": msg["at"]}
+        if fields.get("message_at_precision"):
+            entry["at_precision"] = fields["message_at_precision"]
+        agreed.append(entry)
     if agreed:
         bound["decided_by"] = agreed
     return bound
+
+
+CHAT_REBIND_MIN = 0.35  # замер «ПИЛОТА»: самодостаточные формулировки совпадают с сообщением на 0.36–0.47
+CHAT_REBIND_MARGIN = 0.05  # …но лучшее сообщение должно заметно обгонять второе, иначе автор и время были бы угаданы
+
+
+def _best_distinct_message(value: dict, messages: list[dict]) -> dict | None:
+    """Мягкая привязка без номеров сообщений от модели: лучшее сообщение, если оно заметно лучше второго."""
+    from app.app.services.contract_text import stems
+
+    need = stems(str(value.get("text") or value.get("description") or ""))
+    if not need:
+        return None
+    ranked = sorted(((_chat_score(need, m), i) for i, m in enumerate(messages)), reverse=True)
+    if not ranked or ranked[0][0] < CHAT_REBIND_MIN:
+        return None
+    if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < CHAT_REBIND_MARGIN:
+        return None
+    return _chat_anchor(messages, ranked[0][1])[1]  # без номеров от модели — вопрос к ответу не переносится
+
+
+def rebind_chat_entities(db: Session, settings: Settings, artifact: Artifact) -> dict[str, int]:
+    """Привязать к сообщениям пункты переписки, извлечённые до разбора выгрузки (без модели, на месте; id и решения целы).
+
+    Совпадение слов пункта с сообщением (порог ``CHAT_MATCH_GLOBAL``); автор и время — из выгрузки. Пункт из сообщения,
+    которое принадлежит более ранней выгрузке (Я1), помечается ``owned_elsewhere`` — его источник в другой выгрузке."""
+    from app.app.services.chat_export import artifact_messages_path, load_export, owned_elsewhere
+
+    path = artifact_messages_path(settings, artifact)
+    export = load_export(path)
+    stats = {"bound": 0, "already": 0, "unbound": 0, "owned_elsewhere": 0}
+    if not export:
+        return stats
+    messages = export["messages"]
+    skip = owned_elsewhere(path.parent, export)
+    rows = db.scalars(select(Entity).where(Entity.artifact_id == artifact.id, Entity.entity_type.in_(CALL_BOUND_TYPES))).all()
+    for ent in rows:
+        try:
+            value = json.loads(ent.value_json)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        if value.get("message_id") is not None:
+            stats["already"] += 1
+            continue
+        probe = {k: value[k] for k in ("text", "description") if value.get(k)}
+        bound = bind_chat_source(probe, messages, set())
+        if not bound or bound.get("message_id") is None:
+            bound = _best_distinct_message(probe, messages)
+        if not bound or bound.get("message_id") is None:
+            stats["unbound"] += 1
+            continue
+        for key in CHAT_ANCHOR_KEYS:
+            if key in bound:
+                value[key] = bound[key]
+            else:
+                value.pop(key, None)
+        value.pop("source_status", None)
+        if bound["message_id"] in skip:
+            value["owned_elsewhere"] = True
+            stats["owned_elsewhere"] += 1
+        ent.value_json = json.dumps(value, ensure_ascii=False)
+        stats["bound"] += 1
+    db.commit()
+    log_event(logger, "entities.chat_rebound", artifact=artifact.artifact_id, **stats)
+    return stats
 
 
 def _decision_value(item: DecisionItem) -> dict:
@@ -1324,7 +1469,8 @@ def persist_entities(
     def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
         item = value
         if entity_type in CALL_BOUND_TYPES and chat_messages and isinstance(value, dict):
-            item = bind_chat_source(value, chat_messages, chat_skip)  # переписка: сообщение, автор, время (этап 2)
+            # переписка: сообщение, автор, время (этап 2); решение из ответа на вопрос — источник ответ
+            item = bind_chat_source(value, chat_messages, chat_skip, answer_follows=entity_type != "open_question")
             if item is None:
                 return
         elif entity_type in CALL_BOUND_TYPES:

@@ -2,7 +2,7 @@
 {# Очередь конфликтов фактов (/admin/conflicts, только admin): выбрать верное утверждение с причиной #}
 {% block content %}
 <h1 class="h4 mb-2">Очередь конфликтов</h1>
-<p class="text-muted small mb-3">Пары решений, которые похожи, но расходятся. Система разбирает их сама: модель называет, как пункты связаны, а какой в силе — решают правила (документ заказчика &gt; утверждённое решение &gt; высказывание &gt; вопрос, при равном весе — более позднее). Здесь — то, где она не уверена или работает в тени. Решённое — на вкладках «Важное» (деньги и сроки) и «Решены моделью», любое решение можно вернуть.</p>
+<p class="text-muted small mb-3">Пары решений, которые похожи, но расходятся. Система разбирает их сама: модель называет, как пункты связаны, а какой в силе — решают правила (документ заказчика &gt; утверждённое решение или ответ заказчика на вопрос в переписке &gt; высказывание &gt; вопрос, при равном весе — более позднее). Здесь — то, где она не уверена или работает в тени. Решённое — на вкладках «Важное» (деньги и сроки, а также каждый случай, когда более новый пункт выключен в пользу более раннего) и «Решены моделью», любое решение можно вернуть.</p>
 <div class="btn-group mb-3" role="group" aria-label="Вид">
   <button type="button" class="btn btn-sm btn-outline-secondary active" data-view="pending">Ждут вас</button>
   <button type="button" class="btn btn-sm btn-outline-secondary" data-view="important">Важное</button>
@@ -29,7 +29,8 @@
     const undone = m.undone ? ' — отменено человеком' : '';
     const who = String(m.model || '').startsWith('rule') ? 'Правило' : 'Модель';
     const rule = m.rule ? `, правило: ${esc(RULE[m.rule] || m.rule)}` : '';
-    const important = m.important ? ' <span class="badge text-bg-warning">деньги/сроки</span>' : '';
+    const why = m.verdict === 'older_wins' ? 'выключено более новое' : 'деньги/сроки';
+    const important = m.important ? ` <span class="badge text-bg-warning">${why}</span>` : '';
     return `<div class="small mt-2"><span class="text-muted">${who}${shadow}: ${esc(VERDICT[m.verdict] || m.verdict)}${rule}, уверенность ${Math.round((m.confidence || 0) * 100)}%${undone}:</span>${important} ${esc(m.reason || '')}</div>`;
   }
 
@@ -67,7 +68,7 @@
       for (const c of await r.json()) { root.insertAdjacentHTML('beforeend', card(p, c)); n += 1; }
     }
     status.textContent = '';
-    const EMPTY = { pending: 'Конфликтов, ждущих вас, нет.', important: 'Важных авторешений (деньги, сроки) нет.', model: 'Модель пока ничего не решила.' };
+    const EMPTY = { pending: 'Конфликтов, ждущих вас, нет.', important: 'Важных авторешений (деньги, сроки, выключение более нового пункта) нет.', model: 'Модель пока ничего не решила.' };
     if (!n) root.innerHTML = `<p class="text-muted">${EMPTY[view]}</p>`;
   }
 

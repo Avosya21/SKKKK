@@ -293,7 +293,8 @@ def list_conflicts(
     view: str = "pending",
 ):
     """Конфликты проекта: pending — ждут человека (с вердиктом модели, если он теневой/неуверенный); model — решены моделью;
-    important — сводка: авторешения по деньгам и срокам, ещё не отменённые (CONFLICT-AUTONOMY-PLAN этап 6)."""
+    important — сводка: авторешения по деньгам и срокам и выключения более нового пункта в пользу более раннего, ещё не
+    отменённые (CONFLICT-AUTONOMY-PLAN этап 6; решение владельца 2026-09-28)."""
     from app.app.services.review_conflicts import conflict_rows
 
     require_project(db, admin, project_id)

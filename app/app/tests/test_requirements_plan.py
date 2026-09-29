@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.app import db as db_mod
 from app.app.config import get_settings
 
@@ -127,6 +129,140 @@ def test_reextract_transfers_human_decisions(client, admin_token, tmp_data):
         assert [m["text"] for m in report[art.artifact_id]["not_found"]] == ["Цвет RAL хранится в карточке номенклатуры"]
     finally:
         db.close()
+
+
+@pytest.mark.parametrize("last_fails", [False, True])
+def test_reextract_summary_after_all_checks(client, admin_token, tmp_data, monkeypatch, last_fails):
+    """Итоговая выжимка после переизвлечения собирается один раз — отдельной задачей очереди за конфликтами последнего
+    материала, когда актуальность и конфликты уже выключили устаревшее (2026-09-28, проект 34: собранная сразу после
+    извлечения, она сохранила «сводку по опозданиям», отменённую перепиской). Упал последний материал — выжимка всё
+    равно собирается после проверок остальных."""
+    from app.app.models.artifact import Artifact
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.requirements_reextract import queue_project_reextract
+    from app.app.services.storage import create_project_tree
+    from app.app.workers import review as review_mod
+    from app.app.workers.gpu_worker import run_once
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "dry_run", False)
+    steps: list[str] = []
+
+    def fake_reextract(_db, _settings, art):
+        steps.append(f"reextract {art.original_filename}")
+        if last_fails and art.original_filename == "протокол 2.docx":
+            raise RuntimeError("модель не ответила")
+        return {"ok": True, "tasks": 0}
+
+    def check(scope):
+        def run(_db, _settings, art, _mode):
+            steps.append(f"{scope} {art.original_filename}")
+            return {}
+        return run
+
+    monkeypatch.setattr("app.app.services.entities.reextract_artifact_entities", fake_reextract)
+    monkeypatch.setattr("app.app.services.graph.seed_graph", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.app.services.gpu_phase.prepare_for_llm", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.app.services.tz.rebuild_tz_fast", lambda *_a, **_k: steps.append("выжимка"))
+    for scope in ("artifact", "topics", "relevance", "conflicts"):
+        monkeypatch.setitem(review_mod.REVIEWERS, scope, [check(scope)])
+    db = db_mod.SessionLocal()
+    try:
+        user = db.query(User).first()
+        project = Project(name="Выжимка после проверок", created_by=user.id, is_active=True)
+        db.add(project)
+        db.flush()
+        create_project_tree(settings, project.id)
+        db.add_all([Artifact(artifact_id=f"art_rx_{project.id}_{i}", project_id=project.id, user_id=user.id, original_filename=f"протокол {i}.docx",
+                             stored_filename=f"p{i}.docx", file_path="/x", file_type="docx", source_type="document", sha256=f"rx{project.id}{i}",
+                             status="done", transcription_text=f"Протокол {i}") for i in (1, 2)])
+        db.commit()
+        assert queue_project_reextract(db, settings, project.id)["jobs_queued"] == 2
+    finally:
+        db.close()
+    while run_once():  # воркер один, задачи — по порядку постановки
+        pass
+    checks = [f"{scope} протокол {i}.docx" for i in ((1,) if last_fails else (1, 2))
+              for scope in ("artifact", "topics", "relevance", "conflicts")]
+    assert steps == ["reextract протокол 1.docx", "reextract протокол 2.docx", *checks, "выжимка"]
+
+
+@pytest.mark.parametrize("mode, last_fails", [("live", False), ("live", True), ("off", False)])
+def test_upload_summary_after_checks(client, admin_token, tmp_data, monkeypatch, mode, last_fails):
+    """Новые материалы: итоговая выжимка собирается один раз на партию — задачей очереди за проверками последнего
+    материала, когда актуальность и конфликты уже выключили заменённое (решение владельца 2026-09-29). Раньше она
+    собиралась сразу после знаний, до проверок: документ, заменивший требование, оставлял старое в выжимке и в ответах
+    чата. Созвоны — так же, вместо каждого 3-го. Упал последний файл партии — выжимка после проверок остальных.
+    Без автопроверки — сразу, как раньше."""
+    from pathlib import Path
+
+    from app.app.models.artifact import Artifact
+    from app.app.models.job import Job
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services import pipeline_knowledge as pk
+    from app.app.services.entities import stub_entities
+    from app.app.services.storage import create_project_tree
+    from app.app.workers import review as review_mod
+    from app.app.workers.gpu_worker import run_once
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "auto_review_mode", mode)
+    steps: list[str] = []
+
+    def fake_process(db, _settings, art):  # разбор файла → знания; модель, индекс и граф подменены ниже
+        steps.append(f"знания {art.original_filename}")
+        if last_fails and art.original_filename == "протокол 3.docx":
+            raise RuntimeError("документ не разобран")
+        pk.run_knowledge_pipeline(db, _settings, art, f"Текст {art.original_filename}")
+
+    def check(scope):
+        def run(_db, _settings, art, _mode):
+            steps.append(f"{scope} {art.original_filename}")
+            return {}
+        return run
+
+    monkeypatch.setattr("app.app.workers.pipeline.process_artifact", fake_process)
+    monkeypatch.setattr(pk, "_extraction_context", lambda *_a: "")
+    monkeypatch.setattr(pk, "extract_entities_llm", lambda _s, art, text, **_k: stub_entities(art, text))
+    for name in ("persist_entities", "write_document_report"):
+        monkeypatch.setattr(pk, name, lambda *_a, **_k: Path("stub"))
+    for name in ("prepare_for_llm", "index_artifact", "run_call_summary", "_suggest_speaker_names", "run_document_summary",
+                 "seed_graph", "notify_artifact_user"):
+        monkeypatch.setattr(pk, name, lambda *_a, **_k: None)
+    monkeypatch.setattr("app.app.services.gpu_phase.prepare_for_llm", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.app.services.tz.rebuild_tz_fast", lambda *_a, **_k: steps.append("выжимка"))
+    for scope in ("artifact", "topics", "relevance", "conflicts"):
+        monkeypatch.setitem(review_mod.REVIEWERS, scope, [check(scope)])
+    files = [("созвон 1.webm", "audio", "call"), ("протокол 2.docx", "docx", "document"), ("протокол 3.docx", "docx", "document")]
+    db = db_mod.SessionLocal()
+    try:
+        user = db.query(User).first()
+        project = Project(name="Выжимка после загрузки", created_by=user.id, is_active=True)
+        db.add(project)
+        db.flush()
+        create_project_tree(settings, project.id)
+        arts = [Artifact(artifact_id=f"art_up_{project.id}_{i}", project_id=project.id, user_id=user.id, original_filename=name,
+                         stored_filename=f"u{i}", file_path="/x", file_type=file_type, source_type=source, sha256=f"up{project.id}{i}",
+                         status="queued") for i, (name, file_type, source) in enumerate(files, 1)]
+        db.add_all(arts)
+        db.flush()
+        db.add_all([Job(artifact_id=a.id, kind="process_artifact", status="queued") for a in arts])  # партия загрузки
+        db.commit()
+    finally:
+        db.close()
+    while run_once():  # воркер один: сначала разбор файлов, затем проверки — по порядку постановки
+        pass
+    names = [name for name, *_ in files]
+    knowledge = [f"знания {name}" for name in names]
+    if mode == "off":  # проверок нет — выжимка сразу, в конце партии
+        assert steps == [*knowledge, "выжимка"]
+        return
+    checks = [f"{scope} {name}" for name in (names[:2] if last_fails else names)
+              for scope in ("artifact", "topics", "relevance", "conflicts")]
+    assert steps == [*knowledge, *checks, "выжимка"]
 
 
 def test_project_card_draft_and_human_edit(client, admin_token, tmp_data, monkeypatch):
@@ -362,21 +498,31 @@ def test_relevance_shadow_hides_and_confirm_needs_force(client, admin_token, tmp
     assert client.post(f"/projects/{pid}/requirements/{rid}/confirm", json={}, headers=h).status_code == 200
 
 
-def test_relevance_without_dates_is_unclear(client, admin_token, tmp_data, monkeypatch):
-    """А4: дата записи неизвестна — «что позже» по дате загрузки не решаем."""
+def test_relevance_without_dates_uses_upload_day(client, admin_token, tmp_data, monkeypatch):
+    """Решение владельца 2026-09-28: нет даты записи — «что позже» по дате загрузки; загружены в один день — неясно (Я3)."""
+    from datetime import datetime
+
     from app.app.models.entity import Entity
     from app.app.services.review_relevance import review_topics
 
     settings = get_settings().model_copy(update={"dry_run": False})
     db = db_mod.SessionLocal()
     try:
-        project, _topic, app_ent, norm, _new = _relevance_setup(db, settings, old_name="демо.webm", new_name="номенклатура.webm")
+        project, _topic, app_ent, norm, _new = _relevance_setup(db, settings, old_name="демо.webm", new_name="номенклатура.webm",
+                                                                new_uploaded=datetime(2026, 8, 27, 15, 0))
         _llm(monkeypatch, {"актуальность": _superseded_reply(app_ent.id, norm.id)})
         stats = review_topics(db, settings, project.id, "live")
         assert stats["superseded"] == 0 and stats["unclear"] == 1
         db.expire_all()
         ent = db.get(Entity, app_ent.id)
-        assert ent.is_active and "нет даты записи" in json.loads(ent.value_json)["relevance"]["note"]
+        assert ent.is_active and "одного дня" in json.loads(ent.value_json)["relevance"]["note"]
+
+        project, _topic, app_ent, norm, _new = _relevance_setup(db, settings, old_name="демо.webm", new_name="номенклатура.webm")
+        _llm(monkeypatch, {"актуальность": _superseded_reply(app_ent.id, norm.id)})
+        stats = review_topics(db, settings, project.id, "live")  # загружены 27.08 и 03.09
+        assert stats["superseded"] == 1
+        db.expire_all()
+        assert db.get(Entity, app_ent.id).is_active is False
     finally:
         db.close()
 
@@ -445,5 +591,149 @@ def test_relevance_waits_while_project_is_busy(client, admin_token, tmp_data):
         db.add(Job(artifact_id=new.id, kind="process_artifact", status="queued", phase="knowledge"))
         db.commit()
         assert review_artifact_relevance(db, settings, new, "live")["deferred"] == 1
+    finally:
+        db.close()
+
+def test_merge_topics_joins_ways_of_one_need(client, admin_token, tmp_data, monkeypatch):
+    """Склейка тем: «ввод характеристик» (приложение) и «нормализация в 1С» — одна потребность; тема проверяется заново."""
+    from app.app.models.entity import Entity, Topic
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.topics import merge_topics
+
+    settings = get_settings().model_copy(update={"dry_run": False})
+    db = db_mod.SessionLocal()
+    try:
+        user = db.query(User).first()
+        project = Project(name="Склейка тем", created_by=user.id, is_active=True)
+        db.add(project)
+        db.flush()
+        art = _call_art(db, settings, project, user, f"art_merge_{project.id}", "созвон.webm", OLD_FINAL)
+        a, b, c = (Topic(project_id=project.id, label=l, reviewed_at="2026-09-28T00:00:00") for l in
+                   ("ввод характеристик номенклатуры", "нормализация номенклатуры в 1С", "нормализация контактов"))
+        db.add_all([a, b, c])
+        db.flush()
+        e1 = _ent(db, art, "decision", {"text": "Приложение в Битрикс24 для ввода характеристик"}, a.id)
+        e2 = _ent(db, art, "decision", {"text": "Нормализовать справочник номенклатуры в 1С"}, b.id)
+        _ent(db, art, "decision", {"text": "ФИО контактов разнести по полям"}, c.id)
+        db.commit()
+        _llm(monkeypatch, {"Найди группы тем": {"groups": [{"topics": [f"t{a.id}", f"t{b.id}"], "label": "характеристики номенклатуры"}]}})
+        stats = merge_topics(db, settings, project.id)
+        assert stats["groups"] == 1 and stats["merged"] == 1
+        db.expire_all()
+        assert db.get(Entity, e2.id).topic_id == a.id == db.get(Entity, e1.id).topic_id
+        keep = db.get(Topic, a.id)
+        assert keep.label == "характеристики номенклатуры" and keep.reviewed_at is None and db.get(Topic, b.id) is None
+        # Повторный прогон без новых тем модель не зовёт; старые темы между собой не склеиваются (темы не сливаются раз за разом)
+        calls = _llm(monkeypatch, {"Найди группы тем": {"groups": [{"topics": [f"t{a.id}", f"t{c.id}"], "label": "всё"}]}})
+        assert merge_topics(db, settings, project.id)["llm_calls"] == 0 and not calls
+        d = Topic(project_id=project.id, label="справочник контрагентов")
+        db.add(d)
+        db.flush()
+        _ent(db, art, "decision", {"text": "Контрагенты ведутся в 1С"}, d.id)
+        db.commit()
+        _llm(monkeypatch, {"Найди группы тем": {"groups": [{"topics": [f"t{a.id}", f"t{c.id}"], "label": "всё"},
+                                                           {"topics": [f"t{c.id}", f"t{d.id}"], "label": "контрагенты и контакты"}]}})
+        stats = merge_topics(db, settings, project.id)
+        assert stats["groups"] == 1 and db.get(Topic, a.id) is not None and db.get(Topic, d.id) is None
+    finally:
+        db.close()
+
+
+def test_live_promotes_shadow_duplicate_without_llm(client, admin_token, tmp_data, monkeypatch):
+    from app.app.models.entity import Entity
+    from app.app.services.review_relevance import review_topics
+
+    settings = get_settings().model_copy(update={"dry_run": False})
+    db = db_mod.SessionLocal()
+    try:
+        project, topic, app_ent, _norm, new = _relevance_setup(db, settings)
+        dup = _ent(db, new, "decision", {"text": "Приложение в Битрикс24 для ввода характеристик номенклатуры", "speaker": "Елена",
+                                         "speaker_source": "voice", "start_sec": 5.0}, topic.id)
+        db.commit()
+        _llm(monkeypatch, {"актуальность": {"items": [{"id": f"E{dup.id}", "state": "duplicate", "by": f"E{app_ent.id}", "confidence": 0.9}]}})
+        review_topics(db, settings, project.id, "shadow")
+        db.expire_all()
+        assert db.get(Entity, dup.id).is_active is True  # тень
+        calls = _llm(monkeypatch, {})  # в live модель не зовём — теневой вердикт применяется как есть
+        stats = review_topics(db, settings, project.id, "live")
+        assert stats["promoted"]["duplicate"] == 1 and calls == []
+        db.expire_all()
+        ent = db.get(Entity, dup.id)
+        assert ent.is_active is False and json.loads(ent.value_json)["model_review"]["merged_into"] == app_ent.id
+    finally:
+        db.close()
+
+def test_superseded_by_item_from_neighbor_topic(client, admin_token, tmp_data, db_engine, monkeypatch):
+    """Способы одной потребности разведены по разным темам: пункт темы «ввод характеристик» заменён пунктом из темы
+    «нормализация в 1С» — сосед по смыслу виден модели, хотя тема другая (замер «ПИЛОТА» 2026-09-28)."""
+    from app.app.models.entity import Entity, Topic
+    from app.app.services.review_relevance import review_topics
+    from app.app.services.vector_index import upsert_entity_vectors
+    from app.app.tests.test_entity_vectors import _prepare_vec
+
+    _prepare_vec(db_engine)
+    settings = get_settings().model_copy(update={"dry_run": False})
+    db = db_mod.SessionLocal()
+    try:
+        project, topic, app_ent, norm, _new = _relevance_setup(db, settings)
+        other = Topic(project_id=project.id, label="нормализация номенклатуры в 1С")
+        db.add(other)
+        db.flush()
+        norm.topic_id = other.id
+        db.commit()
+        vec = [0.1] * 1024
+        upsert_entity_vectors(db, [(app_ent.id, vec), (norm.id, vec)])
+        db.commit()
+        seen = []
+
+        def reply(user):
+            seen.append(user)
+            return _superseded_reply(app_ent.id, norm.id)
+
+        _llm(monkeypatch, {"актуальность": reply})
+        stats = review_topics(db, settings, project.id, "live", topic_ids={topic.id})
+        assert stats["superseded"] == 1 and stats["neighbors"] == 1
+        assert "Похожие пункты из других тем" in seen[0] and f"E{norm.id}" in seen[0]
+        db.expire_all()
+        assert db.get(Entity, app_ent.id).is_active is False
+        assert json.loads(db.get(Entity, norm.id).value_json).get("relevance") is None  # сосед в чужой теме не оценивается
+    finally:
+        db.close()
+
+
+def test_big_topic_reviewed_in_batches_oldest_included(client, admin_token, tmp_data, db_engine, monkeypatch):
+    """Тема больше MAX_ITEMS: раньше модель видела только последние 40 пунктов, и самый старый (его-то и заменяют) не
+    проверялся — «ПИЛОТ», тема из 104 пунктов. Теперь порции по времени, заменивший из другой порции виден соседом."""
+    from app.app.models.entity import Entity
+    from app.app.services.review_relevance import MAX_ITEMS, review_topics
+    from app.app.services.vector_index import upsert_entity_vectors
+    from app.app.tests.test_entity_vectors import _prepare_vec
+
+    _prepare_vec(db_engine)
+    settings = get_settings().model_copy(update={"dry_run": False})
+    db = db_mod.SessionLocal()
+    try:
+        project, topic, app_ent, norm, new = _relevance_setup(db, settings)
+        norm.value_json = json.dumps({**json.loads(norm.value_json), "start_sec": 9999.0}, ensure_ascii=False)  # последний в теме
+        fillers = [_ent(db, new, "task", {"description": f"Проверить поле номер {i}", "start_sec": 100.0 + i}, topic.id)
+                   for i in range(MAX_ITEMS)]
+        db.commit()
+        upsert_entity_vectors(db, [(app_ent.id, [0.1] * 1024), (norm.id, [0.1] * 1024)])
+        db.commit()
+        seen = []
+
+        def reply(user):
+            seen.append(user)
+            return _superseded_reply(app_ent.id, norm.id)
+
+        _llm(monkeypatch, {"актуальность": reply})
+        stats = review_topics(db, settings, project.id, "live", topic_ids={topic.id})
+        assert stats["llm_calls"] == 2 and stats["items"] == MAX_ITEMS + 2 and stats["superseded"] == 1
+        assessed = [line.split()[0] for user in seen for line in user.split("## Похожие")[0].splitlines() if line.startswith("E")]
+        assert sorted(assessed) == sorted(f"E{e.id}" for e in [app_ent, norm, *fillers])  # каждый пункт — ровно один раз
+        assert f"E{app_ent.id} |" in seen[0] and f"E{norm.id} |" in seen[0].split("## Похожие")[1]
+        db.expire_all()
+        assert db.get(Entity, app_ent.id).is_active is False
     finally:
         db.close()
