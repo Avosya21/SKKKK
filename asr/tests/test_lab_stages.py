@@ -16,7 +16,17 @@ from asr.lab.sortformer import Binarization, binarize  # noqa: E402
 from asr.lab.stages.s04_paint import ASSIGNED, CONTESTED, UNASSIGNED, classify, word_frames  # noqa: E402
 from asr.lab.stages.s05_voice import clips_from_runs, word_runs  # noqa: E402
 from asr.lab.stages.s06_transcript import build_replicas  # noqa: E402
-from asr.lab.stages.s07_verify import covered_ratio  # noqa: E402
+from asr.lab.stages.s07_verify import (  # noqa: E402
+    ALWAYS_SILENCE_DB,
+    FAIL,
+    OK,
+    WARN,
+    covered_ratio,
+    loud_spans,
+    silence_below_db,
+    verdict_of,
+    word_level_db,
+)
 from asr.lab.words import words_from_tokens, words_to_text  # noqa: E402
 
 MARKER = "\u2581"
@@ -190,6 +200,86 @@ def test_covered_ratio_detects_word_in_silence():
     assert covered_ratio(0.2, 0.6, spans) == pytest.approx(1.0)
     assert covered_ratio(3.0, 3.4, spans) == pytest.approx(0.0)
     assert covered_ratio(0.8, 1.2, spans) == pytest.approx(0.5)
+
+
+def test_frame_levels_separate_silence_from_tone(tmp_path):
+    import soundfile as sf
+
+    from asr.lab.audio import frame_levels_db
+
+    sr = 16_000
+    tone = 0.1 * np.sin(2 * np.pi * 220 * np.arange(sr) / sr)
+    samples = np.concatenate([np.zeros(sr), tone, np.zeros(sr // 3)]).astype(np.float32)
+    path = tmp_path / "clean_16k.wav"
+    sf.write(str(path), samples, sr, subtype="PCM_16")
+
+    levels = frame_levels_db(path, 0.05)
+    assert levels.size == 47  # 2 с по 20 кадров и хвост 1/3 с — 6 полных кадров и один неполный
+    assert levels[:20].max() <= -100
+    assert levels[20:40].min() == pytest.approx(-23.0, abs=0.5)
+    assert levels[-1] <= -100
+
+
+def test_word_level_takes_loudest_frame():
+    levels = np.array([-110.0, -110.0, -24.0, -30.0, -110.0])
+    assert word_level_db(levels, 0.0, 0.1) == pytest.approx(-110.0)
+    assert word_level_db(levels, 0.05, 0.2) == pytest.approx(-24.0)
+    assert word_level_db(levels, 0.2, 0.2) == pytest.approx(-110.0)  # слово нулевой длины — один кадр
+    assert word_level_db(levels, 9.0, 9.5) == pytest.approx(-110.0)  # за концом записи — последний кадр
+    assert word_level_db(np.zeros(0), 0.0, 1.0) == pytest.approx(-120.0)
+
+
+def test_silence_threshold_follows_speech_level():
+    assert silence_below_db([-19.6] * 60) == pytest.approx(-39.6)
+    assert silence_below_db([-40.0] * 60) == pytest.approx(ALWAYS_SILENCE_DB)
+    assert silence_below_db([-19.6] * 10) == pytest.approx(-45.0)  # мало слов под VAD — порог −45
+
+
+def _orphan_rows(start: float, count: int, step: float = 0.4) -> list[dict]:
+    return [{"start": start + n * step, "end": start + n * step + 0.3} for n in range(count)]
+
+
+def test_loud_spans_merge_words_close_in_time():
+    rows = _orphan_rows(1926.9, 3) + _orphan_rows(1940.0, 2) + _orphan_rows(2100.0, 1)
+    assert loud_spans(rows) == [
+        {"start": 1926.9, "end": 1940.7, "words": 5},
+        {"start": 2100.0, "end": 2100.3, "words": 1},
+    ]
+
+
+def test_loud_words_without_vad_speech_warn_instead_of_fail():
+    """Созвон проекта 40: 3 минуты искажённого голоса громко, но VAD их не слышит."""
+    loud = _orphan_rows(1926.88, 250, step=0.79) + _orphan_rows(237.84, 1)
+    verdict, reasons, silence_ratio = verdict_of(
+        total_words=4586, silent_count=11, loud=loud, similarity=0.904, max_silence_ratio=0.02
+    )
+    assert verdict == WARN
+    assert silence_ratio == pytest.approx(0.0024)
+    assert reasons == [
+        "слов на тишине вне речи по VAD: 11",
+        "слов на громком звуке, где VAD не услышал речь: 251 (32:06–35:23)",
+    ]
+
+
+def test_words_on_silence_above_threshold_fail():
+    verdict, reasons, silence_ratio = verdict_of(
+        total_words=100, silent_count=3, loud=[], similarity=0.95, max_silence_ratio=0.02
+    )
+    assert verdict == FAIL
+    assert silence_ratio == pytest.approx(0.03)
+    assert reasons[-1] == "доля слов на тишине 0.03 выше порога 0.02"
+
+
+def test_clean_verify_is_ok_and_low_similarity_only_warns():
+    assert verdict_of(total_words=100, silent_count=0, loud=[], similarity=0.95, max_silence_ratio=0.02)[:2] == (
+        OK,
+        [],
+    )
+    verdict, reasons, _ = verdict_of(
+        total_words=100, silent_count=0, loud=[], similarity=0.7, max_silence_ratio=0.02
+    )
+    assert verdict == WARN
+    assert reasons == ["проходы расходятся, сходство 0.70"]
 
 
 def test_binarize_uses_hysteresis_and_merges_short_gaps():

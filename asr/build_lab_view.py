@@ -896,9 +896,17 @@ function renderOrphans() {{
     box.innerHTML = '<span class="text-success small">Ни одно слово не попало в тишину.</span>';
     return;
   }}
-  box.innerHTML = `<div class="small text-muted mb-2">Сходство двух проходов ${{verify.pass_similarity}}.</div>` +
-    orphans.map((row) => `<span class="badge text-bg-light border me-1 mb-1 word" data-t="${{row.start}}">
-      ${{row.word}} <span class="text-muted">${{row.start.toFixed(1)}} с · покрытие ${{row.vad_coverage}}</span></span>`).join("");
+  let summary = `Сходство двух проходов ${{verify.pass_similarity}}.`;
+  if (verify.loud_orphan_count !== undefined) {{
+    // Громкие слова вне речи — искажённый голос, который VAD не узнал; провал считается только по тишине.
+    const spans = (verify.loud_spans || []).filter((s) => s.words >= 5).map((s) =>
+      `<span class="word text-decoration-underline" data-t="${{s.start}}">${{fmtClock(s.start)}}–${{fmtClock(s.end)}}</span> (${{s.words}})`);
+    summary += ` На тишине: ${{verify.silence_orphan_count}} (порог тишины ${{(verify.levels || {{}}).silence_below_db}} дБ),` +
+      ` на громком звуке без речи по VAD: ${{verify.loud_orphan_count}}` + (spans.length ? ` — ${{spans.join(", ")}}` : "") + ".";
+  }}
+  box.innerHTML = `<div class="small text-muted mb-2">${{summary}}</div>` +
+    orphans.map((row) => `<span class="badge ${{row.silence === false ? "bg-warning-subtle text-body" : "text-bg-light"}} border me-1 mb-1 word" data-t="${{row.start}}">
+      ${{row.word}} <span class="text-muted">${{row.start.toFixed(1)}} с · покрытие ${{row.vad_coverage}}${{row.level_db === undefined ? "" : ` · ${{row.level_db}} дБ`}}</span></span>`).join("");
   box.querySelectorAll("[data-t]").forEach((node) =>
     node.addEventListener("click", () => seek(node.dataset.t)));
 }}

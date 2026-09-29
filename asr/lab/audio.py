@@ -89,6 +89,23 @@ def rms_db(samples: np.ndarray) -> float:
     return round(20.0 * float(np.log10(value)), 2)
 
 
+def frame_levels_db(path: Path, frame_sec: float) -> np.ndarray:
+    """Громкость каждого кадра записи в дБFS. Файл читается блоками, целиком в память не ложится."""
+    import soundfile as sf
+
+    hop = max(1, int(round(frame_sec * sf.info(str(path)).samplerate)))
+    levels: list[np.ndarray] = []
+    for block in sf.blocks(str(path), blocksize=hop * 4096, dtype="float32", always_2d=True):
+        mono = block.mean(axis=1, dtype=np.float64)
+        frames = [mono[: mono.size // hop * hop].reshape(-1, hop)]
+        if mono.size % hop:
+            frames.append(mono[mono.size // hop * hop :].reshape(1, -1))
+        for chunk in frames:
+            rms = np.sqrt(np.mean(np.square(chunk), axis=1))
+            levels.append(20.0 * np.log10(np.maximum(rms, 1e-6)))
+    return np.concatenate(levels) if levels else np.zeros(0)
+
+
 def noise_floor_db(samples: np.ndarray, sample_rate: int, *, percentile: float = 10.0) -> float:
     """Оценка шумовой полки: RMS тихих 20-мс окон.
 
