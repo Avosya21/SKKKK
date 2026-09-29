@@ -149,13 +149,17 @@ def close_livekit_room(room_name: str) -> bool:
     settings = get_settings()
     if not settings.livekit_url or not settings.livekit_api_key or not settings.livekit_api_secret:
         return False
+    # API — напрямую в LiveKit на этой машине. Клиент livekit-api отбрасывает путь адреса (…:777/livekit → …:777/twirp),
+    # и публичный адрес через Caddy попадал в портал: пустой 404, комната не закрывалась, боты записи держали дорожки
+    # до перезапуска сервера, а запись удалённой встречи возвращалась на диск после очистки.
+    api_url = settings.livekit_rtc_internal or settings.livekit_url
     try:
         from livekit import api
         import asyncio
 
         async def _delete() -> None:
             client = api.LiveKitAPI(
-                settings.livekit_url,
+                api_url,
                 settings.livekit_api_key,
                 settings.livekit_api_secret,
             )
@@ -171,8 +175,10 @@ def close_livekit_room(room_name: str) -> bool:
         asyncio.run(_delete())
         return True
     except Exception as exc:
-        if "status=404" in str(exc) or "not_found" in str(exc).lower():
-            return True  # комнаты уже нет (все вышли раньше) — цель достигнута
+        # Комнаты уже нет (все вышли раньше) — цель достигнута. Только ответ LiveKit code=not_found: голый 404
+        # (code=unknown) — запрос ушёл не туда, это ошибка.
+        if "not_found" in str(exc).lower():
+            return True
         logger.warning("livekit room cleanup failed room=%s: %s", room_name, exc)
         return False
 

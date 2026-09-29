@@ -993,27 +993,29 @@ def test_livekit_token_ttl_is_four_hours():
     assert 3.9 * 3600 < ttl <= 4 * 3600 + 5
 
 
-def test_close_livekit_room_treats_missing_room_as_success(monkeypatch):
-    """DeleteRoom вернул 404 (комнаты уже нет) — это успех, а не предупреждение в логе."""
+def _fake_livekit(monkeypatch, error: str | None) -> list:
+    """Подменить livekit.api: DeleteRoom бросает ``error`` (или проходит). Вернуть список адресов, куда шёл клиент."""
     import sys
     import types
 
-    from app.app.services import meetings
+    urls: list = []
 
     class _Settings:
-        livekit_url = "wss://x/livekit"
+        livekit_url = "wss://x:777/livekit"
+        livekit_rtc_internal = "ws://127.0.0.1:7880"
         livekit_api_key = "k"
         livekit_api_secret = "s" * 32
 
     class _Room:
         async def delete_room(self, _req):
-            raise RuntimeError("ServerError(code=unknown, message=, status=404)")
+            if error:
+                raise RuntimeError(error)
 
     class _Client:
         room = _Room()
 
-        def __init__(self, *_a):
-            pass
+        def __init__(self, url, *_a):
+            urls.append(url)
 
         async def aclose(self):
             pass
@@ -1021,7 +1023,35 @@ def test_close_livekit_room_treats_missing_room_as_success(monkeypatch):
     fake = types.SimpleNamespace(LiveKitAPI=_Client, DeleteRoomRequest=lambda room: room)
     monkeypatch.setitem(sys.modules, "livekit", types.SimpleNamespace(api=fake))
     monkeypatch.setattr("app.app.config.get_settings", lambda: _Settings())
+    return urls
+
+
+def test_close_livekit_room_goes_to_local_livekit(monkeypatch):
+    """Комната закрывается через LiveKit на этой машине: публичный адрес через Caddy клиент livekit-api
+    обрезает до корня сайта (…:777/twirp), запрос уходил в портал, и комната не закрывалась."""
+    from app.app.services import meetings
+
+    urls = _fake_livekit(monkeypatch, None)
     assert meetings.close_livekit_room("skkkk-abc") is True
+    assert urls == ["ws://127.0.0.1:7880"]
+
+
+def test_close_livekit_room_treats_missing_room_as_success(monkeypatch):
+    """LiveKit ответил «комнаты нет» (все вышли раньше) — это успех, а не предупреждение в логе."""
+    from app.app.services import meetings
+
+    _fake_livekit(monkeypatch, "ServerError(code=not_found, message=twirp error unknown: requested room does not exist, status=404)")
+    assert meetings.close_livekit_room("skkkk-abc") is True
+
+
+def test_close_livekit_room_bare_404_is_failure(monkeypatch, caplog):
+    """Голый 404 без code=not_found — запрос не дошёл до LiveKit: ошибка в логе, а не молчаливый «успех»."""
+    from app.app.services import meetings
+
+    _fake_livekit(monkeypatch, "ServerError(code=unknown, message=, status=404)")
+    with caplog.at_level("WARNING"):
+        assert meetings.close_livekit_room("skkkk-abc") is False
+    assert "livekit room cleanup failed" in caplog.text
 
 
 def test_analyze_state_explains_empty_recording(tmp_path):
