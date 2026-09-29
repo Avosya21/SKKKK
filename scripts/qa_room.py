@@ -152,7 +152,13 @@ def main() -> int:
             check(wrap.count() == 1 and wrap.get_attribute("hidden") is None, "кнопка выбора динамика видна")
 
             # --- индикатор связи «палочки»: 4 зелёные отлично, 3 хорошо, 1 красная плохо, 0 нет связи; без мигания, статус не затирается
-            emit = "(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; r.emit(LK.RoomEvent.ConnectionQualityChanged, q, r.localParticipant); }"
+            # Настоящие оценки LiveKit в том же браузере перебивали проверочные (на этой машине камера гостя оценивается
+            # «good/poor» попеременно), и проверка возврата к 4 палочкам падала не из-за кода. На время проверок в индикатор
+            # попадают только события сценария; после — всё как было.
+            a.evaluate("""() => { const m = SKKKKMeeting; m.__qaLinkQuality = m._linkQuality; window.__qaEmit = false;
+              m._linkQuality = function (q) { if (window.__qaEmit) return m.__qaLinkQuality.call(m, q); }; }""")
+            emit = ("(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; window.__qaEmit = true;"
+                    " try { r.emit(LK.RoomEvent.ConnectionQualityChanged, q, r.localParticipant); } finally { window.__qaEmit = false; } }")
             level = lambda: a.evaluate("(document.getElementById('meeting-signal')||{dataset:{}}).dataset.level")  # noqa: E731
             status_before = a.evaluate("document.querySelector('#meeting-room-status').textContent")
             check(a.locator("#meeting-signal i").count() == 4, "индикатор связи из четырёх палочек есть в комнате")
@@ -178,6 +184,7 @@ def main() -> int:
             check(wait_until(lambda: level() == "4", 6) is not None and level() == "4", f"связь стабильно отличная: снова 4 палочки (сейчас {level()})")
             title = a.evaluate("document.getElementById('meeting-signal').title")
             check("отличное" in title, f"подсказка по наведению словами: «{title}»")
+            a.evaluate("() => { SKKKKMeeting._linkQuality = SKKKKMeeting.__qaLinkQuality; }")
 
             # --- единообразие: у каждого участника на плитке те же палочки
             remote = "(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; const p = Array.from(r.remoteParticipants.values())[0]; r.emit(LK.RoomEvent.ConnectionQualityChanged, q, p); }"

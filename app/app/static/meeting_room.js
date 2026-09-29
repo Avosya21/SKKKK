@@ -116,6 +116,10 @@ function noWebRtcText() {
 }
 
 const REJOIN_DELAYS_MS = [1000, 2000, 3000, 5000, 8000, 13000, 20000, 30000];
+// Телефон оборвал захват камеры (подключили наушники, звонок, возврат из фона): livekit-client не смог перезапустить трек
+// и выключил камеру. Раз человек её не выключал, пробуем вернуть — камера бывает занята системой несколько секунд.
+const CAM_REVIVE_DELAYS_MS = [1500, 4000, 10000];
+const TEXT_CAM_REVIVED = "Камера снова включена";
 const REJOIN_TOTAL_MS = 15 * 60 * 1000;
 const TEXT_LINK_LOST = "Связь пропала, восстанавливаю…";
 const TEXT_LINK_BACK = "Связь восстановлена.";
@@ -146,6 +150,8 @@ function phoneGridCols(count, landscape) {
 function applyPhoneGrid(tilesEl, count) {
   if (!tilesEl) return;
   tilesEl.style.setProperty("--meeting-cols", String(phoneGridCols(count, isPhoneLandscape())));
+  // Горизонтальный телефон в фокусе: главное окно слева, остальные лентой справа — по строке на участника
+  tilesEl.style.setProperty("--meeting-film", String(Math.max(1, (Number(count) || 1) - 1)));
 }
 
 const DESKTOP_GRID_GAP = 12;
@@ -673,6 +679,8 @@ const SKKKKMeeting = {
           this._ensureAudioContexts();
           if (this.room && this.room.startAudio) Promise.resolve(this.room.startAudio()).catch(() => undefined);
           if (this._rejoinWake) this._rejoinWake();
+          this._scheduleCamRevive(); // iOS гасит камеру в фоне
+
         });
       }
       this._requestWakeLock();
@@ -702,6 +710,8 @@ const SKKKKMeeting = {
       } catch (camErr) {
         this._toast(mediaErrorText(camErr, "Камера"));
       }
+      this._camWanted = room.localParticipant.isCameraEnabled;
+      this._micSilentSent = false; // новая сессия: атрибут «микрофон молчит» на сервере пуст
 
       statusEl.textContent = "Вы в комнате.";
       this._renderTiles(room, els);
@@ -764,6 +774,7 @@ const SKKKKMeeting = {
     if (!this.room) return;
     try {
       const next = !this.room.localParticipant.isCameraEnabled;
+      this._camWanted = next; // намерение человека: системное выключение камеры (телефон) его не меняет
       const picked = this.selectedDevices();
       const opts = picked.videoDeviceId ? { deviceId: picked.videoDeviceId } : undefined;
       await this.room.localParticipant.setCameraEnabled(next, opts);
@@ -823,7 +834,9 @@ const SKKKKMeeting = {
       return;
     }
     try {
-      await this.room.localParticipant.setScreenShareEnabled(!on, { contentHint: "detail" });
+      // Экран — одним слоем: с двумя (540p и 1080p) зритель переключался между ними при каждой смене размера плитки
+      // (главная, развернуть, поворот телефона) и видел скачки резкости — «мерцание».
+      await this.room.localParticipant.setScreenShareEnabled(!on, { contentHint: "detail" }, { simulcast: false });
     } catch (err) {
       const msg = err && err.message ? String(err.message) : "";
       this._setStatus(
@@ -1204,6 +1217,7 @@ const SKKKKMeeting = {
     this.refreshSpeakers();
     this._refreshCamSwitch();
     await this.refreshMics();
+    this._scheduleCamRevive(); // наушники на телефоне меняют аудиомаршрут, система может оборвать и камеру
     const local = this.room.localParticipant;
     if (!local.isMicrophoneEnabled) return;
     const mics = (await listInputDevices()).audio.filter((item) => item.deviceId);
@@ -1219,6 +1233,50 @@ const SKKKKMeeting = {
       } catch (err) {
         this._toast(mediaErrorText(err, "Микрофон"));
       }
+    }
+  },
+
+  // Камера должна работать (человек её не выключал), а она выключена системой или её трек оборван.
+  _camBroken() {
+    const room = this.room;
+    if (!room || !this._joined || this._leaving || !this._camWanted) return false;
+    const pub = room.localParticipant.getTrackPublication && room.localParticipant.getTrackPublication("camera");
+    const media = pub && pub.track && pub.track.mediaStreamTrack;
+    return !pub || pub.isMuted || !media || media.readyState === "ended";
+  },
+
+  _scheduleCamRevive() {
+    if (!this._camWanted) return;
+    (this._camReviveTimers || []).forEach((t) => clearTimeout(t));
+    this._camReviveTimers = CAM_REVIVE_DELAYS_MS.map((ms) => setTimeout(() => this._reviveCamera(), ms));
+  },
+
+  async _reviveCamera() {
+    if (this._camReviving || !this._camBroken()) return;
+    this._camReviving = true;
+    const local = this.room.localParticipant;
+    const picked = this.selectedDevices();
+    const opts = picked.videoDeviceId ? { deviceId: picked.videoDeviceId } : undefined;
+    try {
+      const pub = local.getTrackPublication && local.getTrackPublication("camera");
+      const media = pub && pub.track && pub.track.mediaStreamTrack;
+      if (pub && pub.track && pub.track.restartTrack && media && media.readyState === "ended") {
+        await pub.track.restartTrack(opts);
+        if (pub.isMuted && pub.track.unmute) await pub.track.unmute();
+      } else {
+        await local.setCameraEnabled(true, opts);
+      }
+      if (!this._camBroken()) {
+        (this._camReviveTimers || []).forEach((t) => clearTimeout(t));
+        this._syncLocalMirror();
+        this._toast(TEXT_CAM_REVIVED);
+      }
+    } catch (_) {
+      // камера ещё занята системой — следующая попытка по расписанию
+    } finally {
+      this._camReviving = false;
+      this._syncControls(this._roomEls);
+      if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
     }
   },
 
@@ -1390,9 +1448,15 @@ const SKKKKMeeting = {
       this._joined = true;
       this._startHeartbeat(els);
       this.watchEnded(els);
+      // Новая сессия: старые качества связи и атрибут «молчит» к ней не относятся
+      this._quality = {};
+      this._micSilentSent = false;
+      this._resetLinkQuality();
+      // Камера — по намерению человека: если её перед обрывом погасила система, _lastMedia уже говорит «выключена»
+      const wantCam = this._camWanted !== undefined ? this._camWanted : media.cam;
       try {
         if (media.mic) await this.room.localParticipant.setMicrophoneEnabled(true, micCaptureOpts(this._pickedMicId || this.selectedDevices().audioDeviceId, this._dfn3On));
-        if (media.cam) await this.room.localParticipant.setCameraEnabled(true, this.selectedDevices().videoDeviceId ? { deviceId: this.selectedDevices().videoDeviceId } : undefined);
+        if (wantCam) await this.room.localParticipant.setCameraEnabled(true, this.selectedDevices().videoDeviceId ? { deviceId: this.selectedDevices().videoDeviceId } : undefined);
         if (media.mic) this._watchLocalMic();
       } catch (mediaErr) {
         this._toast(mediaErrorText(mediaErr, "Микрофон"));
@@ -1992,9 +2056,12 @@ const SKKKKMeeting = {
     stage.appendChild(node);
   },
 
+  // Атрибут «молчит» уходит на сервер только при смене состояния: раньше снятие шло на каждый кадр звука
+  // (12 запросов в секунду у говорящего).
   _onMicSilent() {
     const local = this.room && this.room.localParticipant;
-    if (local && local.setAttributes) {
+    if (local && local.setAttributes && !this._micSilentSent) {
+      this._micSilentSent = true;
       local.setAttributes({ mic_silent: "1" });
     }
     this._toast(TEXT_MIC_SILENT, {
@@ -2005,8 +2072,10 @@ const SKKKKMeeting = {
   },
 
   _clearMicSilent() {
+    if (!this._micSilentSent) return;
     const local = this.room && this.room.localParticipant;
     if (local && local.setAttributes) {
+      this._micSilentSent = false;
       local.setAttributes({ mic_silent: "" });
     }
   },
@@ -2018,6 +2087,8 @@ const SKKKKMeeting = {
     // Используем addEventListener вместо прямой перезаписи onmute/onended
     media.addEventListener("mute", () => this._onMicSilent());
     media.addEventListener("ended", () => this._onMicSilent());
+    // Смена аудиомаршрута (наушники) глушит трек на миг: ожил — метка «молчит» у всех снимается, не дожидаясь речи
+    media.addEventListener("unmute", () => this._clearMicSilent());
     this._watchMicLevel(media);
   },
 
@@ -2137,11 +2208,20 @@ const SKKKKMeeting = {
       }
       redraw();
     };
+    // Качество связи участника — от его прошлой сессии: после переподключения плитка до первого нового события
+    // (до 10 с) показывала бы «нет связи». Забываем его при входе и выходе.
+    const forgetQuality = (person) => {
+      if (person && person.identity) delete this._quality[person.identity];
+    };
     room.on(LK.RoomEvent.ParticipantConnected, (person) => {
+      forgetQuality(person);
       if (!isHidden(person) && this._serverDenoise === false) this._publishDenoise(false);
       redraw();
     });
-    room.on(LK.RoomEvent.ParticipantDisconnected, redraw);
+    room.on(LK.RoomEvent.ParticipantDisconnected, (person) => {
+      forgetQuality(person);
+      redraw();
+    });
     if (LK.RoomEvent.TrackPublished) room.on(LK.RoomEvent.TrackPublished, onPublished);
     if (LK.RoomEvent.TrackUnpublished) room.on(LK.RoomEvent.TrackUnpublished, redraw);
     if (LK.RoomEvent.TrackStreamStateChanged) room.on(LK.RoomEvent.TrackStreamStateChanged, redraw);
@@ -2181,7 +2261,11 @@ const SKKKKMeeting = {
     }
     room.on(LK.RoomEvent.LocalTrackPublished, onPublished);
     room.on(LK.RoomEvent.LocalTrackUnpublished, redraw);
-    room.on(LK.RoomEvent.TrackMuted, () => {
+    room.on(LK.RoomEvent.TrackMuted, (pub, person) => {
+      // Камеру выключил не человек, а система (livekit-client глушит трек, который не смог перезапустить)
+      if (person === room.localParticipant && pub && pub.source === LK.Track.Source.Camera && this._camWanted) {
+        this._scheduleCamRevive();
+      }
       this._syncControls(els);
       this._renderTiles(room, els);
     });
@@ -2325,6 +2409,15 @@ const SKKKKMeeting = {
       this._publishedAt,
     );
     const seen = new Set();
+    // Плитка переставляется, только если стоит не на своём месте. Раньше каждая перерисовка (а её зовёт и событие
+    // качества связи раз в 5–15 с) вынимала и вставляла все плитки: живое видео при переносе в DOM мигает
+    // (особенно Safari), а adaptiveStream на миг считает его скрытым.
+    let slot = 0;
+    const place = (tile) => {
+      const at = els.tilesEl.children[slot];
+      if (at !== tile) els.tilesEl.insertBefore(tile, at || null);
+      slot += 1;
+    };
     order.forEach((item) => {
       if (item.kind === window.SKKKKLayout.KIND_SCREEN) {
         const screen = screens.find((row) => SCREEN_TILE_PREFIX + row.sid === item.id);
@@ -2332,7 +2425,7 @@ const SKKKKMeeting = {
         const tile = this._ensureScreenTile(els.tilesEl, screen);
         seen.add(tile.id);
         this._fillScreenTile(tile, screen, item.lead);
-        els.tilesEl.append(tile);
+        place(tile);
         return;
       }
       const person = people.find((row) => "meeting-tile-" + tileKey(row) === item.id);
@@ -2340,7 +2433,7 @@ const SKKKKMeeting = {
       const tile = this._ensureTile(els.tilesEl, person, person === room.localParticipant);
       seen.add(tile.id);
       this._fillTile(tile, person, room);
-      els.tilesEl.append(tile);
+      place(tile);
     });
     Array.from(els.tilesEl.children).forEach((node) => {
       if (!seen.has(node.id)) node.remove();
