@@ -2,7 +2,8 @@
 
 Исполнители регистрируются по области (``scope``): ``artifact`` — требования (этап 2 плана), ``topics`` и ``relevance`` —
 темы и актуальность (REQUIREMENTS-PLAN), ``conflicts`` — конфликты
-(этап 4). Ошибка автопроверки не трогает статус артефакта: он уже ``done``. План: docs/plans/AUTO-REVIEW-PLAN.md.
+(этап 4), ``reextract`` — переизвлечение требований, ``summary`` — итоговая выжимка проекта после его проверок.
+Ошибка автопроверки не трогает статус артефакта: он уже ``done``. План: docs/plans/AUTO-REVIEW-PLAN.md.
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ from app.app.services.auto_review import MODE_LIVE, MODE_SHADOW
 logger = logging.getLogger("skkkk.review")
 
 Reviewer = Callable[[Session, Settings, Artifact, str], dict[str, Any]]
-REVIEWERS: dict[str, list[Reviewer]] = {"reextract": [], "artifact": [], "topics": [], "relevance": [], "conflicts": []}
+REVIEWERS: dict[str, list[Reviewer]] = {"reextract": [], "artifact": [], "topics": [], "relevance": [], "conflicts": [],
+                                        "summary": []}
 
 
 def register_reviewer(scope: str, fn: Reviewer) -> Reviewer:
@@ -47,9 +49,10 @@ def _register_defaults() -> None:
 
     register_reviewer("topics", review_artifact_topics)
     register_reviewer("relevance", review_artifact_relevance)
-    from app.app.services.requirements_reextract import reextract_for_review
+    from app.app.services.requirements_reextract import reextract_for_review, summary_for_review
 
     register_reviewer("reextract", reextract_for_review)  # переизвлечение по новой схеме (REQUIREMENTS-PLAN этап 9)
+    register_reviewer("summary", summary_for_review)  # выжимка проекта: за проверками нового материала и переизвлечения
 
 
 _register_defaults()

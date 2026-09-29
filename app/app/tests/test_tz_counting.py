@@ -67,8 +67,9 @@ def test_rebuild_fires_on_every_nth_done_artifact(monkeypatch):
         def __init__(self, count: int) -> None:
             self._count = count
 
-        def scalar(self, _stmt):
-            return self._count
+        def scalar(self, stmt):
+            # задач выжимки в очереди (jobs) нет — автопроверка выключена; прочие -> число готовых материалов
+            return 0 if "jobs" in str(stmt) else self._count
 
     monkeypatch.setattr(tz_mod, "rebuild_tz_fast", lambda db, s, pid, **kw: calls.append(pid))
     _patch_tz_task_guards(monkeypatch)

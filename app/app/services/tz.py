@@ -753,11 +753,7 @@ def build_tz_fast_body(db: Session, settings: Settings, project_id: int) -> tupl
 
     if not blocks:
         log_event(logger, "tz.rebuild_fast.empty", project_id=project_id)
-        current.write_text(
-            "# Итоговая выжимка по проекту\n\nМатериалов для сборки пока нет (нет готовых артефактов с индексом).\n",
-            encoding="utf-8",
-        )
-        return current
+        return None, stats  # заглушку «Материалов для сборки пока нет» пишет rebuild_tz_fast
 
     material = "\n\n".join(blocks)
     reduce_user = reduce_user_tmpl.format(drafts=material)
@@ -829,8 +825,43 @@ def _other_pending_jobs(db: Session, artifact: Artifact) -> int:
     ) or 0
 
 
+def summary_jobs_queued(db: Session, project_id: int) -> int:
+    """Задачи итоговой выжимки проекта, ждущие в очереди за проверками материалов (``auto_review``, scope ``summary``)."""
+    from app.app.models.job import Job
+
+    return db.scalar(
+        select(func.count())
+        .select_from(Job)
+        .join(Artifact, Artifact.id == Job.artifact_id)
+        .where(
+            Artifact.project_id == project_id,
+            Job.status == "queued",
+            Job.payload_json.like('%"scope": "summary"%'),
+        )
+    ) or 0
+
+
 def maybe_auto_rebuild_tz(db: Session, settings: Settings, artifact: Artifact) -> None:
+    """Автопересборка выжимки после нового материала (и после упавшего последнего файла партии).
+
+    С автопроверкой материал ставит выжимку задачей очереди за своими проверками — она соберётся, когда актуальность и
+    конфликты уже выключат заменённое (решение владельца 2026-09-29). Собранная здесь сохранила бы устаревшее: проверки
+    идут позже, в очереди после расшифровок. Сразу — только без автопроверки: документ — в конце партии, созвон — каждый
+    N-й готовый материал проекта.
+    """
     from app.app.services.project_tasks import TASK_TZ_REBUILD, get_running_task, track_project_task
+
+    waiting = summary_jobs_queued(db, artifact.project_id)
+    if waiting:
+        log_event(
+            logger,
+            "tz.rebuild.skipped",
+            project_id=artifact.project_id,
+            artifact=artifact.artifact_id,
+            reason="after_checks",
+            summary_jobs=waiting,
+        )
+        return
 
     if get_running_task(db, task_type=TASK_TZ_REBUILD, project_id=artifact.project_id):
         log_event(

@@ -16,7 +16,7 @@ from app.app.models.job import Job
 KIND_PROCESS = "process_artifact"
 KIND_AUTO_REVIEW = "auto_review"
 KIND_REFRESH = "refresh_knowledge"  # после имени голоса у готового созвона: переиндексация чанков и выжимка
-REVIEW_SCOPES = ("reextract", "artifact", "topics", "relevance", "conflicts")
+REVIEW_SCOPES = ("reextract", "artifact", "topics", "relevance", "conflicts", "summary")
 
 
 def requeue_orphaned_jobs(db: Session, max_attempts: int) -> int:
