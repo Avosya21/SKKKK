@@ -2657,6 +2657,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_qa_meeting_lifecycle
+    kind: file
+    path: scripts/qa_meeting_lifecycle.py
+    title: "Жизненный цикл встречи на живом сервере: создание, запуск, ссылка, вход и выход, завершение, удаление (в том числе без запуска"
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_media_path
+    kind: file
+    path: scripts/qa_media_path.py
+    title: "Путь звука и видео созвона в настоящем браузере: от издателя через LiveKit и шумодав `skkkk-dfn` к слушателю."
+    tags: [auto]
+    auto: true
+
+  - id: script_qa_room_ui
+    kind: file
+    path: scripts/qa_room_ui.py
+    title: "Комната созвона: раскладка на телефоне при повороте, пульт и окна, устойчивость индикаторов и камеры (живой LiveKit, песочница)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
