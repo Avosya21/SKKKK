@@ -109,8 +109,11 @@ def test_live_newer_wins_and_undo(client, admin_token, tmp_data, llm):
     try:
         older, _newer, _link, res = _state(db, older_id, newer_id, link_id)
         assert older.is_active is True and res is None
+        older.is_active = False  # сторону выключили иначе (дубль, устарело по теме) — спорить не с чем
+        db.commit()
     finally:
         db.close()
+    assert client.get(f"/projects/{pid}/conflicts", headers=headers).json() == []
 
 
 def test_shadow_only_notes_verdict(client, admin_token, tmp_data, llm):

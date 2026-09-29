@@ -243,3 +243,29 @@ def test_recorded_at_with_time_api(client, admin_token, tmp_data):
         assert art.recorded_at == datetime(2026, 7, 22, 11, 30)  # 14:30 МСК → UTC
     finally:
         db.close()
+
+
+def test_rebind_chat_entities_and_chat_source(client, admin_token, tmp_data):
+    """Пункты переписки, извлечённые до разбора выгрузки, привязываются к сообщениям без модели; проверка видит источник."""
+    from app.app.models.entity import Entity
+    from app.app.services.chat_export import parse_telegram_html
+    from app.app.services.entities import rebind_chat_entities
+    from app.app.services.review_requirements import _chat_source
+
+    settings = get_settings().model_copy(update={"dry_run": False})
+    db = db_mod.SessionLocal()
+    try:
+        project, user = _project(db, "Привязка переписки")
+        art, _ = _chat_artifact(db, settings, project, user, f"art_tg_rb_{project.id}", TELEGRAM, datetime(2026, 8, 27, 10, 0))
+        ent = Entity(artifact_id=art.id, entity_type="decision", value_json=json.dumps(
+            {"text": "Характеристики номенклатуры ведём в 1С: нормализуем справочник профнастила"}, ensure_ascii=False))
+        db.add(ent)
+        db.commit()
+        assert rebind_chat_entities(db, settings, art)["bound"] == 1
+        db.expire_all()
+        value = json.loads(db.get(Entity, ent.id).value_json)
+        assert value["message_id"] == 107 and value["speaker"] == "Елена" and value["speaker_source"] == "chat"
+        lines = _chat_source(value, value["text"], parse_telegram_html(TELEGRAM)["messages"])
+        assert any(line.startswith("M107 [25.08.2026 16:02] Елена") for line in lines)
+    finally:
+        db.close()

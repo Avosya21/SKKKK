@@ -78,8 +78,9 @@ def _order_key(ent: Entity, art: Artifact, value: dict[str, Any]) -> tuple:
 
     # День пункта (у переписки — день сообщения), затем момент (время сообщения / начало созвона + таймкод), затем таймкод
     day, moment = item_moment(art, value)
+    # внутри одной переписки без времени сообщений (копия чата Битрикс24) порядок — по номеру сообщения
     return (day or artifact_reference_date(art) or date.min, moment.timestamp() if moment else 0.0,
-            float(value.get("start_sec") or 0.0), art.id, ent.id)
+            float(value.get("start_sec") or 0.0), art.id, int(value.get("message_id") or 0), ent.id)
 
 
 def _source(settings: Settings, ent: Entity, art: Artifact, value: dict[str, Any], cache: dict) -> list[str]:
@@ -92,6 +93,15 @@ def _source(settings: Settings, ent: Entity, art: Artifact, value: dict[str, Any
 
             cache[art.id] = load_turns(settings, art)
         return _call_source(value, text, cache[art.id])[0]
+    chat_key = ("chat", art.id)
+    if chat_key not in cache:
+        from app.app.services.chat_export import load_artifact_export
+
+        cache[chat_key] = (load_artifact_export(settings, art) or {}).get("messages") or []
+    if cache[chat_key]:  # переписка: сообщение пункта и соседние (SOURCE-ANCHORS-PLAN)
+        from app.app.services.review_requirements import _chat_source
+
+        return _chat_source(value, text, cache[chat_key])
     if art.id not in cache:
         from app.app.services.summarize_document import load_document_source_text
 
@@ -127,14 +137,17 @@ def _pair(db: Session, settings: Settings, link: Link, cache: dict) -> dict[str,
     older, newer = sorted([(a, va), (b, vb)], key=lambda row: _order_key(row[0], arts[row[0].artifact_id], row[1]))
     from app.app.services.retrieval import format_entity_line
 
-    from app.app.services.conflict_rules import source_weight
+    from app.app.services.conflict_rules import customer_answer, project_sides, source_weight
     from app.app.services.review_requirements import _statement
+
+    sides = project_sides(db, link.project_id, cache)  # ответ заказчика в переписке — вес 2 (Р1, 2026-09-28)
 
     def side(ent: Entity, value: dict[str, Any]) -> dict[str, Any]:
         art = arts[ent.artifact_id]
         text = _statement(ent.entity_type, value)
         return {"id": ent.id, "artifact_id": ent.artifact_id, "line": format_entity_line(ent.entity_type, ent.value_json, art),
-                "text": text, "weight": source_weight(ent.entity_type, value, art, text),
+                "text": text, "weight": source_weight(ent.entity_type, value, art, text, sides),
+                "customer_answer": customer_answer(value, sides),
                 "source": _source(settings, ent, art, value, cache), "human": bool(value.get("human_review"))}
 
     material = a.entity_type in MATERIAL_TYPES and b.entity_type in MATERIAL_TYPES
@@ -180,7 +193,8 @@ def interpret(pair: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
         if role == "older":
             out["reason"] = f"раннее не может отменить позднее; модель: {reason}"
         elif not cancel_allowed(canceller, cancelled):
-            out["reason"] = f"отмена из более слабого источника; модель: {reason}"
+            weak = "ответ в переписке не отменяет документ заказчика" if canceller.get("customer_answer") else "отмена из более слабого источника"
+            out["reason"] = f"{weak}; модель: {reason}"
         else:
             out.update(verdict="newer_wins", rule="rule:explicit_cancel")
     elif relation == "not_decision" and pointed:
@@ -281,11 +295,14 @@ def apply_conflict_verdict(db: Session, settings: Settings, pair: dict[str, Any]
         # победу с уверенностью 0.95. Выключать верное решение ради пункта без опоры в источнике нельзя.
         verdict, reason = "unsure", f"источник победившего пункта его не подтверждает; модель: {reason}"
     wins = verdict in ("newer_wins", "older_wins")
+    if important is None:
+        # Р3: деньги и сроки; и всегда — если выключается более новый пункт в пользу более старого (решение владельца
+        # 2026-09-28): обычно позднее уточняет раннее, обратное человек должен увидеть во «Важном».
+        important = wins and (verdict == "older_wins" or is_material_topic(older.get("text") or "", newer.get("text") or ""))
     review: dict[str, Any] = {"verdict": verdict, "reason": (reason or "")[:300], "confidence": round(float(confidence), 3),
                               "mode": mode, "model": model, "prompt_version": PROMPT_VERSION, "at": _now(),
                               "older": older["id"], "newer": newer["id"], "rule": rule, "relation": relation,
-                              "reject_kind": reject_kind if wins else None,
-                              "important": (important if important is not None else wins and is_material_topic(older.get("text") or "", newer.get("text") or ""))}
+                              "reject_kind": reject_kind if wins else None, "important": important}
     author = _author(model, rule)
     if mode == MODE_LIVE and wins:
         db.add(Resolution(link_id=link.id, winning_entity_id=winner["id"], losing_entity_id=loser["id"],
@@ -481,7 +498,8 @@ def review_artifact_conflicts(db: Session, settings: Settings, artifact: Artifac
 
 def conflict_rows(db: Session, project_id: int, *, view: str = "pending") -> list[dict[str, Any]]:
     """Конфликты для экрана: pending — ждут человека (с теневым/неуверенным вердиктом модели); model — решены моделью;
-    important — решённые моделью или правилом по деньгам/срокам и не отменённые (сводка важного, Р3)."""
+    important — решённые моделью или правилом по деньгам/срокам или с выключением более нового пункта в пользу более
+    раннего, не отменённые (сводка важного, Р3; решение владельца 2026-09-28)."""
     from app.app.services.retrieval import format_entity_line
 
     links = db.scalars(select(Link).where(Link.project_id == project_id, Link.link_type == CONFLICT).order_by(Link.id)).all()
@@ -508,6 +526,8 @@ def conflict_rows(db: Session, project_id: int, *, view: str = "pending") -> lis
                          "url": source_url(art.artifact_id if art else None, start_sec=value.get("start_sec"),
                                            message_id=value.get("message_id"),
                                            quote=str(value.get("text") or value.get("description") or "")) if ent else None}
+        if view == "pending" and not (side["source"]["active"] and side["target"]["active"]):
+            continue  # одна сторона уже выключена (дубль, устарело, отклонено) — спорить не с чем; «Вернуть» вернёт и конфликт
         out.append({"link_id": link.id, "score": link.similarity_score, **side, "model_review": review,
                     "resolution": {"status": res.status, "reason": res.reason, "winner": res.winning_entity_id} if res else None})
     return out

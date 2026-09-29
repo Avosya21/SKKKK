@@ -124,6 +124,11 @@ def _call_source(value: dict[str, Any], text: str, turns: list) -> tuple[list[st
     return lines, anchor
 
 
+NO_SOURCE_REASON = "не найден источник (реплика/абзац) для проверки"
+DOC_PARA_LOOSE_COVERAGE = 0.25  # самодостаточная формулировка (А8) добавляет объект и систему — слова абзаца совпадают хуже
+DOC_ANSWER_PARAS = 2  # после абзаца-вопроса — ещё столько абзацев: строка с именем отвечающего и сам ответ
+
+
 def _document_source(text: str, doc_text: str) -> list[str]:
     from app.app.services.contract_text import coverage, stems
 
@@ -133,10 +138,43 @@ def _document_source(text: str, doc_text: str) -> list[str]:
         return []
     scored = [(coverage(need, stems(p)), i) for i, p in enumerate(paras)]
     best, idx = max(scored)
-    if best < DOC_PARA_MIN_COVERAGE:
+    if best < DOC_PARA_LOOSE_COVERAGE:
         return []
-    around = " ".join(paras[max(0, idx - 1) : idx + 2])
+    width = 1 if best >= DOC_PARA_MIN_COVERAGE else 2  # слабое совпадение — шире окно, модель сама сверит пункт с текстом
+    # Лучший абзац — вопрос: ответ ниже (в тексте переписки ещё и через строку с именем) — без него проверка видит
+    # только вопрос и выключает верный пункт как «не решение» (урок 2026-09-28)
+    after = width + DOC_ANSWER_PARAS if paras[idx].rstrip(" \"»')").endswith("?") else width
+    around = " ".join(paras[max(0, idx - width) : idx + after + 1])
     return [around[:DOC_SOURCE_CHARS]]
+
+
+def _chat_source(value: dict[str, Any], text: str, messages: list[dict]) -> list[str]:
+    """Переписка: сообщение пункта (привязка ``message_id`` или лучшее совпадение слов) и соседние — как реплики созвона."""
+    from app.app.services.entities import _message_line, bind_chat_source
+
+    if not messages:
+        return []
+    from app.app.services.contract_text import coverage, stems
+
+    position = {m["id"]: i for i, m in enumerate(messages)}
+    mid = value.get("message_id")
+    if mid not in position:
+        mid = (bind_chat_source({"text": text}, messages, set()) or {}).get("message_id")
+    if mid in position:
+        pos = position[mid]
+        return [_message_line(m) for m in messages[max(0, pos - WINDOW_TURNS): pos + WINDOW_TURNS + 1]]
+    # Привязки нет: два лучших места переписки с соседними сообщениями — модель сама сверит пункт с ними
+    need = stems(text)
+    ranked = sorted(((coverage(need, stems(m.get("text") or "")), i) for i, m in enumerate(messages)), reverse=True)[:2]
+    windows: list[str] = []
+    for score, pos in sorted(ranked, key=lambda r: r[1]):
+        if score < DOC_PARA_LOOSE_COVERAGE:
+            continue
+        for m in messages[max(0, pos - 2): pos + 3]:
+            line = _message_line(m)
+            if line not in windows:
+                windows.append(line)
+    return windows
 
 
 def _duplicate_of(cands: list[Candidate]) -> dict[int, int]:
@@ -226,7 +264,9 @@ def _pending(db: Session, artifact: Artifact) -> list[Entity]:
         if not isinstance(value, dict) or value.get("human_review"):
             continue
         review = value.get("model_review")
-        if isinstance(review, dict) and review.get("prompt_version") == PROMPT_VERSION:
+        # «не найден источник» — не вердикт модели, а сбой поиска источника: проверяется заново при следующем прогоне
+        retry = isinstance(review, dict) and review.get("rule") == "no_source" and not review.get("undone")
+        if isinstance(review, dict) and review.get("prompt_version") == PROMPT_VERSION and not retry:
             continue
         out.append(ent)
     return out
@@ -272,13 +312,16 @@ def review_artifact_requirements(db: Session, settings: Settings, artifact: Arti
 
     turns: list = []
     doc_text = ""
+    chat: list[dict] = []
     if is_audio:
         from app.app.services.transcript_turns import load_turns
 
         turns = load_turns(settings, artifact)
     else:
+        from app.app.services.chat_export import load_artifact_export
         from app.app.services.summarize_document import load_document_source_text
 
+        chat = (load_artifact_export(settings, artifact) or {}).get("messages") or []
         doc_text = load_document_source_text(settings, artifact)
 
     cands: list[Candidate] = []
@@ -288,13 +331,15 @@ def review_artifact_requirements(db: Session, settings: Settings, artifact: Arti
         cand = Candidate(ent.id, ent.entity_type, text, bool(value.get("decided_by")))
         if is_audio:
             cand.source, cand.anchor = _call_source(value, text, turns)
+        elif chat:  # переписка: сообщение пункта и соседние (SOURCE-ANCHORS-PLAN)
+            cand.source = _chat_source(value, text, chat)
         else:
             cand.source = _document_source(text, doc_text)
         cands.append(cand)
     stats["total"] = len(cands)
 
     for cand in [c for c in cands if not c.source]:
-        _record(db, settings, cand.entity_id, verdict="unsure", reason="не найден источник (реплика/абзац) для проверки",
+        _record(db, settings, cand.entity_id, verdict="unsure", reason=NO_SOURCE_REASON,
                 confidence=0.0, mode=mode, model="rule", extra={"rule": "no_source"})
         stats["no_source"] += 1
         stats["unsure"] += 1

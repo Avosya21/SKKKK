@@ -173,9 +173,85 @@ def assign_topics(db: Session, settings: Settings, project_id: int, *, artifact:
     return stats
 
 
+MERGE_PROMPT_PATH = ROOT / "docs" / "prompts" / "merge_topics.md"
+MERGE_SAMPLE_ITEMS = 10  # замер «ПИЛОТА»: с 4 примерами склейка не увидела «вариант B: цвет в карточке, длина в строке»
+# Темы, уже просмотренные склейкой (настройка проекта). Склеивается только группа с новой темой: иначе каждый прогон
+# модель находила что-то ещё и темы сливались раз за разом (замер «ПИЛОТА»: 22 → 20 → 18 → 16).
+MERGE_SEEN_KEY = "topics_merge_seen"
+
+
+def _merge_seen(db: Session, project_id: int, topic_ids: list[int] | None = None) -> set[int]:
+    """Прочитать (или записать, если ``topic_ids`` задан) темы, уже просмотренные склейкой."""
+    from app.app.models.project import Project
+
+    project = db.get(Project, project_id)
+    if project is None:
+        return set()
+    cfg = project.settings()
+    if topic_ids is not None:
+        cfg[MERGE_SEEN_KEY] = sorted(topic_ids)
+        project.set_settings(cfg)
+    return {int(x) for x in cfg.get(MERGE_SEEN_KEY) or [] if str(x).isdigit()}
+
+
+def merge_topics(db: Session, settings: Settings, project_id: int) -> dict[str, Any]:
+    """Склеить темы одной потребности, разведённые по способу решения (``merge_topics.md``). Пункты переходят в первую тему
+    группы, она получает общее название и проверяется на актуальность заново; остальные темы удаляются."""
+    from app.app.services.prompts import load_prompt_block
+
+    stats: dict[str, Any] = {"topics": 0, "groups": 0, "merged": 0, "llm_calls": 0, "llm_errors": 0}
+    topics = project_topics(db, project_id)
+    stats["topics"] = len(topics)
+    fresh = {t.id for t in topics} - _merge_seen(db, project_id)
+    if len(topics) < 2 or settings.dry_run or not fresh:
+        return stats
+    lines = []
+    for topic in topics:
+        ents = db.scalars(select(Entity).where(Entity.topic_id == topic.id, Entity.is_active.is_(True)).order_by(Entity.id)
+                          .limit(MERGE_SAMPLE_ITEMS)).all()
+        lines.append(f"t{topic.id}: {topic.label}")
+        lines += [f"   - {_text(_value(e))[:160]}" for e in ents]
+    db.commit()  # соединение БД не держим на время ответа модели
+    try:
+        data = _ask(settings, load_prompt_block(MERGE_PROMPT_PATH), "\n".join(lines))
+    except Exception as exc:  # noqa: BLE001 — без склейки темы остаются как есть
+        stats["llm_errors"] += 1
+        log_event(logger, "topics.merge_failed", project=project_id, error=str(exc)[:300])
+        return stats
+    stats["llm_calls"] += 1
+    by_id = {f"t{t.id}": t for t in topics}
+    used: set[int] = set()
+    for group in data.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        members = [by_id[t] for t in dict.fromkeys(str(x).strip() for x in group.get("topics") or []) if t in by_id]
+        members = [t for t in members if t.id not in used]
+        if len(members) < 2 or not any(t.id in fresh for t in members):
+            continue  # старые темы между собой уже просмотрены — не склеиваем их при каждом прогоне
+        keep, rest = members[0], members[1:]
+        label = str(group.get("label") or "").strip()[:LABEL_MAX]
+        if label:
+            keep.label = label
+        keep.reviewed_at = None
+        for topic in rest:
+            db.query(Entity).filter(Entity.topic_id == topic.id).update({Entity.topic_id: keep.id}, synchronize_session=False)
+            db.delete(topic)
+        used |= {t.id for t in members}
+        stats["groups"] += 1
+        stats["merged"] += len(rest)
+    db.flush()
+    _merge_seen(db, project_id, [t.id for t in project_topics(db, project_id)])
+    db.commit()
+    log_event(logger, "topics.merged", project=project_id, **stats)
+    return stats
+
+
 def review_artifact_topics(db: Session, settings: Settings, artifact: Artifact, mode: str) -> dict[str, Any]:
-    """Исполнитель очереди (scope ``topics``): темы не выключают пунктов, поэтому режим (тень / live) не важен."""
-    return assign_topics(db, settings, artifact.project_id, artifact=artifact)
+    """Исполнитель очереди (scope ``topics``): раскладка пунктов материала, затем склейка тем одной потребности.
+    Темы не выключают пунктов, поэтому режим (тень / live) не важен."""
+    stats = assign_topics(db, settings, artifact.project_id, artifact=artifact)
+    stats["merge"] = merge_topics(db, settings, artifact.project_id)
+    return stats
 
 
 def topic_labels(db: Session, topic_ids: set[int]) -> dict[int, str]:
