@@ -120,6 +120,48 @@ def test_review_failure_does_not_break_artifact(db_engine, monkeypatch):
         db.close()
 
 
+def test_artifact_deleted_during_job_does_not_crash_worker(db_engine, monkeypatch):
+    """Встречу удалили, пока воркер её обрабатывал (пр.40, задача 453): run_once не падает,
+    а номер задачи, который SQLite уже отдал новой задаче другой встречи, воркер не трогает."""
+    from sqlalchemy import delete
+
+    from app.app.models.artifact import Artifact
+    from app.app.models.job import Job
+    from app.app.workers import review as review_mod
+    from app.app.workers.gpu_worker import run_once
+
+    def delete_artifact(db, _settings, job, artifact):
+        # Как удаление из портала: строки убирает другой процесс, объекты в сессии воркера просто устаревают.
+        job_pk = job.id
+        db.execute(delete(Job).where(Job.artifact_id == artifact.id).execution_options(synchronize_session=False))
+        db.execute(delete(Artifact).where(Artifact.id == artifact.id).execution_options(synchronize_session=False))
+        db.add(Job(id=job_pk, artifact_id=other_pk, kind="refresh_knowledge", status="queued"))
+        db.commit()
+
+    monkeypatch.setattr(get_settings(), "dry_run", False)
+    monkeypatch.setattr(review_mod, "process_review", delete_artifact)
+    db = db_mod.SessionLocal()
+    try:
+        project, art = _project_with_artifact(db)
+        other = Artifact(
+            artifact_id="art_other", project_id=project.id, user_id=art.user_id, original_filename="b.webm",
+            stored_filename="b.webm", file_path="/y", file_type="audio", source_type="call", sha256="def", status="done",
+        )
+        db.add(other)
+        db.flush()
+        other_pk = other.id
+        job_pk = enqueue_auto_review(db, art.id, scope="artifact", mode="shadow").id
+    finally:
+        db.close()
+    assert run_once()
+    db = db_mod.SessionLocal()
+    try:
+        reused = db.get(Job, job_pk)
+        assert reused.artifact_id == other_pk and reused.status == "queued" and not reused.error_message
+    finally:
+        db.close()
+
+
 def test_unknown_job_kind_never_runs_transcription(db_engine, monkeypatch):
     from app.app.models.job import Job
     from app.app.workers import pipeline as pipeline_mod
