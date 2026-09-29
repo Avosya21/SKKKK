@@ -187,7 +187,7 @@ def main() -> int:
             a.evaluate("() => { SKKKKMeeting._linkQuality = SKKKKMeeting.__qaLinkQuality; }")
 
             # --- единообразие: у каждого участника на плитке те же палочки
-            remote = "(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; const p = Array.from(r.remoteParticipants.values())[0]; r.emit(LK.RoomEvent.ConnectionQualityChanged, q, p); }"
+            remote = "(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; const p = Array.from(r.remoteParticipants.values()).find((x) => !String(x.identity).startsWith('skkkk-')); r.emit(LK.RoomEvent.ConnectionQualityChanged, q, p); }"
             a.evaluate(remote, "poor"); time.sleep(0.6)
             tile_levels = a.evaluate("Array.from(document.querySelectorAll('.meeting-tile:not(.meeting-tile-local) .meeting-signal.is-tile')).map(x => x.dataset.level)")
             check(tile_levels == ["1"], f"чужая плитка: плохая связь показана одной красной палочкой (сейчас {tile_levels})")

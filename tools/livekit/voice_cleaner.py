@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CLEANER_ID = "skkkk-dfn"
 CLEANER_NAME = "очистка звука"
 SAMPLE_RATE = 48000
-QUEUE_MS = 200
+QUEUE_MS = 120  # потолок буфера выхода: он идёт в реальном времени, всё, что в нём лежит, — задержка
 FRAME_MS = 10
 CHUNK_MS = 80
 POLL_SEC = 2.0
@@ -28,10 +28,26 @@ DENOISE_KEY = "denoise"
 DENOISE_TOPIC = "skkkk-denoise"
 ATTEN_ENV = "MEETING_VOICE_ATTEN_LIM"
 POST_ENV = "MEETING_VOICE_POST_FILTER"
+MAX_TRACKS_ENV = "MEETING_VOICE_MAX_TRACKS"
+# Кусок 80 мс на CPU считается ~8 мс в одном потоке событий: 8 дорожек на все комнаты — ~80 % времени.
+# Сверх предела человек идёт без очистки (у слушателей играет его сырой звук), а не с растущим отставанием.
+MAX_TRACKS_DEFAULT = 8
+# Прошлые кадры окна потокового DFN3: входная свёртка (3), df_convp (5) и порядок DF (5) смотрят назад.
+LIVE_CONTEXT = 8
+# Вход копится, если цикл событий застрял (прогрев модели, соседние дорожки), а выход AudioSource идёт строго
+# в реальном времени — накопленное само не рассосётся и навсегда станет задержкой (замер: +1.9…2.7 с).
+# Больше BACKLOG_FRAMES кадров по 10 мс в очереди — лишнее выбрасываем; в норме там до ~7 (8 дорожек ждут замок).
+BACKLOG_FRAMES = 15
+BACKLOG_KEEP = 2
+STREAM_CAP_FRAMES = 50  # жёсткий потолок очереди входа: RingQueue сам выбрасывает старые кадры
+STATS_EVERY_S = 60.0
+PUBLISH_TIMEOUT_S = 10.0
 ATTEN_DEFAULT = 20.0
 INTERNAL_URL = os.environ.get("LIVEKIT_RTC_INTERNAL", "ws://127.0.0.1:7880")
 HTTP_URL = os.environ.get("LIVEKIT_HTTP_INTERNAL", "http://127.0.0.1:7880")
 _ATTEN = ATTEN_DEFAULT
+_MAX_TRACKS = MAX_TRACKS_DEFAULT
+_BUSY: dict = {}  # "комната|identity" -> задача очистки, на все комнаты процесса
 
 
 def atten_lim_db(raw: str | None = None) -> float | None:
@@ -49,6 +65,14 @@ def atten_lim_db(raw: str | None = None) -> float | None:
     if value <= 0:
         return None
     return value
+
+
+def max_tracks(raw: str | None = None) -> int:
+    try:
+        value = int(str(raw if raw is not None else "").strip() or MAX_TRACKS_DEFAULT)
+    except ValueError:
+        return MAX_TRACKS_DEFAULT
+    return max(1, value)
 
 
 def post_filter_enabled(raw: str | None = None) -> bool:
@@ -217,6 +241,202 @@ def _enhance(model, state, enhance, pcm, atten=None):
     wave = out.detach().cpu().numpy().reshape(-1)
     wave = np.clip(wave, -1.0, 1.0)
     return _fit((wave * 32767.0).astype(np.int16), len(pcm))
+
+
+_LIVE_GRUS = (("enc", "emb_gru"), ("erb_dec", "emb_gru"), ("df_dec", "df_gru"))
+_LIVE_WINDOW: dict = {}
+
+
+def _live_gru_forward(key: str):
+    def forward(self, input, h=None):
+        window = _LIVE_WINDOW.get("now")
+        if window is None:
+            return type(self).forward(self, input, h)
+        import torch
+
+        c, split = window["c"], window["split"]
+        out = torch.zeros(input.shape[0], input.shape[1], window["dims"][key], dtype=input.dtype)
+        if split > c:
+            x = self.linear_in(input[:, c:split])
+            y, h_new = self.gru(x, window["h"].get(key))
+            y = self.linear_out(y)
+            if self.gru_skip is not None:
+                y = y + self.gru_skip(input[:, c:split])
+            out[:, c:split] = y
+            window["h"][key] = h_new
+        return out, None
+
+    return forward
+
+
+def _install_live_grus(model) -> bool:
+    """GRU DeepFilterNet3 продолжают с памяти дорожки: кадры контекста не шагают их повторно, хвост без заглядывания
+    вперёд не портит память. Нет нужных слоёв (другая модель) — False, живём покусочно через _enhance."""
+    if getattr(model, "_skkkk_live_dims", None):
+        return True
+    import types
+
+    import torch
+
+    dims = {}
+    try:
+        mods = []
+        for owner, name in _LIVE_GRUS:
+            mod = getattr(getattr(model, owner), name)
+            for attr in ("linear_in", "gru", "linear_out", "gru_skip"):
+                getattr(mod, attr)
+            with torch.no_grad():
+                dims[owner + "." + name] = int(mod.linear_out(torch.zeros(1, 1, mod.gru.hidden_size)).shape[-1])
+            mods.append((owner + "." + name, mod))
+    except (AttributeError, RuntimeError, TypeError):
+        return False
+    for key, mod in mods:
+        mod.forward = types.MethodType(_live_gru_forward(key), mod)
+    model._skkkk_live_dims = dims
+    return True
+
+
+class _LiveFilter:
+    """Шумодав одной дорожки потоком: STFT, нормировки признаков и память GRU живут между кусками, поэтому
+    результат совпадает с обработкой всей записи разом. Цена — задержка 30 мс (STFT 10 + заглядывание модели 20).
+
+    Прежний путь (`_enhance`: каждый кусок 80 мс как отдельная запись) терял 4–6 дБ SI-SDR речи: libdf по умолчанию
+    сбрасывает буферы STFT на каждом вызове, GRU и нормировки стартовали с нуля, конец куска не видел будущего."""
+
+    def __init__(self, model, enhance):
+        import numpy as np
+        from df.model import ModelParams
+        from df.utils import get_norm_alpha
+        from libdf import unit_norm_init
+
+        self.model = model
+        self.enhance = enhance
+        self.live = _install_live_grus(model)
+        self.df = _new_df_state()
+        if not self.live:
+            return
+        p = ModelParams()
+        self.hop = p.hop_size
+        self.nb_df = p.nb_df
+        self.lookahead = max(p.conv_lookahead, p.df_lookahead)
+        self.alpha = get_norm_alpha(False)
+        self.erb_fb = self.df.erb_widths()
+        # начальные состояния нормировок — те же, что libdf берёт без state
+        self.erb_state = np.linspace(-60.0, -90.0, p.nb_erb, dtype=np.float32).reshape(1, -1)
+        self.unit_state = unit_norm_init(p.nb_df).astype(np.float32)
+        self.spec = np.zeros((1, 0, p.fft_size // 2 + 1), np.complex64)
+        self.erb = np.zeros((1, 0, p.nb_erb), np.float32)
+        self.unit = np.zeros((1, 0, p.nb_df), np.complex64)
+        self.total = 0
+        self.emitted = 0
+        self.start = 0
+        self.pending = np.zeros(0, np.float32)
+        self.h: dict = {}
+
+    def _features(self, spec):
+        import numpy as np
+        from libdf import erb, erb_norm, unit_norm
+
+        a = self.alpha
+        e_db = erb(spec, self.erb_fb)
+        feat_erb = erb_norm(e_db.copy(), a, self.erb_state)  # erb_norm правит вход на месте
+        feat_unit = unit_norm(spec[..., : self.nb_df], a, self.unit_state)
+        s = self.erb_state[0].copy()
+        u = self.unit_state[0].copy()
+        mag = np.abs(spec[0, :, : self.nb_df])
+        for t in range(spec.shape[1]):  # libdf не возвращает state — продолжаем его сами той же формулой
+            s = e_db[0, t] * (1 - a) + s * a
+            u = mag[t] * (1 - a) + u * a
+        self.erb_state = s.reshape(1, -1).astype(np.float32)
+        self.unit_state = u.reshape(1, -1).astype(np.float32)
+        return feat_erb.astype(np.float32), feat_unit.astype(np.complex64)
+
+    def process(self, pcm, atten=None):
+        """int16 внутрь — int16 наружу (длина кратна 10 мс; на первом куске на 20 мс короче)."""
+        import numpy as np
+        import torch
+        from df.utils import as_complex, as_real
+
+        if atten is None:
+            atten = _ATTEN
+        if not self.live:
+            return _enhance(self.model, self.df, self.enhance, pcm, atten)
+        x = np.concatenate([self.pending, pcm.astype(np.float32) / 32768.0])
+        n = len(x) // self.hop * self.hop
+        self.pending = x[n:]
+        if n == 0:
+            return np.zeros(0, np.int16)
+        spec = self.df.analysis(x[:n].reshape(1, -1), False)  # False: не сбрасывать буферы STFT между кусками
+        feat_erb, feat_unit = self._features(spec)
+        self.spec = np.concatenate([self.spec, spec], 1)
+        self.erb = np.concatenate([self.erb, feat_erb], 1)
+        self.unit = np.concatenate([self.unit, feat_unit], 1)
+        self.total += spec.shape[1]
+        end = self.total - self.lookahead
+        if end <= self.emitted:
+            return np.zeros(0, np.int16)
+        first = max(self.start, self.emitted - LIVE_CONTEXT)
+        lo = first - self.start
+        c = self.emitted - first
+        split = end - first
+        spec_t = as_real(torch.as_tensor(self.spec[:, lo:]).unsqueeze(1))
+        erb_t = torch.as_tensor(self.erb[:, lo:]).unsqueeze(1)
+        unit_t = as_real(torch.as_tensor(self.unit[:, lo:]).unsqueeze(1))
+        _LIVE_WINDOW["now"] = {"c": c, "split": split, "h": self.h, "dims": self.model._skkkk_live_dims}
+        try:
+            with torch.no_grad():
+                enhanced = self.model(spec_t.clone(), erb_t, unit_t)[0]
+        finally:
+            _LIVE_WINDOW.pop("now", None)
+        enh = as_complex(enhanced[:, 0, c:split])
+        if atten is not None and abs(atten) > 0:
+            lim = 10 ** (-abs(atten) / 20)
+            enh = as_complex(spec_t[:, 0, c:split]) * lim + enh * (1 - lim)
+        out = self.df.synthesis(np.ascontiguousarray(enh.numpy()), False)
+        self.emitted = end
+        keep = self.total - LIVE_CONTEXT - self.lookahead - 2
+        if keep > self.start:
+            cut = keep - self.start
+            self.spec = self.spec[:, cut:]
+            self.erb = self.erb[:, cut:]
+            self.unit = self.unit[:, cut:]
+            self.start = keep
+        wave = np.clip(np.asarray(out, np.float32).reshape(-1), -1.0, 1.0)
+        return (wave * 32767.0).astype(np.int16)
+
+
+def frames_to_drop(queued: int, limit: int = BACKLOG_FRAMES, keep: int = BACKLOG_KEEP) -> int:
+    return queued - keep if queued > limit else 0
+
+
+def _drop_queued(stream, count: int) -> int:
+    """Выбросить count самых старых кадров из очереди AudioStream (не трогая маркер конца потока None)."""
+    items = getattr(getattr(stream, "_queue", None), "_queue", None)
+    dropped = 0
+    while items and dropped < count and items[0] is not None:
+        items.popleft()
+        dropped += 1
+    return dropped
+
+
+def release_slot(key: str, task) -> None:
+    """Место под очистку освобождается сразу при отмене, не дожидаясь конца задачи: задача, уничтоженная
+    недоделанной ("Task was destroyed but it is pending"), колбэк не вызывает — место висело бы вечно."""
+    if _BUSY.get(key) is task:
+        _BUSY.pop(key, None)
+
+
+def release_room_slots(room_name: str) -> None:
+    for key in [key for key in _BUSY if key.startswith(room_name + "|")]:
+        _BUSY.pop(key, None)
+
+
+def _queued_frames(stream) -> int:
+    items = getattr(getattr(stream, "_queue", None), "_queue", None)
+    try:
+        return sum(1 for item in items if item is not None)
+    except TypeError:
+        return 0
 
 
 def _is_human(identity: str) -> bool:
@@ -406,19 +626,33 @@ async def _pump(room, track, participant, model, state, enhance, lock, wanted) -
     import numpy as np
 
     name = clean_track_name(participant.identity)
-    await _unpublish_named(room, name)
-    source = rtc.AudioSource(SAMPLE_RATE, 1, queue_size_ms=QUEUE_MS)
-    local = rtc.LocalAudioTrack.create_audio_track(name, source)
-    await room.local_participant.publish_track(
-        local,
-        rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
-    )
-    stream = rtc.AudioStream(
-        track, sample_rate=SAMPLE_RATE, num_channels=1, frame_size_ms=FRAME_MS
-    )
+    local = None
+    stream = None
     need = SAMPLE_RATE * CHUNK_MS // 1000
     chunks: list = []
+    stats = {"since": time.monotonic(), "work": 0.0, "peak": 0.0, "chunks": 0, "dropped": 0, "queued": 0}
     try:
+        try:
+            await asyncio.wait_for(_unpublish_named(room, name), timeout=3.0)
+        except asyncio.TimeoutError:
+            pass
+        source = rtc.AudioSource(SAMPLE_RATE, 1, queue_size_ms=QUEUE_MS)
+        local = rtc.LocalAudioTrack.create_audio_track(name, source)
+        try:
+            await asyncio.wait_for(
+                room.local_participant.publish_track(
+                    local,
+                    rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
+                ),
+                timeout=PUBLISH_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            # слушатели этого человека остаются на сыром звуке (клиент играет его, пока нет clean-*)
+            print("voice_cleaner: publish timeout", participant.identity, flush=True)
+            return
+        stream = rtc.AudioStream(
+            track, sample_rate=SAMPLE_RATE, num_channels=1, frame_size_ms=FRAME_MS, capacity=STREAM_CAP_FRAMES
+        )
         async for event in stream:
             if not wanted():
                 return
@@ -428,14 +662,37 @@ async def _pump(room, track, participant, model, state, enhance, lock, wanted) -
             pcm = np.concatenate(chunks)
             chunks.clear()
             async with lock:
-                clean = _enhance(model, state, enhance, pcm, _ATTEN)
-            await _emit(source, rtc, clean)
+                started = time.monotonic()
+                clean = state.process(pcm, _ATTEN)
+                spent = time.monotonic() - started
+            stats["work"] += spent
+            stats["peak"] = max(stats["peak"], spent)
+            stats["chunks"] += 1
+            if len(clean):
+                await _emit(source, rtc, clean)
+            queued = _queued_frames(stream)
+            stats["queued"] = max(stats["queued"], queued)
+            stats["dropped"] += _drop_queued(stream, frames_to_drop(queued)) * FRAME_MS
+            if time.monotonic() - stats["since"] >= STATS_EVERY_S:
+                print(
+                    "voice_cleaner: pump", participant.identity,
+                    "chunk_ms avg %.1f max %.1f" % (stats["work"] / max(1, stats["chunks"]) * 1000, stats["peak"] * 1000),
+                    "queued_max", stats["queued"], "dropped_ms", stats["dropped"], "busy", len(_BUSY), flush=True,
+                )
+                stats.update(since=time.monotonic(), work=0.0, peak=0.0, chunks=0, dropped=0, queued=0)
     finally:
-        await stream.aclose()
-        try:
-            await room.local_participant.unpublish_track(local.sid)
-        except Exception:
-            return
+        # Комната могла уже закрыться: без таймаута задача повисала здесь и уничтожалась недоделанной.
+        # Отмена могла прийти и посреди публикации — тогда снимаем то, что успело опубликоваться.
+        steps = []
+        if stream is not None:
+            steps.append(lambda: stream.aclose())
+        if local is not None:
+            steps.append(lambda: room.local_participant.unpublish_track(local.sid))
+        for step in steps:
+            try:
+                await asyncio.wait_for(step(), timeout=2.0)
+            except BaseException:  # noqa: BLE001 — отмена/таймаут/ошибка SDK: дорожку всё равно отпускаем
+                continue
 
 
 async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> None:
@@ -460,6 +717,7 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> N
         task = pumps.pop(identity, None)
         if task:
             task.cancel()
+            release_slot(room_name + "|" + identity, task)
 
     def start(track, participant) -> None:
         identity = participant.identity
@@ -468,19 +726,31 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> N
         if not person_wants(participant):
             cancel(identity)
             return
+        running = pumps.get(identity)
+        track_sid = getattr(track, "sid", "") or ""
+        if running is not None and not running.done() and track_sid and getattr(running, "skkkk_track", "") == track_sid:
+            return  # переключатель приходит дважды (данные + метаданные): не рвём только что начатую публикацию
         cancel(identity)
-        pumps[identity] = asyncio.create_task(
+        key = room_name + "|" + identity
+        if key not in _BUSY and len(_BUSY) >= _MAX_TRACKS:
+            print("voice_cleaner: busy", len(_BUSY), "tracks, no clean track for", identity, flush=True)
+            return
+        task = asyncio.create_task(
             _pump(
                 room,
                 track,
                 participant,
                 model,
-                _new_df_state(),
+                _LiveFilter(model, enhance),
                 enhance,
                 lock,
                 lambda: person_wants(participant),
             )
         )
+        task.skkkk_track = track_sid
+        pumps[identity] = task
+        _BUSY[key] = task
+        task.add_done_callback(lambda done, k=key: release_slot(k, done))
 
     def apply_denoise(participant) -> None:
         if person_wants(participant):
@@ -576,8 +846,9 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str) -> N
                 return
             await asyncio.sleep(POLL_SEC)
     finally:
-        for task in list(pumps.values()):
-            task.cancel()
+        for identity in list(pumps):
+            cancel(identity)
+        release_room_slots(room_name)
         await close_records()
         await room.disconnect()
 
@@ -620,13 +891,16 @@ def _tokens(api_key: str, api_secret: str, room_name: str = "") -> tuple[str, st
                     "room": room_name,
                     "canSubscribe": True,
                     "canPublish": True,
-                    "hidden": True,
+                    # Не hidden: LiveKit прячет от остальных и скрытого участника, и его дорожки — очищенный звук
+                    # clean-* тогда не доходил ни до кого. Плитку и строку в списке клиент и так не рисует (isHidden).
                 },
             },
             api_secret,
             api_key,
         )
     return listed, joined
+
+
 
 
 def _list_rooms(list_jwt: str) -> list[str]:
@@ -648,17 +922,28 @@ def _list_rooms(list_jwt: str) -> list[str]:
     return names
 
 
+def _warm_up(model, enhance) -> None:
+    """Первый прогон модели идёт секунды (инициализация torch) — делаем его до комнат, а не на живой дорожке."""
+    import numpy as np
+
+    warm = _LiveFilter(model, enhance)
+    for _ in range(4):
+        warm.process(np.zeros(SAMPLE_RATE * CHUNK_MS // 1000, np.int16), _ATTEN)
+
+
 async def _loop() -> None:
     key = _env("LIVEKIT_API_KEY")
     secret = _env("LIVEKIT_API_SECRET")
     if not key or not secret:
         print("voice_cleaner: no LiveKit keys", file=sys.stderr)
         return
-    global _ATTEN
+    global _ATTEN, _MAX_TRACKS
     _ATTEN = atten_lim_db(_env(ATTEN_ENV) or None)
+    _MAX_TRACKS = max_tracks(_env(MAX_TRACKS_ENV))
     model, enhance = _load_filter()
     lock = asyncio.Lock()
-    print("voice_cleaner: DeepFilterNet CPU ready", "atten", _ATTEN, flush=True)
+    _warm_up(model, enhance)
+    print("voice_cleaner: DeepFilterNet CPU ready", "atten", _ATTEN, "live", _install_live_grus(model), "max_tracks", _MAX_TRACKS, flush=True)
     active: set[str] = set()
     backoff = _recordings().JoinBackoff()
     while True:

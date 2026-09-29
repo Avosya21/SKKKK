@@ -285,9 +285,24 @@ function isOwnIdentity(room, identity) {
   return identitiesMatch(local, identity);
 }
 
+function hasCleanTrack(room, identity) {
+  let found = false;
+  if (!room || !identity || !room.remoteParticipants) return false;
+  room.remoteParticipants.forEach((person) => {
+    if (!isCleaner(person)) return;
+    person.trackPublications.forEach((pub) => {
+      if (pub.kind === "audio" && pub.track && identitiesMatch(cleanSourceId(pub.track, pub), identity)) found = true;
+    });
+  });
+  return found;
+}
+
 function playRawAudio(person, room, prefs) {
   if (!person || isCleaner(person)) return false;
-  return !hasCleaner(room) || !wantsDenoise(person, prefs);
+  if (!hasCleaner(room) || !wantsDenoise(person, prefs)) return true;
+  // Шумодав в комнате, но очищенной дорожки человека сейчас нет (ещё готовится, снята, у шумодава предел дорожек,
+  // шумодав переподключается) — играем сырую, иначе человек замолкает. Пришла очищенная — _attachTrack снимет сырую.
+  return !hasCleanTrack(room, person.identity);
 }
 
 function playCleanTrack(track, room, prefs, pub) {
@@ -2220,6 +2235,8 @@ const SKKKKMeeting = {
     });
     room.on(LK.RoomEvent.ParticipantDisconnected, (person) => {
       forgetQuality(person);
+      // Ушёл шумодав — его очищенных дорожек больше нет: возвращаем сырой звук всех
+      if (isCleaner(person)) setTimeout(() => this._reattachAudio(), 0);
       redraw();
     });
     if (LK.RoomEvent.TrackPublished) room.on(LK.RoomEvent.TrackPublished, onPublished);
@@ -2322,7 +2339,7 @@ const SKKKKMeeting = {
       this._attachTrack(els, participant, track, pub);
       redraw();
     });
-    room.on(LK.RoomEvent.TrackUnsubscribed, (track) => {
+    room.on(LK.RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
       track.detach().forEach((node) => {
         if (node._skkkkPlaySrc) {
           try {
@@ -2333,6 +2350,8 @@ const SKKKKMeeting = {
         }
         node.remove();
       });
+      // Шумодав снял очищенную дорожку человека — у слушателя снова играет его сырая
+      if (isCleaner(participant) && track.kind === "audio") setTimeout(() => this._reattachAudio(), 0);
       redraw();
     });
     if (els.rosterList && !els.rosterList.dataset.bound) {
