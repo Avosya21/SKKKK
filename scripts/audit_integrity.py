@@ -1,8 +1,12 @@
-"""Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы. Только чтение.
+"""Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы, устаревший индекс поиска. Только чтение.
 
     venv\\Scripts\\python scripts\\audit_integrity.py [--db data\\app.db] [--data data] [--json]
+    venv\\Scripts\\python scripts\\audit_integrity.py --requeue-stale    # устаревший индекс — в очередь воркера
 
-Код выхода 1, если найдены «сироты» (строки без родителя, векторы без чанка/сущности, папки проектов без проекта).
+Код выхода 1, если найдены «сироты» (строки без родителя, векторы без чанка/сущности, папки проектов без проекта)
+или индекс материала не совпадает с нарезкой его текущего текста (стенограмму переписали после индексации — перепрогон,
+имена спикеров, — или изменилась нарезка). С ``--requeue-stale`` такие материалы ставятся задачей ``refresh_knowledge``
+(индекс, у созвона ещё и выжимка) — единственная запись в базу.
 """
 from __future__ import annotations
 
@@ -11,8 +15,11 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # (название, SQL, что означает найденная строка)
 CHECKS = [
@@ -38,6 +45,50 @@ CHECKS = [
     ("user_notes без проекта", "SELECT n.id FROM user_notes n LEFT JOIN projects p ON p.id=n.project_id WHERE p.id IS NULL", "заметка удалённого проекта"),
     ("changelog без проекта", "SELECT c.id FROM changelog c LEFT JOIN projects p ON p.id=c.project_id WHERE p.id IS NULL", "версия ТЗ удалённого проекта"),
 ]
+STALE_CHECK = "индекс не совпадает с текущим текстом"
+
+
+def stale_index(con: sqlite3.Connection, data_dir: Path) -> list[tuple[int, str]]:
+    """Готовые материалы, чей индекс (``chunks``) не совпадает с нарезкой текущего текста той же функцией, что
+    в ``indexing.index_artifact``: созвон — канон ``_final.txt``, документ — ``transcription_text``. (pk, artifact_id)."""
+    from app.app.services.chunking import chunk_document, chunk_transcript
+    from app.app.services.storage import artifact_knowledge_text
+
+    settings = SimpleNamespace(data_dir=data_dir)
+    stale: list[tuple[int, str]] = []
+    rows = con.execute(
+        "SELECT id, artifact_id, project_id, file_type, source_type, transcription_text, transcription_file_path "
+        "FROM artifacts WHERE status = 'done' ORDER BY id"
+    ).fetchall()
+    for pk, aid, pid, file_type, source_type, text, text_path in rows:
+        stored = [r[0] for r in con.execute("SELECT text FROM chunks WHERE artifact_id = ? ORDER BY chunk_index", (pk,))]
+        if file_type == "audio":
+            art = SimpleNamespace(artifact_id=aid, project_id=pid, source_type=source_type, transcription_text=text,
+                                  transcription_file_path=text_path)
+            canon = artifact_knowledge_text(settings, art)
+            fresh = [c.text for c in chunk_transcript(canon)] if canon else []
+        elif stored:
+            fresh = [c.text for c in chunk_document((text or "").strip())]
+        else:
+            continue  # документ без индекса — файл обмена с агентом, в конвейер знаний не идёт
+        if stored != fresh:
+            stale.append((pk, aid))
+    return stale
+
+
+def requeue_stale(artifact_pks: list[int]) -> int:
+    """Поставить материалы задачей ``refresh_knowledge`` (индекс, у созвона — и выжимка); ждущая задача не дублируется."""
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.services.queue import KIND_REFRESH, enqueue_knowledge_refresh, running_worker_kinds
+
+    if KIND_REFRESH not in running_worker_kinds(get_settings().data_dir):
+        raise SystemExit("запущенный воркер не понимает refresh_knowledge — перезапустите сервер")
+    db = SessionLocal()
+    try:
+        return sum(1 for pk in artifact_pks if enqueue_knowledge_refresh(db, pk) is not None)
+    finally:
+        db.close()
 
 
 def run(db_path: Path, data_dir: Path) -> dict:
@@ -69,8 +120,13 @@ def run(db_path: Path, data_dir: Path) -> dict:
     if rec_orphans:
         findings.append({"check": "записи комнат без встречи в БД", "count": len(rec_orphans), "sample": rec_orphans[:5],
                          "meaning": "сырые дорожки удалённой встречи остались на диске"})
+    stale = stale_index(con, data_dir)
+    if stale:
+        findings.append({"check": STALE_CHECK, "count": len(stale), "sample": [aid for _pk, aid in stale[:5]],
+                         "meaning": "поиск и чат видят старую версию материала; лечится --requeue-stale",
+                         "artifact_pks": [pk for pk, _aid in stale]})
     con.close()
-    return {"db": str(db_path), "problems": [f for f in findings if "count" in f or "error" in f], "checks": len(CHECKS) + 2}
+    return {"db": str(db_path), "problems": [f for f in findings if "count" in f or "error" in f], "checks": len(CHECKS) + 3}
 
 
 def main() -> int:
@@ -78,7 +134,10 @@ def main() -> int:
     ap.add_argument("--db", type=Path, default=ROOT / "data" / "app.db")
     ap.add_argument("--data", type=Path, default=ROOT / "data")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--requeue-stale", action="store_true", help="устаревший индекс — задачей refresh_knowledge в очередь воркера")
     args = ap.parse_args()
+    if args.requeue_stale and args.db.resolve() != (ROOT / "data" / "app.db").resolve():
+        ap.error("--requeue-stale ставит задачи в рабочую базу сервера, --db другой базы с ним не сочетается")
     result = run(args.db, args.data)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -86,6 +145,9 @@ def main() -> int:
         print(f"Проверок: {result['checks']}, проблем: {len(result['problems'])}")
         for f in result["problems"]:
             print(f"- {f['check']}: {f.get('count', f.get('error'))} {f.get('sample', '')} — {f.get('meaning', '')}")
+    stale = next((f for f in result["problems"] if f["check"] == STALE_CHECK), None)
+    if args.requeue_stale and stale:
+        print(f"Поставлено в очередь на переиндексацию: {requeue_stale(stale['artifact_pks'])} из {stale['count']}")
     return 1 if result["problems"] else 0
 
 
