@@ -1898,6 +1898,10 @@ function materialDateLine(a) {
     const up = a.upload_date ? ` (загружен ${escapeHtml(new Date(a.upload_date).toLocaleDateString('ru-RU'))})` : '';
     return `<div class="small mt-1"><span class="badge text-bg-warning">дата записи неизвестна</span><span class="text-muted">${up}</span>${edit}</div>`;
   }
+  if (a.material_date_source === 'upload') {
+    // Решение владельца 2026-09-28: нет фактической даты — по дате загрузки, но честно подписано
+    return `<div class="small mt-1"><span class="text-muted">Дата: ${escapeHtml(fmtDay(a.material_date))} · </span><span class="badge text-bg-warning" title="Дата записи неизвестна: для порядка «что сказано позже» взята дата загрузки">по дате загрузки</span>${edit}</div>`;
+  }
   if (a.material_date_source === 'messages') {
     const till = a.material_period_end ? `–${escapeHtml(fmtDay(a.material_period_end))}` : '';
     return `<div class="small text-muted mt-1">Переписка: ${escapeHtml(fmtDay(a.material_date))}${till} · у каждого пункта — время своего сообщения</div>`;

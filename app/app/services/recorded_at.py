@@ -77,6 +77,16 @@ def filename_date(name: str | None, upload_date: datetime | None = None) -> date
         found = _safe_date(year, month, day)
         if found:
             return found
+    for match in _FILENAME_WORD.finditer(text):
+        day, month = int(match.group(1)), RU_MONTHS_GEN.index(match.group(2).lower()) + 1
+        if match.group(3):
+            year = int(match.group(3))
+        else:
+            base = upload_date or datetime.now()
+            year = base.year - (month > base.month + 2)  # как у «19.08» без года: месяц «из будущего» — прошлый год
+        found = _safe_date(year, month, day)
+        if found:
+            return found
     return None
 
 
@@ -127,10 +137,12 @@ def media_creation_time(path: Path) -> datetime | None:
     return _as_utc_naive(parsed)
 
 
-# «2026-08-26 14-30», «2026-08-26_14.30.12», «26.08.2026 14:30» — дата и время начала записи в имени файла
+# «2026-08-26 14-30», «2026-08-26_14.30.12», «26.08.2026 14:30», «22.09.26 14-00-34» (Телемост) — дата и время начала записи
 _FILENAME_ISO_TIME = re.compile(r"(?<!\d)(20\d{2})[-_.](\d{1,2})[-_.](\d{1,2})[ _T-]+(\d{1,2})[-_.:h](\d{2})(?!\d)")
-_FILENAME_DMY_TIME = re.compile(r"(?<!\d)(\d{1,2})[._-](\d{1,2})[._-](20\d{2})[ _T-]+(\d{1,2})[-_.:h](\d{2})(?!\d)")
+_FILENAME_DMY_TIME = re.compile(r"(?<!\d)(\d{1,2})[._-](\d{1,2})[._-](20\d{2}|\d{2})[ _T-]+(\d{1,2})[-_.:h](\d{2})(?!\d)")
 RU_MONTHS_GEN = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
+# «14 мая», «[14 мая 2026» в имени файла (выгрузка сообщения, протокол)
+_FILENAME_WORD = re.compile(r"(?<!\d)(\d{1,2})\s+(" + "|".join(RU_MONTHS_GEN) + r")(?:\s+(20\d{2}))?", re.IGNORECASE)
 # Дата в шапке документа: «от 19.08.2026», «Дата: 19.08.2026», «от 19 августа 2026 г.»
 _TEXT_DATE_NUM = re.compile(r"(?:\bот|\bдата(?:\s+составления|\s+документа)?\s*:?)\s*(\d{1,2})[./](\d{1,2})[./](20\d{2})\b", re.IGNORECASE)
 _TEXT_DATE_WORD = re.compile(r"\bот\s+[«\"]?(\d{1,2})[»\"]?\s+(" + "|".join(RU_MONTHS_GEN) + r")\s+(20\d{2})\b", re.IGNORECASE)
@@ -143,6 +155,10 @@ def filename_datetime(name: str | None) -> datetime | None:
     for pattern, order in ((_FILENAME_ISO_TIME, (1, 2, 3)), (_FILENAME_DMY_TIME, (3, 2, 1))):
         for m in pattern.finditer(text):
             year, month, day = (int(m.group(i)) for i in order)
+            if year < 100:
+                if len(m.group(1)) == 1 or len(m.group(2)) == 1:
+                    continue  # «8.3.18 10-00» — версия платформы, не дата (как в filename_date)
+                year += 2000
             hh, mm = int(m.group(4)), int(m.group(5))
             if hh > 23 or mm > 59 or _safe_date(year, month, day) is None:
                 continue
@@ -287,14 +303,16 @@ def recorded_local_date(artifact: Any) -> date | None:
 
 
 def material_date(artifact: Any) -> tuple[date | None, str]:
-    """Дата материала для людей и правил: (дата, откуда). Нет явной даты → (None, "upload") — дата загрузки не дата записи."""
+    """Дата материала для людей и правил: (дата, откуда). Нет фактической даты — дата загрузки с источником "upload"
+    (решение владельца 2026-09-28: у каждого материала есть дата; в интерфейсе она честно подписана «дата загрузки»)."""
     explicit = recorded_local_date(artifact)
     if explicit is not None:
         return explicit, str(getattr(artifact, "recorded_at_source", "") or "")
     by_name = filename_date(getattr(artifact, "original_filename", None), getattr(artifact, "upload_date", None))
     if by_name is not None:
         return by_name, SOURCE_FILENAME
-    return None, SOURCE_UPLOAD
+    uploaded = to_local(getattr(artifact, "upload_date", None))
+    return (uploaded.date() if uploaded else None), SOURCE_UPLOAD
 
 
 def manual_recorded_at(day: date) -> datetime:
@@ -327,6 +345,8 @@ def item_moment(artifact: Any, value: dict) -> tuple[date | None, datetime | Non
             at = None
         if at is not None:
             at = at if at.tzinfo is not None else at.replace(tzinfo=LOCAL_TZ)
+            if value.get("message_at_precision") == "day":  # копия чата без времени: известен только день (А9, Я3)
+                return at.astimezone(LOCAL_TZ).date(), None
             return at.astimezone(LOCAL_TZ).date(), at
     if getattr(artifact, "recorded_at_source", None) == SOURCE_MESSAGES:
         return None, None
@@ -352,4 +372,5 @@ def material_date_label(artifact: Any) -> str:
     uploaded = to_local(getattr(artifact, "upload_date", None))
     if uploaded is None:
         return ""
-    return f"дата загрузки {uploaded:%d.%m.%Y} (дата созвона неизвестна)"
+    unknown = "дата созвона неизвестна" if getattr(artifact, "file_type", "") == "audio" else "дата документа неизвестна"
+    return f"дата загрузки {uploaded:%d.%m.%Y} ({unknown})"
