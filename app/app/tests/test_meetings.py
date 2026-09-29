@@ -1069,3 +1069,89 @@ def test_html_404_is_a_friendly_page_but_api_stays_json(client, manager_token):
     api = client.get("/projects/999999/artifacts", headers={**h, "Accept": "application/json"})
     assert api.status_code == 404 and api.json() == {"detail": "Project not found"} or api.status_code == 404
     assert "Страница не найдена" not in client.get("/projects/999999/artifacts", headers=h).text  # fetch без text/html получает JSON
+
+
+def test_live_meetings_only_while_someone_is_on_the_line(client, manager_token):
+    """Полоска «Идёт созвон»: встреча идёт, пока в комнате кто-то на связи; пустая «live», все вышли, молчание и конец — полоски нет."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.app.db import SessionLocal
+    from app.app.models.meeting import MeetingParticipant
+
+    h = _auth(manager_token)
+    pid = client.post("/projects", json={"name": "LiveBar"}, headers=h).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=h).json()
+    token, mid = created["public_token"], created["id"]
+    base = f"/projects/{pid}/meetings/{mid}"
+
+    def live():
+        r = client.get(f"/projects/{pid}/meetings/live", headers=h)
+        assert r.status_code == 200  # маршрут не перехвачен /meetings/{meeting_id}
+        return r.json()
+
+    assert live() == []
+    client.post(f"{base}/start", headers=h)
+    assert live() == []  # начали, но в комнате пусто
+    guest = client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Гость", "guest_id": "bar-1"}).json()
+    staff = client.post(f"{base}/join", headers=h).json()
+    rows = live()
+    assert [r["id"] for r in rows] == [mid]
+    assert rows[0]["people"][0] == "Гость" and len(rows[0]["people"]) == 2
+    assert rows[0]["room_url"] == f"{base}/room"
+    client.post(f"{base}/leave", json={"identity": staff["identity"]}, headers=h)
+    client.post(f"/api/meetings/public/{token}/leave", json={"identity": guest["identity"]})
+    assert live() == []  # все вышли, но «Завершить» не нажали
+    client.post(f"/api/meetings/public/{token}/heartbeat", json={"identity": guest["identity"]})
+    assert [r["people"] for r in live()] == [["Гость"]]
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=guest["identity"]).one()
+        row.last_seen_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+        db.commit()
+    finally:
+        db.close()
+    assert live() == []  # давно не на связи, хотя «вышел» не отмечено
+    client.post(f"/api/meetings/public/{token}/heartbeat", json={"identity": guest["identity"]})
+    assert live()
+    client.post(f"{base}/end", headers=h)
+    assert live() == []
+
+
+def test_live_meeting_bar_is_for_meeting_staff_only(client, manager_token, user_token):
+    from app.app.db import SessionLocal
+    from app.app.models.user import User
+
+    h = _auth(manager_token)
+    pid = client.post("/projects", json={"name": "LiveBarRole"}, headers=h).json()["id"]
+    db = SessionLocal()
+    try:
+        uid = db.query(User).filter(User.telegram_id == "tg-user").one().id
+    finally:
+        db.close()
+    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user"}, headers=h)
+    assert client.get(f"/projects/{pid}/meetings/live", headers=_auth(user_token)).status_code == 403
+    page = client.get(f"/projects/{pid}", headers=_auth(user_token))
+    assert page.status_code == 200 and 'id="live-meetings"' not in page.text
+
+
+def test_project_page_shows_live_meeting_bar_between_upload_and_materials(client, manager_token):
+    import re
+
+    h = _auth(manager_token)
+    pid = client.post("/projects", json={"name": "LiveBarPage"}, headers=h).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=h).json()
+    token, mid = created["public_token"], created["id"]
+    room_href = f'href="/projects/{pid}/meetings/{mid}/room"'
+    idle = client.get(f"/projects/{pid}", headers=h).text
+    assert re.search(r'id="live-meetings"[^>]*\bhidden', idle) and room_href not in idle
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=h)
+    client.post(f"/api/meetings/public/{token}/join", json={"display_name": "Анна <b>", "guest_id": "bar-page"})
+    page = client.get(f"/projects/{pid}", headers=h).text
+    bar = page.index('id="live-meetings"')
+    assert page.index('id="upload-form"') < bar < page.index("<strong>Материалы проекта</strong>")
+    assert not re.search(r'id="live-meetings"[^>]*\bhidden', page)
+    assert "Идёт созвон" in page and f'live-meeting-join" {room_href}>Присоединиться</a>' in page
+    assert "Анна &lt;b&gt;" in page and "Анна <b>" not in page
+    assert "await refreshLiveMeetings();" in page and "/meetings/live" in page  # полоска обновляется опросом
+    client.post(f"/projects/{pid}/meetings/{mid}/end", headers=h)
+    assert re.search(r'id="live-meetings"[^>]*\bhidden', client.get(f"/projects/{pid}", headers=h).text)

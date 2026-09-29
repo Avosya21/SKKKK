@@ -26,6 +26,8 @@ from app.app.services.meetings import (
     list_meetings,
     meeting_by_token,
     member_payload,
+    ongoing_meetings,
+    ongoing_payload,
     parse_guest_id,
     public_payload,
     regenerate_link,
@@ -74,6 +76,18 @@ def list_project_meetings(
 ):
     require_meeting_staff(db, user, project_id)
     return [member_payload(settings, row, public_token=None, db=db) for row in list_meetings(db, project_id)]
+
+
+# Объявлен до /meetings/{meeting_id}: иначе «live» попадёт в meeting_id и запрос получит 422.
+@router.get("/projects/{project_id}/meetings/live")
+def live_project_meetings(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Идущие сейчас встречи проекта для полоски «Идёт созвон»: кто в комнате и адрес входа."""
+    require_meeting_staff(db, user, project_id)
+    return [ongoing_payload(meeting, people) for meeting, people in ongoing_meetings(db, project_id)]
 
 
 @router.get("/projects/{project_id}/meetings/{meeting_id}")

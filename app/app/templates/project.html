@@ -542,6 +542,68 @@
   .download-banner .progress-bar {
     background: #fff;
   }
+
+  /* Полоска «Идёт созвон»: мягкий зелёный статус, как у остальных статусов, и главная кнопка входа */
+  .live-meetings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .live-meeting {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.45rem 0.45rem 0.45rem 0.9rem;
+    background: var(--ds-ok-soft);
+    border: 1px solid #b7e4cd;
+    border-radius: var(--ds-r-md);
+  }
+  .live-meeting-dot {
+    flex: 0 0 auto;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--ds-ok);
+    animation: live-meeting-pulse 1.8s ease-out infinite;
+  }
+  @keyframes live-meeting-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(6, 118, 71, 0.45); }
+    70% { box-shadow: 0 0 0 0.45rem rgba(6, 118, 71, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(6, 118, 71, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-meeting-dot { animation: none; }
+  }
+  .live-meeting-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ds-text-2);
+    font-size: 0.9rem;
+  }
+  .live-meeting-text strong {
+    color: var(--ds-ok);
+    font-weight: 600;
+  }
+  .live-meeting-join {
+    flex: 0 0 auto;
+  }
+  /* Телефон: рядом с кнопкой остаётся ~150 px — «Идёт созвон» сверху, кто в комнате второй строкой, иначе имён не видно */
+  @media (max-width: 575.98px) {
+    .live-meeting-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.3;
+    }
+    .live-meeting-people {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 0.8rem;
+    }
+    .live-meeting-sep { display: none; }
+  }
 </style>
 
 <!-- Индикатор скачивания -->
@@ -605,6 +667,19 @@
     <div id="upload-progress-detail" class="text-muted small mt-1"></div>
   </div>
 </form>
+
+{% if current_role in ('admin', 'manager') %}
+<!-- Идёт созвон: вход в комнату одной кнопкой, без поиска встречи в блоке «Встречи». Полоска исчезает, когда в комнате никого -->
+<div id="live-meetings" class="live-meetings mb-3 mb-md-4" aria-live="polite"{% if not live_meetings %} hidden{% endif %}>
+  {%- for m in live_meetings %}
+  <div class="live-meeting" data-id="{{ m.id }}">
+    <span class="live-meeting-dot" aria-hidden="true"></span>
+    <span class="live-meeting-text" title="{{ m.people|join(', ') }}"><strong>Идёт созвон{% if live_meetings|length > 1 %} #{{ m.id }}{% endif %}</strong><span class="live-meeting-people"><span class="live-meeting-sep"> · </span>в комнате: {{ m.people|join(', ') }}</span></span>
+    <a class="btn btn-sm btn-primary live-meeting-join" href="{{ m.room_url }}">Присоединиться</a>
+  </div>
+  {%- endfor %}
+</div>
+{% endif %}
 
 <div class="card shadow-sm mb-3 mb-md-4 workspace-card">
   <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
@@ -2132,6 +2207,42 @@ document.getElementById('upload-form').onsubmit = async (e) => {
   }, { busyText: 'Загрузка…' });
 };
 
+// Полоска «Идёт созвон» между «Добавить материалы» и «Материалы проекта». Первый раз её рисует сервер, дальше — опрос:
+// появляется, когда в комнате кто-то есть, и исчезает, когда встречу завершили или все вышли.
+const liveMeetingsEl = document.getElementById('live-meetings');
+
+function liveMeetingHtml(m, numbered) {
+  const people = (m.people || []).join(', ');
+  return `<div class="live-meeting" data-id="${m.id}">
+    <span class="live-meeting-dot" aria-hidden="true"></span>
+    <span class="live-meeting-text" title="${escapeAttr(people)}"><strong>Идёт созвон${numbered ? ` #${m.id}` : ''}</strong><span class="live-meeting-people"><span class="live-meeting-sep"> · </span>в комнате: ${escapeHtml(people)}</span></span>
+    <a class="btn btn-sm btn-primary live-meeting-join" href="${escapeAttr(m.room_url)}">Присоединиться</a>
+  </div>`;
+}
+
+function liveMeetingsMarkup(rows) {
+  return rows.map((m) => liveMeetingHtml(m, rows.length > 1)).join('');
+}
+
+// Сравниваем разметку, а не ответ: без изменений кнопку под курсором не перестраиваем
+let lastLiveMeetingsHtml = liveMeetingsMarkup({{ (live_meetings or [])|tojson }});
+
+async function refreshLiveMeetings() {
+  if (!liveMeetingsEl) return;
+  let rows;
+  try {
+    rows = await SKKKK.apiJson(`/projects/${projectId}/meetings/live`);
+  } catch (err) {
+    if (err?.status !== 403) return; // сбой сети — оставляем как было; 403 — входа в комнату у роли больше нет
+    rows = [];
+  }
+  const html = liveMeetingsMarkup(rows);
+  if (html === lastLiveMeetingsHtml) return;
+  lastLiveMeetingsHtml = html;
+  liveMeetingsEl.innerHTML = html;
+  liveMeetingsEl.hidden = rows.length === 0;
+}
+
 refreshArtifacts();
 loadChatHistory();
 // const deadlinesStatus объявлена ниже по скрипту: прямой вызов падал с ReferenceError (TDZ)
@@ -2144,6 +2255,7 @@ async function projectPollTick() {
   if (projectPollBusy || document.hidden) return;
   projectPollBusy = true;
   try {
+    await refreshLiveMeetings();
     await refreshArtifacts();
     await syncTzTaskUi();
     if (meetingsPanel?.classList.contains('show')) await loadMeetings();
@@ -2833,6 +2945,7 @@ async function meetingAction(btn, action, label, showLink) {
         else meetingsStatus.textContent = showLink && data.public_url ? 'Новая ссылка показана один раз' : '';
       }
       await loadMeetings();
+      await refreshLiveMeetings(); // «Завершить» убирает полоску «Идёт созвон» сразу, не дожидаясь опроса
     } catch (err) {
       if (meetingsStatus) meetingsStatus.textContent = err.message || 'Не удалось выполнить действие';
     }
@@ -2875,6 +2988,7 @@ deleteMeetingConfirmBtn?.addEventListener('click', async () => {
     bootstrap.Modal.getOrCreateInstance(deleteMeetingModalEl).hide();
     if (meetingsStatus) meetingsStatus.textContent = `${MEETING_DELETE_DONE} ${target.id}`;
     await loadMeetings();
+    await refreshLiveMeetings();
     if (typeof refreshArtifacts === 'function') await refreshArtifacts();
   }, { label: MEETING_DELETE_BUSY });
 });
