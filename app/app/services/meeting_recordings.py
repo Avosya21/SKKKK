@@ -542,6 +542,55 @@ class JoinBackoff:
                 store.pop(room, None)
 
 
+MEMBER_CHECK_SEC = 10.0
+
+
+def room_member_state(http_url: str, admin_jwt: str, room_name: str, identity: str, timeout: float = 5.0) -> bool | None:
+    """Числится ли identity в комнате по данным сервера LiveKit (ListParticipants). False — нет его или нет комнаты;
+    None — сервер не ответил (это не повод выходить: пусть решает связь самого SDK)."""
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        http_url.rstrip("/") + "/twirp/livekit.RoomService/ListParticipants",
+        data=json.dumps({"room": room_name}).encode("utf-8"),
+        headers={"Authorization": "Bearer " + admin_jwt, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        return False if exc.code == 404 else None
+    except (OSError, ValueError):
+        return None
+    return any((row.get("identity") or "") == identity for row in payload.get("participants") or [])
+
+
+class MemberWatch:
+    """Бот рекордера/шумодава выпал из комнаты, а SDK всё ещё считает связь живой (замер 2026-09-30: после разрыва
+    connection_state остался CONNECTED, бот не вернулся, запись дорожек встала на 80 с). Раз в ``every`` секунд
+    спрашиваем сервер; ``misses`` ответов «тебя нет» подряд — выходим, цикл бота зайдёт заново."""
+
+    def __init__(self, every: float = MEMBER_CHECK_SEC, misses: int = 2, clock: Callable[[], float] = time.monotonic) -> None:
+        self.every, self.misses, self._clock = every, misses, clock
+        self._last = clock()
+        self._missed = 0
+
+    def due(self) -> bool:
+        if self._clock() - self._last < self.every:
+            return False
+        self._last = self._clock()
+        return True
+
+    def lost(self, state: bool | None) -> bool:
+        if state is False:
+            self._missed += 1
+        elif state is True:
+            self._missed = 0
+        return self._missed >= self.misses
+
+
 def live_room_names(data_dir: Path) -> set[str] | None:
     """Комнаты идущих встреч (``meetings.status = 'live'``) из базы портала, только чтение. Рекордеры заходят только в них:
     комнату завершённой или удалённой встречи может заново создать клиент со старым токеном LiveKit (переподключение

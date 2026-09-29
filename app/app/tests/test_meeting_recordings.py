@@ -425,3 +425,65 @@ def test_join_backoff_backs_off_failing_rooms_and_forgets_success():
     assert not b.allowed("r") and b._next["r"] - t[0] <= 100
     b.forget_missing([])  # комната исчезла из LiveKit
     assert b.allowed("r")
+
+
+def test_member_watch_leaves_after_two_server_misses():
+    now = [0.0]
+    watch = rec.MemberWatch(every=10.0, misses=2, clock=lambda: now[0])
+    assert not watch.due()
+    now[0] = 10.0
+    assert watch.due() and not watch.due()
+    assert not watch.lost(None)  # сервер не ответил — не повод выходить
+    assert not watch.lost(False)
+    assert not watch.lost(True)  # снова в комнате — счёт сначала
+    assert not watch.lost(False)
+    assert watch.lost(False)
+
+
+def test_room_member_state_asks_livekit_server():
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    seen = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen["path"], seen["auth"], seen["room"] = self.path, self.headers["Authorization"], body["room"]
+            if body["room"] == "skkkk-gone":
+                self.send_response(404)
+                self.end_headers()
+                return
+            out = json.dumps({"participants": [{"identity": "guest:1"}, {"identity": "skkkk-dfn"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_message(self, *_args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        assert rec.room_member_state(url, "jwt", "skkkk-a", "skkkk-dfn") is True
+        assert seen == {"path": "/twirp/livekit.RoomService/ListParticipants", "auth": "Bearer jwt", "room": "skkkk-a"}
+        assert rec.room_member_state(url, "jwt", "skkkk-a", "skkkk-rec") is False
+        assert rec.room_member_state(url, "jwt", "skkkk-gone", "skkkk-dfn") is False
+    finally:
+        server.shutdown()
+    assert rec.room_member_state("http://127.0.0.1:9", "jwt", "skkkk-a", "skkkk-dfn", timeout=1) is None
+
+
+def test_bots_watch_server_membership():
+    root = Path(__file__).resolve().parents[3] / "tools" / "livekit"
+    for name, bot in (("voice_cleaner.py", "CLEANER_ID"), ("screen_recorder.py", "RECORDER_ID")):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "rec_mod.MemberWatch()" in text
+        assert '@room.on("disconnected")' in text
+        assert "asyncio.wait_for(room.disconnect(), timeout=5.0)" in text
+        assert f"room_member_state(HTTP_URL, admin, room_name, {bot})" in text
+        assert '"roomAdmin": True' in text
