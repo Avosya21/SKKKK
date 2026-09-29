@@ -628,6 +628,12 @@ nodes:
     title: "Создать встречу — POST /projects/{id}/meetings, гостевой токен один раз"
     tags: [ui, meetings]
 
+  - id: ui_live_meeting_bar
+    kind: ui_pattern
+    path: "app/app/templates/project.html#live-meetings"
+    title: "Полоска «Идёт созвон» между загрузкой и материалами: кто в комнате + Присоединиться; GET /projects/{id}/meetings/live, опрос 3 с; admin/manager"
+    tags: [ui, meetings, project]
+
   - id: ui_meeting_public
     kind: page
     path: "app/app/templates/meeting_public.html"
@@ -2644,6 +2650,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_review_project
+    kind: file
+    path: scripts/review_project.py
+    title: "Разобрать проект локальной моделью целиком: пусть система решит всё, что может, и оставит человеку только спорное."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
@@ -2873,6 +2886,8 @@ edges:
   - {from: svc_meeting_lab, to: svc_meeting_checks, relation: shows_checks}
   - {from: svc_pipeline_meeting, to: svc_pipeline_lab, relation: per_track_lab}
   - {from: ui_btn_meeting_create, to: router_meetings, relation: POST_meetings}
+  - {from: ui_project_page, to: ui_live_meeting_bar, relation: contains}
+  - {from: ui_live_meeting_bar, to: router_meetings, relation: GET_meetings_live}
   - {from: router_meetings, to: svc_meetings, relation: api}
   - {from: svc_meetings, to: model_meeting, relation: persists}
   - {from: router_meetings, to: svc_project_access, relation: staff_only}
