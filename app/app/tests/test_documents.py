@@ -74,6 +74,35 @@ def test_extract_html_strips_markup(tmp_path: Path):
     assert "alert" not in raw
 
 
+def test_html_documents_not_chat_protocol_cp1251_and_outlook(tmp_path: Path):
+    """HTML — не только выгрузка Telegram: протокол в cp1251 с таблицей, письмо Outlook, страница без текста (2026-09-28)."""
+    from datetime import datetime
+
+    from app.app.services.chat_export import looks_like_telegram_export
+    from app.app.services.recorded_at import text_header_date
+
+    protocol = tmp_path / "protocol.html"
+    protocol.write_bytes(('<html><head><meta charset="windows-1251"></head><body><h1>Протокол встречи от 19.08.2026</h1>'
+                          '<p>Решили: обмен с Битрикс24 односторонний.</p><table><tr><th>Задача</th><th>Срок</th></tr>'
+                          '<tr><td>Настроить коннектор</td><td>01.09</td></tr></table></body></html>').encode("cp1251"))
+    outlook = tmp_path / "mail.html"
+    outlook.write_text('<html xmlns:o="urn:schemas-microsoft-com:office:office"><head><style>p.MsoNormal{margin:0}</style>'
+                       '<!--[if gte mso 9]><xml><o:OfficeDocumentSettings></o:OfficeDocumentSettings></xml><![endif]--></head>'
+                       '<body><p class="MsoNormal">Дата: 25.08.2026<o:p></o:p></p>'
+                       '<p class="MsoNormal">Согласовали вариант А.<o:p></o:p></p></body></html>', encoding="utf-8")
+    spa = tmp_path / "spa.html"
+    spa.write_text('<html><head><script src="app.js"></script></head><body><div id="root"></div></body></html>', encoding="utf-8")
+
+    text = _extract_html(protocol)
+    assert not looks_like_telegram_export(_extract_text(protocol))
+    assert "Решили: обмен с Битрикс24 односторонний." in text and "| Настроить коннектор | 01.09 |" in text
+    assert text_header_date(text, datetime(2026, 9, 1)).isoformat() == "2026-08-19"
+    mail = _extract_html(outlook)
+    assert mail.splitlines() == ["Дата: 25.08.2026", "Согласовали вариант А."]
+    assert text_header_date(mail, datetime(2026, 9, 1)).isoformat() == "2026-08-25"
+    assert _extract_html(spa) == ""  # в разметке нет текста — ошибка с подсказкой сохранить страницу в PDF
+
+
 def test_detect_file_type_pptx():
     assert detect_file_type("deck.pptx", None) == "pptx"
     assert detect_file_type("old.ppt", "application/vnd.ms-powerpoint") == "pptx"

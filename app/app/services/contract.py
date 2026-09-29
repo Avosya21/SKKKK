@@ -158,8 +158,8 @@ def _load_artifacts(db: Session, settings: Settings, project_id: int) -> list[Ar
             ctx.precision = "minute"
             ctx.occurred_source = f"recorded_at:{art.recorded_at_source}"
         else:
-            # Дата записи с точностью «день» (имя файла, ручная). Нет — occurred_at пуст: дата загрузки не дата записи
-            # (REQUIREMENTS-PLAN А9); когда загрузили, видно в ingested_at.
+            # Дата записи с точностью «день» (имя файла, ручная). Нет фактической — дата загрузки с источником
+            # recorded_at:upload (решение владельца 2026-09-28); интерфейс подписывает её «по дате загрузки» (А9).
             day, source = material_date(art)
             if day:
                 ctx.occurred_at = datetime(day.year, day.month, day.day)
@@ -316,7 +316,8 @@ def _bound_chat_evidence(statement: str, value: dict, ctx: ArtifactCtx, known_si
     found = ct.best_quote(statement, msg.text)
     quote = found[0] if found else msg.text[: ct.QUOTE_MAX].strip()
     agreed = [{"name": d.get("name"), "side": _resolve_side(str(d.get("name") or ""), known_sides, speakers),
-               "at": _iso(datetime.fromisoformat(d["at"]).astimezone(_TZ.get()).replace(tzinfo=None)) if d.get("at") else None,
+               "at": (None if d.get("at_precision") == "day"  # копия чата без времени — момент неизвестен
+                      else _iso(datetime.fromisoformat(d["at"]).astimezone(_TZ.get()).replace(tzinfo=None)) if d.get("at") else None),
                "message_id": d.get("message_id")}
               for d in value.get("decided_by") or [] if isinstance(d, dict) and d.get("name")]
     return {"artifact_id": ctx.art.artifact_id, "chunk_id": _chunk_for_quote(ctx, quote) if quote else None,
@@ -393,7 +394,9 @@ def _estimate(evidence: list[dict], ctx: ArtifactCtx) -> dict | None:
     if ev.get("message_index") is None:
         return None
     base = ctx.messages[ev["message_index"]]
-    for msg in ctx.messages[ev["message_index"]: ev["message_index"] + 12]:
+    # без времени сообщений (копия чата) «15 минут» не проверить — только само сообщение и два следующих
+    window = 12 if base.at() is not None else 3
+    for msg in ctx.messages[ev["message_index"]: ev["message_index"] + window]:
         if msg.at() and base.at() and (msg.at() - base.at()) > timedelta(minutes=15):
             break
         hours = ct.find_hours(msg.text)

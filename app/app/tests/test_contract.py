@@ -233,7 +233,8 @@ def test_call_evidence_who_and_when_from_bound_turn(client, manager_token, tmp_d
     assert ev["speaker"] == "Елена" and ev["speaker_basis"] == "voice" and ev["timecode"] == "12:34"
     assert ev["agreed_by"] == [{"name": "Павел", "side": "unknown", "timecode": "12:51"}]
     assert "1С" in ev["quote"] and ev["material"] == "созвон.webm"
-    assert ev["said_at"] is None and ev["said_date"] is None and ev["date_basis"] == "unknown"  # дата загрузки 27.08 — не дата записи
+    # нет даты записи — дата загрузки 27.08 с честным источником (решение 2026-09-28; интерфейс: «по дате загрузки»)
+    assert ev["said_date"] == "2026-08-27" and ev["date_basis"] == "upload"
     task_ev = reqs["Вести справочник номенклатуры в 1С"]["evidence"]
     assert task_ev and task_ev[0]["speaker_basis"] == "words"  # не привязан к реплике: говорящий по совпадению слов
 

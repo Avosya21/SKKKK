@@ -9,13 +9,17 @@
 
 Я1: одно сообщение пересекающихся выгрузок одной переписки (одно название группы) — источник только в самой ранней
 загруженной выгрузке; в поздней оно только контекст (``owned_elsewhere``).
+
+Копия чата Битрикс24 (текст из окна мессенджера: «[Имя Фамилия]» — начало сообщения, «{Цитата} Автор … {Конец цитаты}» —
+ответ на сообщение) разбирается в тот же формат: номер — порядок в копии, «в ответ на» — по автору и началу цитаты.
+Времени в копии нет: ``at`` — полночь дня материала, ``at_precision="day"`` — время не выдумывается (А9).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -186,6 +190,8 @@ def messages_path(parsed: Path, artifact_id: str) -> Path:
 def save_export(path: Path, export: dict[str, Any], *, artifact_id: str, uploaded_at: datetime | None) -> dict[str, Any]:
     data = {"title": export.get("title") or "", "artifact_id": artifact_id,
             "uploaded_at": uploaded_at.isoformat() if uploaded_at else None, "messages": export.get("messages") or []}
+    if export.get("format"):
+        data["format"] = export["format"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return data
@@ -248,3 +254,123 @@ def ingest_telegram_export(settings: Any, artifact: Any, html: str) -> str | Non
 def period(export: dict[str, Any]) -> tuple[datetime | None, datetime | None]:
     stamps = [datetime.fromisoformat(m["at"]) for m in export.get("messages") or [] if m.get("at")]
     return (min(stamps), max(stamps)) if stamps else (None, None)
+
+
+# ---------------------------------------------------------------- копия чата Битрикс24
+
+AT_PRECISION_DAY = "day"  # у сообщения известен только день (копия чата без времени)
+BITRIX_COPY = "bitrix_copy"
+BX_QUOTE_START = "{Цитата}"
+BX_QUOTE_END = "{Конец цитаты}"
+_BX_AUTHOR = re.compile(r"^\[([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё .'\-]{1,60})\]$")
+BX_MIN_HEADERS = 3  # «[Имя]» не реже трёх раз и хотя бы два автора — иначе это обычная заметка со скобками
+
+
+def day_only(msg: dict[str, Any]) -> bool:
+    """У сообщения известен только день: время не показывать и не сравнивать."""
+    return msg.get("at_precision") == AT_PRECISION_DAY
+
+
+def looks_like_bitrix_copy(text: str) -> bool:
+    """Копия чата Битрикс24 из окна мессенджера: текст начинается строкой «[Имя Фамилия]», авторов не меньше двух."""
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if not lines or _BX_AUTHOR.match(lines[0]) is None:
+        return False
+    authors = [m.group(1).strip() for m in (_BX_AUTHOR.match(line) for line in lines) if m]
+    return len(authors) >= BX_MIN_HEADERS and len(set(authors)) >= 2
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def _quoted_message(messages: list[dict[str, Any]], quote: list[str]) -> int | None:
+    """Номер цитируемого сообщения: первая строка цитаты — автор, дальше — начало его текста."""
+    lines = [line for line in quote if line]
+    if not lines:
+        return None
+    who, probe = _squash(lines[0]), _squash(" ".join(lines[1:]))[:60]
+    for msg in reversed(messages):
+        if _squash(msg["author"]) == who and (not probe or probe in _squash(msg["text"])):
+            return msg["id"]
+    if probe:  # автор в цитате подписан иначе — по началу текста
+        for msg in reversed(messages):
+            if probe[:30] in _squash(msg["text"]):
+                return msg["id"]
+    return None
+
+
+def parse_bitrix_copy(text: str, day: date) -> dict[str, Any]:
+    """{title, format, messages: [{id, at, at_precision, author, text, reply_to}]} в порядке копии, номера с 1.
+
+    «{Цитата} … {Конец цитаты}» начинает новое сообщение того же автора — ответ на процитированное; текст цитаты в ответ
+    не входит (он уже есть в исходном сообщении)."""
+    at = datetime(day.year, day.month, day.day, tzinfo=_local_tz()).isoformat()
+    messages: list[dict[str, Any]] = []
+    state: dict[str, Any] = {"author": None, "body": [], "reply_to": None, "quote": None}
+
+    def flush() -> None:
+        body = re.sub(r"\n{3,}", "\n\n", "\n".join(state["body"])).strip()
+        if state["author"] and body:
+            messages.append({"id": len(messages) + 1, "at": at, "at_precision": AT_PRECISION_DAY, "author": state["author"],
+                             "text": body, "reply_to": state["reply_to"]})
+        state["body"], state["reply_to"] = [], None
+
+    for raw in (text or "").splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if state["quote"] is not None:
+            if stripped == BX_QUOTE_END:
+                state["reply_to"], state["quote"] = _quoted_message(messages, state["quote"]), None
+            else:
+                state["quote"].append(stripped)
+            continue
+        head = _BX_AUTHOR.match(stripped)
+        if head:
+            flush()
+            state["author"] = head.group(1).strip()
+        elif stripped == BX_QUOTE_START:
+            flush()
+            state["quote"] = []
+        else:
+            state["body"].append(line)
+    if state["quote"]:  # цитата без конца — её строки остаются текстом, а не теряются
+        state["body"] += state["quote"]
+    flush()
+    return {"title": "", "format": BITRIX_COPY, "messages": messages}
+
+
+def _local_tz() -> timezone:
+    from app.app.services.recorded_at import LOCAL_TZ
+
+    return LOCAL_TZ
+
+
+def render_bitrix_text(export: dict[str, Any]) -> str:
+    """Чистый текст копии для индекса: «[Автор]» или «[Автор] (в ответ на Автор2: «начало…»)», затем текст сообщения.
+    Цитата целиком не повторяется — иначе фрагменты поиска забиты копиями чужих сообщений."""
+    by_id = {m["id"]: m for m in export.get("messages") or []}
+    blocks: list[str] = []
+    for msg in export.get("messages") or []:
+        head = f"[{msg['author']}]"
+        target = by_id.get(msg.get("reply_to"))
+        if target is not None:
+            start = re.sub(r"\s+", " ", target["text"]).strip()
+            head += f" (в ответ на {target['author']}: «{start[:80]}{'…' if len(start) > 80 else ''}»)"
+        blocks.append(f"{head}\n{msg['text']}")
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def ingest_bitrix_copy(settings: Any, artifact: Any, text: str) -> str | None:
+    """Если текст — копия чата Битрикс24: сохранить сообщения (день — дата материала) и вернуть чистый текст.
+    Иначе None — текст разбирается как обычно."""
+    if not looks_like_bitrix_copy(text):
+        return None
+    from app.app.services.recorded_at import material_date
+
+    day = material_date(artifact)[0] or datetime.now(_local_tz()).date()
+    export = parse_bitrix_copy(text, day)
+    if len(export["messages"]) < 2:
+        return None
+    save_export(artifact_messages_path(settings, artifact), export, artifact_id=artifact.artifact_id, uploaded_at=artifact.upload_date)
+    return render_bitrix_text(export)
