@@ -436,6 +436,22 @@ def test_chunk_document_prose_keeps_lines_and_section():
     assert all(f"Пункт {i}." in joined for i in range(20))
 
 
+def test_chunk_document_keeps_sections_before_table():
+    """Разделы «заголовок + текст» подряд перед таблицей не теряются: убирается только голый заголовок таблицы."""
+    table = render_md(make_table([["Объект", "Количество"], ["Партнёры", "20 816"]]), number=1)
+    text = (
+        "## Резюме\n\n### AS-IS\nУчёт ведётся в 1С.\n\n### Этап 2\nПолная синхронизация клиентов.\n\n"
+        f"## Объёмы данных\n\n{table}\n\nПосле таблицы."
+    )
+    chunks = chunk_document(text)
+    joined = "\n".join(c.text for c in chunks)
+    assert "Учёт ведётся в 1С." in joined
+    assert "Полная синхронизация клиентов." in joined
+    assert "## Объёмы данных" not in joined  # голый заголовок — в строке «Раздел: …» таблицы
+    assert any(c.text.startswith("Раздел: Объёмы данных") and "| Партнёры | 20 816 |" in c.text for c in chunks)
+    assert chunks[-1].text.endswith("После таблицы.")
+
+
 # --- Шаг 7: полнотекстовый поиск --------------------------------------------------------------------------------
 
 

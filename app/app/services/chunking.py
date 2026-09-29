@@ -155,8 +155,10 @@ def chunk_document(text: str, *, max_tokens: int = CHUNK_TOKENS, overlap_tokens:
 
     for block in split_blocks(text):
         if block.kind == "table" and block.table is not None:
-            while len(buf) > carried and buf[-1][0].startswith("#"):
-                buf.pop()  # заголовок раздела таблицы уже в её строке «Раздел: …»
+            # Голый заголовок раздела таблицы уже в её строке «Раздел: …». Абзац «### Заголовок\nтекст» — не голый:
+            # раньше он выкидывался вместе с текстом (и все такие разделы подряд до таблицы).
+            while len(buf) > carried and buf[-1][0].startswith("#") and "\n" not in buf[-1][0].strip():
+                buf.pop()
             emit_prose()
             buf, size, carried = [], 0, 0  # перекрытие через таблицу не переносим
             bodies.extend(_table_chunk_texts(block, max_chars))
