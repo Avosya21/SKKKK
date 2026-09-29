@@ -3,7 +3,7 @@
 Телефон и «компьютер» (Chromium с фейковыми устройствами) входят в одну встречу по публичной ссылке. Проверяется: вход, вёрстка, камеры
 (зеркало у фронтальной, без зеркала у тыловой, переключение), динамик, Wake Lock, размер кнопок, обрыв сети и возврат в комнату.
 
-Запуск:  venv\\Scripts\\python.exe scripts\\qa_mobile_android.py [--boot] [--base https://203.0.113.10:777] [--shots папка] [--outage 30]
+Запуск:  venv\\Scripts\\python.exe scripts\\qa_mobile_android.py [--boot] [--base https://<публичный-адрес>:777] [--shots папка] [--outage 30]
   --boot     сам запустить эмулятор (нужны tools/android/sdk и созданный AVD pixel7; см. docs/TESTING.md)
 Код выхода: 0 — всё прошло, 1 — есть провалы, 77 — нет устройства."""
 from __future__ import annotations
@@ -68,6 +68,17 @@ def set_network(on: bool) -> None:
     adb("shell", "svc", "data", state)
 
 
+def _default_base() -> str:
+    """Публичный адрес сервера из настроек (SKKKK_PUBLIC_HOST в .env): телефон ходит по нему, как настоящий гость."""
+    try:
+        from app.app.config import get_settings
+
+        host = (get_settings().skkkk_public_host or "").strip()
+    except Exception:  # noqa: BLE001
+        host = ""
+    return f"https://{host or '127.0.0.1'}:777"
+
+
 def join_desktop(page, base: str, token: str, name: str) -> None:
     page.goto(f"{base}/m/{token}")
     page.wait_for_selector("#guest-name")
@@ -78,7 +89,7 @@ def join_desktop(page, base: str, token: str, name: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="https://203.0.113.10:777")
+    ap.add_argument("--base", default=_default_base())
     ap.add_argument("--boot", action="store_true")
     ap.add_argument("--shots", default="")
     ap.add_argument("--outage", type=int, default=30)
