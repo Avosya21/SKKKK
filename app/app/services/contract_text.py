@@ -28,15 +28,23 @@ class Message:
     speaker: str
     text: str  # дословное тело сообщения (без заголовка)
     msg_id: int | None = None  # номер сообщения в выгрузке Telegram (SOURCE-ANCHORS-PLAN); у разбора текста — нет
+    day_only: bool = False  # копия чата без времени: известен только день, момента нет
 
     def at(self) -> datetime | None:
-        return datetime(self.day.year, self.day.month, self.day.day, self.hh, self.mm) if self.day else None
+        if self.day is None or self.day_only:
+            return None
+        return datetime(self.day.year, self.day.month, self.day.day, self.hh, self.mm)
 
 
 def messages_from_export(export: dict, tz) -> list[Message]:
-    """Сообщения из разобранной выгрузки (``chat_export``): номер, автор, время в поясе проекта — без угадывания по тексту."""
+    """Сообщения из разобранной выгрузки (``chat_export``): номер, автор, время в поясе проекта — без угадывания по тексту.
+    У копии чата без времени (``at_precision="day"``) — только день, без перевода пояса."""
     out: list[Message] = []
     for msg in export.get("messages") or []:
+        if msg.get("at_precision") == "day":
+            day = date.fromisoformat(str(msg["at"])[:10])
+            out.append(Message(len(out), day, 0, 0, msg["author"], msg["text"], msg.get("id"), day_only=True))
+            continue
         at = datetime.fromisoformat(msg["at"]).astimezone(tz)
         out.append(Message(len(out), at.date(), at.hour, at.minute, msg["author"], msg["text"], msg.get("id")))
     return out

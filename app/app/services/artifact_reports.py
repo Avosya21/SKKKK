@@ -287,9 +287,10 @@ def _chat_section(messages: list[dict]) -> str:
     rows = []
     for msg in messages:
         at = datetime.fromisoformat(msg["at"])
+        stamp = f"{at:%d.%m.%Y}" if msg.get("at_precision") == "day" else f"{at:%d.%m.%Y %H:%M}"  # копия чата — без времени
         reply = f' · в ответ на <a href="#m{int(msg["reply_to"])}">сообщение</a>' if msg.get("reply_to") is not None else ""
         rows.append(
-            f'<div class="chat-msg" id="m{int(msg["id"])}"><div class="chat-meta">{at:%d.%m.%Y %H:%M} · '
+            f'<div class="chat-msg" id="m{int(msg["id"])}"><div class="chat-meta">{stamp} · '
             f'<strong>{escape(str(msg.get("author") or ""))}</strong>{reply}</div>'
             f'<div class="chat-text">{escape(str(msg.get("text") or ""))}</div></div>'
         )

@@ -208,6 +208,7 @@ SHORT_TXT_NORMALIZE_CHARS = 3000
 def process_document_artifact(db: Session, settings: Settings, artifact: Artifact) -> str:
     path = Path(artifact.file_path)
     set_status(db, artifact, "preprocessing")
+    is_chat = False  # переписка (выгрузка Telegram, копия чата Битрикс24): текст — сообщения дословно
 
     if artifact.file_type == "pdf":
         raw = _extract_pdf(path)
@@ -222,13 +223,20 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
 
         raw = extract_pptx(path, settings)
     elif artifact.file_type == "txt" or path.suffix.lower() in TEXT_SUFFIXES:
+        from app.app.services.chat_export import ingest_bitrix_copy
+
         raw = _extract_plain(path)
+        # Копия чата Битрикс24: сообщения с автором и ответами (время неизвестно — только день материала)
+        chat_text = ingest_bitrix_copy(settings, artifact, raw)
+        if chat_text is not None:
+            raw, is_chat = chat_text, True
     elif artifact.file_type == "html" or path.suffix.lower() in {".html", ".htm"}:
         from app.app.services.chat_export import ingest_telegram_export
 
         # Выгрузка Telegram: сообщения с автором и временем из разметки (SOURCE-ANCHORS-PLAN этап 1), не «текст страницы»
         chat_text = ingest_telegram_export(settings, artifact, _extract_text(path))
         raw = chat_text if chat_text is not None else _extract_html(path)
+        is_chat = chat_text is not None
     elif artifact.file_type == "image":
         raw = _extract_image(path, settings)
     else:
@@ -237,7 +245,12 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
         raise RuntimeError(artifact.error_message)
 
     if not raw.strip():
-        artifact.error_message = "no text extracted"
+        if artifact.file_type == "html" or path.suffix.lower() in {".html", ".htm"}:
+            # Страница, которую собирает скрипт в браузере (в файле только <div id="root">): текста в разметке нет
+            artifact.error_message = ("в файле нет текста: страницу, вероятно, собирает скрипт в браузере — "
+                                      "откройте её и сохраните как PDF (Печать → Сохранить как PDF), затем загрузите PDF")
+        else:
+            artifact.error_message = "в файле не найден текст — проверьте, что файл открывается и в нём есть текст"
         set_status(db, artifact, "error", reason="no text extracted")
         raise RuntimeError("no text extracted")
 
@@ -250,7 +263,7 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     clean_path = out_dir / f"{base}_clean.txt"
     raw_path.write_text(raw, encoding="utf-8")
 
-    if getattr(artifact, "recorded_at_source", None) == "messages":
+    if is_chat or getattr(artifact, "recorded_at_source", None) == "messages":
         clean = raw  # переписка: сообщения дословно — модель их не переписывает (цитаты и авторы должны совпадать)
         mode = "chat export"
     elif settings.dry_run:
@@ -284,8 +297,9 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     artifact.transcription_text = clean
     from app.app.services.recorded_at import refine_from_text
 
-    # Дата документа из его шапки («Протокол от 19.08.2026») главнее свойств файла и даты загрузки
-    if refine_from_text(artifact, raw):
+    # Дата документа из его шапки («Протокол от 19.08.2026») главнее свойств файла и даты загрузки;
+    # у переписки дата внутри сообщения — не дата переписки
+    if not is_chat and refine_from_text(artifact, raw):
         log_event(logger, "document.dated", artifact=artifact.artifact_id, source=artifact.recorded_at_source,
                   day=artifact.recorded_at.date().isoformat())
     set_status(db, artifact, "text_extracted")
