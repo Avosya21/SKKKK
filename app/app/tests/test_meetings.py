@@ -341,6 +341,38 @@ def test_delete_project_removes_meetings(client, admin_token, manager_token):
     assert dest.exists() is False
 
 
+def test_delete_project_closes_live_meeting_room(client, admin_token, manager_token, monkeypatch):
+    """Идущая встреча удаляемого проекта: комната LiveKit закрывается (иначе участники и боты записи оставались в ней,
+    и запись писалась в каталог удалённой встречи); у не начатой встречи комнаты нет — закрывать нечего."""
+    from app.app.services import meetings
+
+    closed = []
+    monkeypatch.setattr(meetings, "close_livekit_room", lambda room: closed.append(room) or True)
+    pid = client.post("/projects", json={"name": "WipeLive"}, headers=_auth(manager_token)).json()["id"]
+    live = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    idle = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    assert client.post(f"/projects/{pid}/meetings/{live['id']}/start", headers=_auth(manager_token)).status_code == 200
+    assert client.delete(f"/projects/{pid}", headers=_auth(admin_token)).status_code == 204
+    assert closed == [live["room_name"]]
+    assert idle["room_name"] not in closed
+
+
+def test_recorders_see_only_live_meeting_rooms(tmp_path):
+    """Рекордеры заходят только в комнаты идущих встреч: комнату завершённой встречи мог заново создать клиент со
+    старым токеном, и боты держали её открытой. Базы нет — None (пишем всё, как раньше)."""
+    import sqlite3
+
+    from app.app.services import meeting_recordings as rec
+
+    assert rec.live_room_names(tmp_path) is None
+    con = sqlite3.connect(tmp_path / "app.db")
+    con.execute("CREATE TABLE meetings (room_name TEXT, status TEXT)")
+    con.executemany("INSERT INTO meetings VALUES (?, ?)", [("r-live", "live"), ("r-ended", "ended"), ("r-new", "created")])
+    con.commit()
+    con.close()
+    assert rec.live_room_names(tmp_path) == {"r-live"}
+
+
 def test_meetings_templates_keep_guest_isolated():
     templates = Path(__file__).resolve().parents[1] / "templates"
     project = (templates / "project.html").read_text(encoding="utf-8")
@@ -1033,6 +1065,21 @@ def test_close_livekit_room_goes_to_local_livekit(monkeypatch):
 
     urls = _fake_livekit(monkeypatch, None)
     assert meetings.close_livekit_room("skkkk-abc") is True
+    assert urls == ["ws://127.0.0.1:7880"]
+
+
+def test_close_livekit_room_works_inside_running_event_loop(monkeypatch):
+    """Вызов из асинхронного кода: asyncio.run() в потоке с идущим циклом падал, и комната молча оставалась открытой."""
+    import asyncio
+
+    from app.app.services import meetings
+
+    urls = _fake_livekit(monkeypatch, None)
+
+    async def inside():
+        return meetings.close_livekit_room("skkkk-abc")
+
+    assert asyncio.run(inside()) is True
     assert urls == ["ws://127.0.0.1:7880"]
 
 

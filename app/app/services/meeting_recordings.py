@@ -542,6 +542,26 @@ class JoinBackoff:
                 store.pop(room, None)
 
 
+def live_room_names(data_dir: Path) -> set[str] | None:
+    """Комнаты идущих встреч (``meetings.status = 'live'``) из базы портала, только чтение. Рекордеры заходят только в них:
+    комнату завершённой или удалённой встречи может заново создать клиент со старым токеном LiveKit (переподключение
+    в момент завершения), и боты, зайдя туда, держали её открытой и писали запись удалённой встречи на диск.
+    None — базу прочитать не удалось: пишем все комнаты, как раньше (лучше лишняя запись, чем потерянный созвон)."""
+    import sqlite3
+
+    db = data_dir / "app.db"
+    if not db.is_file():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True, timeout=2)
+        try:
+            return {row[0] for row in con.execute("SELECT room_name FROM meetings WHERE status = 'live'")}
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+
+
 def existing_track_started(data_dir: Path, room_name: str, identity: str, source: str) -> float | None:
     """Время первого сэмпла уже записанной дорожки (для продолжения записи после перезапуска рекордера)."""
     manifest = read_manifest(room_dir(data_dir, room_name) / MANIFEST_NAME) or {}
