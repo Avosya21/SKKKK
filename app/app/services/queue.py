@@ -80,6 +80,19 @@ def finish_job(db: Session, job: Job, *, ok: bool, error: str | None = None) -> 
     db.commit()
 
 
+def finish_claimed_job(db: Session, job_pk: int, artifact_pk: int, *, ok: bool, error: str | None = None) -> bool:
+    """Закрыть задачу, взятую воркером. SQLite отдаёт номер удалённой строки новой: если встречу удалили
+    посреди задачи, тот же id может уже принадлежать чужой задаче — её не трогаем."""
+    res = db.execute(
+        update(Job)
+        .where(Job.id == job_pk, Job.artifact_id == artifact_pk, Job.status == "running")
+        .values(status="done" if ok else "error", finished_at=datetime.now(timezone.utc), error_message=error)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    return res.rowcount == 1
+
+
 def enqueue_process_artifact(db: Session, artifact_id: int, *, phase: str = "asr") -> Job:
     job = Job(
         artifact_id=artifact_id,

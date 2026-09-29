@@ -69,6 +69,7 @@ from app.app.services.queue import (
     KIND_PROCESS,
     KIND_REFRESH,
     claim_next_job,
+    finish_claimed_job,
     finish_job,
     requeue_orphaned_jobs,
 )
@@ -128,6 +129,10 @@ def _run_other_job(db, settings, job, artifact: Artifact) -> bool:
     """
     started = time.monotonic()
     job_pk = job.id
+    job_kind = job.kind
+    # Артефакт могут удалить посреди задачи: после rollback обращение к его полям само упадёт.
+    artifact_id = artifact.artifact_id
+    artifact_pk = artifact.id
     try:
         if job.kind not in (KIND_AUTO_REVIEW, KIND_REFRESH):
             raise ValueError(f"неизвестный вид задачи: {job.kind!r}")
@@ -141,17 +146,13 @@ def _run_other_job(db, settings, job, artifact: Artifact) -> bool:
             from app.app.workers.review import process_review
 
             process_review(db, settings, job, artifact)
-        finish_job(db, job, ok=True)
-        log_event(logger, "job.done", job_id=job_pk, artifact=artifact.artifact_id, kind=job.kind, seconds=round(time.monotonic() - started, 1))
+        finish_claimed_job(db, job_pk, artifact_pk, ok=True)
+        log_event(logger, "job.done", job_id=job_pk, artifact=artifact_id, kind=job_kind, seconds=round(time.monotonic() - started, 1))
     except Exception as exc:  # noqa: BLE001
         logger.exception("job %s failed", job_pk)
         db.rollback()
-        from app.app.models.job import Job
-
-        fresh = db.get(Job, job_pk)
-        if fresh is not None:
-            finish_job(db, fresh, ok=False, error=str(exc)[:1000])
-        log_event(logger, "job.failed", job_id=job_pk, artifact=artifact.artifact_id, kind=job.kind, error=exc)
+        finish_claimed_job(db, job_pk, artifact_pk, ok=False, error=str(exc)[:1000])
+        log_event(logger, "job.failed", job_id=job_pk, artifact=artifact_id, kind=job_kind, error=exc)
     return True
 
 
@@ -179,6 +180,8 @@ def run_once() -> bool:
         )
         if job.kind != KIND_PROCESS:
             return _run_other_job(db, settings, job, artifact)
+        # Встречу могут удалить посреди расшифровки: дальше опираемся на запомненные ключи, а не на объекты сессии.
+        job_pk, artifact_pk, artifact_key = job.id, artifact.id, artifact.artifact_id
         started = time.monotonic()
         try:
             if settings.dry_run:
@@ -210,28 +213,28 @@ def run_once() -> bool:
                     artifact=artifact.artifact_id,
                     seconds=round(time.monotonic() - phase_started, 1),
                 )
-            finish_job(db, job, ok=True)
+            if not finish_claimed_job(db, job_pk, artifact_pk, ok=True):
+                log_event(logger, "job.gone", job_id=job_pk, artifact=artifact_key, reason="artifact deleted during job")
+                return True
             log_event(
                 logger,
                 "job.done",
-                job_id=job.id,
-                artifact=artifact.artifact_id,
+                job_id=job_pk,
+                artifact=artifact_key,
                 status=artifact.status,
                 seconds=round(time.monotonic() - started, 1),
             )
         except Exception as exc:
-            logger.exception("job %s failed", job.id)
+            logger.exception("job %s failed", job_pk)
             from pathlib import Path
 
-            from app.app.models.job import Job
             from app.app.services.pipeline_resume import try_resume_transcript
 
-            job_pk = job.id
-            artifact_pk = job.artifact_id
             db.rollback()
             artifact = db.get(Artifact, artifact_pk)
-            job = db.get(Job, job_pk)
-            if artifact is None or job is None:
+            if artifact is None or artifact.artifact_id != artifact_key:
+                # Встречу удалили: номер задачи мог уже достаться чужой — не трогаем.
+                finish_claimed_job(db, job_pk, artifact_pk, ok=False, error="artifact deleted during job")
                 return True
             transcript_path = artifact.transcription_file_path
             has_transcript = bool(
@@ -259,12 +262,12 @@ def run_once() -> bool:
 
             artifact.error_message = sanitize_lab_error(str(exc))
             db.commit()
-            finish_job(db, job, ok=False, error=sanitize_lab_error(str(exc)))
+            finish_claimed_job(db, job_pk, artifact_pk, ok=False, error=sanitize_lab_error(str(exc)))
             log_event(
                 logger,
                 "job.failed",
-                job_id=job.id,
-                artifact=artifact.artifact_id,
+                job_id=job_pk,
+                artifact=artifact_key,
                 seconds=round(time.monotonic() - started, 1),
                 error=exc,
             )
@@ -313,7 +316,13 @@ def main() -> int:
             kinds=",".join((KIND_PROCESS, KIND_AUTO_REVIEW, KIND_REFRESH)),
         )
         while True:
-            if not run_once():
+            try:
+                busy = run_once()
+            except Exception:  # noqa: BLE001
+                # Сбой одной задачи не должен останавливать очередь: API воркер не перезапускает.
+                logger.exception("run_once crashed; worker continues")
+                busy = False
+            if not busy:
                 time.sleep(2)
     finally:
         guard.__exit__(None, None, None)
