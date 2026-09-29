@@ -69,6 +69,24 @@ def _reset_login_limiter():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _livekit_offline(monkeypatch):
+    """Тесты не ходят в живой LiveKit: настройки берутся из боевого .env, и завершение встречи в тесте закрывало бы
+    комнату на настоящем сервере (``meetings.close_livekit_room``). Тесты самой функции подставляют свой модуль livekit."""
+    try:
+        from livekit import api
+    except ImportError:
+        yield
+        return
+
+    class _Offline:
+        def __init__(self, *_a, **_kw):
+            raise RuntimeError("tests: LiveKit offline")
+
+    monkeypatch.setattr(api, "LiveKitAPI", _Offline)
+    yield
+
+
 
 @pytest.fixture(autouse=True)
 
