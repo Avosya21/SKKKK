@@ -22,9 +22,10 @@ KEY = "agent_exchange"
 PACKS_DIR = Path(__file__).resolve().parents[1] / "data" / "anchor_packs"
 SIDES = ("customer", "vendor")
 
-# Поведение проектов, созданных до появления настроек (проект «Пилот»): прежние правила, ничего не меняется.
+# Поведение проектов, созданных до появления настроек: якоря 1С/Битрикс24. Названий компаний в коде нет —
+# у старых проектов подсказки сторон записаны в их настройках (side_hints), как у новых.
 LEGACY: dict[str, Any] = {
-    "participants": [], "side_hints": {"customer": ["эталон"], "vendor": ["акме"]}, "timezone": "+03:00",
+    "participants": [], "side_hints": {"customer": [], "vendor": []}, "timezone": "+03:00",
     "domain_pack": "1c_bitrix24", "exchange_enabled": True, "auto_answer": False, "default_key_scope": "read",
 }
 # Новый проект: без якорей и без названий компаний в правилах, пояс задаёт владелец.

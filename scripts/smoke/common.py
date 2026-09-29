@@ -2,7 +2,7 @@
 
 SMOKE_BASE         адрес API (по умолчанию https://127.0.0.1:777)
 SMOKE_PROJECT_ID   id ПЕСОЧНИЦЫ (по умолчанию 29). Клиентские проекты трогать нельзя.
-SMOKE_LOGIN        логин из allowlist (по умолчанию user2@example.com)
+SMOKE_LOGIN        логин из allowlist (по умолчанию — первый логин из Login_up.txt)
 SMOKE_ADMIN_PW / SMOKE_MANAGER_PW / SMOKE_USER_PW   пароли ролей (тестовых учёток)
 SMOKE_PERSONAL_PW  личный пароль смоук-логина (второй шаг входа). Личный пароль и карточку смоук-логина
                    один раз заводят руками в браузере; без них смоук пропускается (код 77) с подсказкой.
@@ -17,7 +17,20 @@ import httpx
 
 BASE = os.environ.get("SMOKE_BASE", "https://127.0.0.1:777").rstrip("/")
 PID = int(os.environ.get("SMOKE_PROJECT_ID", "29"))
-LOGIN = os.environ.get("SMOKE_LOGIN", "user2@example.com")
+def _first_allowed_login() -> str:
+    """Первый логин из Login_up.txt (файл вне git): логины сотрудников в код не пишем."""
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "Login_up.txt"
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                return line
+    return ""
+
+
+LOGIN = os.environ.get("SMOKE_LOGIN") or _first_allowed_login()
 TG = os.environ.get("SMOKE_TG", "smoke")
 CHROME_ARGS = [
     "--use-fake-device-for-media-stream",
