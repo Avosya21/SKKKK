@@ -18,6 +18,7 @@ from app.app.models.entity import (
 )
 from app.app.models.job import Job
 from app.app.models.meeting import Meeting, MeetingParticipant
+from app.app.models.person import PeopleLog, Person, PersonAlias, ProjectParty, UnknownActor
 from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
 from app.app.models.project_mcp_token import ProjectMcpToken
@@ -56,4 +57,9 @@ __all__ = [
     "Changelog",
     "SpeakerProfile",
     "ArtifactSpeakerLink",
+    "Person",
+    "PersonAlias",
+    "ProjectParty",
+    "UnknownActor",
+    "PeopleLog",
 ]

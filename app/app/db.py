@@ -112,6 +112,10 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("links", "model_review", "TEXT"),
     ("speaker_profiles", "user_id", "INTEGER REFERENCES users(id)"),
     ("entities", "topic_id", "INTEGER"),
+    # Платформа памяти решений (PLATFORM-FOUNDATION-PLAN, ПФ1): человек из реестра и точность времени материала.
+    ("speaker_profiles", "person_id", "INTEGER REFERENCES people(id)"),
+    ("meeting_participants", "person_id", "INTEGER REFERENCES people(id)"),
+    ("artifacts", "recorded_at_precision", "VARCHAR(8)"),
 ]
 
 
