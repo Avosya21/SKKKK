@@ -1572,6 +1572,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `ollama_client.py` | Клиент Ollama: эмбеддинги (bge-m3, на CPU) и список моделей. |
 | `ollama_runtime.py` | Автозапуск Ollama перед эмбеддингами и индексацией. |
 | `people.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2). |
+| `people_seed.py` | Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2). |
 | `personal_password.py` | Личный пароль логина: хеш Argon2id, правила, создание, смена, сброс, версия для сессий. |
 | `personal_password_console.py` | Сброс личного пароля из консоли: пункт 7 меню запуска `main` и `scripts/personal_password.py`. |
 | `pipeline_audio.py` | Обработка аудио-артефакта: запуск лабораторного ASR-конвейера, стенограмма, сверка спикеров, аудит реплик и выжимка созвона (`process_audio_ |
@@ -1824,6 +1825,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `run_api.ps1` | SKKKK — только API (LLM из .env) |
 | `run_worker.ps1` | SKKKK — GPU-воркер очереди |
 | `search_project_map.py` | Поиск по индексу проекта: смысл + точные имена + связи. Каждый ответ — с адресом `путь:строка`. |
+| `seed_people.py` | Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2). |
 | `setup_env.ps1` | Установка окружения проекта после переноса папки на другой ПК (или с нуля). |
 | `smoke_cycle.py` | Прогон полного цикла через HTTP API: вход, проект, загрузка, обработка. |
 | `start-cursor.ps1` | — |

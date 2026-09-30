@@ -2706,6 +2706,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_people_seed
+    kind: service
+    path: app/app/services/people_seed.py
+    title: "Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2)."
+    tags: [auto]
+    auto: true
+
+  - id: script_seed_people
+    kind: file
+    path: scripts/seed_people.py
+    title: "Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
