@@ -82,8 +82,16 @@ def hidden_state(r: dict[str, Any]) -> str | None:
     return None
 
 
+def is_unsourced(r: dict[str, Any]) -> bool:
+    """Нет ни одной цитаты источника (DECISION-MEMORY-PLAN А1): пункт лежит на вкладке «Не подтверждено источником»,
+    а не в «Ждут вас». Подтверждённое человеком не трогаем, заменённые и дубли — на своих вкладках."""
+    if hidden_state(r) is not None or r.get("verification") == "human_confirmed":
+        return False
+    return not any((e.get("quote") or "").strip() for e in (r.get("evidence") or []))
+
+
 def waits_for_human(r: dict[str, Any]) -> bool:
-    return hidden_state(r) is None and needs_human(r["verification"], r.get("model_review"))
+    return hidden_state(r) is None and not is_unsourced(r) and needs_human(r["verification"], r.get("model_review"))
 
 
 def _context_turns(db: Session, settings: Settings, entity_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
@@ -126,7 +134,7 @@ def _row(r: dict[str, Any], topics: dict[int, str], by_entity: dict[int, dict[st
     return {"id": r["id"], "source_entity_id": r.get("source_entity_id"), "statement": r["statement"], "status": r["status"],
             "status_basis": r.get("status_basis"), "verification": r["verification"], "kind": r.get("kind"), "estimate": r.get("estimate"),
             "human_review": r.get("human_review"), "analysis": r.get("analysis"), "model_review": r.get("model_review"),
-            "needs_human": waits_for_human(r), "hidden_state": hidden_state(r),
+            "needs_human": waits_for_human(r), "hidden_state": hidden_state(r), "unsourced": is_unsourced(r),
             "quote": first.get("quote"), "speaker": first.get("speaker"), "side": first.get("side"),
             "said_at": first.get("said_at"), "artifact_id": first.get("artifact_id"), "evidence_count": len(ev),
             # кто и когда по каждому источнику (А9), вид пункта (А7), тема (А2), что заменило (А6)
@@ -138,7 +146,7 @@ def _row(r: dict[str, Any], topics: dict[int, str], by_entity: dict[int, dict[st
 
 def review_list(db: Session, settings: Settings, project_id: int, *, status: str | None = None, basis: str | None = None,
                 verification: str | None = None, side: str | None = None, q: str | None = None, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    """Очередь требований. verification: needs_human (ждут вас) | superseded (устарело) | merged (склеено) | human_confirmed |
+    """Очередь требований. verification: needs_human (ждут вас) | unsourced (нет цитаты источника) | superseded (устарело) | merged (склеено) | human_confirmed |
     model_confirmed | extracted | model_rejected. Сортировка — по теме, внутри темы — по порядку в контракте."""
     from app.app.services.topics import topic_labels
 
@@ -151,6 +159,7 @@ def review_list(db: Session, settings: Settings, project_id: int, *, status: str
         "needs_human": sum(1 for r in items if waits_for_human(r)),
         "model_confirmed": sum(1 for r in items if r["verification"] == "model_confirmed"),
         "model_rejected": len(rejected),
+        "unsourced": sum(1 for r in items if is_unsourced(r)),
         "superseded": sum(1 for r in items if hidden_state(r) == "superseded"),
         "merged": sum(1 for r in items if hidden_state(r) == "duplicate") + len(merged_live),
     }
@@ -169,6 +178,9 @@ def review_list(db: Session, settings: Settings, project_id: int, *, status: str
             continue
         if verification == "needs_human":
             if not waits_for_human(r):
+                continue
+        elif verification == "unsourced":
+            if not is_unsourced(r):
                 continue
         elif verification == "superseded":
             if hidden_state(r) != "superseded":
