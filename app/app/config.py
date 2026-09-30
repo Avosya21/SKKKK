@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     # Автопроверка локальной моделью (docs/plans/AUTO-REVIEW-PLAN.md): off | shadow | live.
     # shadow — вердикты пишутся без последствий (для замера согласия с человеком), live — применяются.
     auto_review_mode: str = "shadow"
+
+    # Платформа памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md): реестр людей, стороны по проекту, голос -> человек.
+    # false — прежняя логика сторон; проект включает своей настройкой ``memory_platform`` (главнее общей из .env).
+    memory_platform: bool = False
     auto_review_audit_every: int = 20  # каждое N-е авторешение дополнительно идёт человеку
     auto_review_batch: int = 5  # сущностей на один вызов LLM
     voice_auto_accept_min: float = 0.85
