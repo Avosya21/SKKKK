@@ -421,7 +421,7 @@ def move_user_persons(db: Session, *, winner_id: int, loser_id: int) -> int:
 
 # ---------------------------------------------------------------- согласие на голос внешнего человека (Д5)
 
-def give_voice_consent(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None) -> Person:
+def give_voice_consent(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None, basis: str | None = None) -> Person:
     """Менеджер отмечает, что внешний человек (без учётки) согласен на запись голоса. У сотрудника согласие — в его карточке."""
     from datetime import datetime, timezone
 
@@ -430,7 +430,7 @@ def give_voice_consent(db: Session, project_id: int, person_id: int, *, by_user_
         raise PeopleError("У сотрудника согласие на голос даётся в его карточке")
     before = _snapshot(person)
     person.voice_consent_at, person.voice_consent_by = datetime.now(timezone.utc), by_user_id
-    _log(db, project_id, person.id, by_user_id, "voice_consent", before, {"voice_consent_at": person.voice_consent_at.isoformat()})
+    _log(db, project_id, person.id, by_user_id, "voice_consent", before, {"voice_consent_at": person.voice_consent_at.isoformat(), "basis": basis})
     db.flush()
     return person
 

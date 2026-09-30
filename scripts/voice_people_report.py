@@ -47,7 +47,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 consent = "согласие отмечено" if person.voice_consent_at else "согласия нет"
                 print(f"- {person.display_name} (внешний, {consent}): общих слепков {len(mine)}"
-                      + (" -> нужно решение: по Д5 такой голос должен быть только в проекте" if mine else ""))
+                      + ((" -> согласие отмечено: общий слепок можно оставить" if person.voice_consent_at
+                          else " -> нужно решение: по Д5 такой голос без согласия должен быть только в проекте") if mine else ""))
         return 0
     finally:
         db.close()
