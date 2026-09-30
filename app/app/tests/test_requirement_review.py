@@ -74,3 +74,27 @@ def test_reject_is_soft_and_batch_confirm(client, manager_token, admin_token, tm
     assert r["confirmed"] == [b["id"]] and r["failed"][0]["id"] == "req-x-9999"
     assert client.post(f"/projects/{pid}/requirements/confirm", json={"ids": []}, headers=ha).status_code == 400
     assert client.post(f"/projects/{pid}/requirements/{b['id']}/explode", json={}, headers=ha).status_code == 400  # неизвестное действие
+
+
+def test_unsourced_item_leaves_needs_human_queue():
+    """DECISION-MEMORY-PLAN А1: пункт без цитаты источника — на своей вкладке, а не в «Ждут вас»."""
+    from app.app.services.requirement_review import is_unsourced, waits_for_human
+
+    bare = {"verification": "extracted", "evidence": [{"quote": ""}], "model_review": None}
+    quoted = {"verification": "extracted", "evidence": [{"quote": "Сделал"}], "model_review": None}
+    confirmed = {"verification": "human_confirmed", "evidence": [], "model_review": None}
+    assert is_unsourced(bare) and not waits_for_human(bare)
+    assert not is_unsourced(quoted) and waits_for_human(quoted)
+    assert not is_unsourced(confirmed)
+
+
+def test_verify_document_quote_requires_verbatim_text():
+    """DECISION-MEMORY-PLAN этап 2: цитата документа принимается, только если она есть в тексте материала."""
+    from app.app.services.entities import verify_document_quote
+
+    text = "Клиент: включите режим отладки на сервере 1С.\n\nОтвет:   отладка включена, ёлка не нужна."
+    assert verify_document_quote("Включите режим  отладки на сервере 1С", text) == "Включите режим  отладки на сервере 1С"
+    assert verify_document_quote("Отладка включена, елка не нужна.", text)  # регистр, пробелы и ё не важны
+    assert verify_document_quote("включить отладку для возможности разработки и тестирования", text) is None
+    assert verify_document_quote("короткая", "короткая цитата") is None  # короче 12 знаков не принимаем
+    assert verify_document_quote("", text) is None

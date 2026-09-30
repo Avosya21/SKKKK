@@ -191,7 +191,7 @@
       rv.offset += d.items.length;
       $('px-rv-more').classList.toggle('d-none', rv.offset >= d.total);
       setCount('review', d.counts.needs_human, 'ждут вас');
-      say('review', `Показано ${rv.offset} из ${d.total}. Всего требований: ${d.counts.total}; ждут вас: ${d.counts.needs_human}; подтверждено моделью: ${d.counts.model_confirmed}; отклонено моделью: ${d.counts.model_rejected}; устарело: ${d.counts.superseded || 0}; склеено дублей: ${d.counts.merged || 0}.` + (d.can_edit ? '' : ' Вы можете только смотреть: подтверждает администратор.'));
+      say('review', `Показано ${rv.offset} из ${d.total}. Всего требований: ${d.counts.total}; ждут вас: ${d.counts.needs_human}; без цитаты источника: ${d.counts.unsourced || 0}; подтверждено моделью: ${d.counts.model_confirmed}; отклонено моделью: ${d.counts.model_rejected}; устарело: ${d.counts.superseded || 0}; склеено дублей: ${d.counts.merged || 0}.` + (d.can_edit ? '' : ' Вы можете только смотреть: подтверждает администратор.'));
       updateBatch();
     } catch (e) { say('review', 'Не удалось загрузить требования', true); }
   }
