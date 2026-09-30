@@ -49,6 +49,12 @@
           <input type="text" class="form-control form-control-sm" data-act="company" placeholder="Компания" value="${esc(p.company_name || '')}" maxlength="200">
         </div>
         <div class="small text-muted mt-1">Сторона: ${esc(SOURCE[p.side_source] || p.side_source)}</div>
+        ${!p.external && (p.voice_suggestions || []).length ? `<div class="px-form-row"><span class="small text-muted">Найден голос с таким именем:</span>${p.voice_suggestions.map((v) =>
+          `<button type="button" class="btn btn-sm btn-outline-secondary" data-act="link-voice" data-profile="${v.id}">Привязать к учётке: ${esc(v.name)}</button>`).join('')}</div>` : ''}
+        ${p.external ? `<div class="px-form-row">${p.voice_consent_at
+          ? `<span class="small text-success">Согласие на запись голоса получено ${esc(new Date(p.voice_consent_at).toLocaleDateString('ru-RU'))}</span>`
+          : `<span class="small text-muted">Согласия на запись голоса нет: голос этого человека подтвердить нельзя.</span>
+             <button type="button" class="btn btn-sm btn-outline-secondary" data-act="consent">Отметить: согласие получено</button>`}</div>` : ''}
         <div class="px-form-row">
           <input type="text" class="form-control form-control-sm" data-act="alias-text" placeholder="Ещё одно написание имени" maxlength="200">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-act="alias">Добавить написание</button>
@@ -171,7 +177,15 @@
     const btn = e.target.closest('button[data-act]'); const card = e.target.closest('[data-person]');
     if (!btn || !card) return;
     const id = card.dataset.person;
-    if (btn.dataset.act === 'alias') {
+    if (btn.dataset.act === 'link-voice') {
+      const r = await call(`/people/${id}/voices/${btn.dataset.profile}/link`, 'POST');
+      if (r) { apply(r); say('Голос привязан к учётке.'); }
+    } else if (btn.dataset.act === 'consent') {
+      const name = state.people.find((p) => String(p.id) === id)?.display_name || '';
+      if (!confirm(`Вы получили согласие «${name}» на запись и распознавание голоса? Отзыв согласия потом делается только администратором в консоли.`)) return;
+      const r = await call(`/people/${id}/voice-consent`, 'PUT', { given: true });
+      if (r) { apply(r); say('Согласие отмечено.'); }
+    } else if (btn.dataset.act === 'alias') {
       const input = card.querySelector('[data-act="alias-text"]'); const alias = input.value.trim();
       if (!alias) return;
       const r = await call(`/people/${id}/aliases`, 'POST', { alias });

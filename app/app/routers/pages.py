@@ -82,7 +82,27 @@ REPORT_THEME_LINKS = (
 REPORT_JUMP_SCRIPT = '<script src="/static/report-jump.js?v=1" defer></script>'
 
 
-def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None) -> HTMLResponse:
+def _people_datalist(db: Session, project_id: int) -> str:
+    """Подсказка имён из реестра людей проекта для полей «имя спикера» на страницах подтверждения голосов.
+    Пусто, если реестр пуст. Имена экранируются; скрипт только подставляет list в поля .name-inp."""
+    import html as _html
+
+    from app.app.services import people
+
+    names = [p.display_name for p in people.list_people(db, project_id)]
+    if not names:
+        return ""
+    options = "".join(f'<option value="{_html.escape(n, quote=True)}">' for n in names)
+    return (
+        f'<datalist id="pp-people">{options}</datalist>'
+        "<script>(function(){var f=function(){document.querySelectorAll('.name-inp:not([list])').forEach(function(i){i.setAttribute('list','pp-people');});};"
+        "f();new MutationObserver(f).observe(document.body,{childList:true,subtree:true});})();</script>"
+    )
+
+
+def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None, people_html: str = "") -> HTMLResponse:
+    if people_html and "name-inp" in html and "</body>" in html and "pp-people" not in html:
+        html = html.replace("</body>", people_html + "</body>", 1)
     # Единая дизайн-система для отчётов: подключается при отдаче, сохранённые файлы не меняются.
     if "</head>" in html and "report-theme.css" not in html:
         html = html.replace("</head>", REPORT_THEME_LINKS + "</head>", 1)
@@ -446,7 +466,8 @@ def artifact_report_page(
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Report not found") from exc
         html = report_path.read_text(encoding="utf-8")
-        return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
+        return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
+                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
 
     report_path = ensure_document_report(settings, artifact)
     html = report_path.read_text(encoding="utf-8")
@@ -469,7 +490,8 @@ def artifact_sortformer_report_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
+                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
 
 
 @router.get("/artifacts/{artifact_id}/report-diar-raw", response_class=HTMLResponse)
@@ -488,7 +510,8 @@ def artifact_raw_diar_report_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
+                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
 
 
 @router.get("/artifacts/{artifact_id}/report-speaker-match", response_class=HTMLResponse)
@@ -508,7 +531,8 @@ def artifact_speaker_match_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
+                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
 
 
 @router.get("/artifacts/{artifact_id}/report-diar-two-voice", response_class=HTMLResponse)
@@ -527,7 +551,8 @@ def artifact_two_voice_diar_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
+                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
 
 
 LAB_MEDIA_TYPES = {
@@ -563,7 +588,8 @@ def artifact_lab_report_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact))
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
+                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
 
 
 @router.get("/artifacts/{artifact_id}/lab/{run_id}/file/{relative:path}")

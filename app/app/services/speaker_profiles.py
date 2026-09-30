@@ -575,6 +575,37 @@ def _touch_voice_aliases(payload: dict, *, old_names: list[str | None], new_name
             aliases[old] = canon
 
 
+def _platform_on(db: Session, project_id: int) -> bool:
+    """Платформа памяти включена для проекта (PLATFORM-FOUNDATION-PLAN): голос обязан принадлежать человеку из реестра."""
+    from app.app.config import get_settings
+    from app.app.models.project import Project
+    from app.app.services import memory_platform
+
+    return memory_platform.enabled(get_settings(), db.get(Project, project_id))
+
+
+def _registry_person_for_voice(db: Session, project_id: int, artifact_id: str, name: str):
+    """Человек проекта по введённому имени голоса. Нет в реестре — вопрос «Кто это?» и понятный отказ;
+    внешний человек (без учётки) — только с отметкой менеджера «согласие на голос получено» (Д5)."""
+    from app.app.services import people
+
+    match = people.resolve(db, project_id, name)
+    if match is None:
+        art = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
+        people.note_unknown(db, project_id, "speaker_label", name, artifact_id=art.id if art else None)
+        db.commit()
+        raise ValueError(
+            f"«{name}» нет в списке «Люди и стороны». Добавьте человека там (или выберите из подсказки) и подтвердите голос снова."
+        )
+    person = match.person
+    if person.user_id is None and person.voice_consent_at is None:
+        raise ValueError(
+            f"Для «{person.display_name}» не отмечено согласие на запись голоса. "
+            "Отметьте его в карточке «Люди и стороны» и подтвердите голос снова."
+        )
+    return person
+
+
 def enroll_speaker(
     db: Session,
     *,
@@ -608,6 +639,13 @@ def enroll_speaker(
                 name = str(sug).strip()
     if not name:
         raise ValueError("имя не может быть пустым")
+
+    person = None
+    external_voice = False
+    if _platform_on(db, project_id):
+        person = _registry_person_for_voice(db, project_id, artifact_id, name)
+        name = person.display_name  # «Мария» и «Мария Попова» — один человек, в голосах одно имя
+        external_voice = person.user_id is None
 
     link = (
         db.query(ArtifactSpeakerLink)
@@ -668,11 +706,14 @@ def enroll_speaker(
     link.status = "confirmed"
     link.clip_start_sec = match.get("clip_start")
     link.clip_end_sec = match.get("clip_end")
+    if person is not None and profile.scope == "project" and profile.project_id == project_id:
+        profile.person_id = person.id  # локальный слепок принадлежит человеку проекта (глобальный связывается через учётку)
     db.commit()
     db.refresh(profile)
     consolidate_duplicate_name_profiles(db, project_id)
 
-    global_prof = sync_confirmed_to_global(db, profile)
+    # Голос внешнего человека (заказчик без учётки) остаётся только в проекте (Д5): в общие голоса он не переносится
+    global_prof = profile if external_voice else sync_confirmed_to_global(db, profile)
     if global_prof.id != profile.id:
         leftover_id = profile.id
         link.profile_id = global_prof.id

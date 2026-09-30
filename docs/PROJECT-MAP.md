@@ -1802,6 +1802,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `memory_scorecard.py` | Табло памяти решений (docs/plans/DECISION-MEMORY-PLAN.md, §4.3): числа, по которым видно, приближаемся ли мы к цели. |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
+| `people_voice.py` | Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5). |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
 | `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
@@ -1840,6 +1841,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `stop.ps1` | SKKKK — остановить API и GPU-воркер |
 | `user_profile.py` | Карточки пользователей из командной строки — когда портал запущен службой, а не из PyCharm. |
 | `verify_backup.py` | Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить. |
+| `voice_people_report.py` | Отчёт: чьи голоса уже есть в общей базе и как они соотносятся с реестром людей проекта (PLATFORM-FOUNDATION-PLAN, ПФ5). |
 | `watch_server.py` | Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log). |
 
 **`scripts/smoke/`**

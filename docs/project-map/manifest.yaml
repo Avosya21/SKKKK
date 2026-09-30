@@ -2755,6 +2755,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_people_voice
+    kind: file
+    path: scripts/people_voice.py
+    title: "Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5)."
+    tags: [auto]
+    auto: true
+
+  - id: script_voice_people_report
+    kind: file
+    path: scripts/voice_people_report.py
+    title: "Отчёт: чьи голоса уже есть в общей базе и как они соотносятся с реестром людей проекта (PLATFORM-FOUNDATION-PLAN, ПФ5)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

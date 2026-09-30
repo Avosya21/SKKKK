@@ -417,3 +417,42 @@ def move_user_persons(db: Session, *, winner_id: int, loser_id: int) -> int:
         moved += 1
     db.flush()
     return moved
+
+
+# ---------------------------------------------------------------- согласие на голос внешнего человека (Д5)
+
+def give_voice_consent(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None) -> Person:
+    """Менеджер отмечает, что внешний человек (без учётки) согласен на запись голоса. У сотрудника согласие — в его карточке."""
+    from datetime import datetime, timezone
+
+    person = get(db, project_id, person_id)
+    if person.user_id is not None:
+        raise PeopleError("У сотрудника согласие на голос даётся в его карточке")
+    before = _snapshot(person)
+    person.voice_consent_at, person.voice_consent_by = datetime.now(timezone.utc), by_user_id
+    _log(db, project_id, person.id, by_user_id, "voice_consent", before, {"voice_consent_at": person.voice_consent_at.isoformat()})
+    db.flush()
+    return person
+
+
+def withdraw_voice_consent(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None) -> int:
+    """Отзыв согласия (только консоль, Д4): слепки этого человека в проекте удаляются, отметка снимается. Возвращает число слепков."""
+    from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+
+    person = get(db, project_id, person_id)
+    if person.user_id is not None:
+        raise PeopleError("У сотрудника согласие отзывается в его карточке")
+    profiles = list(db.scalars(select(SpeakerProfile).where(SpeakerProfile.person_id == person.id)).all())
+    ids = [p.id for p in profiles]
+    if ids:
+        for link in db.scalars(select(ArtifactSpeakerLink).where(ArtifactSpeakerLink.profile_id.in_(ids))).all():
+            link.profile_id, link.status = None, "pending"
+        for link in db.scalars(select(ArtifactSpeakerLink).where(ArtifactSpeakerLink.suggested_profile_id.in_(ids))).all():
+            link.suggested_profile_id = None
+    for p in profiles:
+        db.delete(p)
+    before = _snapshot(person)
+    person.voice_consent_at = person.voice_consent_by = None
+    _log(db, project_id, person.id, by_user_id, "voice_withdraw", before, {"profiles_deleted": len(ids)})
+    db.flush()
+    return len(ids)
