@@ -14,7 +14,8 @@ def test_staff_creates_edits_and_merges_people(client, manager_token):
     pid = _project(client, manager_token)
     h = _auth(manager_token)
     empty = client.get(f"/projects/{pid}/people", headers=h)
-    assert empty.status_code == 200 and empty.json()["people"] == [] and empty.json()["platform_enabled"] is False
+    assert empty.status_code == 200 and empty.json()["platform_enabled"] is False
+    assert [p["display_name"] for p in empty.json()["people"]] == ["Manager"]  # автор проекта записан человеком сразу
 
     a = client.post(f"/projects/{pid}/people", json={"display_name": "Ольга Пример", "side": "customer", "company_name": "ООО Пример"}, headers=h)
     assert a.status_code == 201
@@ -31,8 +32,8 @@ def test_staff_creates_edits_and_merges_people(client, manager_token):
     assert client.put(f"/projects/{pid}/people/{a_id}", json={"side": "чужая"}, headers=h).status_code == 400
 
     merged = client.post(f"/projects/{pid}/people/{a_id}/merge", json={"drop_id": b}, headers=h).json()
-    assert [p["id"] for p in merged["people"]] == [a_id]
-    assert "Olga P" in merged["people"][0]["aliases"]
+    assert b not in [p["id"] for p in merged["people"]] and a_id in [p["id"] for p in merged["people"]]
+    assert "Olga P" in next(p for p in merged["people"] if p["id"] == a_id)["aliases"]
     log = client.get(f"/projects/{pid}/people/log", headers=h).json()["items"]
     assert {"create", "set_side", "update", "merge"} <= {r["action"] for r in log}
 
@@ -97,7 +98,8 @@ def test_ordinary_user_has_no_access(client, manager_token, user_token, admin_to
 def test_seed_endpoint_runs_without_model(client, manager_token):
     pid = _project(client, manager_token, "Наполнение")
     r = client.post(f"/projects/{pid}/people/seed", headers=_auth(manager_token))
-    assert r.status_code == 200 and r.json()["created"] == 0 and r.json()["people"] == []
+    assert r.status_code == 200 and r.json()["created"] == 0
+    assert [p["display_name"] for p in r.json()["people"]] == ["Manager"]
 
 
 def test_platform_switch_admin_only_and_changes_flag(client, admin_token, manager_token):
@@ -128,3 +130,91 @@ def test_project_page_shows_people_card_only_to_staff(client, manager_token, use
     ordinary = client.get(f"/projects/{pid}", headers=_auth(user_token)).text
     assert "Люди и стороны" not in ordinary and "/static/people.js" not in ordinary
     assert client.get("/static/people.js").status_code == 200
+
+
+def test_create_project_with_parties_and_customer_people(client, manager_token):
+    h = _auth(manager_token)
+    r = client.post("/projects", json={
+        "name": "С людьми", "customer_company": "ООО Пример",
+        "customer_people": [{"name": "Ольга Заказчикова", "job_title": "Директор", "can_approve": True}, {"name": "Пётр Сотрудников"}],
+    }, headers=h)
+    assert r.status_code == 201
+    pid = r.json()["id"]
+    got = client.get(f"/projects/{pid}/people", headers=h).json()
+    by_name = {p["display_name"]: p for p in got["people"]}
+    assert by_name["Ольга Заказчикова"]["side"] == "customer" and by_name["Ольга Заказчикова"]["authority"] == "approver"
+    assert by_name["Ольга Заказчикова"]["company_name"] == "ООО Пример" and by_name["Пётр Сотрудников"]["authority"] is None
+    assert {"company_name": "ООО Пример", "side": "customer"} in got["parties"]
+    assert any(p["user"] for p in got["people"])  # автор проекта записан человеком с учёткой
+
+
+def test_create_project_rejects_duplicate_customer_names(client, manager_token):
+    r = client.post("/projects", json={"name": "Дубли", "customer_people": [{"name": "Иван Пример"}, {"name": "иван  пример"}]}, headers=_auth(manager_token))
+    assert r.status_code == 400
+
+
+def test_create_project_without_people_still_works(client, manager_token):
+    r = client.post("/projects", json={"name": "Просто"}, headers=_auth(manager_token))
+    assert r.status_code == 201
+
+
+def test_company_names_are_normalized_to_shared_list(client, admin_token, manager_token, tmp_data):
+    h_admin = _auth(admin_token)
+    added = client.put("/companies", json={"name": "Компания Общая", "side": "customer"}, headers=h_admin)
+    assert added.status_code == 200 and any(c["name"] == "Компания Общая" and c["side"] == "customer" for c in added.json()["items"])
+    pid = _project(client, admin_token, "Нормализация")
+    p = client.post(f"/projects/{pid}/people", json={"display_name": "Анна Пример", "company_name": "  компания   общая "}, headers=h_admin).json()
+    assert next(x for x in p["people"] if x["display_name"] == "Анна Пример")["company_name"] == "Компания Общая"
+
+
+def test_companies_api_permissions_and_file_roundtrip(client, admin_token, manager_token, user_token, tmp_data):
+    from app.app.config import get_settings
+
+    assert client.get("/companies", headers=_auth(user_token)).status_code == 403
+    assert client.get("/companies", headers=_auth(manager_token)).status_code == 200
+    assert client.put("/companies", json={"name": "X", "side": "customer"}, headers=_auth(manager_token)).status_code == 403
+    h = _auth(admin_token)
+    assert client.put("/companies", json={"name": "Плохая | компания", "side": "customer"}, headers=h).status_code == 400
+    assert client.put("/companies", json={"name": "Новая Компания", "side": "customer"}, headers=h).status_code == 200
+    text = get_settings().companies_path.read_text(encoding="utf-8")
+    assert "Новая Компания | Заказчик" in text and text.startswith("ACME")
+    changed = client.put("/companies", json={"name": "новая компания", "side": "executor"}, headers=h).json()["items"]
+    assert [c["side"] for c in changed if c["name"] == "Новая Компания"] == ["executor"]  # то же название, другой регистр — не дубль
+    hidden = client.put("/companies", json={"name": "Новая Компания", "side": "executor", "active": False}, headers=h).json()["items"]
+    row = next(c for c in hidden if c["name"] == "Новая Компания")
+    assert row["active"] is False
+    assert "Новая Компания" not in get_settings().companies_path.read_text(encoding="utf-8")
+    assert client.get("/admin/companies", headers=_auth(user_token)).status_code in (401, 403)
+
+
+def test_new_project_form_has_parties_fields(client, manager_token):
+    html = client.get("/", headers=_auth(manager_token)).text
+    assert "customer_company" in html and "project-customer-people" in html and "executor_company" in html
+
+
+def test_deleting_project_removes_registry(client, admin_token, db_engine):
+    """Реестр людей уходит вместе с проектом: без этого удаление падало бы на внешних ключах."""
+    from app.app.db import SessionLocal
+    from app.app.models.person import PeopleLog, Person, PersonAlias, ProjectParty, UnknownActor
+    from app.app.services import people
+
+    h = _auth(admin_token)
+    pid = client.post("/projects", json={"name": "Удаляемый", "customer_company": "ООО Пример",
+                                         "customer_people": [{"name": "Ольга Заказчикова"}]}, headers=h).json()["id"]
+    keep = client.post("/projects", json={"name": "Остаётся", "customer_people": [{"name": "Иван Оставшийся"}]}, headers=h).json()["id"]
+    db = SessionLocal()
+    try:
+        people.note_unknown(db, pid, "chat_author", "Кто-то")
+        a, b = people.create_person(db, pid, "Дубль А"), people.create_person(db, pid, "Дубль Б")
+        people.merge(db, pid, a.id, b.id)  # объединённый человек ссылается на другого (merged_into)
+        db.commit()
+    finally:
+        db.close()
+    assert client.delete(f"/projects/{pid}", headers=h).status_code in (200, 204)
+    db = SessionLocal()
+    try:
+        for model in (Person, PersonAlias, ProjectParty, UnknownActor, PeopleLog):
+            assert db.query(model).filter(model.project_id == pid).count() == 0, model.__name__
+        assert db.query(Person).filter(Person.project_id == keep).count() >= 1  # чужой проект не тронут
+    finally:
+        db.close()

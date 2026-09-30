@@ -5,9 +5,21 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class NewProjectPerson(BaseModel):
+    """Человек заказчика при создании проекта: в портал он может не входить."""
+
+    name: str = Field(min_length=1, max_length=200)
+    job_title: str | None = Field(default=None, max_length=200)
+    can_approve: bool = False
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    # Стороны и люди (PLATFORM-FOUNDATION-PLAN, ПФ4): всё необязательно, дополнить можно позже в карточке «Люди и стороны»
+    customer_company: str | None = Field(default=None, max_length=200)
+    executor_company: str | None = Field(default=None, max_length=200)
+    customer_people: list[NewProjectPerson] = Field(default_factory=list, max_length=30)
 
 
 class ProjectOut(BaseModel):

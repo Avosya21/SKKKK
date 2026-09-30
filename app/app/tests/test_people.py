@@ -228,3 +228,24 @@ def test_seed_links_portal_account_by_exact_name_even_if_not_project_member(db, 
     assert linked.get("Анна Пример") == account.id and linked.get("Пример Анна") == account.id
     assert twin_a.id not in linked.values() and twin_b.id not in linked.values()  # тёзки — не угадываем
     assert next(m for m in mentions if m.name == "Анна Пример").company_name  # компания из карточки
+
+
+def test_merging_accounts_moves_registry_people(db, project, admin):
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.user_identity import merge_users_into
+
+    second = Project(name="Второй", created_by=admin.id, is_active=True)
+    db.add(second)
+    db.commit()
+    winner, loser = _user(db, "keep-example"), _user(db, "drop-example")
+    moved = people.create_person(db, second.id, "Анна Пример", user_id=loser.id)  # у победителя в этом проекте никого: переходит
+    kept = people.create_person(db, project.id, "Борис Пример", user_id=winner.id)
+    dropped = people.create_person(db, project.id, "Boris P", user_id=loser.id)  # у победителя уже есть человек: объединяются
+    db.commit()
+    merge_users_into(db, winner, [db.get(User, loser.id)])
+    db.commit()
+    db.expire_all()
+    assert db.get(people.Person, moved.id).user_id == winner.id
+    assert dropped.merged_into == kept.id and people.resolve(db, project.id, "Boris P").person.id == kept.id
+    assert kept.user_id == winner.id

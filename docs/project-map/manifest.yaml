@@ -2741,6 +2741,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: router_companies_admin
+    kind: router
+    path: app/app/routers/companies_admin.py
+    title: "Список компаний в портале (PLATFORM-FOUNDATION-PLAN, ПФ4): просмотр — админ и менеджер, правка — админ."
+    tags: [auto]
+    auto: true
+
+  - id: ui_companies
+    kind: file
+    path: app/app/templates/companies.html
+    title: "app/app/templates/companies.html"
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

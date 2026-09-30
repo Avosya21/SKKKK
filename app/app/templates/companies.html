@@ -1,0 +1,75 @@
+{# Список компаний для карточек сотрудников и сторон проектов (админ, /admin/companies; PLATFORM-FOUNDATION-PLAN, ПФ4) #}
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h1 class="h4 mb-0">Компании</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="/">К проектам</a>
+</div>
+<p class="text-muted small">Компании для карточки сотрудника и для сторон проекта. Сторона — исполнитель или заказчик по умолчанию;
+  в конкретном проекте её можно задать иначе (карточка «Люди и стороны»). Список хранится в файле <code>Companies.txt</code>.</p>
+<div class="small text-muted mb-2" id="co-status" aria-live="polite"></div>
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <form class="d-flex flex-wrap gap-2" id="co-form" autocomplete="off">
+      <input type="text" class="form-control" id="co-name" placeholder="Название компании" maxlength="200" required style="flex:1 1 220px">
+      <select class="form-select" id="co-side" style="flex:0 1 180px" aria-label="Сторона по умолчанию">
+        <option value="executor">Исполнитель</option>
+        <option value="customer">Заказчик</option>
+      </select>
+      <button type="submit" class="btn btn-primary">Добавить</button>
+    </form>
+  </div>
+</div>
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Компания</th><th>Сторона по умолчанию</th><th>Человек в карточках</th><th></th></tr></thead>
+      <tbody id="co-body"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+if (!SKKKK.requireAuth()) throw new Error('auth');
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const say = (t, bad) => { const el = document.getElementById('co-status'); el.textContent = t || ''; el.classList.toggle('text-danger', !!bad); };
+let items = [];
+const SIDE = { executor: 'Исполнитель', customer: 'Заказчик' };
+
+async function call(method, body) {
+  try {
+    const r = await SKKKK.api('/companies', { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+    if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (e) {} say(typeof d === 'string' && d ? d : 'Ошибка ' + r.status, true); return null; }
+    return await r.json();
+  } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }
+}
+function render() {
+  document.getElementById('co-body').innerHTML = items.map((c) => `<tr class="${c.active ? '' : 'text-muted'}" data-name="${esc(c.name)}">
+    <td>${esc(c.name)}${c.active ? '' : ' <span class="badge text-bg-secondary">скрыта</span>'}</td>
+    <td><select class="form-select form-select-sm" data-act="side" style="max-width:180px" aria-label="Сторона">
+      ${Object.entries(SIDE).map(([k, v]) => `<option value="${k}"${k === c.side ? ' selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td>${c.people}</td>
+    <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-act="toggle">${c.active ? 'Скрыть' : 'Показать'}</button></td></tr>`).join('')
+    || '<tr><td colspan="4" class="text-muted">Список пуст.</td></tr>';
+}
+async function load() { const d = await call('GET'); if (d) { items = d.items; render(); } }
+document.getElementById('co-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const d = await call('PUT', { name: document.getElementById('co-name').value.trim(), side: document.getElementById('co-side').value });
+  if (d) { items = d.items; render(); e.target.reset(); say('Сохранено.'); }
+});
+document.getElementById('co-body').addEventListener('change', async (e) => {
+  const row = e.target.closest('tr'); if (!row || e.target.dataset.act !== 'side') return;
+  const d = await call('PUT', { name: row.dataset.name, side: e.target.value });
+  if (d) { items = d.items; render(); say('Сохранено.'); }
+});
+document.getElementById('co-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act="toggle"]'); if (!btn) return;
+  const item = items.find((c) => c.name === btn.closest('tr').dataset.name); if (!item) return;
+  const d = await call('PUT', { name: item.name, side: item.side || 'executor', active: !item.active });
+  if (d) { items = d.items; render(); say(item.active ? 'Компания скрыта: у людей она остаётся.' : 'Компания показана.'); }
+});
+load();
+</script>
+{% endblock %}

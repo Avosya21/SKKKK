@@ -49,7 +49,8 @@
       <div class="px-list" id="pp-unknown"></div>
 
       <h6 class="mt-4 mb-2">Стороны компаний</h6>
-      <div class="small text-muted mb-2">Какая компания в этом проекте исполнитель, а какая заказчик. Новые люди из этих компаний получают сторону автоматически.</div>
+      <div class="small text-muted mb-2">Какая компания в этом проекте исполнитель, а какая заказчик. Новые люди из этих компаний получают сторону автоматически.
+        {% if current_role == 'admin' %}<a href="/admin/companies">Общий список компаний</a>{% endif %}</div>
       <div class="px-list" id="pp-parties"></div>
       <form class="px-form-row" id="pp-party-form" autocomplete="off">
         <input type="text" class="form-control form-control-sm" id="pp-party-name" placeholder="Название компании" maxlength="200" required>

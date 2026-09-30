@@ -140,31 +140,13 @@ def person_from_user(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """Сотрудник портала -> человек проекта: имя, компания и должность из карточки, сторона от компании проекта или компании."""
-    from app.app.models.company import Company
-    from app.app.services import user_profile as profiles
-
+    """Сотрудник портала -> человек проекта: имя, компания и должность из карточки, сторона от компании проекта или списка."""
     project = require_project_staff(db, user, project_id)
     member = db.scalar(select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == body.user_id))
     if member is None:
         raise HTTPException(status_code=400, detail="Этот сотрудник не участник проекта")
-    card = profiles.get_profile(db, body.user_id)
-    account = db.get(User, body.user_id)
-    if card is not None and (card.first_name or card.last_name):
-        name = f"{card.first_name} {card.last_name}".strip()
-        company = db.get(Company, card.company_id) if card.company_id else None
-    else:
-        name, company = (account.name if account else ""), None
-    side = people.party_side(db, project_id, company.name if company else None) or (company.side if company and company.side else "unknown")
     try:
-        row = people.create_person(db, project_id, name, user_id=body.user_id, company_name=company.name if company else None,
-                                   side=side, side_source="card" if card is not None else "human", job_title=card.job_title if card else None,
-                                   by_user_id=user.id, alias_source="card")
-        if card is not None and card.last_name and card.first_name:
-            try:
-                people.add_alias(db, project_id, row.id, f"{card.last_name} {card.first_name}", source="card", by_user_id=user.id)
-            except people.PeopleError:
-                pass
+        row = people.person_from_user(db, project_id, body.user_id, by_user_id=user.id)
         db.commit()
     except people.PeopleError as exc:
         db.rollback()
