@@ -49,6 +49,7 @@ from app.app.routers import (  # noqa: E402
     requirement_review,
     project_members,
     project_people,
+    companies_admin,
     projects,
     speaker_profiles,
     upload,
@@ -243,6 +244,7 @@ app.include_router(requirement_review.router)
 app.include_router(admin_map.router)
 app.include_router(project_members.router)
 app.include_router(project_people.router)
+app.include_router(companies_admin.router)
 app.include_router(meetings.router)
 app.include_router(speaker_profiles.router)
 

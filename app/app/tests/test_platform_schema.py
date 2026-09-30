@@ -88,7 +88,7 @@ def test_create_all_makes_platform_tables_and_uniques(tmp_path, monkeypatch):
 
 
 def test_migration_keeps_existing_data_on_copy_of_real_db(tmp_path, monkeypatch):
-    """Прогон на копии боевой БД (если есть): строки существующих таблиц не теряются, новые таблицы пусты."""
+    """Прогон на копии боевой БД (если есть): строки существующих таблиц не теряются, миграция ничего не дописывает."""
     real = Path(__file__).resolve().parents[3] / "data" / "app.db"
     if not real.exists():
         pytest.skip("нет data/app.db")
@@ -109,8 +109,8 @@ def test_migration_keeps_existing_data_on_copy_of_real_db(tmp_path, monkeypatch)
     try:
         for table, count in before.items():
             assert con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == count, table
-        for table in NEW_TABLES:
-            assert con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+        for table in NEW_TABLES:  # новые таблицы существуют (могут быть уже заполнены реестром боевой БД, но не изменились)
+            assert con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == before.get(table, 0)
     finally:
         con.close()
     for table, column in NEW_COLUMNS:

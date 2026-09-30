@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings
@@ -22,6 +22,7 @@ from app.app.models.contract import ContractItem
 from app.app.models.entity import AsrRun, Changelog, Chunk, Entity, Link, NoteRef, Resolution, Topic, UserNote
 from app.app.models.job import Job
 from app.app.models.meeting import Meeting, MeetingParticipant
+from app.app.models.person import PeopleLog, Person, PersonAlias, ProjectParty, UnknownActor
 from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
 from app.app.models.project_mcp_token import ProjectMcpToken
@@ -158,10 +159,26 @@ def purge_artifact(db: Session, settings: Settings, artifact: Artifact) -> None:
         file_path=artifact.file_path,
         transcription_file_path=artifact.transcription_file_path,
     )
+    db.execute(delete(UnknownActor).where(UnknownActor.artifact_id == pk))  # очередь «Кто это?» этого материала
     db.delete(artifact)
     db.commit()
     remove_artifact_files(settings, files)
     log_event(logger, "artifact.purged", project_id=pid, artifact=aid, file=name)
+
+
+def _purge_registry(db: Session, pid: int) -> None:
+    """Реестр людей проекта (PLATFORM-FOUNDATION-PLAN): вопросы «Кто это?», журнал, написания, стороны, люди.
+    Ссылки на людей из слепков голоса и участников встреч обнуляются до удаления людей."""
+    person_ids = list(db.scalars(select(Person.id).where(Person.project_id == pid)))
+    if person_ids:
+        db.execute(update(SpeakerProfile).where(SpeakerProfile.person_id.in_(person_ids)).values(person_id=None))
+        db.execute(update(MeetingParticipant).where(MeetingParticipant.person_id.in_(person_ids)).values(person_id=None))
+    db.execute(delete(UnknownActor).where(UnknownActor.project_id == pid))
+    db.execute(delete(PeopleLog).where(PeopleLog.project_id == pid))
+    db.execute(delete(PersonAlias).where(PersonAlias.project_id == pid))
+    db.execute(delete(ProjectParty).where(ProjectParty.project_id == pid))
+    db.execute(update(Person).where(Person.project_id == pid).values(merged_into=None))
+    db.execute(delete(Person).where(Person.project_id == pid))
 
 
 def purge_project(db: Session, settings: Settings, project: Project) -> None:
@@ -198,6 +215,7 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     db.execute(delete(Topic).where(Topic.project_id == pid))
     db.execute(delete(ProjectTask).where(ProjectTask.project_id == pid))
     db.execute(delete(ArtifactSpeakerLink).where(ArtifactSpeakerLink.project_id == pid))
+    _purge_registry(db, pid)
     db.execute(delete(SpeakerProfile).where(SpeakerProfile.project_id == pid))
     db.execute(delete(ChatMessage).where(ChatMessage.project_id == pid))
     db.execute(delete(ChatGuidance).where(ChatGuidance.project_id == pid))

@@ -62,6 +62,14 @@
       <div class="modal-body">
         <input class="form-control mb-2" name="name" placeholder="Название" required>
         <textarea class="form-control" name="description" placeholder="Описание"></textarea>
+        <details class="mt-3" id="project-parties-box">
+          <summary class="small text-muted">Стороны и люди заказчика (необязательно, можно добавить позже)</summary>
+          <input class="form-control form-control-sm mt-2" name="customer_company" placeholder="Компания заказчика" maxlength="200" autocomplete="off">
+          <input class="form-control form-control-sm mt-2" name="executor_company" placeholder="Компания исполнителя (по умолчанию — из вашей карточки)" maxlength="200" list="project-company-list" autocomplete="off">
+          <datalist id="project-company-list"></datalist>
+          <textarea class="form-control form-control-sm mt-2" id="project-customer-people" rows="3" placeholder="Люди заказчика, по одному на строку: Имя Фамилия, должность"></textarea>
+          <div class="form-text">Если человек может утверждать решения, добавьте в конец строки «*». Эти люди в портал входить не обязаны.</div>
+        </details>
         <div class="alert alert-danger d-none mt-2" id="project-error"></div>
       </div>
       <div class="modal-footer">
@@ -244,7 +252,15 @@ deleteConfirmBtn.addEventListener('click', async () => {
   }, { label: 'Удаляю…' });
 });
 
-if (newProjectBtn && modal) newProjectBtn.onclick = () => modal.show();
+async function fillCompanyList() {
+  try {
+    const r = await SKKKK.api('/companies');
+    if (!r.ok) return;
+    const list = document.getElementById('project-company-list');
+    list.innerHTML = (await r.json()).items.filter((c) => c.active).map((c) => `<option value="${String(c.name).replace(/"/g, '&quot;')}"></option>`).join('');
+  } catch (_) { /* подсказки необязательны */ }
+}
+if (newProjectBtn && modal) newProjectBtn.onclick = () => { fillCompanyList(); modal.show(); };
 document.getElementById('new-project-form').onsubmit = async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -252,11 +268,21 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
   const err = document.getElementById('project-error');
   err.classList.add('d-none');
 
+  const payload = Object.fromEntries(fd.entries());
+  // Люди заказчика: «Имя Фамилия, должность» по строке; «*» в конце — может утверждать решения
+  payload.customer_people = document.getElementById('project-customer-people').value.split(/\r?\n/).map((line) => {
+    let text = line.trim(); if (!text) return null;
+    const approve = text.endsWith('*'); if (approve) text = text.slice(0, -1).trim();
+    const [name, ...rest] = text.split(',');
+    return name.trim() ? { name: name.trim(), job_title: rest.join(',').trim() || null, can_approve: approve } : null;
+  }).filter(Boolean);
+  ['customer_company', 'executor_company'].forEach((k) => { if (!String(payload[k] || '').trim()) delete payload[k]; });
+
   await SKKKK.guardSubmit(form, async () => {
     const r = await SKKKK.api('/projects', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(Object.fromEntries(fd.entries())),
+      body: JSON.stringify(payload),
     });
     if (!r.ok) {
       let detail = '';

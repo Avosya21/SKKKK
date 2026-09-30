@@ -49,13 +49,17 @@ def create_project(
         created_by=user.id,
         is_active=True,
     )
-    from app.app.services import agent_settings
+    from app.app.services import agent_settings, people
 
     agent_settings.init_new_project(project)  # новый проект: без якорей 1С и без названий компаний в правилах сторон
+    names = [people.alias_key(p.name) for p in body.customer_people]
+    if any(not n for n in names) or len(set(names)) != len(names):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Имена людей заказчика должны быть непустыми и не повторяться")
     db.add(project)
     db.commit()
     db.refresh(project)
     create_project_tree(settings, project.id)
+    _register_parties_and_people(db, project.id, body, user)
     log_activity(
         db,
         user_id=user.id,
@@ -68,6 +72,40 @@ def create_project(
         target_id=project.id,
     )
     return project
+
+
+def _register_parties_and_people(db: Session, project_id: int, body: ProjectCreate, user: User) -> None:
+    """Стороны компаний и люди нового проекта: заказчик из формы, исполнитель (из формы или от компании автора), сам автор.
+    Ошибка здесь не должна ломать создание проекта: реестр можно дополнить позже."""
+    import logging
+
+    from app.app.models.company import SIDE_CUSTOMER, SIDE_EXECUTOR
+    from app.app.services import people
+    from app.app.services import user_profile as profiles
+
+    try:
+        customer = (body.customer_company or "").strip()
+        executor = (body.executor_company or "").strip()
+        if not executor:
+            card = profiles.get_profile(db, user.id)
+            if card is not None and card.company_id:
+                from app.app.models.company import Company
+
+                row = db.get(Company, card.company_id)
+                executor = row.name if row is not None and row.side == SIDE_EXECUTOR else ""
+        if customer:
+            people.set_party(db, project_id, customer, SIDE_CUSTOMER, by_user_id=user.id)
+        if executor:
+            people.set_party(db, project_id, executor, SIDE_EXECUTOR, by_user_id=user.id)
+        people.person_from_user(db, project_id, user.id, by_user_id=user.id)
+        for item in body.customer_people:
+            people.create_person(db, project_id, item.name, company_name=customer or None, side=SIDE_CUSTOMER, side_source="human",
+                                 job_title=(item.job_title or "").strip() or None, authority="approver" if item.can_approve else None,
+                                 by_user_id=user.id)
+        db.commit()
+    except people.PeopleError:
+        db.rollback()
+        logging.getLogger("skkkk.projects").warning("реестр нового проекта %s не заполнен полностью", project_id, exc_info=True)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

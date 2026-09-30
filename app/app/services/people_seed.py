@@ -289,5 +289,6 @@ def seed_project(db: Session, settings: Settings, project_id: int, *, apply: boo
             kind = "chat_author" if m.where == "chat" else "speaker_label"
             people.note_unknown(db, project_id, kind, m.name, suggestions=[{"name": n} for n in candidates])
     if apply:
+        report["companies_normalized"] = people.normalize_project_companies(db, project_id)
         db.commit()
     return report

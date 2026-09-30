@@ -13,6 +13,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import Link, Resolution, UserNote
+from app.app.models.person import PeopleLog, Person, UnknownActor
 from app.app.models.project import Project
 from app.app.models.project_mcp_token import ProjectMcpToken
 from app.app.models.project_member import ProjectMember
@@ -40,9 +41,13 @@ _USER_ID_COLUMNS: list[tuple[type, str]] = [
     (Meeting, "created_by"),
     (MeetingParticipant, "user_id"),
     (SpeakerProfile, "user_id"),
+    (Person, "voice_consent_by"),
+    (PeopleLog, "user_id"),
+    (UnknownActor, "resolved_by"),
 ]
 # Ссылки на users, которые переносит не общий UPDATE, а своя функция (PK user_id: одна карточка на человека).
-_USER_ID_SPECIAL: set[tuple[str, str]] = {("user_profiles", "user_id")}  # user_profile.merge_profiles
+# people.user_id: одна учётка на человека проекта, конфликт решает people.move_user_persons
+_USER_ID_SPECIAL: set[tuple[str, str]] = {("user_profiles", "user_id"), ("people", "user_id")}  # user_profile.merge_profiles
 
 
 def normalize_login_name(name: str) -> str:
@@ -94,6 +99,9 @@ def merge_users_into(db: Session, winner: User, losers: list[User]) -> int:
         from app.app.services.user_profile import merge_profiles
 
         merge_profiles(db, winner_id=winner.id, loser_id=loser.id)
+        from app.app.services.people import move_user_persons
+
+        move_user_persons(db, winner_id=winner.id, loser_id=loser.id)
         _reassign_user_rows(db, winner_id=winner.id, loser_id=loser.id)
         db.delete(loser)
         n += 1

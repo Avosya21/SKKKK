@@ -91,3 +91,69 @@ def sync_companies(db: Session, path: Path | None = None) -> list[Company]:
 
 def active_companies(db: Session) -> list[Company]:
     return sync_companies(db)
+
+
+# ---------------------------------------------------------------- правка списка из портала (PLATFORM-FOUNDATION-PLAN, ПФ4)
+
+SIDE_TO_LABEL = {SIDE_EXECUTOR: "Исполнитель", SIDE_CUSTOMER: "Заказчик"}
+
+
+class CompanyError(ValueError):
+    """Ошибка правки списка компаний; текст можно показывать пользователю."""
+
+
+def write_companies_file(lines: list[CompanyLine], path: Path | None = None) -> None:
+    """Записать список в файл: начальные комментарии сохраняются, строки — «Название | Сторона»."""
+    path = path or get_settings().companies_path
+    head: list[str] = []
+    if path.is_file():
+        for raw in path.read_text(encoding="utf-8-sig").splitlines():
+            if raw.strip() == "" or raw.lstrip().startswith("#"):
+                head.append(raw)
+            else:
+                break
+    body = [f"{line.name} | {SIDE_TO_LABEL[line.side]}" if line.side in SIDE_TO_LABEL else line.name for line in lines]
+    path.write_text("\n".join(head + body) + "\n", encoding="utf-8")
+
+
+def canonical_company(db: Session, name: str | None) -> Company | None:
+    """Компания списка по названию без учёта регистра и лишних пробелов (активная или скрытая)."""
+    key = name_key(name or "")
+    if not key:
+        return None
+    return db.scalar(select(Company).where(Company.name_key == key))
+
+
+def save_company(db: Session, name: str, side: str, *, active: bool = True, path: Path | None = None) -> Company:
+    """Добавить компанию или изменить её сторону / скрыть: сначала файл (источник истины), затем таблица.
+    Убранная из файла компания скрывается, а не удаляется (у людей она остаётся). Переименование не поддерживается:
+    новое название — новая компания, старую можно скрыть."""
+    clean = " ".join((name or "").split())
+    if not clean:
+        raise CompanyError("Название не может быть пустым")
+    if side not in (SIDE_EXECUTOR, SIDE_CUSTOMER):
+        raise CompanyError("Сторона: исполнитель или заказчик")
+    if any(ch in clean for ch in "|\r\n"):
+        raise CompanyError("В названии нельзя использовать знак «|» и переносы строк")
+    key = name_key(clean)
+    out: list[CompanyLine] = []
+    replaced = False
+    for line in load_companies_file(path):
+        if name_key(line.name) == key:
+            replaced = True
+            if active:
+                out.append(CompanyLine(line.name, side))  # написание из файла сохраняется
+        else:
+            out.append(line)
+    if not replaced and active:
+        out.append(CompanyLine(clean, side))
+    write_companies_file(out, path)
+    sync_companies(db, path)
+    row = canonical_company(db, clean)
+    if row is None:
+        raise CompanyError("Компания не найдена")
+    if not active:
+        row.active = False
+    row.side = side if active else row.side
+    db.commit()
+    return row

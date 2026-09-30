@@ -84,6 +84,30 @@ def canonical(db: Session, person: Person) -> Person:
     return person
 
 
+def normalize_company(db: Session, company_name: str | None, company_id: int | None = None) -> tuple[int | None, str | None]:
+    """Название компании человека к виду общего списка: «intervolga» и «INTERVOLGA» — одна компания.
+    Нет в списке — название остаётся как ввели (заказчик может быть только в этом проекте)."""
+    from app.app.services.companies import canonical_company
+
+    name = " ".join((company_name or "").split()) or None
+    row = canonical_company(db, name)
+    if row is not None:
+        return row.id, row.name
+    return company_id, name
+
+
+def normalize_project_companies(db: Session, project_id: int) -> int:
+    """Привести компании всех людей проекта к общему списку; возвращает, у скольких людей что-то поменялось."""
+    changed = 0
+    for person in list_people(db, project_id, include_merged=True):
+        cid, cname = normalize_company(db, person.company_name, person.company_id)
+        if (cid, cname) != (person.company_id, person.company_name):
+            person.company_id, person.company_name = cid, cname
+            changed += 1
+    db.flush()
+    return changed
+
+
 def user_taken(db: Session, project_id: int, user_id: int) -> bool:
     """Учётка уже привязана к человеку проекта."""
     return db.scalar(select(Person.id).where(Person.project_id == project_id, Person.user_id == user_id, Person.merged_into.is_(None))) is not None
@@ -119,6 +143,7 @@ def create_person(
         raise PeopleError("Неизвестная сторона")
     if authority is not None and authority not in AUTHORITIES:
         raise PeopleError("Неизвестное право утверждения")
+    company_id, company_name = normalize_company(db, company_name, company_id)
     taken = db.scalar(select(PersonAlias).where(PersonAlias.project_id == project_id, PersonAlias.alias_key == alias_key(name)))
     if taken is not None:
         raise PeopleError("Такое имя уже есть в реестре проекта")
@@ -203,6 +228,8 @@ def update_person(db: Session, project_id: int, person_id: int, *, by_user_id: i
                                                   Person.id != person.id, Person.merged_into.is_(None)))
         if other is not None:
             raise PeopleError("Эта учётка уже привязана к другому человеку проекта")
+    if "company_name" in fields:
+        fields["company_id"], fields["company_name"] = normalize_company(db, fields["company_name"], fields.get("company_id"))
     before = _snapshot(person)
     for key, value in fields.items():
         setattr(person, key, value)
@@ -349,3 +376,44 @@ def sides_map(db: Session, project_id: int) -> dict[str, str]:
         if len(sides) == 1 and word not in out:
             out[word] = next(iter(sides))
     return out
+
+
+def person_from_user(db: Session, project_id: int, user_id: int, *, by_user_id: int | None = None) -> Person:
+    """Сотрудник портала -> человек проекта: имя, компания и должность из карточки, сторона от компании проекта или списка."""
+    from app.app.models.company import Company
+    from app.app.models.user import User
+    from app.app.services import user_profile as profiles
+
+    card = profiles.get_profile(db, user_id)
+    account = db.get(User, user_id)
+    if card is not None and (card.first_name or card.last_name):
+        name = f"{card.first_name} {card.last_name}".strip()
+        company = db.get(Company, card.company_id) if card.company_id else None
+    else:
+        name, company = (account.name if account else ""), None
+    side = party_side(db, project_id, company.name if company else None) or (company.side if company and company.side else SIDE_UNKNOWN)
+    person = create_person(db, project_id, name, user_id=user_id, company_name=company.name if company else None,
+                           side=side, side_source="card" if card is not None else "human", job_title=card.job_title if card else None,
+                           by_user_id=by_user_id, alias_source="card")
+    if card is not None and card.last_name and card.first_name:
+        try:
+            add_alias(db, project_id, person.id, f"{card.last_name} {card.first_name}", source="card", by_user_id=by_user_id)
+        except PeopleError:
+            pass
+    return person
+
+
+def move_user_persons(db: Session, *, winner_id: int, loser_id: int) -> int:
+    """Объединение учёток: люди проектов с учёткой ``loser`` переходят к ``winner``; если у ``winner`` в проекте уже есть
+    человек, два человека объединяются (учётка одна на человека проекта)."""
+    moved = 0
+    for person in list(db.scalars(select(Person).where(Person.user_id == loser_id)).all()):
+        other = db.scalar(select(Person).where(Person.project_id == person.project_id, Person.user_id == winner_id, Person.merged_into.is_(None)))
+        if other is not None and other.id != person.id:
+            person.user_id = None
+            merge(db, person.project_id, other.id, person.id, by_user_id=winner_id)
+        else:
+            person.user_id = winner_id
+        moved += 1
+    db.flush()
+    return moved
