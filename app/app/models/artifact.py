@@ -37,6 +37,8 @@ class Artifact(Base):
     # «filename» — точность до дня (полдень UTC), «upload» — честная замена, а не дата созвона. У старых записей NULL.
     recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     recorded_at_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # day — известен только день (время условное 12:00), minute — есть время начала; None — по источнику.
+    recorded_at_precision: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="artifacts")
     jobs: Mapped[list["Job"]] = relationship(back_populates="artifact")

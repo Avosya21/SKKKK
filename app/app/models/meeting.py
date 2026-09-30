@@ -48,3 +48,5 @@ class MeetingParticipant(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Человек из реестра проекта (ПФ7): гость становится человеком после «Кто это?».
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("people.id"), nullable=True)

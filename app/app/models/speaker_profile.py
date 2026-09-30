@@ -29,6 +29,8 @@ class SpeakerProfile(Base):
     # Чей это голос (карточка сотрудника). Пусто — гость или не привязан. Привязка — только
     # services/voice_link.py и только при согласии на голос; отзыв согласия удаляет такие слепки.
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # Человек из реестра проекта (у заказчика без учётки user_id пуст); ПФ5.
+    person_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("people.id"), nullable=True)
 
 
 class ArtifactSpeakerLink(Base):
