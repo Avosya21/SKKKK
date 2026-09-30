@@ -382,7 +382,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert "Встреча" in guest
     assert "Выдать доступ" not in guest
     assert 'href="/projects"' not in guest
-    assert "meeting_room.js?v=a57" in guest
+    assert "meeting_room.js?v=a58" in guest
     assert "meeting_layout.js" in guest
     assert 'rel="manifest"' in guest
     assert "meeting-room" in guest
@@ -397,7 +397,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-leave"' in guest
     assert 'id="meeting-fs"' in guest
     staff_room = (templates / "meeting_room.html").read_text(encoding="utf-8")
-    assert "meeting_room.js?v=a57" in staff_room
+    assert "meeting_room.js?v=a58" in staff_room
     assert "meeting_layout.js" in staff_room
     assert 'rel="manifest"' in staff_room
     assert 'id="meeting-screen-lead"' in staff_room
@@ -423,8 +423,8 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-btn"' in staff_room
     assert 'id="meeting-speaker-menu"' in guest
     assert 'id="meeting-speaker-menu"' in staff_room
-    assert "meeting_room.js?v=a57" in guest
-    assert "meeting_room.js?v=a57" in staff_room
+    assert "meeting_room.js?v=a58" in guest
+    assert "meeting_room.js?v=a58" in staff_room
     assert "SKKKK_MEETING_VOICE" in guest
     assert "SKKKK_MEETING_VOICE" in staff_room
     assert "skkkk-guest-" in guest
@@ -488,7 +488,9 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "getDisplayMedia" in js
     assert "SCREEN_HINT" in js
     assert "insufficient permissions" in js
-    assert "person === this.room.localParticipant && track.kind === \"audio\"" in js
+    # свой звук не играем: маршрутизатор берёт только удалённых, _attachTrack своё аудио в него не передаёт
+    assert "if (person !== this.room.localParticipant) this._routeAudio();" in js
+    assert "room.remoteParticipants.forEach((person) => {\n    if (isHidden(person)) return;" in js
     assert "echoCancellation: true" in js
     assert "IMMERSIVE_CLASS" in js
     assert "enterImmersive" in js
@@ -514,7 +516,7 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "toggleSound" in js
     assert "_soundOn" in js
     assert "setSubscribed(false)" in js
-    assert "if (track.kind === \"audio\" && !this._soundOn) return" in js
+    assert "const want = this._soundOn ? voicePlan(room, this._denoisePrefs) : new Set();" in js
     assert "RoomEvent.TrackPublished" in js
     assert "requestAnimationFrame" in js
     assert "_silentMeterCtx" in js
@@ -544,10 +546,14 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "hasCleaner" in js
     assert "isCleaner" in js
     # нет очищенной дорожки человека (готовится, снята, шумодав ушёл) — играет сырая, человек не замолкает
-    assert "function hasCleanTrack" in js
-    assert "return !hasCleanTrack(room, person.identity);" in js
-    assert "if (isCleaner(person)) setTimeout(() => this._reattachAudio(), 0);" in js
-    assert 'if (isCleaner(participant) && track.kind === "audio") setTimeout(() => this._reattachAudio(), 0);' in js
+    # один маршрутизатор звука: на человека одна дорожка голоса (свежая clean-* или сырая), экранный звук как есть,
+    # остальное и «сироты» снимаются; сверка по событиям и раз в 2 с
+    assert "function voicePlan(room, prefs)" in js
+    assert "if (isScreenAudioPub(pub) || !useClean) want.add(pub.track);" in js
+    assert "cleanFor[identity] = pub; // порядок публикаций: последняя — самая свежая" in js
+    assert "_routeAudio() {" in js and "_startAudioRoute() {" in js
+    assert '(els.stageEl || document).querySelectorAll("audio")' in js
+    assert "_reattachAudio" not in js and "_dropRawIfCleaner" not in js and "playRawAudio" not in js
     assert "function isHidden" in js
     assert "01_audio" not in js
     assert "function phoneGridCols" in js

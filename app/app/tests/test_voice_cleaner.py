@@ -243,7 +243,7 @@ def test_cleaner_slots_released_on_cancel_and_room_exit():
     vc._BUSY.clear()
     text = (ROOT / "tools" / "livekit" / "voice_cleaner.py").read_text(encoding="utf-8")
     assert "release_room_slots(room_name)" in text
-    assert "asyncio.wait_for(step(), timeout=2.0)" in text
+    assert "asyncio.wait_for(stream.aclose(), timeout=2.0)" in text
 
 
 def test_pump_survives_double_toggle_and_stuck_publish():
@@ -252,5 +252,37 @@ def test_pump_survives_double_toggle_and_stuck_publish():
     assert 'getattr(running, "skkkk_track", "") == track_sid' in start
     assert "task.skkkk_track = track_sid" in start
     pump = text.split("async def _pump(")[1].split("async def _join(")[0]
-    assert "timeout=PUBLISH_TIMEOUT_S" in pump
-    assert "if local is not None:" in pump and "if stream is not None:" in pump
+    assert "if stream is not None:" in pump
+    assert "publish_track" not in pump and "unpublish_track" not in pump  # публикацией владеет комната, не задача
+
+
+def test_one_clean_track_per_person_for_whole_stay():
+    # Переключатель шумодава и переподключение не публикуют clean-* заново: две публикации одного человека
+    # у слушателей звучали дважды со сдвигом (эхо, задвоение).
+    text = (ROOT / "tools" / "livekit" / "voice_cleaner.py").read_text(encoding="utf-8")
+    join = text.split("async def _join(")[1].split("def _b64url")[0]
+    assert "async def get_out(identity: str):" in join and "async def drop_out(identity: str)" in join
+    assert "if identity in outs:" in join
+    assert "timeout=PUBLISH_TIMEOUT_S" in join
+    assert "asyncio.ensure_future(drop_out(participant.identity))" in join  # ушёл человек — снимаем его clean-*
+    assert "asyncio.ensure_future(drop_out(identity))" in join  # задача упала — тоже
+    pump = text.split("async def _pump(")[1].split("async def _join(")[0]
+    assert "await get_out(participant.identity)" in pump and "source.clear_queue()" in pump
+
+
+def test_only_voice_is_cleaned_and_new_pump_survives_old_track():
+    text = (ROOT / "tools" / "livekit" / "voice_cleaner.py").read_text(encoding="utf-8")
+    assert "return source != rtc.TrackSource.SOURCE_SCREENSHARE_AUDIO" in text
+    on_track = text.split("def _on_track")[1].split("def _on_unsub")[0]
+    assert 'is_voice_source(getattr(_pub, "source", None))' in on_track
+    on_unsub = text.split("def _on_unsub")[1].split("@room.on")[0]
+    assert 'getattr(running, "skkkk_track", "") == (getattr(track, "sid", "") or "")' in on_unsub
+
+
+def test_cleaner_raises_own_priority():
+    # с обычным приоритетом на занятой машине шумодав замирал на 0,4–1 с и выбрасывал ~2 с звука в минуту
+    text = (ROOT / "tools" / "livekit" / "voice_cleaner.py").read_text(encoding="utf-8")
+    main = text.split("def main() -> int:")[1]
+    assert '_raise_priority()' in main
+    assert "above_normal = 0x00008000" in text
+    assert "kernel32.GetCurrentProcess.restype = ctypes.c_void_p" in text

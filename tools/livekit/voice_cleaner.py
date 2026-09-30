@@ -621,35 +621,32 @@ async def _emit(source, rtc, pcm) -> None:
         )
 
 
-async def _pump(room, track, participant, model, state, enhance, lock, wanted) -> None:
+def is_voice_source(source) -> bool:
+    """Голос человека — всё, кроме звука показа экрана: его не чистим и не выдаём за голос."""
+    from livekit import rtc
+
+    return source != rtc.TrackSource.SOURCE_SCREENSHARE_AUDIO
+
+
+async def _pump(track, participant, state, lock, wanted, get_out) -> None:
+    """Чистит голос одного человека в его clean-* (выход берётся из get_out: публикуется один раз на всё время в комнате).
+    Переключатель шумодава и переподключение меняют только эту задачу, а не публикацию: раньше clean-* снималась
+    и публиковалась заново, и у слушателей на миг (или надолго, если снятие зависало) было две — голос звучал дважды."""
     from livekit import rtc
     import numpy as np
 
-    name = clean_track_name(participant.identity)
-    local = None
     stream = None
     need = SAMPLE_RATE * CHUNK_MS // 1000
     chunks: list = []
     stats = {"since": time.monotonic(), "work": 0.0, "peak": 0.0, "chunks": 0, "dropped": 0, "queued": 0}
     try:
         try:
-            await asyncio.wait_for(_unpublish_named(room, name), timeout=3.0)
-        except asyncio.TimeoutError:
-            pass
-        source = rtc.AudioSource(SAMPLE_RATE, 1, queue_size_ms=QUEUE_MS)
-        local = rtc.LocalAudioTrack.create_audio_track(name, source)
-        try:
-            await asyncio.wait_for(
-                room.local_participant.publish_track(
-                    local,
-                    rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
-                ),
-                timeout=PUBLISH_TIMEOUT_S,
-            )
+            source, _local = await get_out(participant.identity)
         except asyncio.TimeoutError:
             # слушатели этого человека остаются на сыром звуке (клиент играет его, пока нет clean-*)
             print("voice_cleaner: publish timeout", participant.identity, flush=True)
             return
+        source.clear_queue()  # хвост прошлой задачи этого человека не доигрывать
         stream = rtc.AudioStream(
             track, sample_rate=SAMPLE_RATE, num_channels=1, frame_size_ms=FRAME_MS, capacity=STREAM_CAP_FRAMES
         )
@@ -681,18 +678,12 @@ async def _pump(room, track, participant, model, state, enhance, lock, wanted) -
                 )
                 stats.update(since=time.monotonic(), work=0.0, peak=0.0, chunks=0, dropped=0, queued=0)
     finally:
-        # Комната могла уже закрыться: без таймаута задача повисала здесь и уничтожалась недоделанной.
-        # Отмена могла прийти и посреди публикации — тогда снимаем то, что успело опубликоваться.
-        steps = []
+        # комната могла уже закрыться: без таймаута задача повисала здесь и уничтожалась недоделанной
         if stream is not None:
-            steps.append(lambda: stream.aclose())
-        if local is not None:
-            steps.append(lambda: room.local_participant.unpublish_track(local.sid))
-        for step in steps:
             try:
-                await asyncio.wait_for(step(), timeout=2.0)
-            except BaseException:  # noqa: BLE001 — отмена/таймаут/ошибка SDK: дорожку всё равно отпускаем
-                continue
+                await asyncio.wait_for(stream.aclose(), timeout=2.0)
+            except BaseException:  # noqa: BLE001 — отмена/таймаут/ошибка SDK
+                pass
 
 
 async def _join(url: str, token: str, model, enhance, lock, room_name: str, member_check=None) -> None:
@@ -706,6 +697,38 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str, memb
     last_speakers: list[str] = []
 
     denoise_prefs: dict[str, bool] = {}
+    outs: dict[str, tuple] = {}  # identity -> (AudioSource, LocalAudioTrack): одна clean-* на человека
+    out_locks: dict[str, asyncio.Lock] = {}
+
+    async def get_out(identity: str):
+        async with out_locks.setdefault(identity, asyncio.Lock()):
+            if identity in outs:
+                return outs[identity]
+            name = clean_track_name(identity)
+            try:  # хвост прошлой сессии шумодава с тем же именем
+                await asyncio.wait_for(_unpublish_named(room, name), timeout=3.0)
+            except asyncio.TimeoutError:
+                pass
+            source = rtc.AudioSource(SAMPLE_RATE, 1, queue_size_ms=QUEUE_MS)
+            local = rtc.LocalAudioTrack.create_audio_track(name, source)
+            await asyncio.wait_for(
+                room.local_participant.publish_track(
+                    local, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+                ),
+                timeout=PUBLISH_TIMEOUT_S,
+            )
+            outs[identity] = (source, local)
+            return outs[identity]
+
+    async def drop_out(identity: str) -> None:
+        async with out_locks.setdefault(identity, asyncio.Lock()):
+            out = outs.pop(identity, None)
+            if out is None:
+                return
+            try:
+                await asyncio.wait_for(room.local_participant.unpublish_track(out[1].sid), timeout=2.0)
+            except BaseException:  # noqa: BLE001 — комната могла закрыться
+                pass
 
     def person_wants(participant) -> bool:
         identity = getattr(participant, "identity", "") or ""
@@ -736,21 +759,22 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str, memb
             print("voice_cleaner: busy", len(_BUSY), "tracks, no clean track for", identity, flush=True)
             return
         task = asyncio.create_task(
-            _pump(
-                room,
-                track,
-                participant,
-                model,
-                _LiveFilter(model, enhance),
-                enhance,
-                lock,
-                lambda: person_wants(participant),
-            )
+            _pump(track, participant, _LiveFilter(model, enhance), lock, lambda: person_wants(participant), get_out)
         )
         task.skkkk_track = track_sid
         pumps[identity] = task
         _BUSY[key] = task
         task.add_done_callback(lambda done, k=key: release_slot(k, done))
+        task.add_done_callback(lambda done, who=identity: pump_failed(done, who))
+
+    def pump_failed(done, identity: str) -> None:
+        # задача упала — снимаем clean-* человека, иначе слушатели играли бы молчащую дорожку вместо его голоса
+        if done.cancelled() or done.exception() is None:
+            return
+        print("voice_cleaner: pump failed", identity, repr(done.exception())[:200], flush=True)
+        if pumps.get(identity) is done:
+            pumps.pop(identity, None)
+        asyncio.ensure_future(drop_out(identity))
 
     def apply_denoise(participant) -> None:
         if person_wants(participant):
@@ -758,7 +782,11 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str, memb
             values = pubs.values() if hasattr(pubs, "values") else pubs
             for pub in values:
                 track = getattr(pub, "track", None)
-                if track is not None and getattr(track, "kind", None) == rtc.TrackKind.KIND_AUDIO:
+                if (
+                    track is not None
+                    and getattr(track, "kind", None) == rtc.TrackKind.KIND_AUDIO
+                    and is_voice_source(getattr(pub, "source", None))
+                ):
                     start(track, participant)
                     return
             return
@@ -779,6 +807,8 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str, memb
     @room.on("participant_disconnected")
     def _on_leave(participant) -> None:
         _log_event(rec_mod.EVENT_PARTICIPANT, identity=participant.identity, event="leave")
+        cancel(participant.identity)
+        asyncio.ensure_future(drop_out(participant.identity))
 
     @room.on("active_speakers_changed")
     def _on_speakers(speakers) -> None:
@@ -813,13 +843,17 @@ async def _join(url: str, token: str, model, enhance, lock, room_name: str, memb
     def _on_track(track, _pub, participant) -> None:
         if track.kind == rtc.TrackKind.KIND_AUDIO:
             start_record(track, _pub, participant)
-            start(track, participant)
+            if is_voice_source(getattr(_pub, "source", None)):
+                start(track, participant)
 
     @room.on("track_unsubscribed")
     def _on_unsub(track, _pub, participant) -> None:
         if track.kind == rtc.TrackKind.KIND_AUDIO:
             stop_record(_pub, participant)
-            cancel(participant.identity)
+            running = pumps.get(participant.identity)
+            # при переподключении старая дорожка снимается уже после подписки на новую — новую задачу не трогаем
+            if running is not None and getattr(running, "skkkk_track", "") == (getattr(track, "sid", "") or ""):
+                cancel(participant.identity)
 
     @room.on("participant_metadata_changed")
     def _on_meta(participant, *_args) -> None:
@@ -1004,6 +1038,20 @@ async def _watch(name: str, token: str, model, enhance, lock, active: set[str], 
             backoff.finished(name)
 
 
+def _raise_priority() -> str:
+    """Живой звук — повышенный приоритет процесса. С обычным на занятой машине кусок 80 мс замирал на 0,4–1 с,
+    очередь переполнялась и выбрасывалось ~2 с звука в минуту на человека; с повышенным — замирания до 50 мс, выбросов нет."""
+    if os.name != "nt":
+        return "skip"
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    above_normal = 0x00008000
+    return "above_normal" if kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), above_normal) else "failed"
+
+
 def main() -> int:
     if os.environ.get("MEETING_VOICE_SERVER", "1").strip() in {"0", "false", "off"}:
         return 0
@@ -1012,6 +1060,7 @@ def main() -> int:
     if instance is None:
         print("voice_cleaner: уже запущен, эта копия выходит", flush=True)
         return 0
+    print("voice_cleaner: priority", _raise_priority(), flush=True)
     try:
         asyncio.run(_loop())
     except KeyboardInterrupt:
