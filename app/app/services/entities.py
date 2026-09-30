@@ -36,8 +36,8 @@ logger = logging.getLogger("skkkk.entities")
 ROOT = Path(__file__).resolve().parents[3]
 # v3 = v2 (контекст проекта, виды пунктов, самодостаточные формулировки — REQUIREMENTS-PLAN этап 4) + переписка по
 # номерам сообщений (SOURCE-ANCHORS-PLAN этап 2); v1 и v2 оставлены файлами.
-PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities_v3.md"
-PROMPT_VERSION = "extract_entities-v3"
+PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities_v4.md"  # v4 = v3 + deadline_at (точный срок, 2026-09-30)
+PROMPT_VERSION = "extract_entities-v4"
 SOURCE_TYPE_CALL = "call"
 TEXT_HASH_LEN = 16
 CALL_BOUND_TYPES = {"decision", "task", "fact", "open_question"}
@@ -100,9 +100,18 @@ class TaskItem(BaseModel):
     topic: str | None = None
     assignee: str | None = None
     deadline: str | None = None
+    deadline_at: str | None = None  # срок точно: ГГГГ-ММ-ДД или ГГГГ-ММ-ДДTЧЧ:ММ (считает модель от даты созвона)
     status: str = "unknown"
     turns: list[int] = Field(default_factory=list)
     messages: list[int] = Field(default_factory=list)  # переписка: номера сообщений M<n> (SOURCE-ANCHORS-PLAN этап 2)
+    quote: str = ""  # документ: дословная цитата-источник (DECISION-MEMORY-PLAN этап 2); проверяется по тексту материала
+
+    @field_validator("deadline_at", mode="before")
+    @classmethod
+    def _coerce_deadline_at(cls, value: Any) -> str | None:
+        from app.app.services.project_deadlines import normalize_deadline_at
+
+        return normalize_deadline_at(value)
 
     @field_validator("turns", mode="before")
     @classmethod
@@ -125,6 +134,7 @@ class OpenQuestionItem(BaseModel):
 
     text: str = ""
     options: list[str] = Field(default_factory=list)
+    quote: str = ""  # документ: дословная цитата-источник (DECISION-MEMORY-PLAN этап 2)
     object: str | None = None
     topic: str | None = None
     turns: list[int] = Field(default_factory=list)
@@ -177,6 +187,7 @@ class DecisionItem(BaseModel):
     topic: str | None = None
     turns: list[int] = Field(default_factory=list)
     messages: list[int] = Field(default_factory=list)
+    quote: str = ""  # документ: дословная цитата-источник (DECISION-MEMORY-PLAN этап 2)
     decided_by: list[DecidedBy] = Field(default_factory=list)
 
     @field_validator("turns", mode="before")
@@ -402,6 +413,9 @@ def _merge_task_into_list(tasks: list[TaskItem], incoming: TaskItem) -> list[Tas
         if _text_overlap(task.description, incoming.description):
             if not _normalize_deadline_value(task.deadline) and _normalize_deadline_value(incoming.deadline):
                 task.deadline = incoming.deadline
+                task.deadline_at = incoming.deadline_at
+            elif not task.deadline_at and incoming.deadline_at:
+                task.deadline_at = incoming.deadline_at
             if not (task.assignee or "").strip() and (incoming.assignee or "").strip():
                 task.assignee = incoming.assignee
             if task.status == "unknown" and incoming.status != "unknown":
@@ -430,6 +444,8 @@ def normalize_entities_payload(payload: EntitiesPayload) -> EntitiesPayload:
             inline = _extract_deadline_phrase(task.description)
             if inline:
                 task.deadline = inline
+        if not task.deadline and task.deadline_at:
+            task.deadline = task.deadline_at.replace("T", " ")
 
     for item in out.decisions:
         decision = item.text
@@ -1072,9 +1088,27 @@ def bind_call_source(
                 bound["source_status"] = "speaker_unknown"
     if recorded_at and bound.get("start_sec") is not None:
         bound["recorded_at"] = recorded_at
+    if turns:
+        _bind_assignee_label(bound, turns, anchor)
     if raw_decided is not None and turns:
         bound["decided_by"] = _validated_decided_by(raw_decided, turns, anchor, artifact)
     return bound
+
+
+def _bind_assignee_label(bound: dict, turns: list, anchor: Any) -> None:
+    """Исполнитель — метка неназванного голоса (speaker_4): запомнить реплику этого голоса, чтобы после
+    переименования спикера (rebind_call_entities) подставить имя. Голос уже назван — имя сразу."""
+    label = str(bound.get("assignee") or "").strip()
+    if not label or not _SPEAKER_LABEL.match(label):
+        return
+    own = [t for t in turns if (t.speaker or "").strip().casefold() == label.casefold() and t.start_sec is not None]
+    if not own:
+        return
+    near = getattr(anchor, "start_sec", None)
+    turn = min(own, key=lambda t: abs(t.start_sec - near)) if near is not None else own[0]
+    bound["assignee_start_sec"] = turn.start_sec
+    if turn.known_speaker:
+        bound["assignee"] = turn.known_speaker
 
 
 SPEAKER_SOURCE_CHAT = "chat"  # переписка: автор из разметки выгрузки — доказательство, как дорожка комнаты
@@ -1286,6 +1320,23 @@ def rebind_chat_entities(db: Session, settings: Settings, artifact: Artifact) ->
     return stats
 
 
+_QUOTE_TRIM = " \t\r\n\"'«»“”„…-–—.,;:!?()[]{}"
+
+
+def _norm_quote(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").lower().replace("ё", "е")).strip(_QUOTE_TRIM)
+
+
+def verify_document_quote(quote: str, text: str) -> str | None:
+    """Цитата документа принимается, только если она дословно (без учёта регистра, пробелов, ё и кавычек) есть в тексте
+    материала. Возвращает цитату как есть или None: модель не должна «цитировать» то, чего в источнике нет."""
+    norm = _norm_quote(quote)
+    if len(norm) < 12:
+        return None
+    haystack = re.sub(r"\s+", " ", (text or "").lower().replace("ё", "е"))
+    return quote.strip() if norm in haystack else None
+
+
 def _decision_value(item: DecisionItem) -> dict:
     value: dict[str, Any] = {
         "text": item.text,
@@ -1297,6 +1348,8 @@ def _decision_value(item: DecisionItem) -> dict:
             value[key] = getattr(item, key)
     if item.messages:
         value["messages"] = list(item.messages)
+    if item.quote:
+        value["quote"] = item.quote
     return value
 
 
@@ -1419,9 +1472,18 @@ def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) ->
             value = json.loads(ent.value_json)
         except json.JSONDecodeError:
             continue
-        if not isinstance(value, dict) or value.get("speaker_source") != SPEAKER_SOURCE_VOICE:
+        if not isinstance(value, dict):
             continue
         before = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        if value.get("assignee_start_sec") is not None:
+            owner = turn_at(turns, value["assignee_start_sec"])
+            if owner is not None and owner.known_speaker:
+                value["assignee"] = owner.known_speaker
+        if value.get("speaker_source") != SPEAKER_SOURCE_VOICE:
+            if json.dumps(value, ensure_ascii=False, sort_keys=True) != before:
+                ent.value_json = json.dumps(value, ensure_ascii=False)
+                changed += 1
+            continue
         turn = turn_at(turns, value.get("start_sec"))
         if turn is not None:
             value["speaker"] = turn.known_speaker
@@ -1472,6 +1534,11 @@ def persist_entities(
         if export:
             chat_messages = export["messages"]
             chat_skip = owned_elsewhere(chat_path.parent, export)
+    doc_text = ""
+    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL and not chat_messages:
+        from app.app.services.storage import artifact_knowledge_text
+
+        doc_text = artifact_knowledge_text(settings, artifact) or ""
     drafts: list[tuple[str, str, float]] = []
 
     def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
@@ -1489,6 +1556,13 @@ def persist_entities(
             item = dict(item)
             item.pop("turns", None)  # номера реплик нестабильны (после «Слить»); якорь — start_sec
             item.pop("messages", None)  # переписка: якорь — message_id
+            claimed = str(item.pop("quote", "") or "")
+            if entity_type in HUMAN_TYPES and doc_text:
+                verified = verify_document_quote(claimed, doc_text)
+                if verified:
+                    item["source_quote"] = verified
+                else:
+                    item["source_status"] = "quote_not_found"  # модель не привела дословную цитату (или её нет в тексте)
             if not item.get("decided_by"):
                 item.pop("decided_by", None)
             if entity_type in HUMAN_TYPES:

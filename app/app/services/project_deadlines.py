@@ -193,6 +193,39 @@ def parse_deadline_date(raw: str | None, reference: date | None = None) -> date 
     return start
 
 
+def normalize_deadline_at(value: Any) -> str | None:
+    """Точный срок от модели: ГГГГ-ММ-ДД или ГГГГ-ММ-ДДTЧЧ:ММ; всё остальное (мусор, «null», год вне 2000–2100) — None."""
+    if value is None:
+        return None
+    text = str(value).strip().replace(" ", "T", 1)
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:?\d{2})?", text)
+    if not m:
+        return None
+    try:
+        day = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if not 2000 <= day.year <= 2100:
+            return None
+        if m.group(4) is None:
+            return day.isoformat()
+        hour, minute = int(m.group(4)), int(m.group(5))
+        if hour > 23 or minute > 59:
+            return day.isoformat()
+    except ValueError:
+        return None
+    return f"{day.isoformat()}T{hour:02d}:{minute:02d}"
+
+
+def resolve_due(
+    deadline: str | None, deadline_at: str | None, reference: date | None
+) -> tuple[date | None, date | None, str | None]:
+    """Срок для календаря: точная дата (и время) от модели, иначе разбор текста срока. → (начало, конец, «ЧЧ:ММ»)."""
+    exact = normalize_deadline_at(deadline_at)
+    if exact:
+        return date.fromisoformat(exact[:10]), None, (exact[11:16] if "T" in exact else None)
+    start, end = parse_deadline_range(deadline, reference=reference)
+    return start, end, None
+
+
 def _task_sort_key(item: dict[str, Any]) -> tuple[int, str, str]:
     parsed = item.get("deadline_date")
     if parsed:
@@ -221,6 +254,7 @@ def _merge_deadline_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 description=str(g.get("description") or ""),
                 assignee=g.get("assignee"),
                 deadline=g.get("deadline"),
+                deadline_at=g.get("deadline_at"),
                 status=str(g.get("status") or "unknown"),
             )
             for g in group
@@ -251,13 +285,21 @@ def _merge_deadline_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             base["description"] = mt.description
             base["assignee"] = mt.assignee
             base["deadline"] = mt.deadline
+            base["deadline_at"] = mt.deadline_at
             base["status"] = mt.status
             ref = base.get("reference_date")
-            start, end = parse_deadline_range(mt.deadline, reference=date.fromisoformat(ref) if ref else None)
+            start, end, due_time = resolve_due(mt.deadline, mt.deadline_at, date.fromisoformat(ref) if ref else None)
             base["deadline_date"] = start.isoformat() if start else None
             base["deadline_end_date"] = end.isoformat() if end else None
+            base["deadline_time"] = due_time
             merged.append(base)
     return merged
+
+
+def _human_assignee(name: str | None) -> str | None:
+    """Метка неназванного голоса (speaker_4) — «Спикер 4»; имя, если спикера уже назвали, приходит из привязки."""
+    m = re.fullmatch(r"speaker_(\d+)", (name or "").strip(), re.I)
+    return f"Спикер {int(m.group(1))}" if m else name
 
 
 def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
@@ -290,6 +332,7 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
         assignee = value.get("assignee")
         assignee_text = str(assignee).strip() if assignee else None
         deadline_raw = value.get("deadline")
+        deadline_at = normalize_deadline_at(value.get("deadline_at"))
         deadline_text = None if _deadline_is_empty(str(deadline_raw) if deadline_raw is not None else None) else str(deadline_raw).strip()
         status = str(value.get("status") or "unknown").strip() or "unknown"
 
@@ -306,15 +349,22 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
         seen.add(dedupe_key)
 
         ref = artifact_reference_date(art)
-        start, end = parse_deadline_range(deadline_text, reference=ref)
+        start, end, due_time = resolve_due(deadline_text, deadline_at, ref)
         # Относительный срок («до пятницы»), посчитанный от даты загрузки, — оценка, а не факт.
-        approximate = bool(start) and _parse_absolute_date(deadline_text) is None and not reference_is_explicit(art)
+        approximate = (
+            bool(start)
+            and deadline_at is None
+            and _parse_absolute_date(deadline_text) is None
+            and not reference_is_explicit(art)
+        )
         items.append(
             {
                 "id": ent.id,
                 "description": description,
-                "assignee": assignee_text,
+                "assignee": _human_assignee(assignee_text),
                 "deadline": deadline_text,
+                "deadline_at": deadline_at,
+                "deadline_time": due_time,
                 "deadline_date": start.isoformat() if start else None,
                 "deadline_end_date": end.isoformat() if end else None,
                 "reference_date": ref.isoformat() if ref else None,

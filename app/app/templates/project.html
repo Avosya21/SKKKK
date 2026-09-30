@@ -2496,10 +2496,12 @@ function isDeadlineOverdue(item) {
 
 function renderDeadlineCell(item) {
   const text = item.deadline || '—';
+  const exact = item.deadline_at && item.deadline_date ? formatDeadlineCalendarDates(item) : '';
+  const shown = exact ? `${escapeHtml(exact)}<div class="text-muted small">${escapeHtml(text)}</div>` : escapeHtml(text);
   if (isDeadlineOverdue(item)) {
-    return `<span class="deadline-overdue" title="Просрочено">${escapeHtml(text)}</span>`;
+    return `<span class="deadline-overdue" title="Просрочено">${shown}</span>`;
   }
-  return escapeHtml(text);
+  return shown;
 }
 
 function renderDeadlineSource(item) {
@@ -2524,7 +2526,7 @@ function formatDeadlineCalendarDates(item) {
     const end = new Date(`${item.deadline_end_date}T00:00:00`).toLocaleDateString('ru-RU', opts);
     return `${approx}${start} — ${end}`;
   }
-  return approx + start;
+  return approx + start + (item.deadline_time ? `, ${item.deadline_time}` : '');
 }
 
 function openDeadlineDetail(itemOrId) {
@@ -2607,8 +2609,8 @@ function calendarEventsFromDeadlines(items) {
       const ev = {
         id: String(item.id),
         title: [item.description, item.assignee ? `(${item.assignee})` : ''].filter(Boolean).join(' '),
-        start: item.deadline_date,
-        allDay: true,
+        start: item.deadline_time ? `${item.deadline_date}T${item.deadline_time}` : item.deadline_date,
+        allDay: !item.deadline_time,
         backgroundColor: isDeadlineOverdue(item) ? '#dc3545' : '#0d6efd',
         borderColor: isDeadlineOverdue(item) ? '#dc3545' : '#0d6efd',
         extendedProps: {

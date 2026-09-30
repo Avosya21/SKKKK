@@ -365,10 +365,33 @@ def _bound_evidence(statement: str, value: dict, ctx: ArtifactCtx, known_sides: 
     }
 
 
+def _quoted_document_evidence(value: dict, ctx: ArtifactCtx) -> dict | None:
+    """Документ: цитату дала модель при извлечении и код подтвердил её вхождение в текст (``source_quote``)."""
+    quote = str(value.get("source_quote") or "").strip()
+    if not quote:
+        return None
+    return {
+        "artifact_id": ctx.art.artifact_id,
+        "chunk_id": _chunk_for_quote(ctx, quote),
+        "said_at": _iso(ctx.occurred_at),
+        "speaker": None,
+        "side": "unknown",
+        "quote": quote[: ct.QUOTE_MAX],
+        "match_score": 1.0,
+        "message_index": None,
+        "speaker_basis": None,
+        "timecode": None,
+        "start_sec": None,
+        "url": source_url(ctx.art.artifact_id, quote=quote[: ct.QUOTE_MAX]),
+    }
+
+
 def _requirement_evidence(statement: str, value: dict, ctx: ArtifactCtx, known_sides: dict[str, str]) -> list[dict]:
     """Источники требования: сначала привязка пункта к реплике, затем совпадение слов (без повтора той же цитаты).
     У каждого — дата записи материала (`said_date`, None — неизвестна) и откуда она (`date_basis`)."""
     bound = _bound_chat_evidence(statement, value, ctx, known_sides) if ctx.messages else _bound_evidence(statement, value, ctx, known_sides)
+    if bound is None and ctx.type != "call" and not ctx.messages:
+        bound = _quoted_document_evidence(value, ctx)
     rest = _evidence(statement, ctx, known_sides)
     out = [bound] if bound else []
     out += [ev for ev in rest if not bound or ev.get("quote") != bound.get("quote")]
