@@ -101,7 +101,7 @@ flowchart TB
 | Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
 | ORM | SQLAlchemy **2.0.52**, Alembic **1.19.1**, Pydantic **2.13.4** |
 | Порт UI | Снаружи **Caddy `:777` HTTPS**. Портал — `WEB_HOST=127.0.0.1` `WEB_PORT=1777`. Порт **8000** занят MCP 1С |
-| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `DATA_DIR/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id). Карточки: `user_profiles` (1:1 с `users`), `companies` (из `Companies.txt`); фото — файлы `data/people/<user_id>/avatar-<ключ>-512|96.webp` |
+| БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `DATA_DIR/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id). Карточки: `user_profiles` (1:1 с `users`), `companies` (из `Companies.txt`); реестр людей проекта (платформа памяти решений, флаг `MEMORY_PLATFORM`): `people` (человек, в т. ч. без учётки), `person_aliases` (написания), `project_parties` (сторона компании в проекте), `unknown_actors` (очередь «Кто это?»), `people_log` (журнал правок); `speaker_profiles.person_id`, `meeting_participants.person_id`, `artifacts.recorded_at_precision`; фото — файлы `data/people/<user_id>/avatar-<ключ>-512|96.webp` |
 | Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
 | Auth | JWT + cookie `skkkk_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `pv` — версия пароля, `pp` — пароль пройден, `pf` — карточка заполнена; сессия проверяет ещё и саму карточку (сброс админом закрывает сессии) |
 | Очередь | таблица `jobs`, **один** GPU-воркер |
@@ -1483,6 +1483,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `entity.py` | Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ. |
 | `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
+| `person.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1). |
 | `project.py` | Модель Project — проект и его настройки. |
 | `project_mcp_token.py` | Модель ProjectMcpToken — ключ доступа проектного MCP (хеш, права, отзыв). |
 | `project_member.py` | Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал). |
@@ -1564,11 +1565,13 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_tokens.py` | Публичные токены встреч: генерация, хеш и адрес гостевой ссылки. |
 | `meeting_track_repair.py` | Ремонт реплик дорожки встречи, когда основной распознаватель (Parakeet) ошибся во времени или в содержании. |
 | `meetings.py` | Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, идущие сейчас встречи, токены  |
+| `memory_platform.py` | Флаг платформы памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ0). |
 | `normalize.py` | Нормализация текста документов: разбиение на части, промпт LLM и лёгкая нормализация без LLM. |
 | `notify.py` | Уведомления в Telegram через HTTPS Bot API: о готовности файла и событиях для пользователя. |
 | `office_convert.py` | Конвертация старых офисных форматов через LibreOffice headless: .doc/.rtf/.odt → .docx, .xls/.ods → .xlsx, .ppt → .pptx. |
 | `ollama_client.py` | Клиент Ollama: эмбеддинги (bge-m3, на CPU) и список моделей. |
 | `ollama_runtime.py` | Автозапуск Ollama перед эмбеддингами и индексацией. |
+| `people.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2). |
 | `personal_password.py` | Личный пароль логина: хеш Argon2id, правила, создание, смена, сброс, версия для сессий. |
 | `personal_password_console.py` | Сброс личного пароля из консоли: пункт 7 меню запуска `main` и `scripts/personal_password.py`. |
 | `pipeline_audio.py` | Обработка аудио-артефакта: запуск лабораторного ASR-конвейера, стенограмма, сверка спикеров, аудит реплик и выжимка созвона (`process_audio_ |
@@ -1790,6 +1793,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `material_dates.py` | Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). |
+| `memory_scorecard.py` | Табло памяти решений (docs/plans/DECISION-MEMORY-PLAN.md, §4.3): числа, по которым видно, приближаемся ли мы к цели. |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
