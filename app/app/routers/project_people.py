@@ -331,7 +331,7 @@ def seed_people(
 
     project = require_project_staff(db, user, project_id)
     report = people_seed.seed_project(db, settings, project_id, apply=True, by_user_id=user.id)
-    return {"created": report["created"], "unknown": len(report["unknown"]), **_payload(db, settings, project)}
+    return {"created": report["created"], "unknown": len(report["unknown"]), "pruned": (report.get("pruned") or {}).get("removed", 0), **_payload(db, settings, project)}
 
 
 @router.get("/{project_id}/people/log")

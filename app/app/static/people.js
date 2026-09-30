@@ -138,7 +138,7 @@
     e.target.disabled = true; say('Ищу людей в материалах…');
     const r = await call('/people/seed', 'POST');
     e.target.disabled = false;
-    if (r) { apply(r); await reloadUnknown(); say(r.created ? `Добавлено людей: ${r.created}. Проверьте стороны.` : 'Новых людей не найдено.'); }
+    if (r) { apply(r); await reloadUnknown(); say([r.created ? `Добавлено людей: ${r.created}. Проверьте стороны.` : 'Новых людей не найдено.', r.pruned ? `Убрано лишних записей (метки спикеров, роли): ${r.pruned}.` : ''].filter(Boolean).join(' ')); }
   });
   $('pp-toggle-add').addEventListener('click', () => $('pp-add-form').classList.toggle('d-none'));
   $('pp-add-form').addEventListener('submit', async (e) => {
