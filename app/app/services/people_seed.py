@@ -9,8 +9,9 @@
 """
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy import select
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity
-from app.app.models.person import SIDE_CUSTOMER, SIDE_EXECUTOR, SIDE_UNKNOWN
+from app.app.models.person import SIDE_CUSTOMER, SIDE_EXECUTOR, SIDE_UNKNOWN, Person
 from app.app.services import people
 from app.app.services.people import alias_key, side_from_contract
 
@@ -53,9 +54,47 @@ def _tokens(name: str) -> list[str]:
     return alias_key(name).split()
 
 
+PLACEHOLDER_RE = re.compile(r"^(speaker|спикер|голос)[\s_-]*\d*$", re.IGNORECASE)
+# Слова, которые описывают роль или источник звука, а не имя человека
+ROLE_WORDS = {
+    "директор", "руководитель", "менеджер", "бухгалтер", "бухгалтерия", "заказчик", "исполнитель", "клиент", "участник",
+    "аналитик", "разработчик", "фоновый голос", "голос", "диктор", "неизвестный", "неизвестно", "unknown", "экран", "речь на экране",
+}
+
+
+def _is_description(text: str) -> bool:
+    """Скобки с компанией, должностью или аббревиатурой — не второе имя человека."""
+    t = text.strip()
+    return bool(t) and ("," in t or any(ch.isdigit() for ch in t) or (t.isupper() and len(t) <= 4) or t.casefold() in ROLE_WORDS)
+
+
+def clean_name(raw: str | None) -> str | None:
+    """Имя человека из строки материала или None, если это метка спикера, роль или звук.
+    «speaker_4 (Анна)» -> «Анна»; «Анна (Компания, должность)» -> «Анна»; «speaker_2», «Директор (Компания)» -> None."""
+    text = " ".join((raw or "").split())
+    if not text:
+        return None
+    outer, sep, rest = text.partition("(")
+    outer = outer.strip()
+    inner = rest.partition(")")[0].strip() if sep else ""
+    if PLACEHOLDER_RE.match(outer):
+        return clean_name(inner) if inner and not _is_description(inner) else None
+    if not outer or outer.casefold() in ROLE_WORDS:
+        return None
+    if sep and _is_description(inner):
+        return outer
+    return text
+
+
 def cluster_mentions(mentions: list[Mention]) -> tuple[list[Cluster], list[Mention]]:
     """Склеить написания одного человека. Возвращает (кластеры, неоднозначные одиночные имена)."""
     by_key: dict[str, Cluster] = {}
+    cleaned: list[Mention] = []
+    for m in mentions:  # метки спикеров, роли и «фоновый голос» людьми не становятся; описание в скобках отбрасывается
+        name = clean_name(m.name)
+        if name:
+            cleaned.append(replace(m, name=name))
+    mentions = cleaned
     for m in mentions:
         key = alias_key(m.name)
         if not key:
@@ -90,6 +129,13 @@ def cluster_mentions(mentions: list[Mention]) -> tuple[list[Cluster], list[Menti
     for group in two.values():
         for other in group[1:]:
             parent[find(other)] = find(group[0])
+    # «Ирина В.» = «Ирина Васильева», если такая ровно одна
+    for k in keys:
+        t = k.split()
+        if len(t) == 2 and len(t[1]) == 1:
+            owners = {find(f) for f in keys if len(f.split()) == 2 and f.split()[0] == t[0] and f.split()[1].startswith(t[1]) and f != k}
+            if len(owners) == 1:
+                parent[find(k)] = next(iter(owners))
     # одиночное имя -> ровно одно полное имя, начинающееся с него
     ambiguous: list[Mention] = []
     full = [k for k in keys if len(k.split()) >= 2]
@@ -162,7 +208,7 @@ def _mentioned_names(db: Session, settings: Settings, project_id: int) -> set[st
                 names |= {t.known_speaker for t in load_turns(settings, art) if getattr(t, "known_speaker", None)}
             except Exception:  # noqa: BLE001 - нет стенограммы: материал пропускаем
                 continue
-    return names
+    return {cleaned for n in names if (cleaned := clean_name(n))}
 
 
 def collect_mentions(db: Session, settings: Settings, project_id: int) -> list[Mention]:
@@ -243,11 +289,82 @@ def collect_mentions(db: Session, settings: Settings, project_id: int) -> list[M
     return out
 
 
+def prune_placeholders(db: Session, project_id: int, *, by_user_id: int | None = None) -> dict[str, int]:
+    """Убрать из реестра то, что людьми не является: метки спикеров, роли, «фоновый голос» (их занесла прежняя версия
+    наполнения). Удаляются только записи, которых человек не трогал: без учётки, без голосов и участий в встречах,
+    сторона — догадка. Метки спикеров, прописанные как написания у настоящих людей, снимаются: в разных встречах
+    ``speaker_4`` — разные люди."""
+    from sqlalchemy import delete, update
+
+    from app.app.models.meeting import MeetingParticipant
+    from app.app.models.person import PeopleLog, PersonAlias, UnknownActor
+    from app.app.models.speaker_profile import SpeakerProfile
+
+    removed = aliases = 0
+    for person in people.list_people(db, project_id, include_merged=True):
+        if clean_name(person.display_name) is not None:
+            continue
+        touched = (
+            person.user_id is not None or person.side_source != "model" or person.voice_consent_at is not None
+            or db.scalar(select(SpeakerProfile.id).where(SpeakerProfile.person_id == person.id)) is not None
+            or db.scalar(select(MeetingParticipant.id).where(MeetingParticipant.person_id == person.id)) is not None
+            or db.scalar(select(Person.id).where(Person.merged_into == person.id)) is not None
+        )
+        if touched:
+            continue
+        before = {"display_name": person.display_name, "side": person.side}
+        db.execute(delete(PersonAlias).where(PersonAlias.person_id == person.id))
+        for row in db.scalars(select(UnknownActor).where(UnknownActor.person_id == person.id)).all():
+            row.person_id = None
+        db.execute(update(PeopleLog).where(PeopleLog.person_id == person.id).values(person_id=None))  # история остаётся без ссылки
+        people._log(db, project_id, None, by_user_id, "prune", before, None)
+        db.delete(person)
+        removed += 1
+    merged = renamed = 0
+    for person in people.list_people(db, project_id):  # имя с описанием в скобках («Марина (Компания, бухгалтерия)») -> просто имя
+        cleaned = clean_name(person.display_name)
+        if not cleaned or cleaned == person.display_name or person.user_id is not None or person.side_source != "model":
+            continue
+        target = _same_person_target(db, project_id, cleaned, exclude=person.id)
+        if target is not None:
+            people.merge(db, project_id, target.id, person.id, by_user_id=by_user_id)
+            merged += 1
+        else:
+            people.update_person(db, project_id, person.id, display_name=cleaned, by_user_id=by_user_id)
+            renamed += 1
+    for alias in db.scalars(select(PersonAlias).where(PersonAlias.project_id == project_id)).all():
+        person = db.get(Person, alias.person_id)
+        if person is not None and alias_key(alias.alias) != alias_key(person.display_name) and PLACEHOLDER_RE.match(alias.alias.partition("(")[0].strip()):
+            db.delete(alias)
+            aliases += 1
+    db.flush()
+    return {"removed": removed, "aliases": aliases, "merged": merged, "renamed": renamed}
+
+
+def _same_person_target(db: Session, project_id: int, name: str, *, exclude: int) -> Person | None:
+    """Уже существующий человек с этим именем (точное написание или «Имя О.» -> единственный «Имя Ов…»)."""
+    hit = people.resolve(db, project_id, name, allow_first_name=False)
+    if hit is not None and hit.person.id != exclude:
+        return hit.person
+    tokens = alias_key(name).split()
+    if len(tokens) == 2 and len(tokens[1]) == 1:
+        found = {}
+        for p in people.list_people(db, project_id):
+            parts = alias_key(p.display_name).split()
+            if p.id != exclude and len(parts) == 2 and parts[0] == tokens[0] and parts[1].startswith(tokens[1]):
+                found[p.id] = p
+        if len(found) == 1:
+            return next(iter(found.values()))
+    return None
+
+
 def seed_project(db: Session, settings: Settings, project_id: int, *, apply: bool = False, by_user_id: int | None = None) -> dict[str, Any]:
     """Черновик реестра. ``apply=False`` — только отчёт; ``True`` — записать людей, алиасы и вопросы «Кто это?»."""
     mentions = collect_mentions(db, settings, project_id)
     clusters, ambiguous = cluster_mentions(mentions)
     report: dict[str, Any] = {"people": [], "unknown": [], "created": 0, "skipped_existing": 0}
+    if apply:
+        report["pruned"] = prune_placeholders(db, project_id, by_user_id=by_user_id)
     for cluster in sorted(clusters, key=lambda c: c.display_name):
         side, side_source = cluster_side(cluster)
         card = next((m for m in cluster.mentions if m.source == "card"), None)

@@ -249,3 +249,55 @@ def test_merging_accounts_moves_registry_people(db, project, admin):
     assert db.get(people.Person, moved.id).user_id == winner.id
     assert dropped.merged_into == kept.id and people.resolve(db, project.id, "Boris P").person.id == kept.id
     assert kept.user_id == winner.id
+
+
+def test_clean_name_drops_placeholders_roles_and_descriptions():
+    from app.app.services.people_seed import clean_name
+
+    assert clean_name("speaker_2") is None and clean_name("SPEAKER_00") is None and clean_name("Спикер 3") is None
+    assert clean_name("фоновый голос") is None and clean_name("Директор (Пример)") is None and clean_name("  ") is None
+    assert clean_name("speaker_4 (Анна)") == "Анна"  # имя в скобках
+    assert clean_name("Анна (Пример, фин.директор)") == "Анна"  # компания и должность — описание
+    assert clean_name("Виталий Пример (ИВ)") == "Виталий Пример"  # аббревиатура
+    assert clean_name("Илья Пример (Ilya Sample)") == "Илья Пример (Ilya Sample)"  # второе имя человека остаётся
+    assert clean_name("Ирина Пример") == "Ирина Пример"
+
+
+def test_seed_clusters_initial_and_ignores_placeholders():
+    from app.app.services.people_seed import cluster_mentions
+
+    clusters, _ = cluster_mentions([_m("Ирина Образцова"), _m("Ирина О."), _m("Ирина О. (Пример, торговля)"), _m("speaker_0"), _m("фоновый голос")])
+    assert len(clusters) == 1 and clusters[0].display_name == "Ирина Образцова"
+    assert {"Ирина О."} <= set(clusters[0].names)
+
+
+def test_prune_removes_untouched_placeholders_only(db, project, admin):
+    from app.app.services import people_seed
+
+    junk = people.create_person(db, project.id, "speaker_1")  # занесён прежней версией наполнения, никто его не трогал
+    kept = people.create_person(db, project.id, "speaker_2", side="customer", side_source="human")  # сторону задал человек
+    real = people.create_person(db, project.id, "Анна Пример")
+    people.add_alias(db, project.id, real.id, "speaker_4")  # метка конкретной встречи у настоящего человека
+    db.commit()
+    result = people_seed.prune_placeholders(db, project.id, by_user_id=admin.id)
+    db.commit()
+    assert result == {"removed": 1, "aliases": 1, "merged": 0, "renamed": 0}
+    names = [p.display_name for p in people.list_people(db, project.id)]
+    assert "speaker_1" not in names and "speaker_2" in names and "Анна Пример" in names
+    assert people.resolve(db, project.id, "speaker_4", allow_first_name=False) is None
+    assert db.get(people.Person, junk.id) is None and db.get(people.Person, kept.id) is not None
+
+
+def test_prune_merges_described_duplicates_and_renames_single(db, project, admin):
+    from app.app.services import people_seed
+
+    full = people.create_person(db, project.id, "Ирина Образцова")
+    dup = people.create_person(db, project.id, "Ирина О. (Пример, торговля)")  # описание в скобках и сокращённая фамилия
+    solo = people.create_person(db, project.id, "Марина (Пример, бухгалтерия)")  # такого человека ещё нет
+    db.commit()
+    result = people_seed.prune_placeholders(db, project.id, by_user_id=admin.id)
+    db.commit()
+    db.expire_all()
+    assert result["merged"] == 1 and result["renamed"] == 1
+    assert dup.merged_into == full.id and people.resolve(db, project.id, "Ирина О. (Пример, торговля)").person.id == full.id
+    assert solo.display_name == "Марина" and people.resolve(db, project.id, "Марина").person.id == solo.id
