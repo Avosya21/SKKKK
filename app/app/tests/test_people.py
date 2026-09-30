@@ -212,3 +212,19 @@ def test_seed_apply_is_idempotent_and_keeps_human_side(db, project, monkeypatch)
     assert second["created"] == 0 and second["skipped_existing"] == 2
     assert people.resolve(db, project.id, "Анна Пример").person.side == "executor"  # решение человека не тронуто
     assert len(people.list_people(db, project.id)) == 2
+
+
+def test_seed_links_portal_account_by_exact_name_even_if_not_project_member(db, project, monkeypatch):
+    """Админ видит все проекты и не числится участником: его карточка всё равно сопоставляется по точному имени."""
+    from app.app.config import get_settings
+    from app.app.services import people_seed
+    from app.app.tests.test_voice_link import _person
+
+    account = _person(db, "anna-login", "Анна", "Пример")
+    twin_a, twin_b = _person(db, "olga-1", "Ольга", "Тёзкина"), _person(db, "olga-2", "Ольга", "Тёзкина")
+    monkeypatch.setattr(people_seed, "_mentioned_names", lambda *_a, **_k: {"Пример Анна", "Ольга Тёзкина"})
+    mentions = people_seed.collect_mentions(db, get_settings(), project.id)
+    linked = {m.name: m.user_id for m in mentions if m.source == "card" and m.user_id}
+    assert linked.get("Анна Пример") == account.id and linked.get("Пример Анна") == account.id
+    assert twin_a.id not in linked.values() and twin_b.id not in linked.values()  # тёзки — не угадываем
+    assert next(m for m in mentions if m.name == "Анна Пример").company_name  # компания из карточки

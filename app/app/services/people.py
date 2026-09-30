@@ -84,6 +84,11 @@ def canonical(db: Session, person: Person) -> Person:
     return person
 
 
+def user_taken(db: Session, project_id: int, user_id: int) -> bool:
+    """Учётка уже привязана к человеку проекта."""
+    return db.scalar(select(Person.id).where(Person.project_id == project_id, Person.user_id == user_id, Person.merged_into.is_(None))) is not None
+
+
 def get(db: Session, project_id: int, person_id: int) -> Person:
     person = db.get(Person, person_id)
     if person is None or person.project_id != project_id:

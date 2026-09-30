@@ -135,6 +135,36 @@ def cluster_side(cluster: Cluster) -> tuple[str, str]:
     return top, source
 
 
+def _mentioned_names(db: Session, settings: Settings, project_id: int) -> set[str]:
+    """Имена из участников извлечения, авторов переписки и спикеров созвонов проекта (без сторон и без учёток)."""
+    import json
+
+    from app.app.services.chat_export import artifact_messages_path, load_export
+    from app.app.services.transcript_turns import load_turns
+
+    names: set[str] = set()
+    for ent in db.scalars(select(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
+                          .where(Artifact.project_id == project_id, Entity.entity_type == "participant", Entity.is_active.is_(True))).all():
+        try:
+            n = str(json.loads(ent.value_json or "{}").get("name") or "").strip()
+        except ValueError:
+            continue
+        if n:
+            names.add(n)
+    for art in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all():
+        if art.file_type != "audio" and art.source_type == "document":
+            export = load_export(artifact_messages_path(settings, art))
+            if export:
+                names |= {m["author"] for m in export["messages"] if m.get("author")}
+                continue
+        if art.source_type == "call":
+            try:
+                names |= {t.known_speaker for t in load_turns(settings, art) if getattr(t, "known_speaker", None)}
+            except Exception:  # noqa: BLE001 - нет стенограммы: материал пропускаем
+                continue
+    return names
+
+
 def collect_mentions(db: Session, settings: Settings, project_id: int) -> list[Mention]:
     from app.app.models.company import Company
     from app.app.models.project import Project
@@ -153,6 +183,25 @@ def collect_mentions(db: Session, settings: Settings, project_id: int) -> list[M
         side = people.party_side(db, project_id, company.name if company else None) or (company.side if company and company.side else None)
         for name in (f"{card.first_name} {card.last_name}".strip(), f"{card.last_name} {card.first_name}".strip()):
             out.append(Mention(name, "card", side or None, member.user_id, company.name if company else None, card.job_title, "card"))
+    # 1б. любой сотрудник портала с карточкой, чьё имя точно совпало с написанием из материалов (админ видит все проекты и
+    # не числится участником; тёзки — две учётки с одним именем — не сопоставляются)
+    known = {m.user_id for m in out if m.user_id}
+    by_name: dict[str, list[tuple[Any, Any]]] = defaultdict(list)
+    for card in db.scalars(select(profiles.UserProfile)).all():
+        if card.user_id in known or not (card.last_name and card.first_name):
+            continue
+        company = db.get(Company, card.company_id) if card.company_id else None
+        for variant in (f"{card.first_name} {card.last_name}", f"{card.last_name} {card.first_name}"):
+            by_name[alias_key(variant)].append((card, company))
+    mentioned = _mentioned_names(db, settings, project_id)
+    for name in mentioned:
+        owners = {c.user_id: (c, co) for c, co in by_name.get(alias_key(name), [])}
+        if len(owners) != 1:
+            continue
+        card, company = next(iter(owners.values()))
+        side = people.party_side(db, project_id, company.name if company else None) or (company.side if company and company.side else None)
+        for variant in (f"{card.first_name} {card.last_name}", f"{card.last_name} {card.first_name}"):
+            out.append(Mention(variant, "card", side or None, card.user_id, company.name if company else None, card.job_title, "card"))
     # 2. явный список сторон в настройках проекта
     cfg = agent_settings.get_settings_for(project) if project is not None else {}
     for row in cfg.get("participants") or []:
@@ -211,6 +260,12 @@ def seed_project(db: Session, settings: Settings, project_id: int, *, apply: boo
         existing = next((h.person for n in cluster.names if (h := people.resolve(db, project_id, n, allow_first_name=False))), None)
         if existing is not None:
             report["skipped_existing"] += 1
+            if card is not None and card.user_id and existing.user_id is None and not people.user_taken(db, project_id, card.user_id):
+                people.update_person(db, project_id, existing.id, by_user_id=by_user_id, user_id=card.user_id,
+                                     **({"company_name": card.company_name} if card.company_name and not existing.company_name else {}),
+                                     **({"job_title": card.job_title} if card.job_title and not existing.job_title else {}))
+                if side != SIDE_UNKNOWN:
+                    people.set_side(db, project_id, existing.id, side, source=side_source, by_user_id=by_user_id)
             for n in cluster.names:
                 try:
                     people.add_alias(db, project_id, existing.id, n, source="model", by_user_id=by_user_id)
