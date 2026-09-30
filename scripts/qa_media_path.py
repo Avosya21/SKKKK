@@ -57,7 +57,16 @@ HOOK_B = """() => { const LK = window.LivekitClient; const r = SKKKKMeeting.room
   const playing = (pub) => Boolean(pub && pub.track && pub.track.attachedElements.some((el) => el.isConnected && !el.paused && !el.muted));
   window.__state = (id) => { const x = window.__pubs(id); const a = playing(x.raw), b = playing(x.clean);
     return a && b ? 'both' : a ? 'raw' : b ? 'clean' : 'none'; };
+  // сколько элементов одновременно играют голос человека: сырой + все clean-* с его именем (их может быть две)
+  window.__voices = (id) => { const cname = 'clean-' + String(id).replace(/:/g, '.'); let n = 0;
+    r.remoteParticipants.forEach((p) => p.trackPublications.forEach((pub) => {
+      if (pub.kind !== 'audio' || !pub.track || String(pub.source).indexOf('screen') >= 0) return;
+      if (p.identity === id || (p.identity === '""" + CLEANER_ID + """' && pub.trackName === cname))
+        n += pub.track.attachedElements.filter((el) => el.isConnected && !el.paused && !el.muted).length; }));
+    return n; };
+  window.__dup = [];
   window.__watch = (id) => { let last = null; setInterval(() => { const s = window.__state(id);
+    const n = window.__voices(id); if (n > 1) window.__dup.push([Math.round(performance.now()), n]);
     if (s !== last) { window.__route.push([Math.round(performance.now()), s]); last = s; } }, 40); };
 }"""
 
@@ -169,6 +178,15 @@ def _envelope(x: np.ndarray, hop: int = SR // 50) -> np.ndarray:
     return 20 * np.log10(np.sqrt(np.mean(np.square(x[: n * hop].reshape(n, hop)), axis=1)) + 1e-5)
 
 
+def _pct_db(x: np.ndarray, pct: float) -> float:
+    hop = SR // 2
+    n = len(x) // hop
+    if n == 0:
+        return -120.0
+    env = 20 * np.log10(np.sqrt(np.mean(np.square(x[: n * hop].reshape(n, hop)), axis=1)) + 1e-6)
+    return round(float(np.percentile(env, pct)), 1)
+
+
 def analyse_audio(raw: np.ndarray, clean: np.ndarray, mix16: np.ndarray, ref16: np.ndarray) -> dict:
     """Окнами по 6 с: фейковый микрофон Chrome играет файл с уходом ~1.5 % от реального времени,
     поэтому к исходнику выравниваем каждое окно отдельно. Сырое и очищенное пишутся одним AudioContext у Б —
@@ -244,6 +262,11 @@ def analyse_audio(raw: np.ndarray, clean: np.ndarray, mix16: np.ndarray, ref16: 
         "speech_env_corr_raw": env_corr("raw"),
         "speech_env_corr_clean": env_corr("clean"),
         "noise_samples_s": round(len(nr) / SR, 1),
+        # без выравнивания к исходнику: тихие и громкие полусекунды (10-й и 90-й перцентили) сырого и очищенного
+        "quiet10_raw_db": _pct_db(raw, 10),
+        "quiet10_clean_db": _pct_db(clean[max(lag, 0):], 10),
+        "loud90_raw_db": _pct_db(raw, 90),
+        "loud90_clean_db": _pct_db(clean[max(lag, 0):], 90),
         "speech_samples_s": round(len(sr_) / SR, 1),
     }
 
@@ -409,9 +432,12 @@ def main() -> int:
                 fit_ok, fit_all = (int(x) for x in res["source_fit"].split("/"))
                 check(fit_all > 0 and fit_ok >= 0.6 * fit_all,
                       f"сырой звук А у Б — тот, что подал А (окон на одной прямой {res['source_fit']}, уход темпа {res['source_drift_pct']} %)")
-                cut = (res["noise_only_raw_db"] or 0) - (res["noise_only_clean_db"] or 0)
-                check(cut >= 6, f"шумодав срезает шум без речи ещё на {cut:.1f} дБ поверх шумодава браузера")
-                keep = (res["speech_clean_db"] or -99) - (res["speech_raw_db"] or 0)
+                # паузы и речь — по перцентилям полусекунд (не зависят от выравнивания к исходнику);
+                # окна «только шум» по исходнику — справка: фейковый микрофон Chrome их иногда сдвигает на секунды
+                cut = res["quiet10_raw_db"] - res["quiet10_clean_db"]
+                check(cut >= 6, f"шумодав глушит паузы ещё на {cut:.1f} дБ поверх шумодава браузера "
+                      f"(по окнам исходника {(res['noise_only_raw_db'] or 0) - (res['noise_only_clean_db'] or 0):.1f} дБ)")
+                keep = res["loud90_clean_db"] - res["loud90_raw_db"]
                 check(abs(keep) <= 6, f"громкость речи после шумодава: {keep:+.1f} дБ")
                 # Основа ~0.2–0.3 с (кусок 80 мс, заглядывание 30 мс, лишний круг через SFU); заминки машины добавляют не больше
                 # очереди входа (150 мс) и буфера выхода (120 мс). Раньше задержка копилась без предела (1.9 → 2.7 с).
@@ -454,10 +480,13 @@ def main() -> int:
             ok = wait_until(lambda: b.evaluate("(id) => window.__state(id)", ida) == "raw", 8, 0.1)
             t1 = b.evaluate("performance.now()")
             check(bool(ok), f"шумодав выключен у А → Б слышит сырой звук А ({(t1 - t0):.0f} мс)")
-            gone = wait_until(lambda: not any(t["name"] == "clean-" + ida.replace(":", ".")
-                                              for t in {r["identity"]: r for r in lk_participants(room_name)}.get(CLEANER_ID, {}).get("tracks", [])), 12)
-            check(bool(gone), "сервер: шумодав снял очищенную дорожку А")
+            def clean_pubs_a() -> int:
+                tracks = {r["identity"]: r for r in lk_participants(room_name)}.get(CLEANER_ID, {}).get("tracks", [])
+                return sum(1 for t in tracks if t["name"] == "clean-" + ida.replace(":", "."))
+
             time.sleep(2)
+            # clean-* живёт всё время, пока человек в комнате: переключатель меняет только то, что играет слушатель
+            check(clean_pubs_a() == 1, f"сервер: у А одна clean-дорожка и при выключенном шумодаве ({clean_pubs_a()})")
             t2 = b.evaluate("performance.now()")
             a.click("#meeting-denoise")
             ok = wait_until(lambda: b.evaluate("(id) => window.__state(id)", ida) == "clean", 20, 0.1)
@@ -467,6 +496,19 @@ def main() -> int:
             sw = route_summary(route, t0, t3 + 300)
             report["toggle_route"] = sw
             check(sw["max_none_ms"] < 600 and sw["both"] < 300, f"при переключениях нет тишины и двойного звука ({sw})")
+
+            # --- частые переключения и повторный вход: голос А у Б никогда не звучит дважды
+            b.evaluate("window.__dup = []")
+            for _ in range(4):
+                a.click("#meeting-denoise")
+                time.sleep(0.6)
+            back_clean = wait_until(lambda: b.evaluate("(id) => window.__state(id)", ida) == "clean", 20, 0.2)
+            time.sleep(3)
+            dup = b.evaluate("window.__dup.length")
+            check(bool(back_clean) and dup == 0, f"4 переключения подряд: голос А у Б одним потоком (двойных тиков {dup}), в конце очищенный")
+            check(clean_pubs_a() == 1, f"сервер: после переключений у А по-прежнему одна clean-дорожка ({clean_pubs_a()})")
+            n_audio = b.evaluate("document.querySelectorAll('#meeting-stage audio').length")
+            check(n_audio == 1, f"у Б на странице один элемент звука на одного собеседника ({n_audio})")
 
             # --- шумодав выпал из комнаты
             time.sleep(2)

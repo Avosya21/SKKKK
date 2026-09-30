@@ -28,6 +28,7 @@ const DFN3_LEVEL = 50;
 const DFN3_HINT = "Очистка звука недоступна, обычный микрофон.";
 const CLEANER_ID = "skkkk-dfn";
 const DENOISE_TOPIC = "skkkk-denoise";
+const AUDIO_ROUTE_EVERY_MS = 2000;
 const LOUDNESS_THRESHOLD = -24;
 const LOUDNESS_KNEE = 12;
 const LOUDNESS_RATIO = 3;
@@ -285,30 +286,41 @@ function isOwnIdentity(room, identity) {
   return identitiesMatch(local, identity);
 }
 
-function hasCleanTrack(room, identity) {
-  let found = false;
-  if (!room || !identity || !room.remoteParticipants) return false;
+function isScreenAudioPub(pub) {
+  return Boolean(pub && String(pub.source || "").toLowerCase().indexOf("screen") >= 0);
+}
+
+// Что играть у слушателя: на каждого человека ровно одна дорожка голоса — самая свежая clean-<identity> шумодава,
+// если человек не выключил шумодав, иначе его сырой микрофон; звук показа экрана — всегда как есть.
+// Две дорожки голоса одного человека (старая clean-* ещё не снята, новая уже пришла; сырая рядом с очищенной)
+// звучат со сдвигом 0,2–0,5 с — это и было «эхо» и «задвоение».
+function voicePlan(room, prefs) {
+  const want = new Set();
+  if (!room || !room.remoteParticipants) return want;
+  const cleanFor = {};
   room.remoteParticipants.forEach((person) => {
     if (!isCleaner(person)) return;
     person.trackPublications.forEach((pub) => {
-      if (pub.kind === "audio" && pub.track && identitiesMatch(cleanSourceId(pub.track, pub), identity)) found = true;
+      if (pub.kind !== "audio" || !pub.track) return;
+      const identity = cleanSourceId(pub.track, pub);
+      if (!identity || isOwnIdentity(room, identity)) return;
+      cleanFor[identity] = pub; // порядок публикаций: последняя — самая свежая
     });
   });
-  return found;
-}
-
-function playRawAudio(person, room, prefs) {
-  if (!person || isCleaner(person)) return false;
-  if (!hasCleaner(room) || !wantsDenoise(person, prefs)) return true;
-  // Шумодав в комнате, но очищенной дорожки человека сейчас нет (ещё готовится, снята, у шумодава предел дорожек,
-  // шумодав переподключается) — играем сырую, иначе человек замолкает. Пришла очищенная — _attachTrack снимет сырую.
-  return !hasCleanTrack(room, person.identity);
-}
-
-function playCleanTrack(track, room, prefs, pub) {
-  const identity = cleanSourceId(track, pub);
-  if (!identity || isOwnIdentity(room, identity)) return false;
-  return wantsDenoise(findPerson(room, identity), prefs);
+  room.remoteParticipants.forEach((person) => {
+    if (isHidden(person)) return;
+    let clean = null;
+    Object.keys(cleanFor).forEach((identity) => {
+      if (identitiesMatch(identity, person.identity)) clean = cleanFor[identity];
+    });
+    const useClean = Boolean(clean) && wantsDenoise(person, prefs);
+    person.trackPublications.forEach((pub) => {
+      if (pub.kind !== "audio" || !pub.track) return;
+      if (isScreenAudioPub(pub) || !useClean) want.add(pub.track);
+    });
+    if (useClean) want.add(clean.track);
+  });
+  return want;
 }
 
 function canUseLoudness() {
@@ -730,12 +742,8 @@ const SKKKKMeeting = {
 
       statusEl.textContent = "Вы в комнате.";
       this._renderTiles(room, els);
-      this._participants(room).forEach((person) => {
-        if (person === room.localParticipant) return;
-        person.trackPublications.forEach((pub) => {
-          if (pub.track && pub.kind === "audio") this._attachTrack(els, person, pub.track, pub);
-        });
-      });
+      this._routeAudio();
+      this._startAudioRoute();
       this._bindPhoneGrid();
       this._syncControls(els);
       this._ensureSignal();
@@ -905,6 +913,10 @@ const SKKKKMeeting = {
   },
 
   _stopAllTimers() {
+    if (this._audioRouteTimer) {
+      clearInterval(this._audioRouteTimer);
+      this._audioRouteTimer = 0;
+    }
     if (this._heartbeatTimer) {
       clearInterval(this._heartbeatTimer);
       this._heartbeatTimer = 0;
@@ -1477,7 +1489,8 @@ const SKKKKMeeting = {
         this._toast(mediaErrorText(mediaErr, "Микрофон"));
       }
       this._renderTiles(this.room, els);
-      this._reattachAudio();
+      this._routeAudio();
+      this._startAudioRoute();
       this._syncControls(els);
       this._netStatus(TEXT_LINK_BACK, false);
       this._toast(TEXT_LINK_BACK);
@@ -1537,7 +1550,7 @@ const SKKKKMeeting = {
       this._toast(TEXT_SOUND_OFF);
     } else {
       // КРИТИЧНО: При включении звука гарантированно прикрепляем аудиофайлы обратно в DOM
-      this._reattachAudio();
+      this._routeAudio();
     }
     this._syncControls(this._roomEls);
   },
@@ -1559,12 +1572,12 @@ const SKKKKMeeting = {
     this._serverDenoise = next;
     if (local && local.identity) this._denoisePrefs[local.identity] = next;
     this._syncControls(this._roomEls);
-    this._reattachAudio();
+    this._routeAudio();
     if (!(await this._publishDenoise(next))) {
       this._serverDenoise = !next;
       if (local && local.identity) this._denoisePrefs[local.identity] = !next;
       this._syncControls(this._roomEls);
-      this._reattachAudio();
+      this._routeAudio();
       this._toast("Не удалось сменить шумодав");
       return;
     }
@@ -2197,7 +2210,7 @@ const SKKKKMeeting = {
       if (this._raf) return;
       this._raf = requestAnimationFrame(() => {
         this._raf = 0;
-        this._dropRawIfCleaner(room);
+        this._routeAudio();
         this._renderTiles(room, els);
         this._fillRoster(
           this._participants(room).filter((person) => !isHidden(person)),
@@ -2235,8 +2248,6 @@ const SKKKKMeeting = {
     });
     room.on(LK.RoomEvent.ParticipantDisconnected, (person) => {
       forgetQuality(person);
-      // Ушёл шумодав — его очищенных дорожек больше нет: возвращаем сырой звук всех
-      if (isCleaner(person)) setTimeout(() => this._reattachAudio(), 0);
       redraw();
     });
     if (LK.RoomEvent.TrackPublished) room.on(LK.RoomEvent.TrackPublished, onPublished);
@@ -2261,7 +2272,7 @@ const SKKKKMeeting = {
       });
     }
     if (LK.RoomEvent.ParticipantMetadataChanged) {
-      room.on(LK.RoomEvent.ParticipantMetadataChanged, () => this._reattachAudio());
+      room.on(LK.RoomEvent.ParticipantMetadataChanged, () => this._routeAudio());
     }
     if (LK.RoomEvent.DataReceived) {
       room.on(LK.RoomEvent.DataReceived, (payload, person, _kind, topic) => {
@@ -2273,7 +2284,7 @@ const SKKKKMeeting = {
         const on = parseDenoisePayload(raw);
         if (on === null || !person || !person.identity) return;
         this._denoisePrefs[person.identity] = on;
-        this._reattachAudio();
+        this._routeAudio();
       });
     }
     room.on(LK.RoomEvent.LocalTrackPublished, onPublished);
@@ -2299,7 +2310,7 @@ const SKKKKMeeting = {
         this._resetLinkQuality();
         this._netStatus(TEXT_LINK_BACK, false);
         this._toast(TEXT_LINK_BACK);
-        this._reattachAudio();
+        this._routeAudio();
         redraw();
       });
     }
@@ -2350,8 +2361,6 @@ const SKKKKMeeting = {
         }
         node.remove();
       });
-      // Шумодав снял очищенную дорожку человека — у слушателя снова играет его сырая
-      if (isCleaner(participant) && track.kind === "audio") setTimeout(() => this._reattachAudio(), 0);
       redraw();
     });
     if (els.rosterList && !els.rosterList.dataset.bound) {
@@ -2642,67 +2651,71 @@ const SKKKKMeeting = {
     });
   },
 
-  _reattachAudio() {
-    const els = this._roomEls;
-    const room = this.room;
-    if (!els || !room) return;
-    this._dropRawIfCleaner(room);
-    this._participants(room).forEach((person) => {
-      if (person === room.localParticipant) return;
-      person.trackPublications.forEach((pub) => {
-        if (pub.track && pub.kind === "audio") this._attachTrack(els, person, pub.track, pub);
-      });
-    });
+  _startAudioRoute() {
+    if (this._audioRouteTimer) clearInterval(this._audioRouteTimer);
+    // страховка: события LiveKit приходят не всегда в удобном порядке — раз в 2 с сверяем, что играет
+    this._audioRouteTimer = setInterval(() => {
+      if (this._joined && !this._leaving) this._routeAudio();
+    }, AUDIO_ROUTE_EVERY_MS);
   },
 
-  _dropRawIfCleaner(room) {
-    if (!hasCleaner(room)) return;
-    const prefs = this._denoisePrefs;
+  _routeAudio() {
+    const els = this._roomEls;
+    const room = this.room;
+    if (!els || !room || !room.remoteParticipants) return;
+    const want = this._soundOn ? voicePlan(room, this._denoisePrefs) : new Set();
+    const keep = new Set();
     room.remoteParticipants.forEach((person) => {
-      if (isCleaner(person)) {
-        person.trackPublications.forEach((pub) => {
-          if (pub.kind !== "audio" || !pub.isSubscribed) return;
-          if (!playCleanTrack(pub.track, room, prefs, pub)) this._dropAttached(pub.track);
-        });
-        return;
-      }
-      if (playRawAudio(person, room, prefs)) return;
       person.trackPublications.forEach((pub) => {
-        if (pub.kind === "audio" && pub.track) this._dropAttached(pub.track);
+        const track = pub.track;
+        if (pub.kind !== "audio" || !track) return;
+        if (!want.has(track)) {
+          this._dropAttached(track);
+          return;
+        }
+        const live = track.attachedElements.filter((node) => node.isConnected);
+        live.slice(1).forEach((node) => {
+          track.detach(node);
+          node.remove();
+        });
+        let node = live[0];
+        if (!node) {
+          const host = isCleaner(person)
+            ? els.stageEl || els.tilesEl
+            : this._ensureTile(els.tilesEl, person, false);
+          node = track.attach();
+          node.autoplay = true;
+          node.className = "visually-hidden";
+          host.appendChild(node);
+          if (this._sinkId && node.setSinkId) node.setSinkId(this._sinkId).catch(() => undefined);
+        }
+        keep.add(node);
       });
+    });
+    // «Сироты»: элементы, которые livekit-client уже отсоединил сам или которые остались от снятой дорожки.
+    // Приёмник WebRTC переиспользуется под новую дорожку, и старый элемент заиграл бы чужой звук вторым голосом.
+    (els.stageEl || document).querySelectorAll("audio").forEach((node) => {
+      if (keep.has(node)) return;
+      try {
+        node.pause();
+      } catch (err) {
+        /* уже остановлен */
+      }
+      node.srcObject = null;
+      node.remove();
     });
   },
 
   _attachTrack(els, person, track, pub) {
     if (!els || !els.tilesEl) return;
     if (isHidden(person) && !isCleaner(person)) return;
-    if (person === this.room.localParticipant && track.kind === "audio") return;
-    if (track.kind === "audio" && !this._soundOn) return;
-    if (isCleaner(person) && track.kind !== "audio") return;
-    const prefs = this._denoisePrefs;
-    if (track.kind === "audio" && isCleaner(person) && !playCleanTrack(track, this.room, prefs, pub)) return;
-    if (track.kind === "audio" && !isCleaner(person) && !playRawAudio(person, this.room, prefs)) return;
-    if (track.kind === "audio" && isCleaner(person)) {
-      const identity = cleanSourceId(track, pub);
-      const source = findPerson(this.room, identity);
-      if (source) {
-        source.trackPublications.forEach((item) => {
-          if (item.kind === "audio" && item.track) this._dropAttached(item.track);
-        });
-      }
-    }
-    const host = isCleaner(person)
-      ? els.stageEl || els.tilesEl
-      : this._ensureTile(els.tilesEl, person, person === this.room.localParticipant);
-    if (track.kind === "audio") this._dropAttached(track);
-    const node = track.attach();
     if (track.kind === "audio") {
-      node.autoplay = true;
-      node.className = "visually-hidden";
-      host.appendChild(node);
-      if (this._sinkId && node.setSinkId) node.setSinkId(this._sinkId).catch(() => undefined);
+      if (person !== this.room.localParticipant) this._routeAudio();
       return;
     }
+    if (isCleaner(person)) return;
+    const host = this._ensureTile(els.tilesEl, person, person === this.room.localParticipant);
+    const node = track.attach();
     this._paintVideo(host.querySelector(".meeting-tile-stage"), person);
   },
 };
