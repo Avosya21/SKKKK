@@ -335,3 +335,31 @@ def test_reextract_entities_returns_409_when_running(client, admin_token, manage
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 409
+
+
+def test_normalize_deadline_at_and_resolve_due():
+    from app.app.services.project_deadlines import normalize_deadline_at, resolve_due
+
+    assert normalize_deadline_at("2026-09-30T15:00:00") == "2026-09-30T15:00"
+    assert normalize_deadline_at("2026-09-30") == "2026-09-30"
+    assert normalize_deadline_at("завтра") is None
+    assert normalize_deadline_at("null") is None
+    assert normalize_deadline_at("1999-01-01") is None
+    start, end, due_time = resolve_due("в течение часа", "2026-09-30T16:20", None)
+    assert (start, end, due_time) == (date(2026, 9, 30), None, "16:20")
+    assert resolve_due("до 15.03.2026", None, None) == (date(2026, 3, 15), None, None)
+
+
+def test_assignee_label_bound_and_rebound():
+    from app.app.services.entities import _bind_assignee_label
+    from app.app.services.transcript_turns import Turn
+
+    def turn(name):
+        return Turn(index=1, kind="speech", speaker=name, start_sec=10.0, end_sec=12.0, text="x", line="x")
+
+    bound = {"assignee": "speaker_4"}
+    _bind_assignee_label(bound, [turn("speaker_4")], None)
+    assert bound == {"assignee": "speaker_4", "assignee_start_sec": 10.0}
+    bound = {"assignee": "speaker_4"}
+    _bind_assignee_label(bound, [turn("Иван")], None)
+    assert bound == {"assignee": "speaker_4"}
