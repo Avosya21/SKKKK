@@ -20,7 +20,7 @@ from app.app.models.person import PeopleLog, Person, ProjectParty, UnknownActor
 from app.app.models.project_member import ProjectMember
 from app.app.models.speaker_profile import SpeakerProfile
 from app.app.models.user import User
-from app.app.services import memory_platform, people
+from app.app.services import memory_platform, people, voice_link
 from app.app.services.project_access import require_project_staff
 
 router = APIRouter(prefix="/projects", tags=["project-people"])
@@ -64,6 +64,10 @@ class PartyIn(BaseModel):
     side: str
 
 
+class ConsentIn(BaseModel):
+    given: bool
+
+
 class FromUserIn(BaseModel):
     user_id: int
 
@@ -72,11 +76,12 @@ def _fail(exc: people.PeopleError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-def _person_out(db: Session, p: Person, users: dict[int, str], voices: dict[int, int]) -> dict[str, Any]:
+def _person_out(db: Session, p: Person, users: dict[int, str], voices: dict[int, int], suggestions: dict[int, list[dict[str, Any]]]) -> dict[str, Any]:
     return {
         "id": p.id, "display_name": p.display_name, "aliases": [a.alias for a in people.aliases_of(db, p.id)],
         "company_name": p.company_name, "side": p.side, "side_source": p.side_source, "job_title": p.job_title,
         "authority": p.authority, "user": {"id": p.user_id, "name": users.get(p.user_id, "")} if p.user_id else None,
+        "external": p.user_id is None, "voice_suggestions": suggestions.get(p.user_id, []) if p.user_id else [],
         "voices": voices.get(p.id, 0), "voice_consent_at": p.voice_consent_at.isoformat() if p.voice_consent_at else None,
     }
 
@@ -88,6 +93,11 @@ def _payload(db: Session, settings: Settings, project) -> dict[str, Any]:
     users = {u.id: u.name for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
     voices = dict(db.execute(select(SpeakerProfile.person_id, func.count()).where(SpeakerProfile.person_id.in_([p.id for p in rows] or [-1]))
                              .group_by(SpeakerProfile.person_id)).all())
+    if user_ids:  # у сотрудника голоса считаются по учётке (общие слепки), у внешнего человека — по человеку проекта
+        voices.update({p.id: n for p in rows if p.user_id for n in [db.scalar(select(func.count()).select_from(SpeakerProfile).where(SpeakerProfile.user_id == p.user_id))]})
+    suggestions: dict[int, list[dict[str, Any]]] = {}
+    for s in voice_link.suggestions(db):  # только предложения по точному имени сотрудника с согласием; привязывает человек
+        suggestions.setdefault(s.user_id, []).append({"id": s.profile_id, "name": s.voice_name, "scope": s.scope})
     linked = {p.user_id for p in rows if p.user_id}
     free_members = []
     for m in db.scalars(select(ProjectMember).where(ProjectMember.project_id == pid)).all():
@@ -97,7 +107,7 @@ def _payload(db: Session, settings: Settings, project) -> dict[str, Any]:
     parties = db.scalars(select(ProjectParty).where(ProjectParty.project_id == pid).order_by(ProjectParty.id)).all()
     return {
         "platform_enabled": memory_platform.enabled(settings, project),
-        "people": [_person_out(db, p, users, voices) for p in rows],
+        "people": [_person_out(db, p, users, voices, suggestions) for p in rows],
         "unknown_open": len(people.open_unknown(db, pid)),
         "parties": [{"company_name": r.company_name, "side": r.side} for r in parties],
         "members_without_person": free_members,
@@ -191,6 +201,51 @@ def merge_people(
     except people.PeopleError as exc:
         db.rollback()
         raise _fail(exc) from exc
+    return _payload(db, settings, project)
+
+
+@router.put("/{project_id}/people/{person_id}/voice-consent")
+def voice_consent(
+    project_id: int, person_id: int, body: ConsentIn,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Отметить, что внешний человек согласен на запись голоса (Д5). Отзыв согласия — только в консоли (Д4)."""
+    project = require_project_staff(db, user, project_id)
+    if not body.given:
+        raise HTTPException(status_code=400, detail="Отзыв согласия на голос делается только в консоли: scripts/people_voice.py withdraw")
+    try:
+        people.give_voice_consent(db, project_id, person_id, by_user_id=user.id)
+        db.commit()
+    except people.PeopleError as exc:
+        db.rollback()
+        raise _fail(exc) from exc
+    return _payload(db, settings, project)
+
+
+@router.post("/{project_id}/people/{person_id}/voices/{profile_id}/link")
+def link_voice(
+    project_id: int, person_id: int, profile_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Привязать слепок голоса к учётке сотрудника (щелчок человека; только с согласием в карточке и по предложению по имени)."""
+    project = require_project_staff(db, user, project_id)
+    try:
+        person = people.get(db, project_id, person_id)
+        if person.user_id is None:
+            raise people.PeopleError("Голос привязывается к учётке сотрудника; у этого человека учётки нет")
+        offered = {s.profile_id for s in voice_link.suggestions(db) if s.user_id == person.user_id}
+        if profile_id not in offered:
+            raise people.PeopleError("Этот голос не подходит по имени сотрудника или уже привязан")
+        voice_link.link_profile(db, profile_id, person.user_id)
+        people._log(db, project_id, person.id, user.id, "link_voice", None, {"profile_id": profile_id})
+        db.commit()
+    except (people.PeopleError, voice_link.VoiceLinkError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _payload(db, settings, project)
 
 
