@@ -156,3 +156,59 @@ def test_contract_uses_registry_only_when_platform_enabled(db, project, monkeypa
     db.commit()
     got = contract._registry_sides(db, project.id, dict(base))
     assert got["ольга заказчикова"] == "customer"  # реестр главнее роли
+
+
+# ---------------------------------------------------------------- первичное наполнение (people_seed)
+
+def _m(name, source="model", side=None, where="participant"):
+    from app.app.services.people_seed import Mention
+
+    return Mention(name, source, side, where=where)
+
+
+def test_seed_clusters_reversed_order_first_name_and_parentheses():
+    from app.app.services.people_seed import cluster_mentions
+
+    clusters, ambiguous = cluster_mentions([
+        _m("Ольга Пример"), _m("Пример Ольга"), _m("Ольга"),
+        _m("Пётр Образцов (Peter Sample)"), _m("Peter Sample"), _m("Пётр Образцов"),
+        _m("Олег Первый"), _m("Олег Второй"), _m("Олег"),
+    ])
+    by_name = {c.display_name: c for c in clusters}
+    assert set(by_name["Ольга Пример"].names) == {"Ольга Пример", "Пример Ольга", "Ольга"}
+    assert {"Peter Sample", "Пётр Образцов (Peter Sample)"} <= set(by_name["Пётр Образцов"].names)
+    assert {m.name for m in ambiguous} == {"Олег"}  # два Олега: одиночное имя не склеиваем
+    assert "Олег" not in {n for c in clusters for n in c.names}
+
+
+def test_seed_side_strongest_source_and_majority():
+    from app.app.services.people_seed import Cluster, cluster_side
+
+    strong = Cluster(names=["А Б"], mentions=[_m("А Б", "card", "executor"), _m("А Б", "model", "customer"), _m("А Б", "model", "customer")])
+    assert cluster_side(strong) == ("executor", "card")  # карточка главнее двух догадок
+    voted = Cluster(names=["В Г"], mentions=[_m("В Г", side="customer"), _m("В Г", side="customer"), _m("В Г", side="executor")])
+    assert cluster_side(voted) == ("customer", "model")
+    tie = Cluster(names=["Д Е"], mentions=[_m("Д Е", side="customer"), _m("Д Е", side="executor")])
+    assert cluster_side(tie) == ("unknown", "model")
+    none = Cluster(names=["Ж З"], mentions=[_m("Ж З")])
+    assert cluster_side(none) == ("unknown", "model")
+
+
+def test_seed_apply_is_idempotent_and_keeps_human_side(db, project, monkeypatch):
+    from app.app.config import get_settings
+    from app.app.services import people_seed
+    from app.app.services.people_seed import Mention
+
+    monkeypatch.setattr(people_seed, "collect_mentions", lambda *_a, **_k: [
+        Mention("Анна Пример", "project_party", "customer", where="settings"), Mention("Анна", "model", None, where="chat"),
+        Mention("Борис Пример", "model", "executor", where="participant")])
+    settings = get_settings()
+    first = people_seed.seed_project(db, settings, project.id, apply=True)
+    assert first["created"] == 2
+    anna = people.resolve(db, project.id, "Анна Пример").person
+    people.set_side(db, project.id, anna.id, "executor", source="human")
+    second = people_seed.seed_project(db, settings, project.id, apply=True)
+    db.expire_all()
+    assert second["created"] == 0 and second["skipped_existing"] == 2
+    assert people.resolve(db, project.id, "Анна Пример").person.side == "executor"  # решение человека не тронуто
+    assert len(people.list_people(db, project.id)) == 2
