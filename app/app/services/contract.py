@@ -189,7 +189,19 @@ def _participant_sides(db: Session, project_id: int, cfg: dict | None = None) ->
         if name and side:
             sides.setdefault(name.lower(), side)
             sides.setdefault(name.lower().split()[0], side)
-    return sides
+    return _registry_sides(db, project_id, sides)
+
+
+def _registry_sides(db: Session, project_id: int, sides: dict[str, str]) -> dict[str, str]:
+    """Платформа памяти включена (PLATFORM-FOUNDATION-PLAN): стороны людей из реестра главнее догадки по роли.
+    Выключена или в реестре пусто — словарь без изменений."""
+    from app.app.config import get_settings
+    from app.app.models.project import Project
+    from app.app.services import memory_platform, people
+
+    if not memory_platform.enabled(get_settings(), db.get(Project, project_id)):
+        return sides
+    return {**sides, **people.sides_map(db, project_id)}
 
 
 def _resolve_side(name: str, known: dict[str, str], all_speakers: list[str]) -> str:

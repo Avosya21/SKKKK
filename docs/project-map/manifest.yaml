@@ -2678,6 +2678,34 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_person
+    kind: model
+    path: app/app/models/person.py
+    title: "Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_memory_platform
+    kind: service
+    path: app/app/services/memory_platform.py
+    title: "Флаг платформы памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ0)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_people
+    kind: service
+    path: app/app/services/people.py
+    title: "Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2)."
+    tags: [auto]
+    auto: true
+
+  - id: script_memory_scorecard
+    kind: file
+    path: scripts/memory_scorecard.py
+    title: "Табло памяти решений (docs/plans/DECISION-MEMORY-PLAN.md, §4.3): числа, по которым видно, приближаемся ли мы к цели."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
