@@ -1506,6 +1506,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `people.py` | Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`). |
 | `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал. |
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
+| `project_people.py` | Люди и стороны проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ3): реестр людей, «Кто это?», стороны компаний. |
 | `projects.py` | Проекты: список, создание, карточка, предпросмотр и полное удаление. |
 | `requirement_review.py` | Подтверждение требований контракта (карточка «Подтверждение требований» на странице проекта). |
 | `speaker_profiles.py` | Спикеры и голоса: профили, запись голоса, слияние, пересчёт, подтверждение и связанные фоновые задачи. |
@@ -1650,6 +1651,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_layout.js` | Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
 | `meeting_layout.selfcheck.js` | Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка. |
 | `meeting_room.js` | Клиент встречи LiveKit: вход, микрофон/камера/экран, смена устройств на ходу, плитки, список участников. |
+| `people.js` | Люди и стороны проекта (PLATFORM-FOUNDATION-PLAN, ПФ3): реестр людей, «Кто это?», стороны компаний. |
 | `px_agent.css` | Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. |
 | `px_agent.js` | Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. |
 | `report-jump.js` | Переход по ссылке к месту источника на странице отчёта (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4). |
@@ -1677,6 +1679,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
+| `people_card.html` | Люди и стороны проекта (ПФ3 PLATFORM-FOUNDATION-PLAN): реестр людей, «Кто это?», стороны компаний. Логика: static/people.js |
 | `px_agent_cards.html` | Карточки обмена с агентами: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. Логика: static/px_agent.js |
 
 **`app/app/workers/`**

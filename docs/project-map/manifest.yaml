@@ -2720,6 +2720,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: router_project_people
+    kind: router
+    path: app/app/routers/project_people.py
+    title: "Люди и стороны проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ3): реестр людей, «Кто это?», стороны компаний."
+    tags: [auto]
+    auto: true
+
+  - id: static_people
+    kind: file
+    path: app/app/static/people.js
+    title: "Люди и стороны проекта (PLATFORM-FOUNDATION-PLAN, ПФ3): реестр людей, «Кто это?», стороны компаний."
+    tags: [auto]
+    auto: true
+
+  - id: ui_people_card
+    kind: file
+    path: app/app/templates/partials/people_card.html
+    title: "Люди и стороны проекта (ПФ3 PLATFORM-FOUNDATION-PLAN): реестр людей, «Кто это?», стороны компаний. Логика: static/people.js"
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
