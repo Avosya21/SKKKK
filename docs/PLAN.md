@@ -22,7 +22,7 @@
 Пользователь загружает в проект артефакты (аудио созвонов, PDF/DOCX, заметки, скриншоты). Система:
 
 1. Сохраняет оригинал неизменным.
-2. Для аудио гоняет **двойной слух** (Parakeet-TDT + сверка GigaAM) и Sortformer по спикерам, затем **LLM** подписывает спорное и собирает выжимку (локальная Gemma или Cursor API — см. §3.1 и §6).
+2. Для аудио гоняет **двойной слух** (Parakeet-TDT + сверка GigaAM) и диаризацию по спикерам (Nemotron 3, до 8 голосов), затем **LLM** подписывает спорное и собирает выжимку (локальная Gemma или Cursor API — см. §3.1 и §6).
 3. Для документов и картинок извлекает и нормализует текст.
 4. Достаёт сущности (решения, задачи, факты), кладёт эмбеддинги через Ollama `bge-m3`, сеет граф знаний.
 5. Даёт заметки и ручные связи, разрешает противоречия, пересобирает актуальное ТЗ, отвечает в чате со ссылками на источники, пишет в Telegram когда готово.
@@ -68,7 +68,7 @@
 | LLM | **Два режима** (переключатель при старте, `LLM_PROVIDER` в `.env`): **lmstudio** — `LMSTUDIO_MODEL` (`qwen/qwen3.8-27b`), LM Studio `http://127.0.0.1:1234/v1`; **cursor** — Cursor SDK + `CURSOR_API_KEY` | Локально — приватность и GPU-фазы; облако — без VRAM под локальную LLM |
 | Web | FastAPI + Uvicorn на `127.0.0.1:1777` (`WEB_PORT` в `.env`), снаружи — Caddy по HTTPS (§15.4) | Порт 8000 занят MCP 1С; 1777 вместо 1111 — за Caddy |
 | Эмбеддинги | Ollama `bge-m3`, API `http://127.0.0.1:11434`, **CPU** | Не занимает VRAM |
-| ASR | Parakeet-TDT v3 + GigaAM v3 (сверка) + Sortformer 4spk | Двойной слух, не ансамбль Whisper/T-one |
+| ASR | Parakeet-TDT v3 + GigaAM v3 (сверка) + диаризация Nemotron 3 (откат — Sortformer 4spk) | Двойной слух, не ансамбль Whisper/T-one |
 | Аудио | FFmpeg 16 кГц моно | Без обязательной нарезки 8 кГц под T-one |
 | Документы | pymupdf / python-docx / python-pptx / Tesseract (rus+eng) | |
 | Векторы (старт) | sqlite-vec, 1024 dim | Qdrant — этап после стабильного поиска |
@@ -202,7 +202,7 @@ UI графа читает `entities` + `links` (+ артефакты и зам�
 Две взаимоисключающие фазы на GPU:
 
 ```
-[фаза ASR]  LM Studio UNLOAD → Parakeet+Sortformer (venvs\lab) → GigaAM в Docker
+[фаза ASR]  LM Studio UNLOAD → Parakeet + диаризация (venvs\lab + venvs\nemo-diar) → GigaAM в Docker
             → выгрузить процессы
 [фаза LLM]  LM Studio LOAD gemma-4-31b-qat → sense/proof / нормализация / сущности / ТЗ / чат / vision
 [фаза EMBED] Ollama bge-m3 на CPU в любой момент; GPU не трогает
@@ -213,7 +213,7 @@ UI графа читает `entities` + `links` (+ артефакты и зам�
 Gemma в VRAM **не загружается**. Шаги `gemma_load` / `gemma_unload` в ASR-пайплайне пропускаются.
 
 ```
-[фаза ASR]  Parakeet+Sortformer ONNX → GigaAM Docker (последовательно, один воркер)
+[фаза ASR]  Parakeet + диаризация (ONNX / Nemotron) → GigaAM Docker (последовательно, один воркер)
 [фаза LLM]  запросы в Cursor API (sense, proof, сущности, чат, vision — без локальной Gemma)
 [фаза EMBED] Ollama bge-m3 на CPU — как выше
 ```
@@ -221,7 +221,7 @@ Gemma в VRAM **не загружается**. Шаги `gemma_load` / `gemma_un
 ### Общие правила
 
 1. В режиме **lmstudio** в VRAM одновременно **не** живут Gemma и ASR. В режиме **cursor** Gemma в VRAM нет.
-2. Двойной слух **последовательно** на одном GPU-воркере: сначала ONNX Parakeet+Sortformer (`venvs\lab`), затем GigaAM в Docker для сверки. Whisper и T-one не стартуют.
+2. Двойной слух **последовательно** на одном GPU-воркере: сначала ONNX Parakeet (`venvs\lab`) и диаризация Nemotron 3 (`venvs\nemo-diar`), затем GigaAM в Docker для сверки. Whisper и T-one не стартуют.
 3. **Только lmstudio:** перед ASR — `lms unload --all`, дождаться падения занятости по `nvidia-smi`; после ASR — `lms load` той модели, что в `LMSTUDIO_MODEL`.
 3a. **Только lmstudio:** в LM Studio **выключена автозагрузка модели по запросу (JIT)**. Иначе HTTP-запрос от пользователя во время ASR поднимет Gemma поверх ASR.
 4. **Только lmstudio:** Gemma после загрузки **не выгружать** между sense/proof, нормализацией, сущностями, ТЗ и чатом. Выгрузка — только перед следующим аудио.
@@ -244,11 +244,11 @@ Gemma в VRAM **не загружается**. Шаги `gemma_load` / `gemma_un
 
 ### Модуль 2. Текст
 
-**2.1 Аудио (двойной слух + Sortformer)**
+**2.1 Аудио (двойной слух + диаризация)**
 
 1. FFmpeg: мастер WAV 16 кГц моно в `artifacts/{id}/audio/input_16k.wav`.
 2. **Только lmstudio:** выгрузить Gemma. В режиме **cursor** шаг пропускается.
-3. `venvs\lab`: `lab_pipeline.py --no-voice` — Parakeet-TDT v3 (окна ≤80 с с перекрытием) → Sortformer 4spk → покраска слов → реплики → VAD. Всё в `lab/runs/{run_id}/`.
+3. `venvs\lab`: `lab_pipeline.py --no-voice` — Parakeet-TDT v3 (окна ≤80 с с перекрытием) → диаризация Nemotron 3 (до 8 голосов; `DIAR_MODEL=sortformer4` — откат на Sortformer 4spk) → покраска слов → реплики → VAD. Всё в `lab/runs/{run_id}/`.
 4. Основной venv: `lab_sense.py` (Cursor, только спорные спикеры) → `lab_giga.py` (Docker GigaAM) → `lab_reconcile.py` → `lab_proof.py` (выбор lab vs giga) → `lab_voice.py` (WeSpeaker).
 5. Публикация: `proof/transcript.json` → `asr/docker_gigaam_speakers.json`; `voice/match.json` → `reports/sortformer_speaker_match.json` (метки `speaker_N`); `parsed/{id}_final.txt`; HTML `/report`.
 6. Статус `speakers_pending`. Пользователь «Запомнить» / «Подтвердить спикеров».
@@ -374,7 +374,7 @@ Upload в `raw_inputs`, запись `artifacts` + `jobs`, UI статусов. 
 
 ### Этап 3. Двойной слух ASR → [STAGE-03](stages/STAGE-03-asr-ensemble.md)
 
-Исторический этап (тройной ансамбль) выполнен. С 2026-08-26 канон — лабораторный контур: Parakeet + Sortformer + Cursor + GigaAM-сверка. Whisper/T-one/merge окон не вызываются.
+Исторический этап (тройной ансамбль) выполнен. С 2026-08-26 канон — лабораторный контур: Parakeet + диаризация (Nemotron 3, откат Sortformer) + Cursor + GigaAM-сверка. Whisper/T-one/merge окон не вызываются.
 
 ### Этап 4. Документы и OCR → [STAGE-04](stages/STAGE-04-documents-ocr.md)
 
@@ -452,7 +452,7 @@ NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy —
 
 ## 14. Порядок работ агента
 
-Исходная последовательность «этап 0 → этап 1 → …» пройдена. Сейчас работаем по [§16](#16-открытое-и-ближайшие-шаги): сначала закрываем открытые находки из [FINDINGS-2026-09.md](FINDINGS-2026-09.md), затем оставшиеся фазы [PLAN-AGENT-EXCHANGE-V2.md](PLAN-AGENT-EXCHANGE-V2.md) и этапы A/B/C из [plans/MEETING-PLAN.md](plans/MEETING-PLAN.md). Не упрощать ASR до одной модели: канон — лабораторный контур (Parakeet + Sortformer + GigaAM-сверка + LLM).
+Исходная последовательность «этап 0 → этап 1 → …» пройдена. Сейчас работаем по [§16](#16-открытое-и-ближайшие-шаги): сначала закрываем открытые находки из [FINDINGS-2026-09.md](FINDINGS-2026-09.md), затем оставшиеся фазы [PLAN-AGENT-EXCHANGE-V2.md](PLAN-AGENT-EXCHANGE-V2.md) и этапы A/B/C из [plans/MEETING-PLAN.md](plans/MEETING-PLAN.md). Не упрощать ASR до одной модели: канон — лабораторный контур (Parakeet + диаризация Nemotron 3 + GigaAM-сверка + LLM).
 
 ---
 
@@ -467,7 +467,7 @@ NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy —
 
 ### 15.2. Аудио и LLM
 
-- Боевой ASR-контур — лабораторный: Parakeet + Sortformer + GigaAM-сверка + LLM (sense/proof). Whisper/T-one не вызываются.
+- Боевой ASR-контур — лабораторный: Parakeet + диаризация Nemotron 3 + GigaAM-сверка + LLM (sense/proof). Whisper/T-one не вызываются.
 - LLM: LM Studio (`swift-qwen3.8-27b…`) или Cursor API, выбор при старте. Все вызовы идут в режиме «без reasoning» (`*_no_think`), есть тест-сторож по всему коду.
 - Итоговая сводка ТЗ по умолчанию — быстрый top-K путь (`rebuild_tz_fast`, детерминированный); полный map/reduce остаётся запасным.
 - Гейт GPU-фаз (`gpu_phase`) переносит модель LLM/ASR по VRAM; очередь `jobs` + один GPU-воркер.

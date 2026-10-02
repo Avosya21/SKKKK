@@ -43,7 +43,7 @@ flowchart TB
     subgraph ASR["Lab ASR + Docker"]
         LP[lab_pipeline.py]
         PKT[Parakeet ONNX]
-        SF[Sortformer ONNX]
+        SF[Диаризация: Nemotron 3 / Sortformer]
         GA[skkkk-gigaam :18102]
         PR[lab_proof Cursor]
         BT[build_transcript_view]
@@ -112,7 +112,7 @@ flowchart TB
 | Роль | Модель / артефакт | Версия / ревизия | Как запускается |
 |------|-------------------|------------------|-----------------|
 | Слова + таймлайн (канон) | Parakeet-TDT | **0.6B v3**, HF `istupakov/parakeet-tdt-0.6b-v3-onnx` rev `8f23f0c` | `venvs\lab`, onnx-asr **0.12.0**, ONNX Runtime GPU **1.23.2** |
-| Кто говорит | Sortformer 4spk | **v2.1** ONNX `Scrybl/diar_streaming_sortformer_4spk-v2.1` rev `3be92087` | тот же lab; **не больше 4** спикеров |
+| Кто говорит | Nemotron 3 Diarization | **до 8 спикеров**, отдельный процесс в `venvs\nemo-diar` (NeMo + torch) | `DIAR_MODEL`: `nemotron3` (по умолчанию); `sortformer4` — откат на Sortformer 4spk v2.1 ONNX `Scrybl/diar_streaming_sortformer_4spk-v2.1` rev `3be92087` в `venvs\lab` |
 | VAD | Silero | `istupakov/silero-vad-onnx` | onnx-asr load_vad |
 | Второй слух / вычитка | GigaAM-v3 e2e RNNT | HF `ai-sage/GigaAM-v3` rev **`e2e_rnnt`** | Docker `skkkk-gigaam` `:18102` |
 | Голос (enroll/match) | WeSpeaker | `pipeline._embedding` внутри GigaAMGUI | lab_voice / docker exec |
@@ -166,7 +166,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 |------|------------|
 | `C:\1C_NEW_SKKKK\` | Единственный корень проекта |
 | `app/app/` | FastAPI: роутеры, сервисы, модели, воркер, шаблоны |
-| `asr/` | Lab ASR (Parakeet/Sortformer/GigaAM-сверка), view, speaker match |
+| `asr/` | Lab ASR (Parakeet + диаризация Nemotron/Sortformer + GigaAM-сверка), view, speaker match |
 | `asr/lab/` | Канонический конвейер расшифровки (изоляция прогонов) |
 | `asr/docker/` | Образ GigaAM; Whisper/T-one на диске для отката |
 | `asr/tests/` | Unit-тесты ASR-модулей |
@@ -274,7 +274,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 upload → job queued
   → preprocessing: FFmpeg 16 kHz WAV (атомарная запись + lock; опрос списка **не** извлекает)
   → asr_running: pipeline_lab.py
-      ├── lab_pipeline.py --no-voice (venvs\lab: Parakeet + Sortformer;
+      ├── lab_pipeline.py --no-voice (venvs\lab: Parakeet + диаризация;
       │     `--run-id` только если sha256 в run.json совпадает с текущим WAV)
       ├── lab_sense.py (Cursor)
       ├── lab_giga.py (Docker GigaAM)
@@ -701,7 +701,7 @@ venvs\lab\Scripts\python.exe asr\lab_pipeline.py --project-id 1 --artifact-id ar
 ```
 
 Стадии: `01_audio` копия 16 кГц без денойза → `02_asr` Parakeet-TDT v3 (окна ≤80 с) →
-`03_diar` Sortformer 4spk v2.1 (ONNX, сырые вероятности) → `04_paint` покраска
+`03_diar` диаризация: Nemotron 3 (до 8 спикеров, `venvs\nemo-diar`), откат — Sortformer 4spk v2.1 (ONNX), сырые вероятности → `04_paint` покраска
 слов → `05_voice` WeSpeaker в `skkkk-gigaam` → `06_transcript` реплики без LLM →
 `07_verify` второй проход через Silero VAD. Провал (`fail`) — только если слов
 на тишине больше 2%; слова на громком звуке, который VAD не принял за речь, дают
@@ -1244,7 +1244,7 @@ data/projects/{project_id}/
 | `lab/paths.py` | Каталоги прогона; `resolve()` не выпускает путь наружу |
 | `lab/run.py` | Контракт стадии: sha256, `stage.json`, отпечаток, `MissingInput` |
 | `lab/pipeline.py` | Порядок стадий, `LabOptions`, `--only` / `--from` |
-| `lab/stages/s01…s07` | Стадии: копия 16 кГц, Parakeet, Sortformer, покраска, реплики, VAD |
+| `lab/stages/s01…s07` | Стадии: копия 16 кГц, Parakeet, диаризация (Nemotron 3 / Sortformer), покраска, реплики, VAD |
 | `lab_sense.py` / `lab_giga.py` / `lab_proof.py` / `lab_voice.py` | Оверлеи Cursor + второй слух + WeSpeaker |
 | `lab_pipeline.py` | CLI ONNX |
 | `build_lab_view.py` | Отладка `/report-lab` |
@@ -1422,7 +1422,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 См. `.cursor/rules/01-nonnegotiables.mdc` и `docs/DECISIONS.md`:
 
-- Двойной слух: Parakeet-TDT + GigaAM + Sortformer 4spk; Whisper/T-one/merge окон **не** вызываются
+- Двойной слух: Parakeet-TDT + GigaAM + диаризация Nemotron 3 (откат Sortformer 4spk); Whisper/T-one/merge окон **не** вызываются
 - DeepFilterNet в **комнате** (`skkkk-dfn`, CPU) ≠ lab `01_audio` (`copy_16k`). На ASR DFN не возвращать
 - Очередь `jobs` + один GPU worker
 - sqlite-vec + entities/links (не Qdrant/Neo4j до этапа 10)
