@@ -26,7 +26,7 @@ description: Implements the SKKKK artifact pipeline from upload to TZ and RAG ch
 
 Оригинал в `raw_inputs` не перезаписывать.
 
-Диаризация — Sortformer + WeSpeaker, не выдумка LLM. Чанки стенограммы режутся по репликам и хранят `speaker`.
+Диаризация — Nemotron 3 (до 8 спикеров; откат — Sortformer 4spk) + WeSpeaker, не выдумка LLM. Чанки стенограммы режутся по репликам и хранят `speaker`.
 
 Кнопки `/report` и `/projects/{id}`: что вызывает что — `docs/PROJECT-MAP.md` §5.13. Lab HTML пишет `write_prod_view`, не `build_transcript_view.py`.
 

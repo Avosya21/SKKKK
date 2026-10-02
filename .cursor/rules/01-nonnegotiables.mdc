@@ -6,7 +6,7 @@ alwaysApply: true
 # Инварианты
 
 - Аудио идёт через **двойной слух**, не тройной ансамбль: Parakeet-TDT (канон слов и таймлайна) + GigaAM (независимая сверка/вычитка). Whisper, T-one и LLM-склейка окон не вызываются.
-- **Спикеры:** Sortformer 4spk (не больше 4) → покраска слов → Cursor только спорное → WeSpeaker в `speaker_profiles`. Склейка и ASR не выдумывают «кто говорит».
+- **Спикеры:** диаризация Nemotron 3 (до 8 спикеров, `venvs\nemo-diar`), откат — Sortformer 4spk (`DIAR_MODEL=sortformer4`, `venvs\lab`) → покраска слов → Cursor только спорное → WeSpeaker в `speaker_profiles`. Склейка и ASR не выдумывают «кто говорит».
 - Изоляция прогона: `artifacts/{id}/lab/runs/{run_id}/`. Тихий fallback на чужой файл запрещён.
 - LLM — **`lmstudio`** (Gemma + LM Studio, JIT выключен) **или** **`cursor`** (Cursor SDK + API key). Переключатель при старте, `LLM_PROVIDER` в `.env`.
 - В режиме **lmstudio**: перед ASR/ONNX выгружать Gemma; после — загружать снова. ASR и Gemma не сосуществуют на GPU.

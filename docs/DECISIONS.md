@@ -17,7 +17,7 @@ GigaAM в Docker — клон `vendor/GigaAMGUI` (CUDA 12.4, torch 2.6+cu124, `o
 
 ## Инварианты
 
-1. **Двойной слух, не тройной ансамбль.** Канон после загрузки — лабораторный контур: Parakeet-TDT (слова и таймлайн) + Sortformer (кто говорит) + Cursor (спорные спикеры и вычитка) + свой прогон GigaAM (второй слух) + WeSpeaker (голоса в `speaker_profiles`). Whisper, T-one и LLM-склейка окон 120–180 с **не вызываются**.
+1. **Двойной слух, не тройной ансамбль.** Канон после загрузки — лабораторный контур: Parakeet-TDT (слова и таймлайн) + диаризация Nemotron 3, до 8 спикеров (кто говорит; откат — Sortformer 4spk) + Cursor (спорные спикеры и вычитка) + свой прогон GigaAM (второй слух) + WeSpeaker (голоса в `speaker_profiles`). Whisper, T-one и LLM-склейка окон 120–180 с **не вызываются**.
    - Изоляция: всё в `artifacts/{id}/lab/runs/{run_id}/`, `LabRun.resolve()` не выпускает путь наружу.
    - GigaAM не становится нарезкой: в вычитке модель выбирает только lab vs giga.
    - Диаризация: Nemotron 3, **не больше 8 спикеров** (решение пользователя 2026-09-25, проверено на слух на созвоне проекта 35). Каналы с малым объёмом речи не отбрасываются — это реальные люди. Пороги у каждой модели свои: `asr/lab/diar_models.py`.
@@ -139,7 +139,7 @@ overlap ≥ 0.35). Иначе LLM честно склеит чужой созв�
 
 ## Prod-стенограмма (cutover 2026-08-26)
 
-- **Prod-линия расшифровки** — лабораторный контур: `pipeline_lab.py` → Parakeet + Sortformer → Cursor sense → GigaAM → reconcile → proof → WeSpeaker → публикация в `asr/docker_gigaam_speakers.json` и `reports/sortformer_speaker_match.json` → `/report`.
+- **Prod-линия расшифровки** — лабораторный контур: `pipeline_lab.py` → Parakeet + диаризация (Nemotron 3, откат — Sortformer) → Cursor sense → GigaAM → reconcile → proof → WeSpeaker → публикация в `asr/docker_gigaam_speakers.json` и `reports/sortformer_speaker_match.json` → `/report`.
 - Пауза **`speakers_pending` после текста**, не до него. «Подтвердить спикеров» подставляет имена и гонит knowledge (сущности, индекс, выжимка-протокол, граф), **не** тройной ASR.
   - *Уточнено 2026-09-24 (R3):* по умолчанию шлагбаум **мягкий** (`VOICE_GATE_MODE=soft`): knowledge идёт сразу, неназванные голоса остаются `speaker_N` (в сущностях — `speaker: null`, не имя). Имя, данное позже («Запомнить»/«Слить»), сразу обновляет имена в сущностях (`rebind_call_entities`) и ставит фоновую задачу `refresh_knowledge` (переиндексация чанков + выжимка). `strict` — прежнее поведение, но созвон, где все голоса узнаны, не ждёт.
 - Whisper / T-one / `run_pipeline.py` / `merge_ensemble.py` — legacy на диске, воркер не вызывает.
@@ -161,7 +161,7 @@ overlap ≥ 0.35). Иначе LLM честно склеит чужой созв�
 ## Лаборатория расшифровки (канон с 2026-08-26)
 
 `asr/lab/` — **боевой** конвейер расшифровки: копия 16 кГц → Parakeet-TDT
-v3 → Sortformer 4spk v2.1 → покраска слов → Cursor sense → свой прогон GigaAM
+v3 → диаризация (Nemotron 3, до 8 спикеров; откат — Sortformer 4spk v2.1) → покраска слов → Cursor sense → свой прогон GigaAM
 → вычитка → WeSpeaker. Денойза нет: DeepFilterNet срезал согласные.
 Страница `/artifacts/{id}/report-lab` — диагностика; прод UI — `/report`.
 
