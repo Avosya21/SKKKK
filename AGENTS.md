@@ -24,11 +24,16 @@ venv\Scripts\python.exe scripts\search_project_map.py --ui "выбрать ми�
 venv\Scripts\python.exe scripts\search_project_map.py --tests rate_limit                        # какие тесты и как запустить
 venv\Scripts\python.exe scripts\search_project_map.py --changed                                 # незакоммиченное по функциям
 venv\Scripts\python.exe scripts\search_project_map.py --invariants                              # что нельзя ломать
+venv\Scripts\python.exe scripts\search_project_map.py --graph log_activity --depth 2            # граф: кто вызывает и что вызывает
+venv\Scripts\python.exe scripts\search_project_map.py --deps app/app/services/tz.py             # зависимости модуля
+venv\Scripts\python.exe scripts\search_project_map.py --orphans                                 # кого никто не вызывает
+venv\Scripts\python.exe scripts\search_project_map.py --import-cycles                           # циклы импортов
 ```
 
 - В запрос клади имена из репозитория (функция, файл, URL, `id` элемента), а не бытовое описание. Слабый ответ помечен «уверенности нет».
 - Найденное проверяй в самом файле: индекс — указатель, а не источник истины.
 - После правок кода: `venv\Scripts\python.exe scripts\index_project_map.py` (только изменённые файлы, секунды). Хуки git и `restart.ps1` делают это сами.
+- Граф зависимостей: атлас `docs/project-map/DEPENDENCIES.md`, свод `docs/project-map/graph-modules.json`, страница `/admin/map/graph` (§16 карты). Пересборка после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py`.
 - Диагностика: `scripts\index_doctor.py`; расхождения карты с кодом: `scripts\check_map_drift.py` (`--fix` пересоздаёт реестр модулей).
 - Для ИИ-агентов тот же поиск доступен как MCP-сервер `skkkk-index` (`.mcp.json`, `tools/projindex_mcp.py`); для людей — страница `/admin/map`.
 

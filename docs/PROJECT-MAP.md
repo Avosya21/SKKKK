@@ -331,6 +331,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
 | `routers/requirement_review.py` | `/projects/{id}/requirements` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin |
 | `routers/admin_map.py` | `/admin/map`, `/admin/map/search` | страница «Карта проекта» (только admin): поиск по индексу кода и связей; читает `data/project_map.db`, боевую БД не трогает |
+| `routers/admin_map_graph.py` | `/admin/map/graph`, `/admin/map/graph/summary`, `/admin/map/graph/data` | страница «Граф зависимостей» (только admin): окрестность сущности, подсистема или модульный свод из графа (§16); читает выгрузку `data/project_map_graph.json`, при её отсутствии собирает граф из индекса |
 | `routers/acme.py` | `/.well-known/acme-challenge` | HTTP-01 → Caddy (Let's Encrypt на IP) |
 | `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта (+ идущие сейчас `GET …/meetings/live` для полоски «Идёт созвон») + гостевой join/leave/heartbeat по токену + сотрудник: `/projects/{id}/meetings/{mid}/heartbeat` и `/leave` (identity только `member:{user.id}`); `GET /api/meetings/public/{token}/avatars/{user_id}` — фото сотрудника гостю, только участника этой встречи. Сотрудник входит под «Имя Фамилия» из карточки |
 | `routers/speaker_profiles.py` | `/api` | enroll, merge, lab enroll/merge, recalculate, speakers-confirm, rebuild-summary, reindex |
@@ -741,6 +742,7 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/projects/{id}/chat` | *(авто при открытии)* | `GET /projects/{id}/chat/history` |
 | `/projects/{id}/chat` | *(авто при pending)* | `GET /projects/{id}/chat/status` + poll history |
 | `/projects/{id}/graph` | — | `GET …/graph/data` (Cytoscape) |
+| `/admin/map/graph` | поиск узла, вид **Модули** / **Сущности**, фильтры видов узлов и связей, глубина, панель узла со ссылкой «открыть в PyCharm» | `GET /admin/map/graph/summary`, `GET /admin/map/graph/data?focus=…&depth=…` (только admin, §16) |
 | `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
 | `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; слушает `skkkk-dfn` | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
@@ -1150,6 +1152,8 @@ data/projects/{project_id}/
 | `analyzers.py` | производные знания: роуты, карта БД (модели, миграции, кто пишет/читает), окружение, связка элемент→JS→API, покрытие тестами, инварианты, тексты интерфейса, история git |
 | `indexer.py` | инкрементальная индексация, векторы добираются отдельно (обрыв безопасен) |
 | `search.py` | гибридный поиск (FTS5 + вектор + точный символ + намерения «кто вызывает», роут, таблица), режимы `--callers`, `--route` и др., единый вывод для веба и MCP |
+| `graph.py` | граф зависимостей проекта (§16): сборка всех сущностей и связей из индекса и манифеста, окрестность узла, сироты, циклы импортов, выгрузка в json/graphml/dot |
+| `graph_atlas.py` | атлас зависимостей: markdown `docs/project-map/DEPENDENCIES.md` и текстовые виды графа для CLI и MCP |
 
 Скрипты: `index_project_map.py`, `search_project_map.py`, `eval_index.py`, `index_doctor.py`, `check_map_drift.py`, `install_hooks.ps1`, `dev_changelog.py`; MCP-сервер `tools/projindex_mcp.py` (`.mcp.json`); словарь синонимов `scripts/index_glossary.yaml`.
 
@@ -1347,6 +1351,7 @@ run_pipeline
 | `run_all.ps1` / `run_api.ps1` / `run_worker.ps1` | Запуск служб |
 | `smoke_cycle.py` | Smoke test |
 | `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
+| `export_project_graph.py` | сборка графа зависимостей (§16): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops` |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество |
@@ -1499,6 +1504,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `acme.py` | Маршрут HTTP-01 проверки Let's Encrypt (`/.well-known/acme-challenge`). |
 | `admin_map.py` | Страница «Карта проекта» для администратора: поиск по индексу кода, связей, БД, окружения и истории (/admin/map). |
+| `admin_map_graph.py` | Страница «Граф зависимостей» (/admin/map/graph): все сущности проекта и все связи между ними. Только admin. |
 | `auth.py` | Вход и выход: `/auth/login` (роль определяется паролем), `/auth/logout`. |
 | `companies_admin.py` | Список компаний в портале (PLATFORM-FOUNDATION-PLAN, ПФ4): просмотр — админ и менеджер, правка — админ. |
 | `knowledge.py` | Знания проекта: поиск по смыслу, граф, сущности, заметки и связи, конфликты, ТЗ и его версии, чат, дедлайны. |
@@ -1637,6 +1643,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `analyzers.py` | Структурные знания о проекте, которые нельзя надёжно получить из текста: роуты, БД, окружение, |
 | `chunkers.py` | Нарезка файлов проекта на фрагменты для индекса: Python, JS, шаблоны, CSS, Markdown, конфиги. |
 | `config.py` | Конфигурация индекса проекта: какие файлы читать, что исключать, как прятать секреты. |
+| `graph.py` | Граф зависимостей проекта: все сущности и все связи между ними — из индекса (`data/project_map.db`) и карты. |
+| `graph_atlas.py` | Атлас зависимостей и текстовые виды графа проекта: markdown для человека, строки для CLI и MCP. |
 | `indexer.py` | Индексатор проекта: инкрементально, с кэшем эмбеддингов, устойчиво к обрыву. |
 | `search.py` | Поиск по индексу проекта: гибрид (точный FTS5 + смысловой вектор + точное совпадение символа) и структурные режимы. |
 | `store.py` | Хранилище индекса проекта: SQLite + sqlite-vec + FTS5 в data/project_map.db (отдельно от app.db). |
@@ -1645,6 +1653,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
+| `admin_map_graph.js` | Страница «Граф зависимостей» (/admin/map/graph): Cytoscape-схема узлов и связей проекта. |
 | `app.css` | Общие стили портала Primary Analytics: шапка, адаптив под телефон и планшет, таблицы, кнопки |
 | `app.js` | Общий JS портала (объект SKKKK): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения. |
 | `design.css` | Единая дизайн-система Primary Analytics (v2, 2026-09-19). |
@@ -1663,6 +1672,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Файл | Назначение |
 |---|---|
 | `admin_map.html` | Страница «Карта проекта» (/admin/map, только admin): поиск по индексу кода, документов и связей |
+| `admin_map_graph.html` | Страница «Граф зависимостей» (/admin/map/graph, только admin): модульный свод по файлам и окрестность отдельного узла — Cytoscape, легенда-ф |
 | `base.html` | Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц |
 | `chat.html` | Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat) |
 | `companies.html` | Список компаний для карточек сотрудников и сторон проектов (админ, /admin/companies; PLATFORM-FOUNDATION-PLAN, ПФ4) |
@@ -1779,6 +1789,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `eval_chat.py` | Оценка чата-ассистента (пункт плана 2.9). |
 | `eval_index.py` | Оценка индекса проекта на золотом наборе вопросов (docs/eval/index_questions.json). |
 | `eval_tz.py` | Оценка качества быстрой сводки ТЗ (пункт плана 2.3). |
+| `export_project_graph.py` | Сборка графа зависимостей проекта: полный граф, свод по модулям, атлас для человека, выгрузки для Gephi/yEd. |
 | `fast_summarize_tz.py` | Быстрый векторный свод: retrieval top-K из sqlite-vec (чанки+сущности) + заметки |
 | `fetch_meeting_dfn3.py` | Download DeepFilterNet3 browser assets. Live meeting only, not lab ASR. |
 | `fix_conflict_links.py` | Разовая чистка конфликтов после исправления ошибок графа (docs/plans/CONFLICT-AUTONOMY-PLAN.md, этап 1). |
@@ -1895,6 +1906,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 4. **Новый файл в data/** → §6.
 5. **Версии моделей, кодеков, пакетов** → §1.1; SHA256 лаборатории → `asr/lab/FREEZE.md`. Не менять молча.
 6. После архитектурных изменений → `venv\Scripts\python.exe scripts\index_project_map.py` (нужен Ollama bge-m3). Граф агентов: `lightrag_sync_docs.py` + `lightrag_index.py --wait`.
+7. **Граф зависимостей** (§16): после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py` (пересобирает `data/project_map_graph.json`, `docs/project-map/graph-modules.json` и атлас `DEPENDENCIES.md`).
 7. Агенты: правило `.cursor/rules/07-project-map.mdc`.
 
 ---
@@ -1903,6 +1915,48 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 *Последнее обновление карты: 2026-09-17 — легализованы рассуждения локальной LLM (подготовка к новому Swift-Qwen 27B): из `llm._lmstudio_chat_body` убраны хардкоды `chat_template_kwargs.enable_thinking=False` и `reasoning_effort="none"`; добавлены настройки `LMSTUDIO_ENABLE_THINKING` (default `true`) и `LMSTUDIO_REASONING_EFFORT` (default `medium`) в `config.Settings`, а `chat_completion`/`chat_from_env`/`lmstudio_chat_raw` резолвят их и передают `enable_thinking` + `reasoning_effort` (при `enable_thinking=false` усилие принудительно `none`). Сверено с сервером LM Studio: `reasoning_effort` принимает только `none/minimal/low/medium/high/xhigh`, иначе HTTP 400 (а не молчаливое отбрасывание); сервер сам маппит `none→off`, `minimal→low`, `xhigh→high`. Инфраструктура запуска (вне репозитория): пресет `%USERPROFILE%\.lmstudio\config-presets\swift-qwen-24gb.preset.json` (flash-attn, KV q8_0, draft-MTP, 1 слот, `enableThinking=true`) + `run_server.ps1` в корне проекта — в этой сборке `lms load` не умеет `--preset`/`--limit-slots`, поэтому поля пресета раскладываются в `user-concrete-model-default-config` конкретной модели, а один слот задаётся `--parallel 1`. Тесты: `app/app/tests/test_llm_provider.py` (16 passed). Ранее: иерархическая пересборка ТЗ: `tz._build_tz_body` при переполнении контекста LM Studio (`n_keep > n_ctx`) автоматически группирует черновики в промежуточные merge-вызовы (Проход 1.5, `tz.merge` в логах, ~9000 tok на группу) до тех пор, пока сводные черновики не укладываются в budget финального reduce; промпт `rebuild_tz.md` расширен до 6 блоков, `_parse_prompts` возвращает 6 кортежей. Исправлено: сборки с >73 чанками (напр. проект 18 с 76) раньше падали с `LM Studio HTTP 400 … n_keep >= n_ctx` — теперь проходят до конца. Ранее: фикс warning LM Studio «Reasoning setting 'off' is not a valid option» (`llm._lmstudio_chat_body`): невалидные значения маппились в `low`, а мышление глушилось `chat_template_kwargs.enable_thinking=False` (**отменено 2026-09-17, см. выше** — «none» в этой сборке валиден, а невалидное значение даёт 400); в лог `lmstudio.chat` добавлены `reasoning_tokens` и `has_reasoning` — теперь видно, если модель реально начала выдавать `<thinking>`. Ранее: приклейка кадров экрана в стенограмме (`transcript_view._words_html`): кнопка **▣** теперь ставится **перед** блоком слов (на границе момента кадра, фразы не разрываются), а кадры, в окне которых нет слов, получают отдельную кнопку перед первым словом после момента кадра (`turn_hits`); пересобраны все стенограммы с кадрами (2026-09-01 ×2, 2026-09-16 ×2, 2026-09-17). Ранее: фикс `scene_times()` (`-fps_mode vfr` вместо удалённого в ffmpeg 9.0 `-vsync vfr`): кадры экрана снова ложатся на реальные смены сцены, а не «пол 15 с»; `_dotenv_value()` даёт `screen_vision_enabled()`/`frames_max()` fallback на `.env`; `redescribe_existing_frames()` пропускает vision-кадры; авто-vision в `pipeline_meeting`; полный пересбор созвонов 2026-09-16 (jobs 74/75) — кадры vision в проде и чанках БД. Экран в стенограмме: hover pop-up заменён на кнопку **▣** в конце блока/реплики → модалка со скриншотом кадра (`frame_url`, эндпоинт `/lab/{run_id}/frame/{relative}`, права уровня отчёта) и сворачиваемым `<details>` с текстом описания.*
 
+
+## 16. Граф зависимостей проекта (сентябрь 2026)
+
+Всё, что есть в проекте, и все связи между этим — в одном графе: **7872 узла и 31 717 связей** на 03.10.2026
+(актуальные цифры — в атласе §1). Собирается из индекса (`data/project_map.db`) и манифеста карты, ничего не додумывая.
+
+**Артефакты и где что лежит:**
+
+| Что | Где | В git |
+|-----|-----|-------|
+| Полный граф (все узлы и рёбра, включая 40 тыс. вызовов) | `data/project_map_graph.json` | нет (рабочий артефакт) |
+| Свод по подсистемам и файлам (степени связности) | `docs/project-map/graph-modules.json` | да |
+| Атлас для человека: 12 разделов от состава графа до циклов импортов | `docs/project-map/DEPENDENCIES.md` | да (генерируется между маркерами) |
+| Выгрузки для Gephi/yEd и Graphviz | `--graphml` / `--dot` | нет |
+
+**Слои графа** (узел `kind` / ребро `rel`): код (`file`, `symbol` — 3040 функций, 1557 тестов, 172 класса; `defines`, `calls`, `calls_ref`, `calls_ext`),
+связи (`imports`, `covers` — 5422 связи «тест → код», `changed` — 142 коммита), данные (`table` + `column`; `reads`, `writes`),
+интерфейс (`route`, `ui`, `handled_by`, `calls_api`, `guards`), окружение (`env`; `reads_env`), смысл (узлы манифеста и рёбра `m:<relation>`).
+
+**Как этим пользоваться:**
+
+```powershell
+venv\Scripts\python.exe scripts\search_project_map.py --graph log_activity --depth 2   # окрестность функции
+venv\Scripts\python.exe scripts\search_project_map.py --deps app/app/services/tz.py     # зависимости модуля
+venv\Scripts\python.exe scripts\search_project_map.py --orphans                         # кого никто не вызывает
+venv\Scripts\python.exe scripts\search_project_map.py --import-cycles                   # циклы импортов
+venv\Scripts\python.exe scripts\export_project_graph.py                                 # пересобрать граф и атлас
+```
+
+Страница для человека — `/admin/map/graph` (только admin): модульный вид целиком, окрестность сущности на глубину 1–4,
+фильтры по видам узлов и связей, панель выбранного узла со ссылкой «открыть в PyCharm». Для ИИ-агентов те же данные — через
+MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `module_deps`, `orphans`, `import_cycles`).
+
+**Что граф показывает про сам проект (снимок):** 664 файла, 152 роута со 153 проверками прав, 33 таблицы БД
+(`artifacts` — 51 файл-читатель, `projects` — 28, `entities` — 27), 331 элемент интерфейса, 131 переменная окружения,
+7 функций-кандидатов в мёртвый код (без вызовов, тестов, декораторов и упоминаний в чужом тексте), циклов импортов нет.
+
+**Стражи:** `app/app/tests/test_project_graph.py` (14 тестов: у каждого файла и роута есть узел, висячих рёбер нет,
+все слои на месте, окрестность, сироты, циклы, выгрузки, атлас не затирает рукописную шапку) и
+`app/app/tests/test_admin_map_graph.py` (права на страницу и фильтры эндпоинтов).
+
+---
 
 ## Архив разработки
 

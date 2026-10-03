@@ -19,6 +19,12 @@
   --why-changed NAME     последние изменения функции (git log -L)
   --invariants [ТЕКСТ]   что нельзя ломать (§13 карты и решения DECISIONS)
 
+Граф зависимостей (все сущности проекта и связи между ними):
+  --graph УЗЕЛ           окрестность сущности: функция, файл, роут, таблица, кнопка (--depth 1–4, --direction in|out)
+  --deps ФАЙЛ            зависимости модуля: импорты, вызовы, таблицы БД, роуты
+  --orphans              функции, которых никто не вызывает и на которые нет тестов
+  --import-cycles        циклы импортов между файлами проекта
+
 Общие флаги: --limit N, --json, --kind K, --path ПОДСТРОКА, --doc-only, --code-only, --context N,
 --no-notes, --auto (дообновить устаревшие файлы перед поиском), --no-vector (только точный).
 """
@@ -80,6 +86,11 @@ def _fmt_symbols(rows: list[dict]) -> None:
             print(f"    {r['doc'][:160]}")
 
 
+def _graph_limit(limit: int) -> int:
+    """Для видов графа `--limit` по умолчанию (8) мал: берём осмысленный размер окрестности."""
+    return limit if limit > 8 else 300
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("query", nargs="?", default="", help="вопрос")
@@ -100,6 +111,12 @@ def main() -> int:
     ap.add_argument("--history", nargs="?", const="")
     ap.add_argument("--invariants", nargs="?", const="")
     ap.add_argument("--changed", action="store_true")
+    ap.add_argument("--graph", metavar="УЗЕЛ", help="окрестность сущности в графе проекта (функция, файл, роут, таблица)")
+    ap.add_argument("--deps", metavar="ФАЙЛ", help="зависимости модуля: импорты, вызовы, таблицы, роуты")
+    ap.add_argument("--orphans", action="store_true", help="функции без вызовов и без тестов")
+    ap.add_argument("--import-cycles", dest="import_cycles", action="store_true", help="циклы импортов между файлами")
+    ap.add_argument("--depth", type=int, default=1, help="глубина окрестности для --graph (1–4)")
+    ap.add_argument("--direction", choices=("both", "in", "out"), default="both", help="направление связей для --graph")
     a = ap.parse_args()
 
     try:
@@ -223,6 +240,36 @@ def main() -> int:
         if not a.json:
             for r in out:  # type: ignore[union-attr]
                 print(f"  • {redact(r['text'])[:200]}\n      {r['source']}:{r['line']}" + (f"  стражи: {r['guard']}" if r["guard"] else ""))
+    elif a.graph:
+        from app.app.services.project_index import graph as G
+        from app.app.services.project_index import graph_atlas as A
+
+        result = G.neighbors(G.build(conn), a.graph, depth=a.depth, direction=a.direction, limit=_graph_limit(a.limit))
+        out = result
+        if not a.json:
+            print(A.neighbors_text(result, limit=min(_graph_limit(a.limit), 60)))
+    elif a.deps:
+        from app.app.services.project_index import graph as G
+        from app.app.services.project_index import graph_atlas as A
+
+        out = A.module_deps_text(G.build(conn), a.deps, limit=min(_graph_limit(a.limit), 40))
+        if not a.json:
+            print(out)
+    elif a.orphans:
+        from app.app.services.project_index import graph as G
+        from app.app.services.project_index import graph_atlas as A
+
+        total = len(G.orphans(conn, limit=10_000))
+        out = G.orphans(conn, limit=min(_graph_limit(a.limit), 100))
+        if not a.json:
+            print(A.orphans_text(out, total=total))
+    elif a.import_cycles:
+        from app.app.services.project_index import graph as G
+        from app.app.services.project_index import graph_atlas as A
+
+        out = G.import_cycles(conn, limit=20)
+        if not a.json:
+            print(A.cycles_text(out))
     else:
         if not a.query:
             ap.print_help()
