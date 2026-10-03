@@ -1,0 +1,165 @@
+# Инвентарь стенда SKKKK: что реально лежит в проекте и зачем.
+#
+# Зачем: карта проекта описывает код и данные, но не то, что стоит на машине —
+# окружения, портативные инструменты, модели, кэши, конфиги агентов. Этот список
+# закрывает пробел и **проверяется автоматически**:
+#     venv\Scripts\python.exe scripts\check_stand_inventory.py          # что появилось/пропало
+#     venv\Scripts\python.exe scripts\check_stand_inventory.py --docs   # переписать §17 карты
+#     venv\Scripts\python.exe -m pytest app/app/tests/test_stand_inventory.py
+#
+# Правила: `optional: true` — тяжёлое или машинно-зависимое (модели, venv, бинарники,
+# кэши): может отсутствовать на другой машине, это не расхождение карты.
+# Файлы `*.py` здесь не перечисляются: код проверяет scripts/check_map_drift.py.
+# Пометку «в git / не в git» скрипт ставит сам по git status.
+
+version: 1
+updated: "2026-10-03"
+
+roots: [".", "docs", "tools", "venvs", "data", "asr", "app/app/static/vendor"]
+
+# Прямые потомки этих каталогов не проверяются: временный мусор и каталоги IDE
+skip_dirs: ["__pycache__", ".git", ".idea", ".pytest_cache", "tmp"]
+skip_suffix: [".pyc", ".db-shm", ".db-wal", ".db-journal", ".lock", ".log"]
+
+items:
+  # ─── корень проекта ───
+  - {path: ".env", kind: "секреты", purpose: "боевые пароли ролей и ключи (не в git)"}
+  - {path: ".env.example", kind: "шаблон", purpose: "образец .env со всеми переменными"}
+  - {path: ".gitignore", kind: "git", purpose: "что не попадает в репозиторий"}
+  - {path: ".kiloignore", kind: "чужой инструмент", purpose: "исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел)"}
+  - {path: ".kilo", kind: "чужой инструмент", purpose: "рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится)"}
+  - {path: ".mcp.json", kind: "MCP", purpose: "локальный MCP-сервер skkkk-index (tools/projindex_mcp.py)"}
+  - {path: ".claude", kind: "агент", purpose: "конфиг Claude Code: launch.json, worktrees"}
+  - {path: ".cursor", kind: "агент", purpose: "правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max)"}
+  - {path: "AGENTS.md", kind: "инструкции", purpose: "правила работы агента: индекс, коммиты, «Исправлено»"}
+  - {path: "AUDIT_REPORT.md", kind: "отчёт", purpose: "внешний аудит 2026-08: находки с первопричинами (исторический документ)"}
+  - {path: "Companies.example.txt", kind: "шаблон", purpose: "образец справочника компаний"}
+  - {path: "Companies.txt", kind: "данные", purpose: "справочник компаний и сторон проектов (не в git)"}
+  - {path: "INSTALL.bat", kind: "установка", purpose: "установка проекта на новом ПК одной командой"}
+  - {path: "INSTALL.md", kind: "инструкция", purpose: "пошаговая установка и перенос проекта"}
+  - {path: "Login_up.example.txt", kind: "шаблон", purpose: "образец списка допущенных логинов"}
+  - {path: "Login_up.txt", kind: "данные", purpose: "кто имеет право входить в портал (не в git)"}
+  - {path: "opencode.json", kind: "агент", purpose: "конфиг агента opencode: модель LM Studio qwen3.8-27b"}
+  - {path: "pytest.ini", kind: "тесты", purpose: "настройки pytest (маркеры gpu/slow, пути тестов)"}
+  - {path: "README.md", kind: "документ", purpose: "обзор проекта для человека"}
+  - {path: "run_server.ps1", kind: "запуск", purpose: "LM Studio + пресет swift-qwen-24gb (сервер SKKKK не поднимает)"}
+  - {path: "app", kind: "код", purpose: "портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7)"}
+  - {path: "asr", kind: "код", purpose: "ASR: лабораторный контур, легаси-движки, docker, модели (§8)"}
+  - {path: "data", kind: "данные", purpose: "БД, файлы проектов, записи встреч, логи, индексы"}
+  - {path: "docs", kind: "документы", purpose: "план, карта, решения, этапы, промпты, планы, эталоны"}
+  - {path: "experiments", kind: "эксперименты", purpose: "опыты вне рабочего контура: TTS (f5tts, fishspeech), видео (promo_video, procedural-film), диаризация (nemo-diar, diar-presets), Audio, for_anar"}
+  - {path: "Nemotron-3-Diarization", kind: "модель", purpose: "веса Nemotron 3 Diarization (.nemo) — канон диаризации; не в git", optional: true}
+  - {path: "private", kind: "личное", purpose: "заметки вне git: 1C-ARCHITECT-PLAN.md, handoff/BRIEF-1C-DATASET-AGENT.md (локальный .git/info/exclude)"}
+  - {path: "scripts", kind: "код", purpose: "служебные скрипты: запуск, QA, индекс, eval, утилиты (§10)"}
+  - {path: "tests", kind: "пусто", purpose: "остаток: только __pycache__; рабочие тесты — app/app/tests и asr/tests"}
+  - {path: "tools", kind: "инструменты", purpose: "портативные бинарники и внешние сервисы (см. ниже)"}
+  - {path: "vendor", kind: "вендор", purpose: "GigaAMGUI — клон для сборки контейнера GigaAM; не в git", optional: true}
+  - {path: "venv", kind: "окружение", purpose: "Python 3.10.9 портала и всех служебных скриптов", optional: true}
+  - {path: "venvs", kind: "окружения", purpose: "отдельные окружения движков (см. ниже)", optional: true}
+  - {path: "_archive", kind: "архив", purpose: "код и данные разработки, выведенные из контура (см. _archive/README.md)"}
+
+  # ─── docs ───
+  - {path: "docs/agent-exchange", kind: "обмен", purpose: "контракт и письма внешнему агенту (letters/ не в git)"}
+  - {path: "docs/eval", kind: "эталоны", purpose: "золотые наборы для замеров: конфликты, вопросы, факты ТЗ"}
+  - {path: "docs/plans", kind: "планы", purpose: "20 планов развития: индекс, встречи, требования, память решений"}
+  - {path: "docs/project-map", kind: "карта", purpose: "манифест, инвентарь стенда, атлас зависимостей, свод по модулям"}
+  - {path: "docs/prompts", kind: "промпты", purpose: "25 промптов LLM: выжимки, сущности, ТЗ, чат, vision"}
+  - {path: "docs/source", kind: "материалы", purpose: "исходные материалы (в git только README)"}
+  - {path: "docs/stages", kind: "этапы", purpose: "STAGE-00…10 с критериями готовности"}
+  - {path: "docs/AGENT1C-BRIDGE.md", kind: "документ", purpose: "адреса и порты связи с агентом 1С"}
+  - {path: "docs/AUDIT-REPAIR-LOG.md", kind: "журнал", purpose: "журнал исправлений по аудиту"}
+  - {path: "docs/CHANGELOG-DEV.md", kind: "журнал", purpose: "журнал разработки из git (генерируется)"}
+  - {path: "docs/DECISIONS.md", kind: "решения", purpose: "что нельзя менять без пользователя"}
+  - {path: "docs/FINDINGS-2026-09.md", kind: "находки", purpose: "открытые и закрытые находки сентября"}
+  - {path: "docs/HOWTO-MANAGER.md", kind: "инструкция", purpose: "как работать менеджеру проекта"}
+  - {path: "docs/OPERATIONS.md", kind: "инструкция", purpose: "эксплуатация: запуск, бэкапы, индекс, разбор сбоев"}
+  - {path: "docs/PLAN-AGENT-EXCHANGE-V2.md", kind: "план", purpose: "фазы обмена с внешним агентом"}
+  - {path: "docs/PLAN-REVIEW.md", kind: "ревизия", purpose: "результаты ревизии плана"}
+  - {path: "docs/PLAN.md", kind: "план", purpose: "единый пошаговый план проекта"}
+  - {path: "docs/PROJECT-MAP.md", kind: "карта", purpose: "карта проекта: архитектура, API, модули, инварианты"}
+  - {path: "docs/PYCHARM-CUDA-ENCODER.md", kind: "документ", purpose: "настройка CUDA-кодировщика в PyCharm"}
+  - {path: "docs/TESTING.md", kind: "тесты", purpose: "стратегия и команды тестирования"}
+  - {path: "docs/UI-COPY.md", kind: "реестр", purpose: "реестр текстов интерфейса (генерируется)"}
+
+  # ─── tools ───
+  - {path: "tools/android", kind: "эмулятор", purpose: "Android SDK, JDK, AVD pixel7, platform-tools — мобильные проверки комнаты; не в git", optional: true}
+  - {path: "tools/caddy", kind: "сервис", purpose: "caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git", optional: true}
+  - {path: "tools/ffmpeg", kind: "бинарник", purpose: "портативный FFmpeg (если нет в PATH); не в git", optional: true}
+  - {path: "tools/libreoffice", kind: "бинарник", purpose: "LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git", optional: true}
+  - {path: "tools/lightrag", kind: "сервис", purpose: "LightRAG в Docker (:9621): граф знаний по документации"}
+  - {path: "tools/livekit", kind: "сервис", purpose: "livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py"}
+  - {path: "tools/tesseract", kind: "бинарник", purpose: "OCR rus+eng и tessdata; бинарник не в git, языковые данные в git", optional: true}
+  - {path: "tools/projindex_mcp.py", kind: "MCP", purpose: "MCP-сервер индекса карты (stdio): поиск по коду и графу"}
+  - {path: "tools/_monitor_snapshot.py", kind: "утилита", purpose: "снимок состояния для мониторинга"}
+
+  # ─── venvs ───
+  - {path: "venvs/lab", kind: "окружение", purpose: "ONNX-контур ASR: Parakeet-TDT, Sortformer, Silero VAD", optional: true}
+  - {path: "venvs/nemo-diar", kind: "окружение", purpose: "Nemotron 3 Diarization (NeMo + torch) отдельным процессом", optional: true}
+  - {path: "venvs/voice", kind: "окружение", purpose: "DeepFilterNet: голосовой чистильщик комнаты (skkkk-dfn, CPU)", optional: true}
+  - {path: "venvs/gigaam", kind: "окружение", purpose: "легаси-движок GigaAM (asr/engines.json), в рабочем контуре не вызывается", optional: true}
+  - {path: "venvs/tone", kind: "окружение", purpose: "легаси-движок T-one, откат", optional: true}
+  - {path: "venvs/whisper", kind: "окружение", purpose: "легаси-движок Whisper large-v3, откат", optional: true}
+
+  # ─── data ───
+  - {path: "data/app.db", kind: "БД", purpose: "боевая база: проекты, артефакты, сущности, чат, встречи; не в git"}
+  - {path: "data/credentials.db", kind: "БД", purpose: "личные пароли (Argon2id), отдельно от app.db; не в git"}
+  - {path: "data/project_map.db", kind: "БД", purpose: "индекс карты проекта: код, символы, вызовы, роуты, БД; не в git"}
+  - {path: "data/project_map_graph.json", kind: "граф", purpose: "полный граф зависимостей проекта (§16); не в git"}
+  - {path: "data/backups", kind: "бэкапы", purpose: "резервные копии БД и разовые снимки перед правками; не в git"}
+  - {path: "data/caddy", kind: "сертификаты", purpose: "хранилище ACME-сертификатов Caddy; не в git"}
+  - {path: "data/eval", kind: "эталоны", purpose: "золотые наборы и результаты замеров; не в git"}
+  - {path: "data/gigaam", kind: "обмен", purpose: "задания и результаты GigaAM-контейнера (embed_voice); не в git"}
+  - {path: "data/inbox", kind: "входящие", purpose: "входящие материалы до разбора (например записи Телемоста); не в git"}
+  - {path: "data/locks", kind: "блокировки", purpose: "pid и lock GPU-воркера; не в git"}
+  - {path: "data/logs", kind: "логи", purpose: "api.log, worker.log, caddy.log, monitor_loop.log, скриншоты QA; не в git"}
+  - {path: "data/meetings", kind: "записи", purpose: "дорожки, кадры экрана и события встреч по комнатам; не в git"}
+  - {path: "data/models", kind: "модели", purpose: "кэш моделей: huggingface, onnx-asr (Parakeet), onnx-diar (Sortformer); не в git", optional: true}
+  - {path: "data/modelscope-cache", kind: "кэш", purpose: "кэш загрузки моделей ModelScope; не в git", optional: true}
+  - {path: "data/nemo-diar-cache", kind: "кэш", purpose: "кэш NeMo для Nemotron 3; не в git", optional: true}
+  - {path: "data/people", kind: "фото", purpose: "фото карточек (WebP 512/96) по id пользователя; не в git"}
+  - {path: "data/projects", kind: "файлы", purpose: "материалы проектов: оригиналы, parsed, structured, ТЗ; не в git"}
+  - {path: "data/smoke", kind: "песочница", purpose: "данные смоук-прогонов и песочного проекта; не в git"}
+  - {path: "data/tmp", kind: "временное", purpose: "рабочие файлы конвейеров; не в git"}
+  - {path: "data/tools", kind: "движки", purpose: "сторонние движки (openresearchtools-engine, Vulkan) для легаси GGUF-диаризации; не в git", optional: true}
+  - {path: "data/vendor", kind: "вендор", purpose: "вендорные наборы (ui-ux-pro-max-skill); не в git"}
+
+  # ─── asr (каталоги и не-python файлы) ───
+  - {path: "asr/docker", kind: "образы", purpose: "Dockerfile контейнеров ASR: tone.Dockerfile, tone_rest.py"}
+  - {path: "asr/experiments", kind: "пусто", purpose: "остатки экспериментов ASR (только __pycache__)"}
+  - {path: "asr/gigaam-keys", kind: "ключи", purpose: "ключи доступа к GigaAM-контейнеру; не в git"}
+  - {path: "asr/gigaam-logs", kind: "логи", purpose: "логи прогонов GigaAM; не в git"}
+  - {path: "asr/gigaam-patches", kind: "патчи", purpose: "патчи образа GigaAM (vad.py)"}
+  - {path: "asr/gigaam-results", kind: "результаты", purpose: "результаты прогонов GigaAM; не в git"}
+  - {path: "asr/gigaam-uploads", kind: "обмен", purpose: "аудио для GigaAM-контейнера; не в git"}
+  - {path: "asr/lab", kind: "контур", purpose: "боевой лабораторный конвейер: стадии 01–07, диаризация, proof, voice (§8.5)"}
+  - {path: "asr/models", kind: "модели", purpose: "локальные модели: faster-whisper-large-v3, gigaam-v3-e2e-rnnt, t-one, whisper-sherpa; не в git", optional: true}
+  - {path: "asr/out", kind: "вывод", purpose: "dev-вывод ASR (в прод-контуре не читается); не в git"}
+  - {path: "asr/tests", kind: "тесты", purpose: "unit-тесты модулей ASR"}
+  - {path: "asr/whisper-cache", kind: "кэш", purpose: "HF-кэш faster-whisper; не в git", optional: true}
+  - {path: "asr/work", kind: "обмен", purpose: "bridge для Docker-контейнеров ASR (общий mount); не в git"}
+  - {path: "asr/docker-compose.yml", kind: "docker", purpose: "контейнеры ASR: gigaam (рабочий), whisper и tone (откат)"}
+  - {path: "asr/DOCKER.md", kind: "документ", purpose: "как поднимать и обновлять ASR-контейнеры"}
+  - {path: "asr/SETUP.md", kind: "документ", purpose: "установка окружений движков ASR"}
+  - {path: "asr/engines.json", kind: "конфиг", purpose: "пути к интерпретаторам легаси-движков (venvs/whisper, gigaam, tone)"}
+  - {path: "asr/whisper.env", kind: "конфиг", purpose: "переменные whisper-server (модель, язык, device)"}
+
+  # ─── фронтенд-вендоры ───
+  - {path: "app/app/static/vendor/bootstrap", kind: "вендор", purpose: "Bootstrap 5: CSS и bundle JS портала"}
+  - {path: "app/app/static/vendor/cytoscape", kind: "вендор", purpose: "Cytoscape: граф знаний проекта и граф зависимостей"}
+  - {path: "app/app/static/vendor/dfn3", kind: "вендор", purpose: "DeepFilterNet3 WASM (клиентский шумодав выключен, канон — сервер; модели не в git)"}
+  - {path: "app/app/static/vendor/fullcalendar", kind: "вендор", purpose: "FullCalendar: календарь дедлайнов проекта"}
+  - {path: "app/app/static/vendor/livekit", kind: "вендор", purpose: "livekit-client: комната созвона в браузере"}
+
+# ─── машина и внешние приложения: не файлы, проверяются глазами ───
+machine:
+  - {name: "Git LFS", kind: "git", purpose: "git-lfs 3.7.0 установлен, .gitattributes нет; хуки post-checkout/post-commit/post-merge/pre-push — от LFS, к ним в post-commit и post-merge добавлен блок SKKKK-INDEX (обновление индекса в фоне)"}
+  - {name: "Службы Windows (NSSM)", kind: "runtime", purpose: "SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1"}
+  - {name: "Планировщик заданий", kind: "runtime", purpose: "задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел"}
+  - {name: "Ollama", kind: "внешнее", purpose: "bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает"}
+  - {name: "LM Studio", kind: "внешнее", purpose: ":1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) с пресетом swift-qwen-24gb, JIT-автозагрузка выключена"}
+  - {name: "Docker Desktop", kind: "внешнее", purpose: "контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621)"}
+  - {name: "Caddy", kind: "внешнее", purpose: "HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP)"}
+  - {name: "LiveKit", kind: "внешнее", purpose: "native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478"}
+  - {name: "FFmpeg / Tesseract / LibreOffice", kind: "внешнее", purpose: "звук (16 кГц моно), OCR rus+eng, конвертация старых офисных форматов; портативные копии в tools/"}
+  - {name: "Браузеры Playwright", kind: "проверки", purpose: "не скачаны (нет %LOCALAPPDATA%\\ms-playwright); живые проверки идут с --channel chrome в системном Chrome, либо playwright install chromium|webkit"}
+  - {name: "Эмулятор Android", kind: "проверки", purpose: "виртуальный Pixel 7 (Android 14) в tools/android, ускорение WHPX"}

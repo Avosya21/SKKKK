@@ -2031,6 +2031,54 @@ nodes:
     title: "Изолированный стенд живых проверок: uvicorn на :18777 с копией базы, временными паролями и без Caddy/LiveKit/рекордеров (SKKKK_DISABLE_EDGE=1, PERSONAL_PASSWORD=off)"
     tags: [tests, runtime]
 
+  - id: ext_ollama
+    kind: external
+    path: ""
+    title: "Ollama :11434 — bge-m3 на CPU: эмбеддинги индекса, поиска и чата (GPU не занимает)"
+    tags: [external, llm]
+
+  - id: ext_lmstudio
+    kind: external
+    path: ""
+    title: "LM Studio :1234 — LMSTUDIO_MODEL (swift-qwen3.8-27b) с пресетом swift-qwen-24gb, JIT-автозагрузка выключена"
+    tags: [external, llm]
+
+  - id: ext_docker
+    kind: external
+    path: ""
+    title: "Docker Desktop — контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG :9621"
+    tags: [external, docker]
+
+  - id: ext_caddy_binary
+    kind: external
+    path: "tools/caddy/caddy.exe"
+    title: "Caddy (портативный бинарник): HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443"
+    tags: [external, https]
+
+  - id: ext_livekit_binary
+    kind: external
+    path: "tools/livekit/livekit-server.exe"
+    title: "LiveKit native :7880 (не Docker): TCP 7881, UDP mux 50000, TURN 3478"
+    tags: [external, meetings]
+
+  - id: ext_models
+    kind: external
+    path: ""
+    title: "Модели на диске: data/models (onnx-asr Parakeet, onnx-diar Sortformer, huggingface), asr/models (faster-whisper, gigaam-v3, t-one, whisper-sherpa), Nemotron-3-Diarization, vendor/GigaAMGUI"
+    tags: [external, models]
+
+  - id: ext_venvs
+    kind: external
+    path: ""
+    title: "Отдельные окружения: venvs/lab (ONNX), venvs/nemo-diar (NeMo), venvs/voice (DeepFilterNet), venvs/gigaam|tone|whisper (легаси-движки)"
+    tags: [external, runtime]
+
+  - id: ext_portable_tools
+    kind: external
+    path: ""
+    title: "Портативные бинарники в tools/: ffmpeg, tesseract (rus+eng), libreoffice, caddy, livekit — в git не хранятся"
+    tags: [external, tools]
+
   - id: script_qa_publish_wav
     kind: file
     path: scripts/qa_publish_wav.py
@@ -2829,6 +2877,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_check_stand_inventory
+    kind: file
+    path: scripts/check_stand_inventory.py
+    title: "Проверка полноты карты: всё, что лежит на стенде, должно быть в инвентаре `docs/project-map/stand.yaml`."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
@@ -3161,3 +3216,26 @@ edges:
   - {from: script_qa_room, to: ext_playwright_browsers, relation: drives}
   - {from: script_qa_mobile_webkit, to: ext_playwright_browsers, relation: drives}
   - {from: script_qa_mobile_android, to: ext_android_emulator, relation: connects}
+
+  # Стенд: внешние приложения, модели, окружения и портативные инструменты (§17)
+  - {from: svc_ollama_runtime, to: ext_ollama, relation: ensures}
+  - {from: svc_indexing, to: ext_ollama, relation: embeds}
+  - {from: svc_retrieval, to: ext_ollama, relation: embeds}
+  - {from: svc_llm, to: ext_lmstudio, relation: chat}
+  - {from: svc_gpu_phase, to: ext_lmstudio, relation: load_unload}
+  - {from: svc_docker_runtime, to: ext_docker, relation: ensures}
+  - {from: ext_docker, to: docker_gigaam, relation: runs}
+  - {from: ext_docker, to: docker_whisper, relation: runs}
+  - {from: ext_docker, to: docker_tone, relation: runs}
+  - {from: svc_caddy_https, to: ext_caddy_binary, relation: runs}
+  - {from: svc_tls_cert, to: ext_caddy_binary, relation: issues_cert}
+  - {from: svc_edge_runtime, to: ext_livekit_binary, relation: starts}
+  - {from: svc_livekit, to: ext_livekit_binary, relation: runs}
+  - {from: svc_pipeline_lab, to: ext_models, relation: reads}
+  - {from: lab_diar_models, to: ext_models, relation: reads}
+  - {from: lab_cli, to: ext_venvs, relation: runs_in}
+  - {from: svc_pipeline_lab, to: ext_venvs, relation: runs_in}
+  - {from: lab_voice, to: ext_venvs, relation: runs_in}
+  - {from: svc_ffmpeg_tools, to: ext_portable_tools, relation: finds}
+  - {from: svc_tesseract_tools, to: ext_portable_tools, relation: finds}
+  - {from: svc_office_convert, to: ext_portable_tools, relation: finds}

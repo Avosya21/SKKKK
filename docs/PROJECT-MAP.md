@@ -162,6 +162,8 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 
 ## 2. Корень и каталоги
 
+> Ниже — главное; **полный инвентарь стенда** (округления движков, портативные бинарники, модели, кэши, конфиги агентов, машинные факты) — [§17](#17-инвентарь-стенда-генерируется). Полноту проверяет `scripts/check_stand_inventory.py` и тест `app/app/tests/test_stand_inventory.py`.
+
 | Путь | Назначение |
 |------|------------|
 | `C:\1C_NEW_SKKKK\` | Единственный корень проекта |
@@ -1799,6 +1801,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `chat_exports.py` | Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1). |
 | `check_env.ps1` | — |
 | `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
+| `check_stand_inventory.py` | Проверка полноты карты: всё, что лежит на стенде, должно быть в инвентаре `docs/project-map/stand.yaml`. |
 | `check_systems.ps1` | SKKKK — только проверка всех систем, без запуска |
 | `collect_ui_copy.py` | Реестр текстов интерфейса (пункт плана 3.9): собирает русские подписи, подсказки, aria-label и строки JS. |
 | `dedupe_speaker_profiles.py` | Удалить дубликаты speaker_profiles (имена и похожие голоса). |
@@ -1925,6 +1928,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 5. **Версии моделей, кодеков, пакетов** → §1.1; SHA256 лаборатории → `asr/lab/FREEZE.md`. Не менять молча.
 6. После архитектурных изменений → `venv\Scripts\python.exe scripts\index_project_map.py` (нужен Ollama bge-m3). Граф агентов: `lightrag_sync_docs.py` + `lightrag_index.py --wait`.
 7. **Граф зависимостей** (§16): после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py` (пересобирает `data/project_map_graph.json`, `docs/project-map/graph-modules.json` и атлас `DEPENDENCIES.md`).
+8. **Инвентарь стенда** (§17): появилось новое окружение, инструмент, каталог данных или модель — допишите `docs/project-map/stand.yaml` и выполните `venv\Scripts\python.exe scripts\check_stand_inventory.py --docs` (тест `app/app/tests/test_stand_inventory.py` следит, чтобы карта не отставала от диска).
 7. Агенты: правило `.cursor/rules/07-project-map.mdc`.
 
 ---
@@ -1978,6 +1982,180 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 `путь:строка`, клик по связи, фильтр по виду узлов, телефон 390 px без горизонтального скролла) и
 `scripts\qa_pages.py --only /admin/map/graph --shots папка` (вёрстка на шести экранах). Стенд проверок — §12.1.
 
+---
+
+## 17. Инвентарь стенда (генерируется)
+
+<!-- generated:begin stand -->
+
+_Проверено 2026-10-03 04:10: сущностей 114, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+
+### 17.1. Корень проекта
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `.env` | секреты | боевые пароли ролей и ключи (не в git) | нет |
+| `.env.example` | шаблон | образец .env со всеми переменными | да |
+| `.gitignore` | git | что не попадает в репозиторий | да |
+| `.kiloignore` | чужой инструмент | исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел) | нет |
+| `.kilo` | чужой инструмент | рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится) | нет |
+| `.mcp.json` | MCP | локальный MCP-сервер skkkk-index (tools/projindex_mcp.py) | да |
+| `.claude` | агент | конфиг Claude Code: launch.json, worktrees | да |
+| `.cursor` | агент | правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max) | да |
+| `AGENTS.md` | инструкции | правила работы агента: индекс, коммиты, «Исправлено» | да |
+| `AUDIT_REPORT.md` | отчёт | внешний аудит 2026-08: находки с первопричинами (исторический документ) | да |
+| `Companies.example.txt` | шаблон | образец справочника компаний | да |
+| `Companies.txt` | данные | справочник компаний и сторон проектов (не в git) | нет |
+| `INSTALL.bat` | установка | установка проекта на новом ПК одной командой | да |
+| `INSTALL.md` | инструкция | пошаговая установка и перенос проекта | да |
+| `Login_up.example.txt` | шаблон | образец списка допущенных логинов | да |
+| `Login_up.txt` | данные | кто имеет право входить в портал (не в git) | нет |
+| `opencode.json` | агент | конфиг агента opencode: модель LM Studio qwen3.8-27b | да |
+| `pytest.ini` | тесты | настройки pytest (маркеры gpu/slow, пути тестов) | да |
+| `README.md` | документ | обзор проекта для человека | да |
+| `run_server.ps1` | запуск | LM Studio + пресет swift-qwen-24gb (сервер SKKKK не поднимает) | да |
+| `app` | код | портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7) | да |
+| `asr` | код | ASR: лабораторный контур, легаси-движки, docker, модели (§8) | да |
+| `data` | данные | БД, файлы проектов, записи встреч, логи, индексы | нет (не в git) |
+| `docs` | документы | план, карта, решения, этапы, промпты, планы, эталоны | да |
+| `experiments` | эксперименты | опыты вне рабочего контура: TTS (f5tts, fishspeech), видео (promo_video, procedural-film), диаризация (nemo-diar, diar-presets), Audio, for_anar | да |
+| `Nemotron-3-Diarization` | модель | веса Nemotron 3 Diarization (.nemo) — канон диаризации; не в git _(может отсутствовать)_ | нет |
+| `private` | личное | заметки вне git: 1C-ARCHITECT-PLAN.md, handoff/BRIEF-1C-DATASET-AGENT.md (локальный .git/info/exclude) | нет |
+| `scripts` | код | служебные скрипты: запуск, QA, индекс, eval, утилиты (§10) | да |
+| `tests` | пусто | остаток: только __pycache__; рабочие тесты — app/app/tests и asr/tests | нет (не в git) |
+| `tools` | инструменты | портативные бинарники и внешние сервисы (см. ниже) | да |
+| `vendor` | вендор | GigaAMGUI — клон для сборки контейнера GigaAM; не в git _(может отсутствовать)_ | нет |
+| `venv` | окружение | Python 3.10.9 портала и всех служебных скриптов _(может отсутствовать)_ | нет |
+| `venvs` | окружения | отдельные окружения движков (см. ниже) _(может отсутствовать)_ | нет |
+| `_archive` | архив | код и данные разработки, выведенные из контура (см. _archive/README.md) | да |
+
+### 17.2. Документы (`docs/`)
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `docs/agent-exchange` | обмен | контракт и письма внешнему агенту (letters/ не в git) | да |
+| `docs/eval` | эталоны | золотые наборы для замеров: конфликты, вопросы, факты ТЗ | да |
+| `docs/plans` | планы | 20 планов развития: индекс, встречи, требования, память решений | да |
+| `docs/project-map` | карта | манифест, инвентарь стенда, атлас зависимостей, свод по модулям | да |
+| `docs/prompts` | промпты | 25 промптов LLM: выжимки, сущности, ТЗ, чат, vision | да |
+| `docs/source` | материалы | исходные материалы (в git только README) | да |
+| `docs/stages` | этапы | STAGE-00…10 с критериями готовности | да |
+| `docs/AGENT1C-BRIDGE.md` | документ | адреса и порты связи с агентом 1С | да |
+| `docs/AUDIT-REPAIR-LOG.md` | журнал | журнал исправлений по аудиту | да |
+| `docs/CHANGELOG-DEV.md` | журнал | журнал разработки из git (генерируется) | да |
+| `docs/DECISIONS.md` | решения | что нельзя менять без пользователя | да |
+| `docs/FINDINGS-2026-09.md` | находки | открытые и закрытые находки сентября | да |
+| `docs/HOWTO-MANAGER.md` | инструкция | как работать менеджеру проекта | да |
+| `docs/OPERATIONS.md` | инструкция | эксплуатация: запуск, бэкапы, индекс, разбор сбоев | да |
+| `docs/PLAN-AGENT-EXCHANGE-V2.md` | план | фазы обмена с внешним агентом | да |
+| `docs/PLAN-REVIEW.md` | ревизия | результаты ревизии плана | да |
+| `docs/PLAN.md` | план | единый пошаговый план проекта | да |
+| `docs/PROJECT-MAP.md` | карта | карта проекта: архитектура, API, модули, инварианты | да |
+| `docs/PYCHARM-CUDA-ENCODER.md` | документ | настройка CUDA-кодировщика в PyCharm | да |
+| `docs/TESTING.md` | тесты | стратегия и команды тестирования | да |
+| `docs/UI-COPY.md` | реестр | реестр текстов интерфейса (генерируется) | да |
+
+### 17.3. Инструменты (`tools/`)
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `tools/android` | эмулятор | Android SDK, JDK, AVD pixel7, platform-tools — мобильные проверки комнаты; не в git _(может отсутствовать)_ | нет (не в git) |
+| `tools/caddy` | сервис | caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git _(может отсутствовать)_ | да |
+| `tools/ffmpeg` | бинарник | портативный FFmpeg (если нет в PATH); не в git _(может отсутствовать)_ | нет |
+| `tools/libreoffice` | бинарник | LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git _(может отсутствовать)_ | нет |
+| `tools/lightrag` | сервис | LightRAG в Docker (:9621): граф знаний по документации | да |
+| `tools/livekit` | сервис | livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py | да |
+| `tools/tesseract` | бинарник | OCR rus+eng и tessdata; бинарник не в git, языковые данные в git _(может отсутствовать)_ | да |
+| `tools/projindex_mcp.py` | MCP | MCP-сервер индекса карты (stdio): поиск по коду и графу | да |
+| `tools/_monitor_snapshot.py` | утилита | снимок состояния для мониторинга | да |
+
+### 17.4. Окружения (`venvs/`)
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `venvs/lab` | окружение | ONNX-контур ASR: Parakeet-TDT, Sortformer, Silero VAD _(может отсутствовать)_ | нет |
+| `venvs/nemo-diar` | окружение | Nemotron 3 Diarization (NeMo + torch) отдельным процессом _(может отсутствовать)_ | нет |
+| `venvs/voice` | окружение | DeepFilterNet: голосовой чистильщик комнаты (skkkk-dfn, CPU) _(может отсутствовать)_ | нет |
+| `venvs/gigaam` | окружение | легаси-движок GigaAM (asr/engines.json), в рабочем контуре не вызывается _(может отсутствовать)_ | нет |
+| `venvs/tone` | окружение | легаси-движок T-one, откат _(может отсутствовать)_ | нет |
+| `venvs/whisper` | окружение | легаси-движок Whisper large-v3, откат _(может отсутствовать)_ | нет |
+
+### 17.5. Данные (`data/`)
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `data/app.db` | БД | боевая база: проекты, артефакты, сущности, чат, встречи; не в git | нет |
+| `data/credentials.db` | БД | личные пароли (Argon2id), отдельно от app.db; не в git | нет |
+| `data/project_map.db` | БД | индекс карты проекта: код, символы, вызовы, роуты, БД; не в git | нет |
+| `data/project_map_graph.json` | граф | полный граф зависимостей проекта (§16); не в git | нет |
+| `data/backups` | бэкапы | резервные копии БД и разовые снимки перед правками; не в git | нет |
+| `data/caddy` | сертификаты | хранилище ACME-сертификатов Caddy; не в git | нет |
+| `data/eval` | эталоны | золотые наборы и результаты замеров; не в git | нет |
+| `data/gigaam` | обмен | задания и результаты GigaAM-контейнера (embed_voice); не в git | нет |
+| `data/inbox` | входящие | входящие материалы до разбора (например записи Телемоста); не в git | нет |
+| `data/locks` | блокировки | pid и lock GPU-воркера; не в git | нет |
+| `data/logs` | логи | api.log, worker.log, caddy.log, monitor_loop.log, скриншоты QA; не в git | нет |
+| `data/meetings` | записи | дорожки, кадры экрана и события встреч по комнатам; не в git | нет |
+| `data/models` | модели | кэш моделей: huggingface, onnx-asr (Parakeet), onnx-diar (Sortformer); не в git _(может отсутствовать)_ | нет |
+| `data/modelscope-cache` | кэш | кэш загрузки моделей ModelScope; не в git _(может отсутствовать)_ | нет |
+| `data/nemo-diar-cache` | кэш | кэш NeMo для Nemotron 3; не в git _(может отсутствовать)_ | нет |
+| `data/people` | фото | фото карточек (WebP 512/96) по id пользователя; не в git | нет |
+| `data/projects` | файлы | материалы проектов: оригиналы, parsed, structured, ТЗ; не в git | нет |
+| `data/smoke` | песочница | данные смоук-прогонов и песочного проекта; не в git | нет |
+| `data/tmp` | временное | рабочие файлы конвейеров; не в git | нет |
+| `data/tools` | движки | сторонние движки (openresearchtools-engine, Vulkan) для легаси GGUF-диаризации; не в git _(может отсутствовать)_ | нет |
+| `data/vendor` | вендор | вендорные наборы (ui-ux-pro-max-skill); не в git | нет |
+
+### 17.6. ASR (`asr/`)
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `asr/docker` | образы | Dockerfile контейнеров ASR: tone.Dockerfile, tone_rest.py | да |
+| `asr/experiments` | пусто | остатки экспериментов ASR (только __pycache__) | нет (не в git) |
+| `asr/gigaam-keys` | ключи | ключи доступа к GigaAM-контейнеру; не в git | нет |
+| `asr/gigaam-logs` | логи | логи прогонов GigaAM; не в git | нет |
+| `asr/gigaam-patches` | патчи | патчи образа GigaAM (vad.py) | да |
+| `asr/gigaam-results` | результаты | результаты прогонов GigaAM; не в git | нет |
+| `asr/gigaam-uploads` | обмен | аудио для GigaAM-контейнера; не в git | нет |
+| `asr/lab` | контур | боевой лабораторный конвейер: стадии 01–07, диаризация, proof, voice (§8.5) | да |
+| `asr/models` | модели | локальные модели: faster-whisper-large-v3, gigaam-v3-e2e-rnnt, t-one, whisper-sherpa; не в git _(может отсутствовать)_ | нет |
+| `asr/out` | вывод | dev-вывод ASR (в прод-контуре не читается); не в git | нет |
+| `asr/tests` | тесты | unit-тесты модулей ASR | да |
+| `asr/whisper-cache` | кэш | HF-кэш faster-whisper; не в git _(может отсутствовать)_ | да |
+| `asr/work` | обмен | bridge для Docker-контейнеров ASR (общий mount); не в git | нет |
+| `asr/docker-compose.yml` | docker | контейнеры ASR: gigaam (рабочий), whisper и tone (откат) | да |
+| `asr/DOCKER.md` | документ | как поднимать и обновлять ASR-контейнеры | да |
+| `asr/SETUP.md` | документ | установка окружений движков ASR | да |
+| `asr/engines.json` | конфиг | пути к интерпретаторам легаси-движков (venvs/whisper, gigaam, tone) | да |
+| `asr/whisper.env` | конфиг | переменные whisper-server (модель, язык, device) | да |
+
+### 17.7. Вендоры фронтенда (`app/app/static/vendor/`)
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `app/app/static/vendor/bootstrap` | вендор | Bootstrap 5: CSS и bundle JS портала | нет |
+| `app/app/static/vendor/cytoscape` | вендор | Cytoscape: граф знаний проекта и граф зависимостей | нет |
+| `app/app/static/vendor/dfn3` | вендор | DeepFilterNet3 WASM (клиентский шумодав выключен, канон — сервер; модели не в git) | нет |
+| `app/app/static/vendor/fullcalendar` | вендор | FullCalendar: календарь дедлайнов проекта | нет |
+| `app/app/static/vendor/livekit` | вендор | livekit-client: комната созвона в браузере | нет |
+
+### 17.8. Машина и внешние приложения
+
+| Что | Вид | Назначение |
+|---|---|---|
+| Git LFS | git | git-lfs 3.7.0 установлен, .gitattributes нет; хуки post-checkout/post-commit/post-merge/pre-push — от LFS, к ним в post-commit и post-merge добавлен блок SKKKK-INDEX (обновление индекса в фоне) |
+| Службы Windows (NSSM) | runtime | SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1 |
+| Планировщик заданий | runtime | задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел |
+| Ollama | внешнее | bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает |
+| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) с пресетом swift-qwen-24gb, JIT-автозагрузка выключена |
+| Docker Desktop | внешнее | контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621) |
+| Caddy | внешнее | HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP) |
+| LiveKit | внешнее | native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478 |
+| FFmpeg / Tesseract / LibreOffice | внешнее | звук (16 кГц моно), OCR rus+eng, конвертация старых офисных форматов; портативные копии в tools/ |
+| Браузеры Playwright | проверки | не скачаны (нет %LOCALAPPDATA%\ms-playwright); живые проверки идут с --channel chrome в системном Chrome, либо playwright install chromium|webkit |
+| Эмулятор Android | проверки | виртуальный Pixel 7 (Android 14) в tools/android, ускорение WHPX |
+
+<!-- generated:end stand -->
 ---
 
 ## Архив разработки

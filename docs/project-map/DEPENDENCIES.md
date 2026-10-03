@@ -16,27 +16,27 @@ venv\Scripts\python.exe scripts\export_project_graph.py
 
 <!-- generated:begin atlas -->
 
-_Собрано: 2026-10-03 03:49 · индекс от 2026-10-03 03:47 · коммит `6c9c19eb` · узлов 8079, рёбер 32517_
+_Собрано: 2026-10-03 04:11 · индекс от 2026-10-03 04:11 · коммит `620e8435` · узлов 8116, рёбер 32622_
 
 ## 1. Из чего состоит граф
 
 | Узлы | Штук |
 |---|---|
-| символ | 6570 |
-| файл | 673 |
+| символ | 6596 |
+| файл | 675 |
 | элемент интерфейса | 361 |
 | роут | 155 |
-| коммит | 143 |
+| коммит | 144 |
 | окружение | 131 |
 | таблица БД | 33 |
-| узел карты | 13 |
+| узел карты | 21 |
 
 | Связь | Смысл | Штук |
 |---|---|---|
-| `calls` | вызывает | 13328 |
-| `defines` | определяет | 6570 |
-| `covers` | покрывает тестом | 5528 |
-| `changed` | изменил | 2060 |
+| `calls` | вызывает | 13360 |
+| `defines` | определяет | 6596 |
+| `covers` | покрывает тестом | 5545 |
+| `changed` | изменил | 2070 |
 | `calls_ref` | передаёт как значение | 1383 |
 | `imports` | импортирует | 1108 |
 | `handled_by` | обрабатывается в JS | 407 |
@@ -50,8 +50,8 @@ _Собрано: 2026-10-03 03:49 · индекс от 2026-10-03 03:47 · ко�
 | `calls_api` | вызывает API | 34 |
 | `m:imports` | imports | 17 |
 | `m:mounts` | mounts | 12 |
+| `m:reads` | reads | 12 |
 | `m:subprocess` | subprocess | 11 |
-| `m:reads` | reads | 10 |
 | `m:calls` | calls | 8 |
 | `m:runs_stage` | runs_stage | 7 |
 | `m:persists` | persists | 6 |
@@ -59,27 +59,27 @@ _Собрано: 2026-10-03 03:49 · индекс от 2026-10-03 03:47 · ко�
 | `m:api` | api | 5 |
 | `m:require_project` | require_project | 4 |
 
-Всего связей: **32517**; видов: 203.
+Всего связей: **32622**; видов: 211.
 
 ## 2. Подсистемы и их связи
 
 | Подсистема | Файлов | Узлов | Связей наружу | Связей внутрь |
 |---|---|---|---|---|
-| сервисы | 112 | 2401 | 1280 | 6287 |
-| тесты | 140 | 1605 | 8525 | 4 |
+| сервисы | 112 | 2401 | 1282 | 6297 |
+| тесты | 141 | 1615 | 8551 | 4 |
 | ASR-скрипты | 45 | 605 | 567 | 522 |
-| шаблоны | 17 | 520 | 285 | 285 |
-| служебные скрипты | 80 | 492 | 798 | 536 |
+| шаблоны | 17 | 520 | 285 | 286 |
+| служебные скрипты | 81 | 510 | 807 | 555 |
 | роутеры | 16 | 418 | 1761 | 1060 |
 | фронтенд | 13 | 304 | 42 | 867 |
 | лаборатория ASR | 16 | 279 | 126 | 767 |
 | тесты ASR | 35 | 267 | 858 | 1 |
 | ядро API | 16 | 252 | 121 | 2076 |
-| карта проекта | 11 | 232 | 217 | 396 |
-| комната LiveKit | 4 | 133 | 103 | 298 |
+| карта проекта | 11 | 232 | 217 | 397 |
+| комната LiveKit | 4 | 134 | 103 | 299 |
 | стадии ASR | 8 | 87 | 133 | 148 |
 | модели БД | 20 | 71 | 19 | 1736 |
-| смоук портала | 19 | 52 | 114 | 3 |
+| смоук портала | 19 | 52 | 114 | 7 |
 | .cursor | 29 | 29 | 0 | 0 |
 | промпты LLM | 25 | 25 | 0 | 9 |
 | .env.example | 1 | 21 | 0 | 0 |
@@ -88,7 +88,7 @@ _Собрано: 2026-10-03 03:49 · индекс от 2026-10-03 03:47 · ко�
 | документация | 18 | 18 | 1 | 0 |
 | MCP портала | 2 | 12 | 29 | 33 |
 | этапы | 12 | 12 | 0 | 0 |
-| инструменты | 3 | 11 | 21 | 11 |
+| инструменты | 3 | 12 | 21 | 12 |
 | {artifact} | 0 | 3 | 0 | 6 |
 | корень | 0 | 3 | 3 | 3 |
 | app | 2 | 2 | 0 | 0 |
@@ -125,10 +125,10 @@ flowchart LR
   g18["фронтенд"]
   g19["шаблоны"]
   g20["ядро API"]
-  g16 -->|4799| g12
+  g16 -->|4802| g12
   g16 -->|1115| g9
   g16 -->|1003| g11
-  g13 -->|949| g12
+  g13 -->|973| g12
   g16 -->|863| g20
   g0 -->|846| g12
   g11 -->|839| g20
@@ -147,14 +147,14 @@ flowchart LR
   g16 -->|203| g19
   g16 -->|195| g8
   g8 -->|177| g12
+  g16 -->|147| g13
   g12 -->|145| g8
   g16 -->|142| g0
   g15 -->|141| g8
   g5 -->|136| g8
-  g16 -->|128| g13
   g6 -->|127| g12
   g17 -->|116| g15
-  g13 -->|107| g5
+  g13 -->|108| g5
 ```
 
 ## 3. База данных: кто пишет и кто читает
@@ -851,7 +851,7 @@ flowchart LR
 | Подсистема | Файл | Тестовых файлов |
 |---|---|---|
 | сервисы | app/app/services/meeting_recordings.py | 81 |
-| сервисы | app/app/services/people.py | 74 |
+| сервисы | app/app/services/people.py | 75 |
 | ядро API | app/app/config.py | 66 |
 | комната LiveKit | tools/livekit/screen_recorder.py | 59 |
 | фронтенд | app/app/static/px_agent.js | 47 |
@@ -860,7 +860,7 @@ flowchart LR
 | модели БД | app/app/models/artifact.py | 39 |
 | роутеры | app/app/routers/projects.py | 39 |
 | модели БД | app/app/models/project.py | 37 |
-| служебные скрипты | scripts/qa_room.py | 27 |
+| служебные скрипты | scripts/qa_room.py | 28 |
 | сервисы | app/app/services/storage.py | 26 |
 | фронтенд | app/app/static/app.js | 26 |
 | сервисы | app/app/services/user_profile_console.py | 25 |
@@ -876,7 +876,7 @@ flowchart LR
 | карта проекта | app/app/services/project_index/store.py | 13 |
 | лаборатория ASR | asr/lab/pipeline.py | 13 |
 
-Файлов Python без тестов: **44** из 506. Первые 25:
+Файлов Python без тестов: **44** из 508. Первые 25:
 
 - `app/app/__init__.py`
 - `app/app/cursor_compat.py`
@@ -908,16 +908,16 @@ flowchart LR
 
 | Узел | Вид | Адрес | Исходящих | Входящих |
 |---|---|---|---|---|
-| `get` | символ | `app/app/services/people.py:116` | 3 | 3605 |
-| `append` | символ | `app/app/services/meeting_recordings.py:397` | 1 | 1193 |
-| `join` | символ | `scripts/qa_room.py:72` | 1 | 697 |
+| `get` | символ | `app/app/services/people.py:116` | 3 | 3621 |
+| `append` | символ | `app/app/services/meeting_recordings.py:397` | 1 | 1202 |
+| `join` | символ | `scripts/qa_room.py:72` | 1 | 705 |
 | `post` | символ | `app/app/static/px_agent.js:24` | 1 | 690 |
 | `get_settings` | символ | `app/app/config.py:159` | 1 | 656 |
 | `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 368 |
 | `close` | символ | `app/app/services/meeting_recordings.py:759` | 1 | 446 |
 | `execute` | символ | `asr/lab/pipeline.py:108` | 6 | 346 |
 | `Снимок проекта для приватного репозитория SKKKK` | коммит | `:` | 349 | 0 |
-| `resolve` | символ | `app/app/services/people.py:181` | 13 | 329 |
+| `resolve` | символ | `app/app/services/people.py:181` | 13 | 331 |
 | `project.html` | файл | `app/app/templates/project.html:` | 225 | 98 |
 | `Artifact` | символ | `app/app/models/artifact.py:13` | 0 | 323 |
 | `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 57 | 241 |
@@ -926,8 +926,8 @@ flowchart LR
 | `log_event` | символ | `app/app/logging_setup.py:71` | 3 | 267 |
 | `Первое сохранение Primary Analytics` | коммит | `:` | 263 | 0 |
 | `User` | символ | `app/app/models/user.py:13` | 0 | 234 |
-| `check` | символ | `scripts/index_doctor.py:32` | 21 | 198 |
 | `Turn` | символ | `app/app/services/transcript_turns.py:32` | 0 | 216 |
+| `check` | символ | `scripts/check_stand_inventory.py:87` | 12 | 200 |
 | `Settings` | символ | `app/app/config.py:13` | 68 | 142 |
 | `Project` | символ | `app/app/models/project.py:14` | 0 | 208 |
 | `create_project` | символ | `app/app/routers/projects.py:36` | 15 | 186 |
