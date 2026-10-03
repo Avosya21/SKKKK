@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{# Страница «Граф зависимостей» (/admin/map/graph, только admin): модульный свод по файлам и окрестность
+   отдельного узла — Cytoscape, легенда-фильтры по видам узлов и связей, панель выбранного узла.
+   Данные — /admin/map/graph/summary и /admin/map/graph/data (только чтение индекса карты). #}
+{% block extra_head %}
+<style>
+  /* Только токены дизайн-системы (--ds-*) и классы Bootstrap — своих цветов нет. */
+  .amg-panel { background: var(--ds-surface); border: 1px solid var(--ds-line); border-radius: var(--ds-r-md); }
+  .amg-section { font-weight: 600; font-size: .9rem; color: var(--ds-text); }
+  .amg-hint { color: var(--ds-muted); font-size: .8rem; }
+  .amg-legend { max-height: 210px; overflow: auto; }
+  .amg-legend label { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: var(--ds-text-2); }
+  .amg-legend .amg-count { margin-left: auto; color: var(--ds-muted); font-variant-numeric: tabular-nums; }
+  .amg-swatch { width: .7rem; height: .7rem; flex: 0 0 auto; border-radius: 3px; border: 1px solid var(--ds-line-strong); background: var(--ds-surface-2); }
+  .amg-canvas {
+    width: 100%; height: min(70vh, 720px); background: var(--ds-surface);
+    border: 1px solid var(--ds-line); border-radius: var(--ds-r-md);
+  }
+  .amg-canvas:focus-visible { outline: none; box-shadow: var(--ds-ring); }
+  .amg-list { max-height: 260px; overflow: auto; }
+  .amg-list .list-group-item { font-size: .85rem; }
+  .amg-props dt { color: var(--ds-muted); font-weight: 500; font-size: .8rem; }
+  .amg-props dd { font-size: .85rem; }
+  .amg-empty { color: var(--ds-muted); font-size: .9rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-baseline mb-2">
+  <h1 class="h4 mb-0">Граф зависимостей</h1>
+  <a class="small" href="/admin/map">← Карта проекта</a>
+</div>
+<p class="text-muted small mb-3">
+  Что от чего зависит: файлы, функции, роуты, таблицы, переменные окружения и элементы интерфейса.
+  По умолчанию — свод по файлам; отдельный узел показывается вместе со своими связями. Только для администратора.
+</p>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-4 col-xxl-3">
+    <div class="amg-panel p-3 mb-3">
+      <div class="amg-section mb-2">Что показать</div>
+      <form id="amg-search-form" class="mb-2" autocomplete="off">
+        <label class="form-label small" for="amg-q">Узел: имя функции, файл или роут</label>
+        <div class="input-group input-group-sm">
+          <input id="amg-q" class="form-control" maxlength="300" placeholder="get_db, app/app/db.py, POST /chat…" aria-label="Узел для поиска">
+          <button class="btn btn-dark" type="submit" id="amg-search" data-idle-label="Найти">Найти</button>
+        </div>
+      </form>
+      <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Вид графа">
+        <input type="radio" class="btn-check" name="amg-view" id="amg-view-modules" value="modules" checked>
+        <label class="btn btn-outline-secondary" for="amg-view-modules">Модули</label>
+        <input type="radio" class="btn-check" name="amg-view" id="amg-view-entities" value="entities">
+        <label class="btn btn-outline-secondary" for="amg-view-entities">Сущности</label>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-12">
+          <label class="form-label small" for="amg-group">Подсистема</label>
+          <select id="amg-group" class="form-select form-select-sm" aria-label="Подсистема">
+            <option value="">Все подсистемы (в режиме «Сущности»)</option>
+            {% for name in subsystems or [] %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label small" for="amg-depth">Глубина связей</label>
+          <select id="amg-depth" class="form-select form-select-sm" aria-label="Глубина связей">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label small" for="amg-direction">Направление</label>
+          <select id="amg-direction" class="form-select form-select-sm" aria-label="Направление связей">
+            <option value="both" selected>В обе стороны</option>
+            <option value="out">Только исходящие</option>
+            <option value="in">Только входящие</option>
+          </select>
+        </div>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="amg-reset">Сбросить</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="amg-limit-more">Показать больше узлов</button>
+      </div>
+      <div class="amg-hint mt-2" id="amg-view-hint">Свод по файлам: видно, какие файлы зависят от каких.</div>
+    </div>
+
+    <div class="amg-panel p-3 mb-3">
+      <div class="amg-section mb-1">Виды узлов</div>
+      <div class="amg-hint mb-2" id="amg-kinds-hint">Снятая галочка скрывает вид.</div>
+      <div class="amg-legend" id="amg-kinds"></div>
+    </div>
+
+    <div class="amg-panel p-3 mb-3">
+      <div class="amg-section mb-1">Виды связей</div>
+      <div class="amg-hint mb-2" id="amg-relations-hint">Снятая галочка скрывает вид связи.</div>
+      <div class="amg-legend" id="amg-relations"></div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-8 col-xxl-9">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+      <span class="badge text-bg-secondary" id="amg-counters" role="status">Загружаю…</span>
+      <span class="badge text-bg-warning d-none" id="amg-truncated"></span>
+      <span class="badge text-bg-warning d-none" id="amg-stale"></span>
+      <span class="amg-hint" id="amg-source"></span>
+    </div>
+    <div id="amg-notes" class="vstack gap-2 mb-2"></div>
+    <div id="amg-canvas" class="amg-canvas" tabindex="0" role="img" aria-label="Граф зависимостей проекта"></div>
+    <div class="amg-hint mt-2 mb-3">Колесо мыши — масштаб, перетаскивание — сдвиг, клик по узлу — связи и адрес в коде.</div>
+
+    <div class="amg-panel p-3 d-none" id="amg-node">
+      <div class="d-flex flex-wrap gap-2 align-items-baseline mb-1">
+        <span class="amg-section text-break" id="amg-node-title"></span>
+        <span class="badge text-bg-secondary" id="amg-node-kind"></span>
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="amg-node-close">Закрыть</button>
+      </div>
+      <div class="mb-2 text-break" id="amg-node-where"></div>
+      <dl class="row g-1 mb-2 amg-props" id="amg-node-props"></dl>
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <div class="amg-section mb-1">Входящие связи</div>
+          <div class="list-group amg-list" id="amg-node-in"></div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="amg-section mb-1">Исходящие связи</div>
+          <div class="list-group amg-list" id="amg-node-out"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="amg-labels" type="application/json">{{ {"kinds": node_kinds or {}, "relations": relation_labels or {}, "subsystems": subsystems or []}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/cytoscape/cytoscape.min.js?v=3.30.2"></script>
+<script src="/static/admin_map_graph.js?v=1"></script>
+{% endblock %}

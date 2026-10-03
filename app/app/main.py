@@ -40,6 +40,7 @@ from app.app.models.user import User  # noqa: E402
 from app.app.routers import (  # noqa: E402
     acme,
     admin_map,
+    admin_map_graph,
     auth,
     knowledge,
     meetings,
@@ -242,6 +243,7 @@ app.include_router(knowledge.router)
 app.include_router(project_mcp.router)
 app.include_router(requirement_review.router)
 app.include_router(admin_map.router)
+app.include_router(admin_map_graph.router)
 app.include_router(project_members.router)
 app.include_router(project_people.router)
 app.include_router(companies_admin.router)

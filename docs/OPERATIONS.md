@@ -249,6 +249,7 @@ pytest app -m "not gpu" -q
 | Поиск | `venv\Scripts\python.exe scripts\search_project_map.py "вопрос"` (режимы: `--help`) |
 | Диагностика | `venv\Scripts\python.exe scripts\index_doctor.py` |
 | Расхождения карты и кода | `venv\Scripts\python.exe scripts\check_map_drift.py` (`--fix` — реестр модулей и узлы манифеста) |
+| Граф зависимостей: полный граф, свод по подсистемам, атлас | `venv\Scripts\python.exe scripts\export_project_graph.py` (см. §16 карты; `--stats` — только цифры) |
 | Качество поиска | `venv\Scripts\python.exe scripts\eval_index.py --show-misses` (набор: `docs/eval/index_questions.json`) |
 | Автообновление после коммита | `powershell -ExecutionPolicy Bypass -File scripts\install_hooks.ps1` (снять: `-Remove`) |
 
@@ -257,6 +258,7 @@ pytest app -m "not gpu" -q
 - Если поиск пишет «индекс отстаёт» — запустите индексатор (или `search_project_map.py --auto`). `index_doctor.py` показывает возраст индекса, число устаревших файлов и фрагментов без вектора.
 - В индекс не попадают `.env`, `Login_up.txt`, `*.db`, ключи; значения похожих на секреты строк маскируются. Список — `scripts/index_config.yaml`.
 - Страница `/admin/map` (только admin) и MCP-сервер `skkkk-index` (`.mcp.json`, только чтение, локально по stdio) — те же режимы.
+- Граф зависимостей (§16 карты): полный граф — `data/project_map_graph.json` (рабочий артефакт, в git не хранится), свод — `docs/project-map/graph-modules.json`, атлас — `docs/project-map/DEPENDENCIES.md`, страница — `/admin/map/graph` (только admin). Пересобирать после правок кода: `scripts\export_project_graph.py`. Вопросы к графу из терминала — `search_project_map.py --graph ИМЯ --depth 2`, `--deps ФАЙЛ`, `--orphans`, `--import-cycles`.
 
 ## Перенос проекта на другой ПК
 

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {# Страница «Карта проекта» (/admin/map, только admin): поиск по индексу кода, документов и связей #}
 {% block content %}
-<h1 class="h4 mb-2">Карта проекта</h1>
+<div class="d-flex flex-wrap gap-2 align-items-baseline mb-2">
+  <h1 class="h4 mb-0">Карта проекта</h1>
+  <a class="small" href="/admin/map/graph">Граф зависимостей проекта</a>
+</div>
 <p class="text-muted small mb-3">Поиск по коду, связям, базе, окружению и истории. Только для администратора. Источник — индекс <code>data/project_map.db</code>.</p>
 <form id="map-form" class="row g-2 mb-3" autocomplete="off">
   <div class="col-12 col-md-7"><input id="map-q" class="form-control" placeholder="Вопрос или имя: log_activity, GET /projects/1/artifacts, meeting_participants…" aria-label="Запрос" maxlength="300"></div>

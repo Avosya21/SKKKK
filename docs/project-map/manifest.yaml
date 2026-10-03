@@ -2769,6 +2769,48 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: router_admin_map_graph
+    kind: router
+    path: app/app/routers/admin_map_graph.py
+    title: "Страница «Граф зависимостей» (/admin/map/graph): все сущности проекта и все связи между ними. Только admin."
+    tags: [auto]
+    auto: true
+
+  - id: svc_graph_auto
+    kind: service
+    path: app/app/services/project_index/graph.py
+    title: "Граф зависимостей проекта: все сущности и все связи между ними — из индекса (`data/project_map.db`) и карты."
+    tags: [auto]
+    auto: true
+
+  - id: svc_graph_atlas
+    kind: service
+    path: app/app/services/project_index/graph_atlas.py
+    title: "Атлас зависимостей и текстовые виды графа проекта: markdown для человека, строки для CLI и MCP."
+    tags: [auto]
+    auto: true
+
+  - id: static_admin_map_graph
+    kind: file
+    path: app/app/static/admin_map_graph.js
+    title: "Страница «Граф зависимостей» (/admin/map/graph): Cytoscape-схема узлов и связей проекта."
+    tags: [auto]
+    auto: true
+
+  - id: ui_admin_map_graph
+    kind: file
+    path: app/app/templates/admin_map_graph.html
+    title: "Страница «Граф зависимостей» (/admin/map/graph, только admin): модульный свод по файлам и окрестность отдельного узла — Cytoscape, легенда-ф"
+    tags: [auto]
+    auto: true
+
+  - id: script_export_project_graph
+    kind: file
+    path: scripts/export_project_graph.py
+    title: "Сборка графа зависимостей проекта: полный граф, свод по модулям, атлас для человека, выгрузки для Gephi/yEd."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
