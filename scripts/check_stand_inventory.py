@@ -84,6 +84,60 @@ def _git_state(rel: str) -> str:
         return "unknown"
 
 
+def _doc_title(path: Path) -> str:
+    """Заголовок документа для указателя: первый `# …` или первая непустая строка."""
+    try:
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            return text.lstrip("#").strip()[:110] or path.name
+    except OSError:
+        pass
+    return path.name
+
+
+def _doc_index(spec: dict) -> list[tuple[str, str]]:
+    """Указатель документов каталогов карты: (путь, заголовок) — чтобы ни один документ не остался невидимым."""
+    out: list[tuple[str, str]] = []
+    for directory in spec.get("doc_dirs") or []:
+        base = ROOT / directory
+        if not base.is_dir():
+            continue
+        for child in sorted(base.iterdir()):
+            if not child.is_file() or child.name.endswith((".pyc", ".db")):
+                continue
+            rel = f"{directory}/{child.name}"
+            if _git_state(rel) == "ignored":
+                continue
+            out.append((rel, _doc_title(child)))
+    return out
+
+
+def _doc_orphans(spec: dict) -> list[str]:
+    """Файлы каталогов документов, не упомянутые ни в одном документе карты (и не игнорируемые git)."""
+    sources = []
+    for rel in spec.get("doc_sources") or []:
+        path = ROOT / rel
+        if path.is_file():
+            sources.append(path.read_text(encoding="utf-8", errors="ignore"))
+    text = "\n".join(sources)
+    orphans: list[str] = []
+    for directory in spec.get("doc_dirs") or []:
+        base = ROOT / directory
+        if not base.is_dir():
+            continue
+        for child in sorted(base.iterdir()):
+            if not child.is_file() or child.name == "README.md" or child.name.endswith((".pyc", ".db")):
+                continue
+            rel = f"{directory}/{child.name}"
+            if _git_state(rel) == "ignored":  # локальные выгрузки и эксперименты вне git не требуются в карте
+                continue
+            if child.name not in text:
+                orphans.append(rel)
+    return orphans
+
+
 def check(spec: dict | None = None) -> dict:
     """Сверка инвентаря с диском."""
     spec = spec if spec is not None else load_stand()
@@ -103,7 +157,9 @@ def check(spec: dict | None = None) -> dict:
     rows = [{"path": str(i["path"]), "kind": str(i.get("kind") or ""), "purpose": str(i.get("purpose") or ""),
              "optional": bool(i.get("optional")), "state": _git_state(str(i["path"]))} for i in items]
     return {"unknown": unknown, "absent": sorted(absent), "absent_optional": sorted(absent_optional),
-            "rows": rows, "machine": spec.get("machine") or [], "total": len(items),
+            "orphan_docs": _doc_orphans(spec), "doc_index": _doc_index(spec), "doc_dirs": spec.get("doc_dirs") or [],
+            "rows": rows,
+            "machine": spec.get("machine") or [], "total": len(items),
             "checked_at": time.strftime("%Y-%m-%d %H:%M")}
 
 
@@ -114,10 +170,11 @@ def render_docs(report: dict) -> str:
              f"_Проверено {report['checked_at']}: сущностей {report['total']}, "
              f"не описано {len(report['unknown'])}, пропало {len(report['absent'])}. "
              f"Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._", ""]
-    if report["unknown"] or report["absent"]:
+    if report["unknown"] or report["absent"] or report.get("orphan_docs"):
         lines += ["**Расхождения:**", ""]
         lines += [f"- есть на диске, но не описано: `{path}`" for path in report["unknown"]]
         lines += [f"- описано, но не найдено: `{path}`" for path in report["absent"]]
+        lines += [f"- документ не упомянут ни в одном документе карты: `{path}`" for path in report.get("orphan_docs") or []]
         lines.append("")
     used: set[str] = set()
     number = 0
@@ -141,6 +198,15 @@ def render_docs(report: dict) -> str:
         for row in rest:
             lines.append(f'| `{row["path"]}` | {row["kind"]} | {row["purpose"]} | '
                          f'{_STATE_LABEL.get(row["state"], row["state"])} |')
+        lines.append("")
+    if report.get("doc_index"):
+        number += 1
+        dirs = ", ".join(f"`{d}`" for d in report.get("doc_dirs") or [])
+        lines += [f"### 17.{number}. Документы каталогов (генерируется)", "",
+                  f"Все файлы каталогов {dirs} с их заголовками — чтобы ни один документ не остался невидимым.", "",
+                  "| Документ | О чём |", "|---|---|"]
+        for rel, title in report["doc_index"]:
+            lines.append(f"| `{rel}` | {title} |")
         lines.append("")
     if report["machine"]:
         number += 1
@@ -180,10 +246,17 @@ def main() -> int:
 
     report = check()
     if args.json:
-        print(json.dumps({k: report[k] for k in ("unknown", "absent", "absent_optional", "total", "checked_at")},
+        print(json.dumps({k: report[k] for k in ("unknown", "absent", "absent_optional", "orphan_docs", "total", "checked_at")},
                          ensure_ascii=False, indent=1))
     if args.docs:
-        print("обновлено:", write_docs(render_docs(report)).relative_to(ROOT))
+        # Проверка «документ упомянут» читает саму карту, поэтому после записи раздела пересчитываем
+        # и при изменении списка расхождений пишем ещё раз — генерация сходится за один проход.
+        first = check()
+        write_docs(render_docs(first))
+        again = check()
+        if (again["orphan_docs"], again["unknown"], again["absent"]) != (first["orphan_docs"], first["unknown"], first["absent"]):
+            write_docs(render_docs(again))
+        print("обновлено:", MAP.relative_to(ROOT))
         return 0
     print(f"сущностей в инвентаре: {report['total']}; проверено {report['checked_at']}")
     if report["unknown"]:
@@ -198,7 +271,13 @@ def main() -> int:
         print("✓ все обязательные сущности на месте")
     if report["absent_optional"]:
         print(f"· нет на диске (необязательные, {len(report['absent_optional'])}): " + ", ".join(report["absent_optional"]))
-    return 1 if (report["unknown"] or report["absent"]) else 0
+    if report.get("orphan_docs"):
+        print(f"✗ документы вне карты ({len(report['orphan_docs'])}):")
+        for path in report["orphan_docs"]:
+            print("   ", path)
+    else:
+        print("✓ все документы упомянуты в карте")
+    return 1 if (report["unknown"] or report["absent"] or report.get("orphan_docs")) else 0
 
 
 if __name__ == "__main__":

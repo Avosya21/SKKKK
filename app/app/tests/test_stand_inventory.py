@@ -32,6 +32,7 @@ def test_everything_on_the_stand_is_described():
     report = module.check()
     assert report["unknown"] == [], f"на диске есть сущности вне инвентаря: {report['unknown']}"
     assert report["absent"] == [], f"в инвентаре описаны, но пропали: {report['absent']}"
+    assert report["orphan_docs"] == [], f"документы не упомянуты в карте: {report['orphan_docs']}"
     assert report["total"] > 80, "инвентарь подозрительно короткий — проверьте docs/project-map/stand.yaml"
 
 

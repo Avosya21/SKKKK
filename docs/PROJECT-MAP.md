@@ -1315,6 +1315,7 @@ run_pipeline
 | `extract_entities.md` | entities.py |
 | `normalize_document.md` | pipeline_documents |
 | `extract_image_vision.md` | image_extract |
+| `screen_frame.md` | meeting_frames.py (vision-описание кадров шаринга экрана), scripts/redescribe_screen_frames.py |
 | `rebuild_tz.md` | tz.py |
 | `rag_chat.md` | chat.py (чанки + сущности по вопросу + хвост `current_tz.md` как обзор) |
 | `lab_sense_speakers.md` | lab_sense.py (этап 2 лаборатории) |
@@ -1988,7 +1989,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-03 04:10: сущностей 114, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-03 04:18: сущностей 123, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2139,7 +2140,90 @@ _Проверено 2026-10-03 04:10: сущностей 114, не описан�
 | `app/app/static/vendor/fullcalendar` | вендор | FullCalendar: календарь дедлайнов проекта | нет |
 | `app/app/static/vendor/livekit` | вендор | livekit-client: комната созвона в браузере | нет |
 
-### 17.8. Машина и внешние приложения
+### 17.8. Прочее
+
+| Путь | Вид | Назначение | В git |
+|---|---|---|---|
+| `scripts/SKKKK-1-Остановить.bat` | лаунчер | двойной щелчок: остановить портал и воркер | да |
+| `scripts/SKKKK-2-Запуск-Cursor.bat` | лаунчер | двойной щелчок: запуск с LLM в облаке (Cursor API) | да |
+| `scripts/SKKKK-3-Запуск-LM-Studio.bat` | лаунчер | двойной щелчок: запуск с локальной моделью (LM Studio) | да |
+| `scripts/index_config.yaml` | конфиг | что индексировать: файлы, исключения, версия схемы, маскирование секретов | да |
+| `scripts/index_glossary.yaml` | конфиг | словарь синонимов для поиска по карте | да |
+| `scripts/requirements_lock` | заглушка | пустой файл блокировки версий (не используется) | да |
+| `scripts/qa_data_speech_a.wav` | фикстура | синтезированная русская реплика A для сквозных проверок (qa_analysis, qa_media_path) | да |
+| `scripts/qa_data_speech_b.wav` | фикстура | синтезированная русская реплика B для сквозных проверок | да |
+| `scripts/smoke` | смоук | смоук-набор на живом сервере: комната, права, счётчики, формы, карточки агентов | да |
+
+### 17.9. Документы каталогов (генерируется)
+
+Все файлы каталогов `docs/prompts`, `docs/plans`, `docs/stages`, `docs/eval`, `docs/agent-exchange` с их заголовками — чтобы ни один документ не остался невидимым.
+
+| Документ | О чём |
+|---|---|
+| `docs/prompts/assign_topics.md` | Промпт: раскладка пунктов проекта по темам |
+| `docs/prompts/call_brief.md` | Промпт: сжатое резюме созвона по стенограмме |
+| `docs/prompts/call_outline.md` | Промпт: оглавление созвона (контекст для извлечения требований) |
+| `docs/prompts/call_summary.md` | Промпт: протокол встречи по стенограмме |
+| `docs/prompts/doc_summary.md` | Промпт: протокол по документу |
+| `docs/prompts/extract_entities.md` | Промпт: извлечение сущностей |
+| `docs/prompts/extract_entities_v2.md` | Промпт: извлечение сущностей v2 — с контекстом проекта, видами пунктов и самодостаточными формулировками |
+| `docs/prompts/extract_entities_v3.md` | Промпт: извлечение сущностей v3 — v2 + переписка по пронумерованным сообщениям |
+| `docs/prompts/extract_entities_v4.md` | Промпт: извлечение сущностей v4 — v3 + точный срок задачи (deadline_at) и исполнитель по метке голоса |
+| `docs/prompts/extract_image_vision.md` | Промпт: извлечение текста/содержания с изображения (vision) |
+| `docs/prompts/lab_proof_text.md` | Ты вычитываешь стенограмму делового звонка на русском (внедрение 1С и Битрикс 24). |
+| `docs/prompts/lab_sense_speakers.md` | Смысловая разноска спорных слов лаборатории |
+| `docs/prompts/merge_topics.md` | Промпт: склейка тем, которые описывают одну потребность разными способами |
+| `docs/prompts/merge_transcript.md` | Промпт: сборка финальной стенограммы из трёх ASR |
+| `docs/prompts/normalize_document.md` | Промпт: нормализация текста документа |
+| `docs/prompts/project_card.md` | Промпт: карточка проекта (черновик для извлечения требований) |
+| `docs/prompts/rag_chat.md` | Промпт: чат-ассистент (RAG + граф) |
+| `docs/prompts/rebuild_tz.md` | Промпт: итоговое резюме по проекту |
+| `docs/prompts/review_conflict.md` | Промпт: проверка конфликта двух решений локальной моделью (автопроверка, этап 4) |
+| `docs/prompts/review_conflict_v3.md` | Промпт: отношение двух пунктов при возможном противоречии (автопроверка конфликтов, v3) |
+| `docs/prompts/review_relevance.md` | Промпт: актуальность пунктов одной темы (дубли, заменённое, выполненное) |
+| `docs/prompts/review_relevance_v2.md` | Промпт: актуальность пунктов одной темы (дубли, заменённое, выполненное) — v2 с похожими пунктами из других те |
+| `docs/prompts/review_requirement.md` | Промпт: проверка требований локальной моделью (автопроверка, этап 2) |
+| `docs/prompts/screen_frame.md` | Промпт: кадр шаринга экрана на созвоне |
+| `docs/prompts/suggest_speaker_names.md` | Промпт: подсказка имени неизвестного голоса (автопроверка, этап 3) |
+| `docs/plans/AUTO-REVIEW-PLAN.md` | SKKKK — Автопроверка локальной моделью: меньше ручных подтверждений |
+| `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | SKKKK — Автономное разрешение противоречий: созвоны и документы без ручного разбора |
+| `docs/plans/DECISION-MEMORY-PLAN.md` | SKKKK — Память решений: что решено, что отклонено, что заменено |
+| `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
+| `docs/plans/final-plan.md` | SKKKK: идеальная расшифровка созвона — итоговый план |
+| `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |
+| `docs/plans/MEETING-PLAN.md` | SKKKK — Созвон: единый план до production-ready (комната → запись → расшифровка → знания) |
+| `docs/plans/meeting-room-plan.md` | SKKKK: страница созвона — план доработки по тестовому созвону 12 |
+| `docs/plans/MEETING-SCREEN-PLAN.md` | SKKKK — Запись экрана: полный план (C1–C4) |
+| `docs/plans/NEMOTRON-DIARIZATION-PLAN.md` | Диаризация на Nemotron 3 (8 спикеров) вместо Sortformer 4spk — план |
+| `docs/plans/PERSONAL-PASSWORD-PLAN.md` | Личный пароль пользователя — план реализации |
+| `docs/plans/plan-review.md` | Ревизия планов v4 / v5 относительно кода |
+| `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | SKKKK — Подготовка платформы к памяти решений |
+| `docs/plans/PROJECT-INDEX-PLAN.md` | План: индекс проекта, которым можно управлять (поиск по смыслу, коду, связям и истории) |
+| `docs/plans/REQUIREMENTS-PLAN.md` | SKKKK — Требования: понятные, с источником «кто и когда», актуальные |
+| `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | SKKKK — Кадры экрана: время, момент, дубли, база знаний |
+| `docs/plans/SKKKK-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | SKKKK — План полного закрытия дыр в конвейере созвона |
+| `docs/plans/SOURCE-ANCHORS-PLAN.md` | SKKKK — Якоря источников: даты сообщений переписки и переход к месту в стенограмме |
+| `docs/plans/TRANSCRIPT-PROVENANCE-PLAN.md` | SKKKK — «Кто и когда»: стенограмма → база → чат (план внедрения) |
+| `docs/plans/USER-PROFILE-PLAN.md` | Карточка пользователя — план реализации |
+| `docs/stages/README.md` | Этапы SKKKK |
+| `docs/stages/STAGE-00-environment.md` | Этап 0. Стенд Windows |
+| `docs/stages/STAGE-01-skeleton.md` | Этап 1. Каркас портала |
+| `docs/stages/STAGE-02-upload-queue.md` | Этап 2. Загрузка и очередь |
+| `docs/stages/STAGE-03-asr-ensemble.md` | Этап 3. Три параллельных ASR и склейка LLM |
+| `docs/stages/STAGE-04-documents-ocr.md` | Этап 4. Документы, заметки, изображения |
+| `docs/stages/STAGE-05-entities-index.md` | Этап 5. Сущности и семантический индекс |
+| `docs/stages/STAGE-06-graph-notes-conflicts.md` | Этап 6. Граф, заметки, конфликты |
+| `docs/stages/STAGE-07-tz-chat.md` | Этап 7. Актуальное ТЗ и чат по проекту |
+| `docs/stages/STAGE-08-hardening.md` | Этап 8. Укрепление |
+| `docs/stages/STAGE-09-services.md` | Этап 9. Службы Windows и доступ по сети |
+| `docs/stages/STAGE-10-scale-out.md` | Этап 10. Масштабирование |
+| `docs/eval/index_questions.json` | [ |
+| `docs/eval/index_questions_holdout.json` | [ |
+| `docs/agent-exchange/CONTRACT.md` | Контракт обмена v1.0: что реализовано |
+| `docs/agent-exchange/POLICY.md` | Политика обмена с внешним агентом |
+| `docs/agent-exchange/README.md` | Обмен с внешним агентом (агент анализа конфигурации) |
+
+### 17.10. Машина и внешние приложения
 
 | Что | Вид | Назначение |
 |---|---|---|
