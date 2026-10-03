@@ -1769,7 +1769,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `run_pipeline.py` | Сквозной прогон: видео → три ASR → Gemma → спикеры PyAnnote → HTML. |
 | `run_tone.py` | Движок 3: T-one (t-tech/T-one), телефонный русский, 8 кГц. |
 | `run_whisper.py` | Движок 1: Whisper large-v3 Russian Podlodka (bond005). |
-| `seed_artifact_asr.py` | — |
+| `seed_artifact_asr.py` | Подготовить artifacts/{id}/asr/ для build_transcript_view (без повторного ASR). |
 | `serve.py` | HTTP-сервис ASR-движка. Контейнер живёт постоянно; модель грузится при первом /transcribe. |
 | `silence_energy.py` | Грубая оценка «есть ли речь» по энергии WAV без сдвига таймлайна. |
 | `speaker_labels.py` | Подписи Sortformer ID → имена из sortformer_speaker_match.json. |
