@@ -179,6 +179,9 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | `docs/stages/` | STAGE-NN: критерии готовности этапов |
 | `scripts/` | Утилиты, мониторинг, rerun, индекс карты |
 | `tools/lightrag/` | **LightRAG** Docker (:9621) — граф знаний по docs (кнопки, API, БД) |
+| `tools/android/` | Эмулятор Android (sdk, jdk, avd, platform-tools) — мобильные проверки комнаты; в git не хранится |
+| `docs/project-map/` | Манифест карты, атлас зависимостей `DEPENDENCIES.md` и свод `graph-modules.json` (§16) |
+| `data/project_map_graph.json` | Полный граф зависимостей проекта (рабочий артефакт, в git не хранится) |
 | `.cursor/rules/` | Правила агента Cursor |
 | `.cursor/skills/` | Скилы (gpu-orchestrator, knowledge-pipeline, …) |
 | `venv/` | Python **3.10.9** (портал); `venvs/lab` — тот же 3.10.9 под ONNX |
@@ -1420,6 +1423,21 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | LiveKit | `LIVEKIT_*`, `LIVEKIT_RTC_INTERNAL` | комнаты; native server поднимает `main` |
 | Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_VOICE_ATTEN_LIM`, `MEETING_VOICE_POST_FILTER`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | серверная чистка (канон); запись экрана `skkkk-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`); клиентский DFN3 выкл |
 | Telegram | `TELEGRAM_*` | Уведомления (stub) |
+| Живые проверки страниц: Playwright + браузеры (Chromium, WebKit) | — (пакеты в `venv`) | `qa_pages.py`, `qa_flows.py`, `qa_room*.py`. Браузеры ставятся `venv\Scripts\python.exe -m playwright install chromium` (и `webkit`); если их нет — `--channel chrome` берёт системный Chrome. См. §12.1 |
+| Эмулятор Android (виртуальный Pixel 7) | `JAVA_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_AVD_HOME` (ставит скрипт) | `qa_mobile_android.py` — настоящий Chrome на Android; `tools/android` (в git не хранится) |
+
+### 12.1. Стенд живых проверок
+
+Живые проверки идут на **отдельном экземпляре** приложения: `scripts/qa_pages.py` и `scripts/qa_flows.py` поднимают uvicorn на `:18777` с **копией** `data/app.db`, своим `Login_up.txt` и временными паролями в памяти (`SECRET_KEY`, `SKKKK_DISABLE_EDGE=1`, `PERSONAL_PASSWORD=off`) — боевой сервер, его данные и сессии не затрагиваются.
+
+| Что | Команда | Заметки |
+|-----|---------|---------|
+| Аудит вёрстки: 6 экранов, скриншоты, ошибки консоли, сдвиги (CLS) | `scripts\qa_pages.py --shots папка` | `--only /admin/map/graph` — одна страница; `--channel chrome` — системный Chrome |
+| Сценарии: вход, роли, блоки проекта, комната, MCP, граф | `scripts\qa_flows.py --only s_map_graph` | код выхода 1 при провале; `--channel` — так же |
+| Мобильные профили WebKit (iPhone/iPad) | `scripts\qa_mobile_webkit.py --shots папка` | нужен `playwright install webkit` |
+| Настоящий Chrome на Android | `scripts\qa_mobile_android.py --boot` | эмулятор Pixel 7 из `tools/android`; код 77 — устройства нет |
+
+Браузеры Playwright могут быть не скачаны (проверьте `%LOCALAPPDATA%\ms-playwright`): тогда либо `venv\Scripts\python.exe -m playwright install chromium`, либо флаг `--channel chrome|msedge` — проверки идут в уже установленном браузере. В графе (§16) стенд виден узлами `qa_isolated_stand`, `ext_playwright_browsers`, `ext_android_emulator`.
 
 ---
 
@@ -1955,6 +1973,10 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 **Стражи:** `app/app/tests/test_project_graph.py` (14 тестов: у каждого файла и роута есть узел, висячих рёбер нет,
 все слои на месте, окрестность, сироты, циклы, выгрузки, атлас не затирает рукописную шапку) и
 `app/app/tests/test_admin_map_graph.py` (права на страницу и фильтры эндпоинтов).
+
+**Живая проверка страницы:** `scripts\qa_flows.py --only s_map_graph` (свод по файлам, поиск узла, панель с адресом
+`путь:строка`, клик по связи, фильтр по виду узлов, телефон 390 px без горизонтального скролла) и
+`scripts\qa_pages.py --only /admin/map/graph --shots папка` (вёрстка на шести экранах). Стенд проверок — §12.1.
 
 ---
 

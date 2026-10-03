@@ -8,8 +8,17 @@
   .amg-panel { background: var(--ds-surface); border: 1px solid var(--ds-line); border-radius: var(--ds-r-md); }
   .amg-section { font-weight: 600; font-size: .9rem; color: var(--ds-text); }
   .amg-hint { color: var(--ds-muted); font-size: .8rem; }
-  .amg-legend { max-height: 210px; overflow: auto; }
+  /* Строка счётчиков: высота зарезервирована, поэтому появление бейджей и перенос на телефоне не сдвигают полотно */
+  .amg-meta { min-height: 1.75rem; }
+  #amg-counters { white-space: normal; min-width: 0; }
+  #amg-source { min-width: 0; }
+  @media (max-width: 575.98px) { .amg-meta { min-height: 5rem; } }
+  /* Фиксированная высота легенд: их содержимое приходит после загрузки и не должно сдвигать полотно (CLS) */
+  .amg-legend { height: 12rem; overflow: auto; }
   .amg-legend label { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: var(--ds-text-2); }
+  /* Галочки легенды — не меньше 1.1rem и без bootstrap-сдвига: попадать по ним пальцем и не ловить замечание аудита */
+  .amg-legend .form-check-input { width: 1.1rem; height: 1.1rem; margin: 0; flex: 0 0 auto; }
+  .amg-legend .form-check { padding-left: 0; }
   .amg-legend .amg-count { margin-left: auto; color: var(--ds-muted); font-variant-numeric: tabular-nums; }
   .amg-swatch { width: .7rem; height: .7rem; flex: 0 0 auto; border-radius: 3px; border: 1px solid var(--ds-line-strong); background: var(--ds-surface-2); }
   .amg-canvas {
@@ -27,7 +36,7 @@
 {% block content %}
 <div class="d-flex flex-wrap gap-2 align-items-baseline mb-2">
   <h1 class="h4 mb-0">Граф зависимостей</h1>
-  <a class="small" href="/admin/map">← Карта проекта</a>
+  <div class="small"><a href="/admin/map">← Карта проекта</a></div>
 </div>
 <p class="text-muted small mb-3">
   Что от чего зависит: файлы, функции, роуты, таблицы, переменные окружения и элементы интерфейса.
@@ -81,7 +90,7 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="amg-reset">Сбросить</button>
         <button type="button" class="btn btn-outline-secondary btn-sm" id="amg-limit-more">Показать больше узлов</button>
       </div>
-      <div class="amg-hint mt-2" id="amg-view-hint">Свод по файлам: видно, какие файлы зависят от каких.</div>
+      <div class="amg-hint mt-2" id="amg-view-hint">Свод по файлам: показаны самые связанные файлы (по связям), «Показать больше узлов» — расширить.</div>
     </div>
 
     <div class="amg-panel p-3 mb-3">
@@ -98,15 +107,15 @@
   </div>
 
   <div class="col-12 col-lg-8 col-xxl-9">
-    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-      <span class="badge text-bg-secondary" id="amg-counters" role="status">Загружаю…</span>
-      <span class="badge text-bg-warning d-none" id="amg-truncated"></span>
-      <span class="badge text-bg-warning d-none" id="amg-stale"></span>
-      <span class="amg-hint" id="amg-source"></span>
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2 amg-meta">
+      <span class="badge text-bg-secondary flex-shrink-0" id="amg-counters" role="status">Загружаю…</span>
+      <span class="badge text-bg-warning d-none flex-shrink-0" id="amg-truncated"></span>
+      <span class="badge text-bg-warning d-none flex-shrink-0" id="amg-stale"></span>
+      <span class="amg-hint text-truncate" id="amg-source"></span>
     </div>
-    <div id="amg-notes" class="vstack gap-2 mb-2"></div>
     <div id="amg-canvas" class="amg-canvas" tabindex="0" role="img" aria-label="Граф зависимостей проекта"></div>
     <div class="amg-hint mt-2 mb-3">Колесо мыши — масштаб, перетаскивание — сдвиг, клик по узлу — связи и адрес в коде.</div>
+    <div id="amg-notes" class="vstack gap-2 mb-2"></div>
 
     <div class="amg-panel p-3 d-none" id="amg-node">
       <div class="d-flex flex-wrap gap-2 align-items-baseline mb-1">

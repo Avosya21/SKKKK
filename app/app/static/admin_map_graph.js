@@ -21,7 +21,7 @@
   const LABELS = readLabels();
 
   const state = {
-    view: 'modules', focus: '', group: '', depth: 2, direction: 'both', limit: 600,
+    view: 'modules', focus: '', group: '', depth: 2, direction: 'both', limit: 150,
     nodes: [], edges: [], center: null, selected: null, cy: null, summaryNotes: [],
     byKind: {}, byRelation: {}, checkedKinds: new Set(), checkedRelations: new Set(), allKinds: [], allRelations: [],
   };
@@ -65,6 +65,7 @@
   }
 
   function relLabel(rel) {
+    if (rel === 'm:*') return 'связи карты (манифест)';
     return LABELS.relations[rel] || String(rel || '').replace(/^m:/, 'карта: ');
   }
 
@@ -86,9 +87,10 @@
   }
 
   function showNotes(messages) {
+    // Заметки приходят и в /summary, и в /data — показываем каждую один раз
+    const unique = [...new Set((messages || []).filter(Boolean))];
     dom.notes.replaceChildren();
-    for (const message of messages || []) {
-      if (!message) continue;
+    for (const message of unique) {
       dom.notes.appendChild(el('div', 'alert alert-warning py-2 mb-0 small', message));
     }
   }
@@ -209,15 +211,27 @@
     updateFiltersHint();
   }
 
+  /** Строки легенды связей: одноразовые смысловые связи манифеста (`m:…`) — одной строкой `m:*`.
+   *  Иначе в легенду попадают сотни галочек (у манифеста больше 150 разных видов связи). */
+  function relationRows() {
+    const rows = new Map();
+    for (const [name, count] of Object.entries(state.byRelation)) {
+      const key = name.startsWith('m:') ? 'm:*' : name;
+      rows.set(key, (rows.get(key) || 0) + (Number(count) || 0));
+    }
+    return [...rows.entries()].sort((a, b) => b[1] - a[1]);
+  }
+
   function renderRelations() {
-    const names = Object.keys(state.byRelation).sort((a, b) => (state.byRelation[b] || 0) - (state.byRelation[a] || 0));
+    const rows = relationRows();
+    const names = rows.map(([name]) => name);
     state.allRelations = names;
     if (!names.length) {
       dom.relations.replaceChildren(el('div', 'amg-empty', 'Связи появятся после сборки графа.'));
       return;
     }
     if (!state.checkedRelations.size) names.forEach((name) => state.checkedRelations.add(name));
-    dom.relations.replaceChildren(...names.map((name) => legendRow(name, state.byRelation[name], state.checkedRelations, renderRelations, false)));
+    dom.relations.replaceChildren(...rows.map(([name, count]) => legendRow(name, count, state.checkedRelations, renderRelations, false)));
     updateFiltersHint();
   }
 
@@ -507,7 +521,7 @@
     const isEntities = view === 'entities';
     dom.viewHint.textContent = isEntities
       ? 'Окрестность узла: выберите узел поиском или подсистему.'
-      : 'Свод по файлам: видно, какие файлы зависят от каких.';
+      : `Свод по файлам: ${state.limit} самых связанных файлов, «Показать больше узлов» — расширить.`;
     dom.group.disabled = !isEntities;
     dom.depth.disabled = !isEntities;
     dom.direction.disabled = !isEntities;
@@ -538,7 +552,7 @@
     state.group = '';
     state.depth = 2;
     state.direction = 'both';
-    state.limit = 600;
+    state.limit = 150;
     state.checkedKinds = new Set(state.allKinds);
     state.checkedRelations = new Set(state.allRelations);
     dom.q.value = '';
@@ -599,7 +613,7 @@
     dom.direction = document.getElementById('amg-direction');
     dom.reset = document.getElementById('amg-reset');
     dom.more = document.getElementById('amg-limit-more');
-    dom.hint = document.getElementById('amg-view-hint');
+    dom.viewHint = document.getElementById('amg-view-hint');
     dom.kinds = document.getElementById('amg-kinds');
     dom.relations = document.getElementById('amg-relations');
     dom.relationsHint = document.getElementById('amg-relations-hint');

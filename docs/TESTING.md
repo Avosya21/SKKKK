@@ -249,6 +249,9 @@ un_all.py` — роли, presence, песочничный поток, комна
 
 ## Мобильные устройства (20.09.2026)
 
+- Граф зависимостей (§16 карты): `venv\Scripts\python.exe scripts\qa_flows.py --only s_map_graph [--channel chrome]` — свод по файлам рисуется (Cytoscape), легенды заполнены, поиск узла открывает панель с адресом `путь:строка`, клик по связи открывает соседа, снятие галочки вида узлов перестраивает граф, «Сбросить» возвращает свод, на телефоне 390 px нет горизонтального скролла, ошибок JS нет. Вёрстка страницы на шести экранах — `scripts\qa_pages.py --only /admin/map/graph --shots папка`.
+- Если браузеры Playwright не скачаны (нет `%LOCALAPPDATA%\ms-playwright`), `qa_pages.py` и `qa_flows.py` запускаются с `--channel chrome` — проверки идут в установленном Chrome, скачивать браузеры не нужно.
+
 Инструменты лежат в `tools/android/` (в git не попадают: `platform-tools`, `jdk`, `sdk`, `avd` в `.gitignore`):
 - `platform-tools/adb.exe` (или `sdk/platform-tools`): связь с Android; телефон подключается по USB с «Отладкой по USB».
 - Эмулятор: Android 14 (Google APIs, Chrome 113), виртуальный Pixel 7 `pixel7`, ускорение WHPX (`emulator -accel-check` → usable). Камеры: фронтальная эмулированная, тыловая «виртуальная сцена».

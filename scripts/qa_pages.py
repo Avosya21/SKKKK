@@ -4,7 +4,8 @@
 Безопасность: поднимает ОТДЕЛЬНЫЙ экземпляр приложения на порту 18777 (uvicorn, без запуска Caddy/LiveKit/рекордеров) с КОПИЕЙ базы и
 временными паролями, которые живут только в памяти этого запуска. Боевой сервер и его данные не затрагиваются.
 
-Запуск:  venv\\Scripts\\python.exe scripts\\qa_pages.py [--engine chromium|webkit|android] [--shots папка] [--json файл]
+Запуск:  venv\\Scripts\\python.exe scripts\\qa_pages.py [--engine chromium|webkit|android] [--shots папка] [--json файл] [--channel chrome]
+`--channel chrome|msedge` берёт установленный в системе браузер, если браузеры Playwright не скачаны.
 Код выхода 0 всегда (это отчёт); ключевые проблемы печатаются в конце."""
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ PORT = 18777
 PAGES = [  # (путь, нужен вход)
     ("/login", False), ("/", True), ("/projects/18", True), ("/projects/29", True),
     ("/projects/18/tz", True), ("/projects/18/chat", True), ("/projects/18/graph", True), ("/admin/conflicts", True),
+    ("/admin/map/graph", True),
 ]
 VIEWPORTS = [("desktop-1920", 1920, 1080), ("laptop-1366", 1366, 768), ("tablet-768", 768, 1024),
              ("phone-390", 390, 844), ("phone-320", 320, 568), ("phone-landscape", 844, 390)]
@@ -50,7 +52,10 @@ AUDIT_JS = r"""
 () => {
   const W = innerWidth, H = innerHeight, mobile = W <= 820;
   const vis = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
-    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.01; };
+    // clip вида `rect(0px, 0px, 0px, 0px)` — стандартный способ спрятать input под подписью (Bootstrap .btn-check):
+    // сам элемент не цель, цель — label, поэтому такие input в подсчёт мелких целей не берём.
+    const clipped = s.clip && s.clip !== 'auto' && /rect\(\s*0(px)?[,\s]/.test(s.clip);
+    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.01 && !clipped; };
   const sel = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '');
   const label = (e) => (e.getAttribute('aria-label') || e.title || e.textContent || e.value || e.placeholder || '').trim().replace(/\s+/g, ' ').slice(0, 28);
   const out = {};
@@ -221,6 +226,7 @@ def main() -> int:
     ap.add_argument("--shots", default="")
     ap.add_argument("--json", default="")
     ap.add_argument("--only", default="", help="подстрока в пути страницы, чтобы проверить только её")
+    ap.add_argument("--channel", default="", help="канал браузера (chrome, msedge) вместо скачанного Playwright")
     args = ap.parse_args()
     from playwright.sync_api import sync_playwright
 
@@ -238,7 +244,7 @@ def main() -> int:
                 combos = [("android-chrome", None, None, None)]
             else:
                 base = f"http://127.0.0.1:{PORT}"
-                b = getattr(p, args.engine).launch(headless=True)
+                b = getattr(p, args.engine).launch(headless=True, **({"channel": args.channel} if args.channel else {}))
                 if args.engine == "webkit":
                     combos = [(f"webkit-{n.replace(' ', '')}", None, None, n) for n in ("iPhone 15", "iPhone 15 landscape", "iPad Pro 11")]
                 else:

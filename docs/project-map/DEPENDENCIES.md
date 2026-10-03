@@ -16,27 +16,27 @@ venv\Scripts\python.exe scripts\export_project_graph.py
 
 <!-- generated:begin atlas -->
 
-_Собрано: 2026-10-03 03:12 · индекс от 2026-10-03 03:12 · коммит `2877441c` · узлов 8072, рёбер 32466_
+_Собрано: 2026-10-03 03:49 · индекс от 2026-10-03 03:47 · коммит `6c9c19eb` · узлов 8079, рёбер 32517_
 
 ## 1. Из чего состоит граф
 
 | Узлы | Штук |
 |---|---|
-| символ | 6566 |
+| символ | 6570 |
 | файл | 673 |
 | элемент интерфейса | 361 |
 | роут | 155 |
-| коммит | 142 |
+| коммит | 143 |
 | окружение | 131 |
 | таблица БД | 33 |
-| узел карты | 11 |
+| узел карты | 13 |
 
 | Связь | Смысл | Штук |
 |---|---|---|
-| `calls` | вызывает | 13316 |
-| `defines` | определяет | 6566 |
-| `covers` | покрывает тестом | 5527 |
-| `changed` | изменил | 2042 |
+| `calls` | вызывает | 13328 |
+| `defines` | определяет | 6570 |
+| `covers` | покрывает тестом | 5528 |
+| `changed` | изменил | 2060 |
 | `calls_ref` | передаёт как значение | 1383 |
 | `imports` | импортирует | 1108 |
 | `handled_by` | обрабатывается в JS | 407 |
@@ -49,7 +49,7 @@ _Собрано: 2026-10-03 03:12 · индекс от 2026-10-03 03:12 · ко�
 | `guarded_by` | защищён | 154 |
 | `calls_api` | вызывает API | 34 |
 | `m:imports` | imports | 17 |
-| `m:mounts` | mounts | 11 |
+| `m:mounts` | mounts | 12 |
 | `m:subprocess` | subprocess | 11 |
 | `m:reads` | reads | 10 |
 | `m:calls` | calls | 8 |
@@ -59,23 +59,23 @@ _Собрано: 2026-10-03 03:12 · индекс от 2026-10-03 03:12 · ко�
 | `m:api` | api | 5 |
 | `m:require_project` | require_project | 4 |
 
-Всего связей: **32466**; видов: 196.
+Всего связей: **32517**; видов: 203.
 
 ## 2. Подсистемы и их связи
 
 | Подсистема | Файлов | Узлов | Связей наружу | Связей внутрь |
 |---|---|---|---|---|
-| сервисы | 112 | 2401 | 1280 | 6284 |
-| тесты | 140 | 1604 | 8523 | 4 |
+| сервисы | 112 | 2401 | 1280 | 6287 |
+| тесты | 140 | 1605 | 8525 | 4 |
 | ASR-скрипты | 45 | 605 | 567 | 522 |
-| шаблоны | 17 | 520 | 284 | 285 |
-| служебные скрипты | 80 | 491 | 792 | 536 |
-| роутеры | 16 | 417 | 1759 | 1056 |
-| фронтенд | 13 | 303 | 41 | 866 |
+| шаблоны | 17 | 520 | 285 | 285 |
+| служебные скрипты | 80 | 492 | 798 | 536 |
+| роутеры | 16 | 418 | 1761 | 1060 |
+| фронтенд | 13 | 304 | 42 | 867 |
 | лаборатория ASR | 16 | 279 | 126 | 767 |
 | тесты ASR | 35 | 267 | 858 | 1 |
-| ядро API | 16 | 252 | 120 | 2076 |
-| карта проекта | 11 | 232 | 217 | 390 |
+| ядро API | 16 | 252 | 121 | 2076 |
+| карта проекта | 11 | 232 | 217 | 396 |
 | комната LiveKit | 4 | 133 | 103 | 298 |
 | стадии ASR | 8 | 87 | 133 | 148 |
 | модели БД | 20 | 71 | 19 | 1736 |
@@ -88,7 +88,7 @@ _Собрано: 2026-10-03 03:12 · индекс от 2026-10-03 03:12 · ко�
 | документация | 18 | 18 | 1 | 0 |
 | MCP портала | 2 | 12 | 29 | 33 |
 | этапы | 12 | 12 | 0 | 0 |
-| инструменты | 3 | 11 | 20 | 11 |
+| инструменты | 3 | 11 | 21 | 11 |
 | {artifact} | 0 | 3 | 0 | 6 |
 | корень | 0 | 3 | 3 | 3 |
 | app | 2 | 2 | 0 | 0 |
@@ -127,8 +127,8 @@ flowchart LR
   g20["ядро API"]
   g16 -->|4799| g12
   g16 -->|1115| g9
-  g16 -->|996| g11
-  g13 -->|946| g12
+  g16 -->|1003| g11
+  g13 -->|949| g12
   g16 -->|863| g20
   g0 -->|846| g12
   g11 -->|839| g20
@@ -154,7 +154,7 @@ flowchart LR
   g16 -->|128| g13
   g6 -->|127| g12
   g17 -->|116| g15
-  g13 -->|104| g5
+  g13 -->|107| g5
 ```
 
 ## 3. База данных: кто пишет и кто читает
@@ -387,7 +387,7 @@ flowchart LR
 | `#amg-stale` | amg-stale | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
 | `#amg-truncated` | amg-truncated | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
 | `#amg-view-entities` | amg-view-entities | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
-| `#amg-view-hint` | Свод по файлам: видно, какие файлы зависят от каких. | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
+| `#amg-view-hint` | Свод по файлам: показаны самые связанные файлы (по связям),  | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
 | `#amg-view-modules` | amg-view-modules | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
 | `#artifacts-body` | artifacts-body | `app/app/templates/project.html` | `GET /projects/{project_id}/artifacts` | `project.html`, `refreshArtifacts` |
 | `#artifacts-cards` | Загружаю материалы… | `app/app/templates/project.html` | `GET /projects/{project_id}/artifacts` | `refreshArtifacts` |
@@ -908,13 +908,13 @@ flowchart LR
 
 | Узел | Вид | Адрес | Исходящих | Входящих |
 |---|---|---|---|---|
-| `get` | символ | `app/app/services/people.py:116` | 3 | 3604 |
+| `get` | символ | `app/app/services/people.py:116` | 3 | 3605 |
 | `append` | символ | `app/app/services/meeting_recordings.py:397` | 1 | 1193 |
 | `join` | символ | `scripts/qa_room.py:72` | 1 | 697 |
 | `post` | символ | `app/app/static/px_agent.js:24` | 1 | 690 |
 | `get_settings` | символ | `app/app/config.py:159` | 1 | 656 |
 | `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 368 |
-| `close` | символ | `app/app/services/meeting_recordings.py:759` | 1 | 444 |
+| `close` | символ | `app/app/services/meeting_recordings.py:759` | 1 | 446 |
 | `execute` | символ | `asr/lab/pipeline.py:108` | 6 | 346 |
 | `Снимок проекта для приватного репозитория SKKKK` | коммит | `:` | 349 | 0 |
 | `resolve` | символ | `app/app/services/people.py:181` | 13 | 329 |
@@ -931,7 +931,7 @@ flowchart LR
 | `Settings` | символ | `app/app/config.py:13` | 68 | 142 |
 | `Project` | символ | `app/app/models/project.py:14` | 0 | 208 |
 | `create_project` | символ | `app/app/routers/projects.py:36` | 15 | 186 |
-| `count` | символ | `app/app/static/app.js:47` | 1 | 194 |
+| `count` | символ | `app/app/static/app.js:47` | 1 | 199 |
 | `post` | символ | `app/app/templates/login.html:141` | 1 | 193 |
 
 ## 10. Никто не вызывает (проверить: мёртвый код или точка входа)

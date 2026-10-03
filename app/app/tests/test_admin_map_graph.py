@@ -185,7 +185,9 @@ def test_data_limit_truncates_and_validation_rejects_out_of_range(client, monkey
     assert len(body["nodes"]) == 50
     assert body["truncated"] is True
     assert body["total_nodes"] == 125
-    assert any("не все узлы" in note for note in body["notes"])
+    # О неполном виде сообщает флаг truncated (в интерфейсе — бейдж): дублирующей заметки нет,
+    # иначе она появлялась над полотном и сдвигала вёрстку (CLS).
+    assert not any("не все узлы" in note for note in body["notes"])
 
     assert client.get("/admin/map/graph/data?limit=10", headers=headers).status_code == 422
     assert client.get("/admin/map/graph/data?limit=2000", headers=headers).status_code == 422
@@ -223,3 +225,13 @@ def test_missing_index_gives_hint_instead_of_error(client, monkeypatch, admin_to
     body = data.json()
     assert body["nodes"] == [] and body["edges"] == []
     assert any("индекс не построен" in note for note in body["notes"])
+
+
+def test_relation_filter_supports_wildcard():
+    """Фильтр связей понимает `m:*`: в легенде сотни одноразовых смысловых связей манифеста сведены в одну строку."""
+    assert amg._relation_matches("calls", set())
+    assert amg._relation_matches("calls", {"calls"})
+    assert not amg._relation_matches("calls", {"imports"})
+    assert amg._relation_matches("m:contains", {"m:*"})
+    assert amg._relation_matches("m:POST_chat", {"m:*", "calls"})
+    assert not amg._relation_matches("calls", {"m:*"})
