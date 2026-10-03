@@ -87,7 +87,7 @@ def ensure_artifact_asr_inputs(
     parsed = root / "data" / "projects" / str(project_id) / "parsed" / "calls"
     final_txt = parsed / f"{artifact_id}_final.txt"
     summary = parsed / f"{artifact_id}_call_summary.md"
-    brief = parsed / f"{artifact_id}_call_brief.md
+    brief = parsed / f"{artifact_id}_call_brief.md"
     wav = ws / "audio" / "input_16k.wav"
 
     merged_ok = (asr_out / "docker_merged_windows.json").is_file() and (
