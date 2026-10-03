@@ -81,6 +81,14 @@ def _split(value: str) -> set[str]:
     return {part.strip() for part in (value or "").split(",") if part.strip()}
 
 
+def _relation_matches(relation: str, patterns: set[str]) -> bool:
+    """Вид связи подходит под фильтр: точное имя или шаблон с `*` (`m:*` — все смысловые связи манифеста)."""
+    if not patterns:
+        return True
+    return any(relation == pattern or (pattern.endswith("*") and relation.startswith(pattern[:-1]))
+               for pattern in patterns)
+
+
 def _with_ide(nodes: list[dict]) -> list[dict]:
     for node in nodes:
         if node.get("path") and node.get("line"):
@@ -93,7 +101,7 @@ def _trim(view_graph: dict[str, Any], *, kinds: set[str], relations: set[str], l
     nodes = [n for n in view_graph["nodes"] if not kinds or n["kind"] in kinds]
     keep = {n["id"] for n in nodes}
     edges = [e for e in view_graph["edges"]
-             if e["from"] in keep and e["to"] in keep and (not relations or e["rel"] in relations)]
+             if e["from"] in keep and e["to"] in keep and _relation_matches(e["rel"], relations)]
     truncated = False
     if len(nodes) > limit:
         degree: dict[str, int] = {}
@@ -186,5 +194,5 @@ def admin_map_graph_data(
     payload["total_edges"] = stats["edges"]
     payload["source"] = graph.get("source") or {}
     payload["stale"] = _stale_counts()
-    payload["notes"] = (graph.get("notes") or []) + (["показаны не все узлы: сузьте фильтры или уменьшите глубину"] if payload["truncated"] else [])
+    payload["notes"] = graph.get("notes") or []
     return payload

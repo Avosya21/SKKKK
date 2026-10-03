@@ -2013,6 +2013,24 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: ext_playwright_browsers
+    kind: external
+    path: ""
+    title: "Браузеры Playwright (Chromium, WebKit) — движки живых проверок страниц; если не скачаны: `playwright install chromium|webkit`, иначе `--channel chrome` берёт системный Chrome"
+    tags: [tests, browser]
+
+  - id: ext_android_emulator
+    kind: external
+    path: ""
+    title: "Эмулятор Android: виртуальный Pixel 7 (Android 14) в `tools/android` (sdk, jdk, avd, platform-tools; в git не хранятся)"
+    tags: [tests, mobile]
+
+  - id: qa_isolated_stand
+    kind: process
+    path: scripts/qa_pages.py
+    title: "Изолированный стенд живых проверок: uvicorn на :18777 с копией базы, временными паролями и без Caddy/LiveKit/рекордеров (SKKKK_DISABLE_EDGE=1, PERSONAL_PASSWORD=off)"
+    tags: [tests, runtime]
+
   - id: script_qa_publish_wav
     kind: file
     path: scripts/qa_publish_wav.py
@@ -3120,3 +3138,26 @@ edges:
   - {from: fastapi_main, to: router_admin_map, relation: mounts}
   - {from: script_eval_index, to: svc_search, relation: measures_quality}
   - {from: script_index_doctor, to: svc_store, relation: diagnoses}
+
+  # Граф зависимостей (§16): страница, сервис, атлас, CLI и MCP
+  - {from: ui_admin_map_graph, to: router_admin_map_graph, relation: fetches}
+  - {from: ui_admin_map, to: ui_admin_map_graph, relation: links}
+  - {from: fastapi_main, to: router_admin_map_graph, relation: mounts}
+  - {from: router_admin_map_graph, to: svc_graph_auto, relation: uses}
+  - {from: router_admin_map_graph, to: svc_search, relation: ide_links}
+  - {from: svc_graph_auto, to: svc_store, relation: reads_index}
+  - {from: svc_graph_atlas, to: svc_graph_auto, relation: renders}
+  - {from: script_export_project_graph, to: svc_graph_auto, relation: builds}
+  - {from: script_export_project_graph, to: svc_graph_atlas, relation: writes_atlas}
+  - {from: script_search_map, to: svc_graph_atlas, relation: graph_modes}
+  - {from: tool_projindex_mcp, to: svc_graph_atlas, relation: graph_tools}
+  - {from: script_index_map, to: svc_graph_auto, relation: feeds}
+
+  # Стенд живых проверок: изолированный экземпляр, браузеры, эмулятор Android
+  - {from: script_qa_pages, to: qa_isolated_stand, relation: starts}
+  - {from: script_qa_flows, to: qa_isolated_stand, relation: starts}
+  - {from: qa_isolated_stand, to: ext_playwright_browsers, relation: drives}
+  - {from: script_qa_pages, to: ext_playwright_browsers, relation: drives}
+  - {from: script_qa_room, to: ext_playwright_browsers, relation: drives}
+  - {from: script_qa_mobile_webkit, to: ext_playwright_browsers, relation: drives}
+  - {from: script_qa_mobile_android, to: ext_android_emulator, relation: connects}

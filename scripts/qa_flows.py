@@ -374,10 +374,63 @@ def s_network(browser, pw):
     ctx.close()
 
 
+@scenario("Граф зависимостей: свод по файлам, поиск узла, фильтры, телефон")
+def s_map_graph(browser, pw):
+    ctx, page = new_page(browser, viewport=(1440, 900))
+    login(page, "audit-admin", pw["admin"])
+    page.goto(BASE + "/admin/map/graph", wait_until="load", timeout=45000)
+    def counters_text():
+        text = page.locator("#amg-counters").inner_text()
+        return text if ("Загружаю" not in text and "узл" in text) else None
+
+    counters = wait_until(counters_text, 30)
+    check(bool(counters), f"свод по файлам отрисован: {counters!r}")
+    check("связ" in (counters or ""), "в своде по файлам есть связи")
+    check(bool(wait_until(lambda: page.locator("#amg-canvas canvas").count() > 0, 20)), "Cytoscape отрисовал полотно")
+    check(bool(wait_until(lambda: page.locator("#amg-kinds input[type=checkbox]").count() > 0, 20)),
+          "легенда видов узлов заполнена из summary")
+    relations = wait_until(lambda: page.locator("#amg-relations input[type=checkbox]").count(), 20)
+    check(bool(relations) and relations <= 30, f"легенда связей компактна: {relations} строк")
+
+    page.fill("#amg-q", "rebuild_tz_fast")
+    page.locator("#amg-search").click()
+    where = wait_until(lambda: page.locator("#amg-node-where").inner_text(), 25)
+    check("tz.py" in (where or ""), f"панель узла показывает адрес в коде: {where!r}")
+    check(page.locator("#amg-node-out button").count() > 0, "у узла показаны исходящие связи")
+    check(page.locator("#amg-node-in button").count() > 0, "у узла показаны входящие связи")
+
+    title_before = page.locator("#amg-node-title").inner_text()
+    page.locator("#amg-node-out button").first.click()
+    check(bool(wait_until(lambda: page.locator("#amg-node-title").inner_text() != title_before, 15)),
+          "клик по связи открывает соседний узел")
+
+    before = page.locator("#amg-counters").inner_text()
+    page.locator("#amg-kinds input[type=checkbox]").first.uncheck()
+    check(bool(wait_until(lambda: page.locator("#amg-counters").inner_text() != before, 15)),
+          "снятие галочки вида узлов перестраивает граф")
+    check(not page.js_errors, f"ошибок JS нет: {page.js_errors[:2]}")
+
+    page.locator("#amg-reset").click()
+    check(bool(wait_until(lambda: page.locator("#amg-view-modules").is_checked(), 10)),
+          "«Сбросить» возвращает свод по файлам")
+    ctx.close()
+
+    ctx2, phone = new_page(browser, viewport=(390, 844))
+    login(phone, "audit-admin", pw["admin"])
+    phone.goto(BASE + "/admin/map/graph", wait_until="load", timeout=45000)
+    wait_until(lambda: "Загружаю" not in phone.locator("#amg-counters").inner_text(), 25)
+    check(not phone.evaluate("() => document.documentElement.scrollWidth > innerWidth + 1"),
+          "на телефоне 390 px нет горизонтального скролла")
+    check(phone.locator("#amg-canvas").is_visible(), "полотно графа видно на телефоне")
+    check(not phone.js_errors, f"на телефоне ошибок JS нет: {phone.js_errors[:2]}")
+    ctx2.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--engine", default="chromium", choices=["chromium", "webkit"])
     ap.add_argument("--only", default="")
+    ap.add_argument("--channel", default="", help="канал браузера (chrome, msedge) вместо скачанного Playwright")
     args = ap.parse_args()
     from playwright.sync_api import sync_playwright
 
@@ -385,8 +438,8 @@ def main() -> int:
     proc, tmp = qp.start_instance(pw)
     try:
         with sync_playwright() as p:
-            browser = getattr(p, args.engine).launch(headless=True)
-            for fn in (s_login, s_projects, s_blocks, s_upload, s_meetings, s_mcp, s_px, s_roles, s_nav, s_network):
+            browser = getattr(p, args.engine).launch(headless=True, **({"channel": args.channel} if args.channel else {}))
+            for fn in (s_login, s_projects, s_blocks, s_upload, s_meetings, s_mcp, s_px, s_map_graph, s_roles, s_nav, s_network):
                 if args.only and args.only not in fn.__name__:
                     continue
                 fn(browser, pw)
