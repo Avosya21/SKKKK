@@ -1312,14 +1312,24 @@ run_pipeline
 | `call_summary.md` | summarize_call.py (итоговое резюме) |
 | `call_brief.md` | summarize_call.py (краткое резюме) |
 | `doc_summary.md` | summarize_document.py (протокол документа) |
-| `extract_entities.md` | entities.py |
-| `normalize_document.md` | pipeline_documents |
-| `extract_image_vision.md` | image_extract |
+| `extract_entities_v4.md` | entities.py (извлечение решений и задач, `PROMPT_VERSION=extract_entities-v4`) |
+| `normalize_document.md` | normalize.py (нормализация документов) |
+| `extract_image_vision.md` | image_extract (текст с картинок, когда OCR слаб) |
 | `screen_frame.md` | meeting_frames.py (vision-описание кадров шаринга экрана), scripts/redescribe_screen_frames.py |
-| `rebuild_tz.md` | tz.py |
+| `rebuild_tz.md` | tz.py (пересборка ТЗ) |
 | `rag_chat.md` | chat.py (чанки + сущности по вопросу + хвост `current_tz.md` как обзор) |
 | `lab_sense_speakers.md` | lab_sense.py (этап 2 лаборатории) |
 | `lab_proof_text.md` | lab_proof.py (этап 3в: выбор между lab и giga) |
+| `assign_topics.md` | topics.py (раскладка пунктов по темам проекта) |
+| `merge_topics.md` | topics.py (склейка тем одной потребности, разведённых по способу решения) |
+| `call_outline.md` | extraction_context.py (оглавление созвона для контекста извлечения) |
+| `project_card.md` | extraction_context.py (черновик карточки проекта), chat.py |
+| `review_requirement.md` | review_requirements.py (автопроверка требований, `review_requirement-v2`) |
+| `review_conflict_v3.md` | review_conflicts.py (автопроверка конфликтов, `review_conflict-v3`) |
+| `review_relevance_v2.md` | review_relevance.py (актуальность пунктов по темам, `review_relevance-v2.1`) |
+| `suggest_speaker_names.md` | speaker_auto.py (подсказка имён неназванным голосам) |
+
+Предыдущие версии промптов лежат рядом и кодом не читаются: `extract_entities.md`, `extract_entities_v2.md`, `extract_entities_v3.md` (текущая — v4), `review_conflict.md` (текущая — v3), `review_relevance.md` (текущая — v2).
 
 ---
 
