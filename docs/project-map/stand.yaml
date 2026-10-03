@@ -15,11 +15,22 @@
 version: 1
 updated: "2026-10-03"
 
-roots: [".", "docs", "tools", "venvs", "data", "asr", "app/app/static/vendor"]
+roots: [".", "docs", "tools", "venvs", "data", "asr", "scripts", "app/app/static/vendor"]
 
 # Прямые потомки этих каталогов не проверяются: временный мусор и каталоги IDE
 skip_dirs: ["__pycache__", ".git", ".idea", ".pytest_cache", "tmp"]
-skip_suffix: [".pyc", ".db-shm", ".db-wal", ".db-journal", ".lock", ".log"]
+# `*.py` и `*.ps1` — код: его полноту проверяет scripts/check_map_drift.py, здесь не дублируется
+skip_suffix: [".pyc", ".py", ".ps1", ".db-shm", ".db-wal", ".db-journal", ".lock", ".log"]
+
+# Каталоги документов: каждый файл должен быть упомянут хотя бы в одном документе карты
+# (PROJECT-MAP, PLAN, DECISIONS, TESTING, OPERATIONS, stages/README) — иначе он «сирота».
+doc_dirs: ["docs/prompts", "docs/plans", "docs/stages", "docs/eval", "docs/agent-exchange"]
+doc_sources: ["docs/PROJECT-MAP.md", "docs/PLAN.md", "docs/DECISIONS.md", "docs/TESTING.md",
+              "docs/OPERATIONS.md", "docs/stages/README.md"]
+
+# Каталоги кода, полноту которых уже проверяет scripts/check_map_drift.py (реестр модулей и манифест):
+# их внутренние файлы в инвентаре не перечисляются.
+code_roots: ["app/app", "asr", "scripts"]
 
 items:
   # ─── корень проекта ───
@@ -57,6 +68,17 @@ items:
   - {path: "venv", kind: "окружение", purpose: "Python 3.10.9 портала и всех служебных скриптов", optional: true}
   - {path: "venvs", kind: "окружения", purpose: "отдельные окружения движков (см. ниже)", optional: true}
   - {path: "_archive", kind: "архив", purpose: "код и данные разработки, выведенные из контура (см. _archive/README.md)"}
+
+  # ─── scripts: не-код (лаунчеры, конфиги индекса, звук для проверок) ───
+  - {path: "scripts/SKKKK-1-Остановить.bat", kind: "лаунчер", purpose: "двойной щелчок: остановить портал и воркер"}
+  - {path: "scripts/SKKKK-2-Запуск-Cursor.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с LLM в облаке (Cursor API)"}
+  - {path: "scripts/SKKKK-3-Запуск-LM-Studio.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с локальной моделью (LM Studio)"}
+  - {path: "scripts/index_config.yaml", kind: "конфиг", purpose: "что индексировать: файлы, исключения, версия схемы, маскирование секретов"}
+  - {path: "scripts/index_glossary.yaml", kind: "конфиг", purpose: "словарь синонимов для поиска по карте"}
+  - {path: "scripts/requirements_lock", kind: "заглушка", purpose: "пустой файл блокировки версий (не используется)"}
+  - {path: "scripts/qa_data_speech_a.wav", kind: "фикстура", purpose: "синтезированная русская реплика A для сквозных проверок (qa_analysis, qa_media_path)"}
+  - {path: "scripts/qa_data_speech_b.wav", kind: "фикстура", purpose: "синтезированная русская реплика B для сквозных проверок"}
+  - {path: "scripts/smoke", kind: "смоук", purpose: "смоук-набор на живом сервере: комната, права, счётчики, формы, карточки агентов"}
 
   # ─── docs ───
   - {path: "docs/agent-exchange", kind: "обмен", purpose: "контракт и письма внешнему агенту (letters/ не в git)"}
