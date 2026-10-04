@@ -199,7 +199,7 @@ def create_artifact_record(
     queue_job: bool = True,
     meeting_started_at: datetime | None = None,
 ) -> tuple[Artifact, Job | None]:
-    from app.app.services.recorded_at import resolve_recorded_at
+    from app.app.services.recorded_at import precision_for_source, resolve_recorded_at
 
     base = Path(original_filename).stem
     artifact_id = Path(stored_filename).stem
@@ -224,6 +224,7 @@ def create_artifact_record(
         duration_sec=duration_sec,
         recorded_at=recorded_at,
         recorded_at_source=recorded_source,
+        recorded_at_precision=precision_for_source(recorded_source),
     )
     db.add(art)
     db.flush()

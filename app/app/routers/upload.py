@@ -35,6 +35,8 @@ from app.app.services.recorded_at import (
     SOURCE_MANUAL_TIME,
     manual_recorded_at,
     manual_recorded_at_time,
+    recorded_precision,
+    set_recorded,
     material_date,
     resolve_recorded_at,
 )
@@ -251,6 +253,7 @@ def list_artifacts(
         if progress is not None:
             updates["progress"] = progress
         updates["material_date"], updates["material_date_source"] = material_date(row)
+        updates["material_date_precision"] = recorded_precision(row)
         if updates["material_date_source"] == "messages":
             from app.app.services.chat_export import load_artifact_export, period
 
@@ -285,13 +288,14 @@ def set_artifact_recorded_at(
     if not art:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
     if body.datetime_local is not None:
-        art.recorded_at, art.recorded_at_source = manual_recorded_at_time(body.datetime_local), SOURCE_MANUAL_TIME
+        set_recorded(art, manual_recorded_at_time(body.datetime_local), SOURCE_MANUAL_TIME)
     elif body.date is not None:
-        art.recorded_at, art.recorded_at_source = manual_recorded_at(body.date), SOURCE_MANUAL
+        set_recorded(art, manual_recorded_at(body.date), SOURCE_MANUAL)
     else:
-        art.recorded_at, art.recorded_at_source = resolve_recorded_at(
+        auto_at, auto_source = resolve_recorded_at(
             original_filename=art.original_filename, file_path=None, file_type=art.file_type, upload_date=art.upload_date
         )
+        set_recorded(art, auto_at, auto_source)
     db.commit()
     from app.app.services import contract as ctr
 
@@ -300,7 +304,7 @@ def set_artifact_recorded_at(
     log_activity(db, user_id=user.id, project_id=project_id, block=BLOCK_UPLOAD, action=ACTION_REVIEW,
                  title="Изменил дату материала", content=f"{art.original_filename}: {day or 'неизвестна'} ({source})",
                  target_kind="artifact", target_id=artifact_id)
-    return {"artifact_id": artifact_id, "material_date": day, "material_date_source": source}
+    return {"artifact_id": artifact_id, "material_date": day, "material_date_source": source, "material_date_precision": recorded_precision(art)}
 
 
 @router.delete("/{project_id}/artifacts/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
