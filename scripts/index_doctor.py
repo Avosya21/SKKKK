@@ -29,11 +29,13 @@ from app.app.services.project_index import search, store  # noqa: E402
 from app.app.services.project_index.config import CHUNKER_VERSION, DB_PATH, LOCK_PATH, SCHEMA_VERSION  # noqa: E402
 
 
-MAP_HOOKS = ("pre-commit", "commit-msg")
+# хук -> маркеры блоков, которые должны в нём стоять (ставит scripts/install_hooks.ps1)
+MAP_HOOKS = {"pre-commit": ("SKKKK-MAP", "SKKKK-PRIVACY"), "commit-msg": ("SKKKK-MAP",)}
 
 
 def hooks_missing() -> list[str] | None:
-    """Хуки проверки карты (маркер SKKKK-MAP), которых нет в этой копии репозитория; None — каталога хуков нет (не git)."""
+    """Хуки проверки карты и личных данных (маркеры SKKKK-MAP, SKKKK-PRIVACY), которых нет в этой копии репозитория;
+    None — каталога хуков нет (не git)."""
     import subprocess
 
     try:
@@ -45,10 +47,10 @@ def hooks_missing() -> list[str] | None:
     if not hooks.is_dir():
         return None
     missing = []
-    for name in MAP_HOOKS:
+    for name, markers in MAP_HOOKS.items():
         path = hooks / name
-        if not path.is_file() or "SKKKK-MAP" not in path.read_text(encoding="utf-8", errors="replace"):
-            missing.append(name)
+        text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+        missing += [f"{name}:{marker}" for marker in markers if marker not in text]
     return missing
 
 
@@ -79,8 +81,8 @@ def check() -> tuple[list[dict], bool]:
         add("git-хуки карты", None, "каталог хуков не найден (не git-копия?)")
     else:
         add("git-хуки карты", not missing_hooks,
-            "pre-commit и commit-msg стоят: коммит без актуальной карты не пройдёт" if not missing_hooks
-            else "не установлены: " + ", ".join(missing_hooks) + " — карту ничто не защищает",
+            "pre-commit (карта, личные данные) и commit-msg стоят: коммит без актуальной карты и с именами из базы не пройдёт" if not missing_hooks
+            else "не установлены: " + ", ".join(missing_hooks) + " — карту и личные данные ничто не защищает",
             "" if not missing_hooks else "powershell -ExecutionPolicy Bypass -File scripts\\install_hooks.ps1")
     try:
         import httpx
