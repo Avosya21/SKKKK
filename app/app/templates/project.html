@@ -1907,7 +1907,11 @@ function materialDateLine(a) {
     const till = a.material_period_end ? `–${escapeHtml(fmtDay(a.material_period_end))}` : '';
     return `<div class="small text-muted mt-1">Переписка: ${escapeHtml(fmtDay(a.material_date))}${till} · у каждого пункта — время своего сообщения</div>`;
   }
-  return `<div class="small text-muted mt-1">Дата записи: ${escapeHtml(fmtDay(a.material_date))} · ${escapeHtml(DATE_SOURCE[a.material_date_source] || a.material_date_source)}${edit}</div>`;
+  // Созвон или документ с известным только днём: порядок «раньше / позже» внутри этого дня не определён (ПФ6)
+  const dayOnly = a.material_date_precision === 'day'
+    ? ' · <span class="badge text-bg-light border" title="Известен только день, время начала не указано: порядок с другими материалами этого дня не определён. Укажите время, чтобы он стал точным.">только день</span>'
+    : '';
+  return `<div class="small text-muted mt-1">Дата записи: ${escapeHtml(fmtDay(a.material_date))} · ${escapeHtml(DATE_SOURCE[a.material_date_source] || a.material_date_source)}${dayOnly}${edit}</div>`;
 }
 
 async function setMaterialDate(artifactId, current) {

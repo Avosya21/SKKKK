@@ -82,6 +82,10 @@ class ArtifactOut(BaseModel):
 
     material_date_source: str = "upload"
 
+    # day — известен только день (порядок внутри дня не определён), minute — есть время начала (ПФ6 PLATFORM-FOUNDATION-PLAN)
+
+    material_date_precision: str = "day"
+
     # переписка: день последнего сообщения (период «с … по …», SOURCE-ANCHORS-PLAN этап 1)
 
     material_period_end: date | None = None

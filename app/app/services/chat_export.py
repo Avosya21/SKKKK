@@ -246,8 +246,11 @@ def ingest_telegram_export(settings: Any, artifact: Any, html: str) -> str | Non
     if first is not None:
         from app.app.services.recorded_at import SOURCE_MESSAGES
 
-        artifact.recorded_at = first.astimezone(timezone.utc).replace(tzinfo=None)
-        artifact.recorded_at_source = SOURCE_MESSAGES
+        from app.app.services.recorded_at import PRECISION_DAY, PRECISION_MINUTE, set_recorded
+
+        day_only = all(m.get("at_precision") == AT_PRECISION_DAY for m in export["messages"])  # копия чата без времени
+        set_recorded(artifact, first.astimezone(timezone.utc).replace(tzinfo=None), SOURCE_MESSAGES,
+                     precision=PRECISION_DAY if day_only else PRECISION_MINUTE)
     return render_chat_text(export)
 
 

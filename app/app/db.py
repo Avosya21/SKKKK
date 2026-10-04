@@ -138,6 +138,15 @@ def apply_schema_migrations() -> None:
                 conn.commit()
         # Права ключей: прежний флаг can_submit=1 означал «вопросы и вердикты». Строка безопасна при каждом старте:
         # после миграции scope и can_submit меняются только вместе, состояния «can_submit=1, scope=read» больше не возникает.
+        # Точность даты материала (ПФ6): у уже загруженных выводится из источника; новые пишут её сами (recorded_at.set_recorded)
+        art_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(artifacts)").fetchall()}
+        if {"recorded_at_precision", "recorded_at_source"} <= art_cols:
+            conn.exec_driver_sql(
+                "UPDATE artifacts SET recorded_at_precision = CASE WHEN recorded_at_source IN "
+                "('meeting','media','manual_time','filename_time','messages') THEN 'minute' ELSE 'day' END "
+                "WHERE recorded_at_precision IS NULL AND recorded_at_source IS NOT NULL"
+            )
+            conn.commit()
         cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(project_mcp_tokens)").fetchall()}
         if {"scope", "can_submit"} <= cols:
             conn.exec_driver_sql("UPDATE project_mcp_tokens SET scope='questions_verdicts' WHERE can_submit=1 AND scope='read'")

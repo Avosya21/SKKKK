@@ -4,6 +4,7 @@
     venv\\Scripts\\python scripts\\material_dates.py --project 18 --apply    # дозаполнить даты, найденные автоматически
     venv\\Scripts\\python scripts\\material_dates.py --all --apply           # все проекты
 
+С --day-only — созвоны, у которых известен только день (порядок внутри дня не определён), с подсказкой по времени.
 С --apply материалам без фактической даты (дата загрузки, только свойства файла или пусто) ставится дата так же, как
 новым: встреча внутренней площадки (``встреча-N.wav`` → начало встречи N) → первое сообщение выгрузки переписки →
 имя файла (со временем или без, «14 мая») → метаданные записи → шапка документа («Протокол от 19.08.2026») → свойства
@@ -85,7 +86,7 @@ def fill_dates(db, settings, project_id: int, *, apply: bool, out=print) -> dict
             if (proposal[1], proposal[0]) == (art.recorded_at_source, art.recorded_at):
                 proposal = None
         if proposal and apply:
-            art.recorded_at, art.recorded_at_source = proposal
+            ra.set_recorded(art, *proposal)
             stats["changed"] += 1
         day, source = ra.material_date(art)
         stats["by_upload"] += source == ra.SOURCE_UPLOAD
@@ -100,12 +101,41 @@ def fill_dates(db, settings, project_id: int, *, apply: bool, out=print) -> dict
     return stats
 
 
+def day_only_report(db, project_id: int, out=print) -> int:
+    """Созвоны проекта, у которых известен только день (ПФ6): порядок внутри дня не определён. Подсказка — верхняя граница
+    начала: время загрузки минус длительность (запись не могла начаться позже). Время начала подтверждает человек в карточке материала."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.app.models.artifact import Artifact
+    from app.app.services import recorded_at as ra
+
+    arts = [a for a in db.scalars(select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id)).all()
+            if a.file_type == "audio" and ra.recorded_precision(a) == ra.PRECISION_DAY]
+    by_day: dict = {}
+    for art in arts:
+        day, _source = ra.material_date(art)
+        by_day.setdefault(day, []).append(art)
+    for day, group in sorted(by_day.items(), key=lambda kv: (kv[0] is None, kv[0])):
+        warn = f"  ← {len(group)} созвона в один день, порядок неизвестен" if len(group) > 1 else ""
+        out(f"{day.strftime('%d.%m.%Y') if day else 'дата неизвестна'}{warn}")
+        for art in group:
+            late = ""
+            if art.upload_date and art.duration_sec and ra.to_local(art.upload_date).date() == day:  # загрузка в тот же день — граница осмысленна
+                latest = ra.to_local(art.upload_date) - timedelta(seconds=float(art.duration_sec))
+                late = f"; начало не позже {latest:%d.%m.%Y %H:%M} (загружен {ra.to_local(art.upload_date):%d.%m %H:%M}, длительность {int(art.duration_sec // 60)} мин)"
+            out(f"   #{art.id} {art.original_filename} — источник «{SOURCE_LABELS.get(art.recorded_at_source, art.recorded_at_source)}»{late}")
+    return len(arts)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--project", type=int)
     group.add_argument("--all", action="store_true", help="все проекты")
     ap.add_argument("--apply", action="store_true", help="записать найденные даты (без флага — только отчёт)")
+    ap.add_argument("--day-only", action="store_true", help="показать созвоны, у которых известен только день (ничего не меняет)")
     args = ap.parse_args()
 
     from sqlalchemy import select
@@ -121,6 +151,9 @@ def main() -> int:
         for project_id in ids:
             if args.all:
                 print(f"\n=== #{project_id} {db.get(Project, project_id).name}")
+            if args.day_only:
+                print(f"созвонов только с днём: {day_only_report(db, project_id)}")
+                continue
             stats = fill_dates(db, settings, project_id, apply=args.apply)
             print(f"материалов: {stats['materials']}, по дате загрузки: {stats['by_upload']}"
                   + (f", дат поставлено: {stats['changed']}" if args.apply else ""))

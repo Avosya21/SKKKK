@@ -24,6 +24,8 @@ EXPLICIT_SOURCES = frozenset({SOURCE_MEETING, SOURCE_FILENAME, SOURCE_FILENAME_T
                               SOURCE_MANUAL_TIME, SOURCE_MESSAGES, SOURCE_DOC_TEXT, SOURCE_DOC_META})
 # Известно время начала записи с точностью до минуты: таймкод реплики даёт момент (Я3).
 MINUTE_SOURCES = frozenset({SOURCE_MEETING, SOURCE_MEDIA, SOURCE_MANUAL_TIME, SOURCE_FILENAME_TIME})
+PRECISION_DAY = "day"  # известен только день: время условное (полдень), порядок внутри дня не определён
+PRECISION_MINUTE = "minute"  # есть время начала: таймкод реплики даёт момент
 # Дату, выведенную автоматически из этих источников, можно уточнить автоматически (текст документа точнее свойств файла).
 AUTO_REFINABLE = frozenset({SOURCE_UPLOAD, SOURCE_DOC_META, None})
 DOC_META_TYPES = frozenset({"docx", "xlsx", "pptx", "pdf", "image"})
@@ -282,7 +284,7 @@ def refine_from_text(artifact: Any, text: str) -> bool:
     found = text_header_date(text, getattr(artifact, "upload_date", None))
     if found is None:
         return False
-    artifact.recorded_at, artifact.recorded_at_source = datetime(found.year, found.month, found.day, 12, 0), SOURCE_DOC_TEXT
+    set_recorded(artifact, datetime(found.year, found.month, found.day, 12, 0), SOURCE_DOC_TEXT)
     return True
 
 
@@ -313,6 +315,27 @@ def material_date(artifact: Any) -> tuple[date | None, str]:
         return by_name, SOURCE_FILENAME
     uploaded = to_local(getattr(artifact, "upload_date", None))
     return (uploaded.date() if uploaded else None), SOURCE_UPLOAD
+
+
+def precision_for_source(source: str | None) -> str | None:
+    """Точность даты по её источнику: встреча, метаданные записи, ручное время и время в имени файла — минута, остальное — день."""
+    if not source:
+        return None
+    return PRECISION_MINUTE if source in MINUTE_SOURCES else PRECISION_DAY
+
+
+def recorded_precision(artifact: Any) -> str:
+    """Точность даты материала для людей и порядка «раньше / позже»: записанная, иначе по источнику; нет даты — день."""
+    stored = getattr(artifact, "recorded_at_precision", None)
+    if stored in (PRECISION_DAY, PRECISION_MINUTE):
+        return stored
+    return precision_for_source(getattr(artifact, "recorded_at_source", None)) or PRECISION_DAY
+
+
+def set_recorded(artifact: Any, recorded_at: datetime | None, source: str | None, *, precision: str | None = None) -> None:
+    """Записать дату материала вместе с источником и точностью: единственное место, где они меняются вместе."""
+    artifact.recorded_at, artifact.recorded_at_source = recorded_at, source
+    artifact.recorded_at_precision = precision or precision_for_source(source)
 
 
 def manual_recorded_at(day: date) -> datetime:
