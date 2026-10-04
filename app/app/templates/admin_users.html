@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{# Панель пользователей (/admin/users): таблица учёток и общая лента действий; доступ — по списку Panel_users.txt #}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-baseline justify-content-between mb-2">
+  <h1 class="h4 mb-0">Пользователи</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="/">К проектам</a>
+</div>
+<p class="text-muted small mb-3" id="au-summary" aria-live="polite">Загрузка…</p>
+<div class="small text-muted mb-2" id="au-status" aria-live="polite"></div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Кто зарегистрирован</strong></div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0" id="au-users">
+      <thead><tr>
+        <th>Логин</th><th>Имя</th><th>Роль</th><th>Компания</th><th>Карточка</th><th>Голос</th><th class="text-end">Проекты</th>
+        <th>Зарегистрирован</th><th>Последний вход</th><th class="text-end">Входов</th><th class="text-end">Действий</th><th></th>
+      </tr></thead>
+      <tbody id="au-users-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Что делали</strong> <span class="text-muted small">все проекты, новые сверху</span></div>
+  <div class="card-body">
+    <form class="row g-2 mb-3" id="au-filters" autocomplete="off">
+      <div class="col-6 col-md-3"><select class="form-select form-select-sm" id="f-user" aria-label="Пользователь"><option value="">Все пользователи</option></select></div>
+      <div class="col-6 col-md-3"><select class="form-select form-select-sm" id="f-project" aria-label="Проект"><option value="">Все проекты</option></select></div>
+      <div class="col-6 col-md-3"><select class="form-select form-select-sm" id="f-block" aria-label="Раздел"><option value="">Все разделы</option></select></div>
+      <div class="col-6 col-md-3"><select class="form-select form-select-sm" id="f-action" aria-label="Действие"><option value="">Все действия</option></select></div>
+      <div class="col-6 col-md-2"><input type="date" class="form-control form-control-sm" id="f-from" aria-label="С даты"></div>
+      <div class="col-6 col-md-2"><input type="date" class="form-control form-control-sm" id="f-to" aria-label="По дату"></div>
+      <div class="col-12 col-md-5"><input type="search" class="form-control form-control-sm" id="f-q" placeholder="Поиск по тексту записи" maxlength="100"></div>
+      <div class="col-12 col-md-3 d-flex gap-2">
+        <button class="btn btn-sm btn-dark flex-fill" type="submit">Показать</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" id="f-reset">Сбросить</button>
+      </div>
+    </form>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Когда</th><th>Кто</th><th>Проект</th><th>Раздел</th><th>Что сделал</th></tr></thead>
+        <tbody id="au-feed-body"></tbody>
+      </table>
+    </div>
+    <div class="d-flex align-items-center gap-3 mt-3">
+      <button class="btn btn-sm btn-outline-secondary d-none" type="button" id="au-more">Показать ещё</button>
+      <span class="small text-muted" id="au-feed-note"></span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  if (!SKKKK.requireAuth()) return;
+  const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmt = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return iso; } };
+  const ROLE = { admin: 'админ', manager: 'менеджер', user: 'пользователь' };
+  const say = (t, bad) => { const el = $('au-status'); el.textContent = t || ''; el.classList.toggle('text-danger', !!bad); };
+  const getJson = async (path) => {
+    try {
+      const r = await SKKKK.api(path);
+      if (!r.ok) { say(r.status === 404 ? 'Страница недоступна для этой учётки.' : 'Ошибка ' + r.status, true); return null; }
+      return await r.json();
+    } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }
+  };
+  let nextBefore = null;
+
+  function renderUsers(users) {
+    $('au-users-body').innerHTML = users.map((u) => `<tr>
+      <td class="text-nowrap">${esc(u.login)}</td>
+      <td>${esc(u.full_name) || '<span class="text-muted">—</span>'}${u.job_title ? `<div class="small text-muted">${esc(u.job_title)}</div>` : ''}</td>
+      <td>${esc(ROLE[u.role] || u.role)}</td>
+      <td>${esc(u.company) || '<span class="text-muted">—</span>'}</td>
+      <td>${u.card_done ? 'заполнена' : '<span class="text-warning">нет</span>'}</td>
+      <td>${u.voice_consent ? 'согласие' + (u.voices ? ` · слепков ${u.voices}` : '') : '<span class="text-muted">нет</span>'}</td>
+      <td class="text-end">${u.projects_member + u.projects_owned ? `${u.projects_owned} свои · ${u.projects_member} доступ` : '0'}</td>
+      <td class="text-nowrap">${fmt(u.registered_at)}</td>
+      <td class="text-nowrap">${fmt(u.last_login)}</td>
+      <td class="text-end">${u.logins}</td>
+      <td class="text-end">${u.actions}</td>
+      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-user="${u.id}">Что делал</button></td></tr>`).join('');
+  }
+  function fillFilters(data) {
+    const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
+    $('f-user').innerHTML = '<option value="">Все пользователи</option>' + data.users.map((u) => opt(u.id, u.login + (u.full_name ? ' · ' + u.full_name : ''))).join('');
+    $('f-project').innerHTML = '<option value="">Все проекты</option>' + data.filters.projects.map((p) => opt(p.id, '#' + p.id + ' ' + p.name)).join('');
+    $('f-block').innerHTML = '<option value="">Все разделы</option>' + data.filters.blocks.map((b) => opt(b.id, b.label)).join('');
+    $('f-action').innerHTML = '<option value="">Все действия</option>' + data.filters.actions.map((a) => opt(a, a)).join('');
+  }
+  const query = (extra) => {
+    const p = new URLSearchParams();
+    [['user_id', 'f-user'], ['project_id', 'f-project'], ['block', 'f-block'], ['action', 'f-action'], ['date_from', 'f-from'], ['date_to', 'f-to'], ['q', 'f-q']]
+      .forEach(([k, id]) => { const v = $(id).value.trim(); if (v) p.set(k, v); });
+    Object.entries(extra || {}).forEach(([k, v]) => { if (v != null) p.set(k, v); });
+    return p.toString();
+  };
+  function rows(items) {
+    return items.map((e) => `<tr>
+      <td class="text-nowrap small">${fmt(e.at)}</td><td class="text-nowrap">${esc(e.user)}</td>
+      <td class="small">${e.project_id ? `#${e.project_id} ${esc(e.project)}` : '<span class="text-muted">—</span>'}</td>
+      <td class="small">${esc(e.block_label)}</td>
+      <td>${esc(e.title)}${e.content ? `<details class="small text-muted"><summary>Подробнее</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(e.content)}</div></details>` : ''}</td></tr>`).join('');
+  }
+  async function loadFeed(append) {
+    const d = await getJson('/admin/users/activity?' + query({ limit: 50, before_id: append ? nextBefore : null }));
+    if (!d) return;
+    $('au-feed-body').innerHTML = (append ? $('au-feed-body').innerHTML : '') + rows(d.items);
+    nextBefore = d.next_before_id;
+    $('au-more').classList.toggle('d-none', !d.more);
+    $('au-feed-note').textContent = !append && !d.items.length ? 'Записей по этим условиям нет.' : '';
+    if (!append && d.items.length) say('');
+  }
+
+  const data = await getJson('/admin/users/data');
+  if (!data) { $('au-summary').textContent = ''; return; }
+  $('au-summary').textContent = `Учёток: ${data.summary.users}. Карточка заполнена: ${data.summary.cards_done}. Были активны за 7 суток: ${data.summary.active_7d}.`;
+  renderUsers(data.users); fillFilters(data); await loadFeed(false);
+
+  $('au-filters').addEventListener('submit', (e) => { e.preventDefault(); loadFeed(false); });
+  $('f-reset').addEventListener('click', () => { $('au-filters').reset(); loadFeed(false); });
+  $('au-more').addEventListener('click', () => loadFeed(true));
+  $('au-users-body').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-user]'); if (!b) return;
+    $('au-filters').reset(); $('f-user').value = b.dataset.user; loadFeed(false);
+    $('au-filters').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+})();
+</script>
+{% endblock %}

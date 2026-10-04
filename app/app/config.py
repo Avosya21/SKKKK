@@ -100,6 +100,8 @@ class Settings(BaseSettings):
     personal_password_min_len: int = 10
     # Компании для карточки пользователя (как Login_up.txt): «Название | Исполнитель|Заказчик».
     companies_path: Path = ROOT / "Companies.txt"
+    # Логины, которым открыта панель пользователей (/admin/users): по строке на логин, как Login_up.txt. Нет файла — нет доступа.
+    panel_users_path: Path = ROOT / "Panel_users.txt"
     # Как модель называет компанию-исполнителя в поле «исполнитель» задачи («компании X», через запятую): такой
     # исполнитель общий, при склейке задач его заменяет конкретный человек. Названия компаний в код не пишем.
     executor_aliases: str = ""
@@ -141,7 +143,7 @@ class Settings(BaseSettings):
             raise ValueError("PERSONAL_PASSWORD: required | off (off — только тесты и аварийный откат)")
         return mode
 
-    @field_validator("data_dir", "login_allowlist_path", "companies_path", mode="before")
+    @field_validator("data_dir", "login_allowlist_path", "companies_path", "panel_users_path", mode="before")
     @classmethod
     def _path(cls, v: str | Path) -> Path:
         return Path(v)
