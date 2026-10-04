@@ -104,6 +104,13 @@ while ((Get-Date) -lt $deadline) {
             $newWorker = if (Test-Path $workerPidFile) { (Get-Content $workerPidFile -TotalCount 1) } else { "" }
             if (-not $newWorker -or $newWorker -eq $oldWorker) { continue }
             Write-Host "API поднят: ${s}://127.0.0.1:$port, GPU-воркер PID $newWorker, LLM=$provider" -ForegroundColor Green
+            # Git-хуки (обновление индекса, проверка карты проекта) лежат вне репозитория: ставим, если в этой копии их ещё нет.
+            $hooksDir = Join-Path $PSScriptRoot '..\.git\hooks'
+            $mapHook = Join-Path $hooksDir 'pre-commit'
+            if ((Test-Path -LiteralPath $hooksDir) -and -not ((Test-Path -LiteralPath $mapHook) -and (Select-String -LiteralPath $mapHook -Pattern 'SKKKK-MAP' -Quiet))) {
+                try { & (Join-Path $PSScriptRoot 'install_hooks.ps1') | Out-Null; Write-Host 'Git-хуки проекта установлены (карта проекта проверяется при коммите).' -ForegroundColor Green }
+                catch { Write-Host "Git-хуки не установлены: $($_.Exception.Message)" -ForegroundColor Yellow }
+            }
             # Индекс проекта: подтянуть изменённые файлы в фоне (Ollama на CPU, GPU не трогает; сбой не важен для запуска).
             $idxPy = Join-Path $PSScriptRoot '..\venv\Scripts\python.exe'
             if (Test-Path -LiteralPath $idxPy) {

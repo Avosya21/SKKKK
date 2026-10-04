@@ -29,6 +29,29 @@ from app.app.services.project_index import search, store  # noqa: E402
 from app.app.services.project_index.config import CHUNKER_VERSION, DB_PATH, LOCK_PATH, SCHEMA_VERSION  # noqa: E402
 
 
+MAP_HOOKS = ("pre-commit", "commit-msg")
+
+
+def hooks_missing() -> list[str] | None:
+    """Хуки проверки карты (маркер SKKKK-MAP), которых нет в этой копии репозитория; None — каталога хуков нет (не git)."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=ROOT,
+                             capture_output=True, check=True).stdout.decode("utf-8").strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    hooks = Path(out) / "hooks"
+    if not hooks.is_dir():
+        return None
+    missing = []
+    for name in MAP_HOOKS:
+        path = hooks / name
+        if not path.is_file() or "SKKKK-MAP" not in path.read_text(encoding="utf-8", errors="replace"):
+            missing.append(name)
+    return missing
+
+
 def check() -> tuple[list[dict], bool]:
     rows: list[dict] = []
     bad = False
@@ -51,6 +74,14 @@ def check() -> tuple[list[dict], bool]:
         add("sqlite-vec", True, c.execute("select vec_version()").fetchone()[0])
     except Exception as exc:  # noqa: BLE001
         add("sqlite-vec", False, repr(exc), "pip install sqlite-vec")
+    missing_hooks = hooks_missing()
+    if missing_hooks is None:
+        add("git-хуки карты", None, "каталог хуков не найден (не git-копия?)")
+    else:
+        add("git-хуки карты", not missing_hooks,
+            "pre-commit и commit-msg стоят: коммит без актуальной карты не пройдёт" if not missing_hooks
+            else "не установлены: " + ", ".join(missing_hooks) + " — карту ничто не защищает",
+            "" if not missing_hooks else "powershell -ExecutionPolicy Bypass -File scripts\\install_hooks.ps1")
     try:
         import httpx
         from app.app.config import Settings

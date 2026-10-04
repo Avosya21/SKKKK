@@ -27,6 +27,7 @@
 | 7 | Окружения `venv\` и `venvs\*` | `scripts\setup_env.ps1` по `app\requirements.txt` и `scripts\requirements_lock\*.txt` | все Python-библиотеки проекта (в т.ч. `python-pptx`, torch с нужной CUDA) |
 | 8 | `.env` | из `.env.example` | секреты и адреса сервисов |
 | 9 | Docker-образы ASR | `INSTALL.bat -Asr` | сборка `asr\docker-compose.yml` |
+| 10 | Git-хуки | `scripts\install_hooks.ps1` (сам вызывается из `INSTALL.bat` и `restart.ps1`) | индекс проекта после коммита и **проверка карты проекта перед коммитом**: коммит без актуальной `docs\PROJECT-MAP.md` не проходит |
 
 ## Вручную после скрипта
 
