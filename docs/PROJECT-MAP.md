@@ -1234,9 +1234,45 @@ data/projects/{project_id}/
 | `prompts.py`, `build_info.py` | реестр промптов; сведения о сборке |
 | `meeting_frames.py` | кадры записи экрана и их описание |
 
-### Модели (`app/app/models/`)
+### Модели (`app/app/models/`) — все таблицы БД
 
-`user`, `project`, `project_member`, `artifact`, `job`, `meeting`, `meeting_participant`, `entity` (+ chunks, links, speaker_profile, `chat_message`, `chat_guidance`, `user_activity_log`, `project_task`, `project_mcp_token`, …), обмен с агентом: `agent_exchange` (журнал), `agent_question`, `contract`
+SQLite `data/app.db` (личные пароли — отдельная `data/credentials.db`, §7). Таблица → модель → зачем. Состав сверяет `scripts/check_map_drift.py`: таблица без упоминания здесь — расхождение.
+
+| Таблица | Модель (файл) | Назначение |
+|---------|---------------|------------|
+| `users` | `user.py` | пользователь: имя, роль (`admin`/`manager`/`user`), Telegram, хеш пароля |
+| `user_profiles` | `user_profile.py` | карточка человека при учётке: ФИО, компания, должность, фото, согласие на голос (`users` — как входит, карточка — кто он) |
+| `companies` | `company.py` | справочник компаний; источник истины — `Companies.txt`, таблица — его отражение (§5.17) |
+| `projects` | `project.py` | проект и его настройки (`settings_json`, в т. ч. `memory_platform`) |
+| `project_members` | `project_member.py` | выданный доступ к проекту: роль `manager`/`user`, кто выдал |
+| `project_mcp_tokens` | `project_mcp_token.py` | ключи проектного MCP: хеш, права (`scope`), право класть вопросы (`can_submit`), лимит, отзыв |
+| `project_tasks` | `project_task.py` | фоновая задача проекта со статусом и ошибкой (блокирует повторное «Пересобрать») |
+| `artifacts` | `artifact.py` | загруженный файл проекта и статус обработки; дата записи (`recorded_at`, источник, точность), движки ASR, ссылка на отчёт |
+| `jobs` | `job.py` | очередь обработки для единственного GPU-воркера: вид, фаза, попытки, ошибка |
+| `asr_runs` | `entity.py` | прогон распознавания по артефакту: движок, статус, длительность, ошибка; пишет `pipeline_audio._record_asr_runs` |
+| `chunks` | `entity.py` | фрагменты текста для поиска (вектор и FTS5); у созвона — отрезок записи `start_sec`/`end_sec`, говорящий |
+| `entities` | `entity.py` | сущности, извлечённые из материалов (решения, задачи и др.): тип, значение, уверенность, `needs_review`, тема |
+| `links` | `entity.py` | связи между сущностями, в том числе конфликты: сходство, автоматическая ли, оценка модели |
+| `resolutions` | `entity.py` | решение человека по конфликту: какая сущность в силе, какая нет, причина |
+| `topics` | `entity.py` | темы проекта (потребность или объект, а не способ решения): подпись, краткое содержание, версия промпта |
+| `changelog` | `entity.py` | журнал версий ТЗ: метка версии, затронутые материалы, сводка изменений, путь файла |
+| `user_notes` | `entity.py` | заметки пользователя к проекту (текст, файл) |
+| `note_refs` | `entity.py` | на что ссылается заметка (`target_kind` / `target_id`); пишут `knowledge.create_note` и `graph.delete_entities_with_deps`, чистит `project_purge` |
+| `chat_messages` | `chat_message.py` | сообщения чата проекта, в том числе ожидающие ответа |
+| `chat_guidance` | `chat_guidance.py` | указания пользователя из чата: влияют на поиск, не меняют граф и сущности |
+| `user_activity_log` | `user_activity_log.py` | журнал действий: кто, в каком блоке, что сделал (лента на `/admin/users`) |
+| `meetings` | `meeting.py` | встречи проекта: комната, статус, хеш публичного токена, начало и конец |
+| `meeting_participants` | `meeting.py` | присутствие участников встречи: сотрудник или гость, вход, выход, связь с человеком проекта |
+| `speaker_profiles` | `speaker_profile.py` | отпечаток голоса: `global` — общая база подтверждённых, `project` — локальная копия; связь с учёткой и человеком |
+| `artifact_speaker_links` | `speaker_profile.py` | привязка `SPEAKER_XX` артефакта к профилю: подсказка или подтверждение, оценка совпадения, отрезок клипа |
+| `people` | `person.py` | реестр людей проекта (§5.14) |
+| `person_aliases` | `person.py` | написания имени человека; ключ без регистра, `ё=е`, уникален в проекте |
+| `project_parties` | `person.py` | сторона компании в проекте (заказчик / исполнитель) |
+| `unknown_actors` | `person.py` | очередь «Кто это?»: автор чата, метка спикера, гость комнаты без человека в реестре |
+| `people_log` | `person.py` | журнал правок реестра: кто, когда, до и после |
+| `contract_items` | `contract.py` | реестр стабильных id контракта обмена с агентом (`req-` / `dec-` / `cft-`): id не меняется при переизвлечении; `content_hash` нужен дельте `get_changes`; пишет `contract._insert_item` / `_assign_ids` |
+| `agent_exchange_log` | `agent_exchange.py` | журнал обмена с внешним агентом: каждый запрос и ответ проходят через шлюз и оставляют след (решение, риск, причины, контрольная сумма) |
+| `agent_questions` | `agent_question.py` | ящик вопросов внешнего агента: `pending` → `drafted` (черновик локальной модели, наружу не виден) → `answered`; текст вопроса — недоверенные данные; пишет `agent_inbox.create_question`, читают `list_questions` / `get_question`, на экране — `GET /projects/{id}/agent-inbox` |
 
 ### Точка входа (`app/app/`)
 
