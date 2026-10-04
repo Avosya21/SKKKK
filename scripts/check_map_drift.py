@@ -9,7 +9,9 @@
   2. узлы манифеста с несуществующим `path`;
   3. рёбра манифеста, ссылающиеся на несуществующие узлы;
   4. модули без докстринга (services, routers, models, workers, mcp) — предупреждение;
-  5. реестр модулей в PROJECT-MAP.md (между маркерами generated) отстаёт от кода.
+  5. реестр модулей в PROJECT-MAP.md (между маркерами generated) отстаёт от кода;
+  6. роуты (с префиксами роутеров), таблицы БД и переменные окружения из кода, не упомянутые в карте
+     (без учёта generated-реестра; системные и тестовые переменные — `ENV_IGNORE`).
 Реестр между маркерами <!-- generated:begin registry --> / end генерируется; руками его не править.
 """
 
@@ -117,6 +119,68 @@ def registry_text(files: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _norm_params(text: str) -> str:
+    """Имена параметров пути в карте пишут по-разному (`{id}`, `{project_id}`, `…`) — приводим к `{}`."""
+    return re.sub(r"\{[^}]*\}|…", "{}", text)
+
+
+# Системные и тестовые переменные: карте описывать их незачем (их задаёт ОС, pytest или стенд проверок).
+ENV_IGNORE = re.compile(
+    r"^(PATH|PATHEXT|HOME|USERPROFILE|TEMP|TMP|APPDATA|LocalAppData|ProgramFiles(\(x86\))?|SESSIONNAME|COMPUTERNAME|"
+    r"PYCHARM_HOSTED|PYTEST_CURRENT_TEST|PYTHONPATH|PYTHONIOENCODING|SMOKE_\w*|\{\}\w*|\w*\{\}\w*)$"
+)
+
+
+def _code_env_names() -> set[str]:
+    """Переменные окружения, которые код читает: поля `Settings` (в верхнем регистре) и os.environ/os.getenv."""
+    names: set[str] = set()
+    cfg = ROOT / "app" / "app" / "config.py"
+    if cfg.is_file():
+        for cls in [n for n in ast.parse(cfg.read_text(encoding="utf-8")).body if isinstance(n, ast.ClassDef)]:
+            for stmt in cls.body:
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    names.add(stmt.target.id.upper())
+    for pattern in ("app/app/*.py", "app/app/services/*.py", "app/app/routers/*.py", "app/app/workers/*.py", "asr/*.py", "scripts/*.py"):
+        for path in ROOT.glob(pattern):
+            if "/tests/" in path.as_posix():
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                name = None
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args:
+                    if ast.unparse(node.func) in {"os.getenv", "os.environ.get", "environ.get"} and isinstance(node.args[0], ast.Constant):
+                        name = node.args[0].value
+                elif isinstance(node, ast.Subscript) and ast.unparse(node.value) in {"os.environ", "environ"} and isinstance(node.slice, ast.Constant):
+                    name = node.slice.value
+                if isinstance(name, str) and name:
+                    names.add(name)
+    return {n for n in names if not ENV_IGNORE.match(n)}
+
+
+def coverage(map_text: str) -> dict:
+    """Роуты, таблицы БД и переменные окружения из кода, о которых в карте нет ни слова."""
+    import sqlite3
+
+    from app.app.services.project_index import analyzers
+    from app.app.services.project_index.store import SCHEMA
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA)
+    analyzers.analyze_routes(conn)
+    analyzers.analyze_db(conn)
+    flat = _norm_params(map_text)
+    routes = sorted({f"{r['method']} {r['url']}" for r in conn.execute("SELECT method, url FROM routes")
+                     if _norm_params(r["url"]) not in flat and r["url"] != "/"})
+    tables = sorted(r[0] for r in conn.execute("SELECT DISTINCT tbl FROM db_columns") if not re.search(rf"\b{re.escape(r[0])}\b", map_text))
+    env = sorted(n for n in _code_env_names() if not re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", map_text))
+    conn.close()
+    return {"routes": routes, "tables": tables, "env": env}
+
+
 def analyse() -> dict:
     files = code_files()
     map_text = MAP.read_text(encoding="utf-8")
@@ -154,7 +218,8 @@ def analyse() -> dict:
                 no_doc.append(rel)
     registry_stale = registry_text(files) not in map_text if BEGIN in map_text else True
     return {"files": files, "missing_in_map": missing_in_map, "missing_manifest": missing_manifest, "dead_nodes": dead_nodes,
-            "bad_edges": bad_edges, "no_doc": no_doc, "registry_stale": registry_stale, "outside": outside_registry}
+            "bad_edges": bad_edges, "no_doc": no_doc, "registry_stale": registry_stale, "outside": outside_registry,
+            **{f"missing_{k}": v for k, v in coverage(outside_registry).items()}}
 
 
 def fix(report: dict) -> None:
@@ -221,6 +286,9 @@ def main() -> int:
     show("файлы кода, которых нет ни в карте, ни в манифесте", report["missing_in_map"])
     show("узлы манифеста с несуществующим path", report["dead_nodes"])
     show("рёбра манифеста на несуществующие узлы", [f"{e['from']} -> {e['to']} ({e.get('relation')})" for e in report["bad_edges"]])
+    show("роуты, которых нет в карте", report["missing_routes"])
+    show("таблицы БД, которых нет в карте", report["missing_tables"])
+    show("переменные окружения, которых нет в карте", report["missing_env"])
     show("модули без докстринга", report["no_doc"], hard=args.strict_docs)
     if report["registry_stale"]:
         print("✗ реестр модулей в PROJECT-MAP.md отстаёт от кода (запустите с --fix)")

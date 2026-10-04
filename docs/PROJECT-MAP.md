@@ -1404,6 +1404,7 @@ run_pipeline
 | `app/app/tests/test_edge_runtime.py` | TLS → Caddy → LiveKit → voice; портал жив если LiveKit упал |
 | `app/app/tests/test_tls_cert.py` | проверка файла сертификата и перевыпуск при старте |
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
+| `app/app/tests/test_map_coverage.py` | логика проверки покрытия карты: роуты, таблицы БД и переменные окружения из кода (`check_map_drift.coverage`) |
 | `app/app/tests/test_meetings.py` / `test_livekit_env.py` | комнаты, JWT, yaml ICE, кнопка Проанализировать |
 | `app/app/tests/test_meeting_recordings.py` | сырые дорожки одной комнаты в одном `manifest.json` |
 | `app/app/tests/test_pipeline_lab.py` | publish `speaker_N`, `republish_named_transcript` пишет имена |
