@@ -1026,6 +1026,7 @@
 <link href="/static/px_agent.css?v=1" rel="stylesheet">
 {% include "partials/px_agent_cards.html" %}
 {% include "partials/people_card.html" %}
+{% include "partials/background_card.html" %}
 {% endif %}
 
 {% if can_grant_access %}
@@ -3125,5 +3126,5 @@ if (grantMembersBody) {
   loadGrantPanel();
 }
 </script>
-{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=2"></script><script src="/static/people.js?v=1"></script>{% endif %}
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=2"></script><script src="/static/people.js?v=2"></script><script src="/static/background.js?v=1"></script>{% endif %}
 {% endblock %}

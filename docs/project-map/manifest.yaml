@@ -2912,6 +2912,34 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: router_project_background
+    kind: router
+    path: app/app/routers/project_background.py
+    title: "Фоновая работа по проекту: ход, перепроверка, переизвлечение, повтор ошибок, остановка (ПФ9 PLATFORM-FOUNDATION-PLAN)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_project_jobs
+    kind: service
+    path: app/app/services/project_jobs.py
+    title: "Фоновая работа по проекту: прогресс, постановка, повтор ошибок, остановка (PLATFORM-FOUNDATION-PLAN, ПФ9)."
+    tags: [auto]
+    auto: true
+
+  - id: static_background
+    kind: file
+    path: app/app/static/background.js
+    title: "Фоновая работа по проекту (ПФ9): ход разбора, перепроверка, переизвлечение, повтор ошибок."
+    tags: [auto]
+    auto: true
+
+  - id: ui_background_card
+    kind: file
+    path: app/app/templates/partials/background_card.html
+    title: "Фоновая работа по проекту (ПФ9 PLATFORM-FOUNDATION-PLAN): ход разбора, перепроверка, переизвлечение, повтор ошибок. Логика: static/backgroun"
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
