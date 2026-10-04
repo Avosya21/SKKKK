@@ -1001,6 +1001,11 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | `GET /projects/{id}/open-questions` | любой участник проекта | карточка «Вопросы к заказчику» (`#px-oq-list` в `px_agent.js`): открытые вопросы и варианты без выбора из материалов, с темой и цитатой; берёт `open_questions` из контракта (`services/contract.get_contract`) и подписи тем (`services/topics`) |
 | `GET /admin/users/data` | владелец панели (логин из `Panel_users.txt`, при этом администратор) | таблица учёток страницы «Пользователи» `/admin/users`: роль, карточка, компания, согласие на голос, проекты, последний вход, сводка и значения фильтров (`services/admin_panel.py`) |
 | `GET /admin/users/activity` | тот же | общая лента действий по всем проектам; фильтры `user_id`, `project_id`, `block`, `action`, `date_from`, `date_to`, `q`, постраничность `before_id` |
+| `GET /projects/{id}/background` | админ и менеджер проекта (смотреть) | ход фоновой работы по проекту (`services/project_jobs.progress`): этапы со счётчиками, текущая задача, ошибки, оценка оставшегося времени, список готовых материалов, `can_run`, `worker_ready`; карточка «Фоновая работа» (`partials/background_card.html`, `static/background.js`) |
+| `POST /projects/{id}/background/review` `{artifact_ids}` | только admin | «Перепроверить»: требования, темы, устаревшее и дубли, конфликты, выжимка без повторного извлечения; пустой список — весь проект (`project_jobs.queue_review`) |
+| `POST /projects/{id}/background/reextract` `{artifact_ids}` | только admin | «Переизвлечь требования»: все или выбранные материалы; у выбранных общие темы проекта не стираются (`project_jobs.queue_reextract`) |
+| `POST /projects/{id}/background/retry` | только admin | вернуть упавшие задачи проекта в очередь, попытки обнуляются (`project_jobs.retry_errors`) |
+| `POST /projects/{id}/background/cancel` | только admin | убрать из очереди ждущие задачи проекта; идущая сейчас доработает (`project_jobs.cancel_pending`) |
 | `GET /artifacts/{id}/download/summary.doc` | как у отчёта | старый URL выжимки: отдаёт тот же `.docx`, что `…/download/summary.docx` (`artifact_summary_doc_legacy`) |
 
 ### 5.16. Загрузка файла частями и дата записи материала (актуально 2026-10-05)
@@ -1697,6 +1702,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meetings.py` | Встречи проекта и гостевой вход: создание, старт, завершение, отзыв ссылки, вход и выход гостя, присутствие. |
 | `pages.py` | HTML-страницы портала и отчёты: вход, проекты, встречи, отчёты артефактов, отдача аудио и скачивание. |
 | `people.py` | Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`). |
+| `project_background.py` | Фоновая работа по проекту: ход, перепроверка, переизвлечение, повтор ошибок, остановка (ПФ9 PLATFORM-FOUNDATION-PLAN). |
 | `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал. |
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
 | `project_people.py` | Люди и стороны проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ3): реестр людей, «Кто это?», стороны компаний. |
@@ -1782,6 +1788,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `pptx_extract.py` | Текст из презентаций .pptx → markdown по слайдам (вход для normalize / knowledge-пайплайна). |
 | `project_access.py` | Доступ к проекту: свои + выданные участники; роль на проекте может отличаться от пароля. |
 | `project_deadlines.py` | Дедлайны проекта: разбор сроков из текста («до пятницы», «на следующей неделе», даты) относительно даты артефакта и сведение задач в единый  |
+| `project_jobs.py` | Фоновая работа по проекту: прогресс, постановка, повтор ошибок, остановка (PLATFORM-FOUNDATION-PLAN, ПФ9). |
 | `project_mcp_contract.py` | MCP-инструменты контракта обмена с агентом анализа (только чтение). Формат и смысл полей — docs/agent-exchange/CONTRACT.md. |
 | `project_mcp_data.py` | Данные проектного MCP (только чтение): обзор проекта, артефакты, сводка, поиск, сущности, граф и заметки — то, что отдают инструменты MCP. |
 | `project_mcp_tokens.py` | Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit) и проверка ключа при запросе. |
@@ -1843,6 +1850,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `admin_map_graph.js` | Страница «Граф зависимостей» (/admin/map/graph): Cytoscape-схема узлов и связей проекта. |
 | `app.css` | Общие стили портала Primary Analytics: шапка, адаптив под телефон и планшет, таблицы, кнопки |
 | `app.js` | Общий JS портала (объект SKKKK): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения. |
+| `background.js` | Фоновая работа по проекту (ПФ9): ход разбора, перепроверка, переизвлечение, повтор ошибок. |
 | `design.css` | Единая дизайн-система Primary Analytics (v2, 2026-09-19). |
 | `errors_ru.js` | Единая карта «английский detail API → русский текст» (пункт плана 3.14). |
 | `meeting_layout.js` | Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
@@ -1879,6 +1887,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
+| `background_card.html` | Фоновая работа по проекту (ПФ9 PLATFORM-FOUNDATION-PLAN): ход разбора, перепроверка, переизвлечение, повтор ошибок. Логика: static/backgroun |
 | `people_card.html` | Люди и стороны проекта (ПФ3 PLATFORM-FOUNDATION-PLAN): реестр людей, «Кто это?», стороны компаний. Логика: static/people.js |
 | `px_agent_cards.html` | Карточки обмена с агентами: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. Логика: static/px_agent.js |
 
