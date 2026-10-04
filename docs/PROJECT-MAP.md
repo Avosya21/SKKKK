@@ -1001,6 +1001,10 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | `GET /projects/{id}/open-questions` | любой участник проекта | карточка «Вопросы к заказчику» (`#px-oq-list` в `px_agent.js`): открытые вопросы и варианты без выбора из материалов, с темой и цитатой; берёт `open_questions` из контракта (`services/contract.get_contract`) и подписи тем (`services/topics`) |
 | `GET /admin/users/data` | владелец панели (логин из `Panel_users.txt`, при этом администратор) | таблица учёток страницы «Пользователи» `/admin/users`: роль, карточка, компания, согласие на голос, проекты, последний вход, сводка и значения фильтров (`services/admin_panel.py`) |
 | `GET /admin/users/activity` | тот же | общая лента действий по всем проектам; фильтры `user_id`, `project_id`, `block`, `action`, `date_from`, `date_to`, `q`, постраничность `before_id` |
+| `GET /admin/memory` | владелец панели (логин из `Panel_users.txt`, при этом администратор) | страница «Табло памяти решений» (`admin_memory.html`): метрики M1–M3, M7, M8, чек-лист приёмки платформы, история прогонов; остальным 404 |
+| `GET /admin/memory/data` `?project_id` | тот же | проекты для выбора и история прогонов (`services/memory_scorecard.history`); если с последнего прогона сменились промпт или модель и у проекта включена платформа, прогон записывается сам |
+| `GET /admin/memory/live` `?project_id` | тот же | метрики и чек-лист «сейчас» без записи в историю (`memory_scorecard.compute`; модель не вызывается) |
+| `POST /admin/memory/run` `{project_id}` | тот же | пересчитать и записать строку в `data/eval/memory_scorecard.csv` |
 | `GET /projects/{id}/background` | админ и менеджер проекта (смотреть) | ход фоновой работы по проекту (`services/project_jobs.progress`): этапы со счётчиками, текущая задача, ошибки, оценка оставшегося времени, список готовых материалов, `can_run`, `worker_ready`; карточка «Фоновая работа» (`partials/background_card.html`, `static/background.js`) |
 | `POST /projects/{id}/background/review` `{artifact_ids}` | только admin | «Перепроверить»: требования, темы, устаревшее и дубли, конфликты, выжимка без повторного извлечения; пустой список — весь проект (`project_jobs.queue_review`) |
 | `POST /projects/{id}/background/reextract` `{artifact_ids}` | только admin | «Переизвлечь требования»: все или выбранные материалы; у выбранных общие темы проекта не стираются (`project_jobs.queue_reextract`) |
@@ -1699,6 +1703,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `acme.py` | Маршрут HTTP-01 проверки Let's Encrypt (`/.well-known/acme-challenge`). |
 | `admin_map.py` | Страница «Карта проекта» для администратора: поиск по индексу кода, связей, БД, окружения и истории (/admin/map). |
 | `admin_map_graph.py` | Страница «Граф зависимостей» (/admin/map/graph): все сущности проекта и все связи между ними. Только admin. |
+| `admin_memory.py` | Табло памяти решений /admin/memory: метрики качества, чек-лист приёмки платформы, история прогонов (ПФ10). |
 | `admin_users.py` | Панель пользователей для владельца: /admin/users — кто зарегистрирован и что делал (по всем проектам). |
 | `auth.py` | Вход и выход: `/auth/login` (роль определяется паролем), `/auth/logout`. |
 | `companies_admin.py` | Список компаний в портале (PLATFORM-FOUNDATION-PLAN, ПФ4): просмотр — админ и менеджер, правка — админ. |
@@ -1771,6 +1776,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_track_repair.py` | Ремонт реплик дорожки встречи, когда основной распознаватель (Parakeet) ошибся во времени или в содержании. |
 | `meetings.py` | Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, идущие сейчас встречи, токены  |
 | `memory_platform.py` | Флаг платформы памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ0). |
+| `memory_scorecard.py` | Табло памяти решений: метрики качества и чек-лист приёмки платформы (DECISION-MEMORY-PLAN §4.3, PLATFORM-FOUNDATION-PLAN ПФ10). |
 | `normalize.py` | Нормализация текста документов: разбиение на части, промпт LLM и лёгкая нормализация без LLM. |
 | `notify.py` | Уведомления в Telegram через HTTPS Bot API: о готовности файла и событиях для пользователя. |
 | `office_convert.py` | Конвертация старых офисных форматов через LibreOffice headless: .doc/.rtf/.odt → .docx, .xls/.ods → .xlsx, .ppt → .pptx. |
@@ -1872,6 +1878,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `admin_map.html` | Страница «Карта проекта» (/admin/map, только admin): поиск по индексу кода, документов и связей |
 | `admin_map_graph.html` | Страница «Граф зависимостей» (/admin/map/graph, только admin): модульный свод по файлам и окрестность отдельного узла — Cytoscape, легенда-ф |
+| `admin_memory.html` | Табло памяти решений (/admin/memory): метрики, чек-лист приёмки платформы, история прогонов; доступ — по списку Panel_users.txt |
 | `admin_users.html` | Панель пользователей (/admin/users): таблица учёток и общая лента действий; доступ — по списку Panel_users.txt |
 | `base.html` | Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц |
 | `chat.html` | Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat) |
@@ -2014,7 +2021,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `material_dates.py` | Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). |
-| `memory_scorecard.py` | Табло памяти решений (docs/plans/DECISION-MEMORY-PLAN.md, §4.3): числа, по которым видно, приближаемся ли мы к цели. |
+| `memory_scorecard.py` | Табло памяти решений: числа, по которым видно, приближаемся ли мы к цели (docs/plans/DECISION-MEMORY-PLAN.md, §4.3). |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
 | `people_voice.py` | Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5). |

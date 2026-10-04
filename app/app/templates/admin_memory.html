@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{# Табло памяти решений (/admin/memory): метрики, чек-лист приёмки платформы, история прогонов; доступ — по списку Panel_users.txt #}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-baseline justify-content-between mb-2">
+  <h1 class="h4 mb-0">Табло памяти решений</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="/admin/users">Пользователи</a>
+</div>
+<p class="text-muted small mb-3">Числа, по которым видно, приближаемся ли мы к цели: качество извлечения и верность сторон по эталону, плюс приёмка платформы.
+  Модель не вызывается — расчёт занимает секунды. Эталон лежит вне git в <code>data/eval</code>.</p>
+<div class="small text-muted mb-2" id="mm-status" aria-live="polite"></div>
+
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <select class="form-select form-select-sm" id="mm-project" style="max-width:340px" aria-label="Проект"></select>
+  <button class="btn btn-sm btn-dark" type="button" id="mm-run" title="Пересчитать и записать строку в историю">Пересчитать и записать</button>
+  <span class="small text-muted" id="mm-model"></span>
+</div>
+
+<div class="row g-2 mb-4" id="mm-metrics"></div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between"><strong>Приёмка платформы</strong><span class="small text-muted" id="mm-check-summary"></span></div>
+  <ul class="list-group list-group-flush" id="mm-checklist"></ul>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>История прогонов</strong></div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Когда</th><th>Этап</th><th>Промпт</th><th class="text-end">M1</th><th class="text-end">M2</th><th class="text-end">M3~</th><th class="text-end">M7</th><th class="text-end">M8</th></tr></thead>
+      <tbody id="mm-history"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  if (!SKKKK.requireAuth()) return;
+  const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const say = (t, bad) => { const el = $('mm-status'); el.textContent = t || ''; el.classList.toggle('text-danger', !!bad); };
+  const pct = (v) => (v === null || v === undefined || v === '' ? '—' : Math.round(Number(v) * 100) + '%');
+  const getJson = async (path, opts) => {
+    try {
+      const r = await SKKKK.api(path, opts);
+      if (!r.ok) { say(r.status === 404 ? 'Страница недоступна для этой учётки.' : 'Ошибка ' + r.status, true); return null; }
+      return await r.json();
+    } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }
+  };
+  const STATUS = { ok: ['text-bg-success', 'готово'], warn: ['text-bg-warning', 'внимание'], fail: ['text-bg-danger', 'не готово'], manual: ['text-bg-secondary', 'вручную'] };
+  const CARDS = [
+    ['M1', 'Пункты с цитатой источника', 'Доля пунктов контракта, у которых есть цитата. Цель — 100%.'],
+    ['M2', 'Верные итоги по эталону', 'Доля правил эталона (в силе / заменено / выполнено), по которым система права.'],
+    ['M3', 'События эталона с пунктом', 'Грубо: у скольких эталонных событий есть пункт на том же сообщении или реплике.'],
+    ['M7', 'Люди эталона в реестре', 'Доля людей эталона, найденных в реестре проекта с известной стороной. Цель — 95% и выше.'],
+    ['M8', 'Верная сторона источника', 'Совпадение стороны источника в контракте с листом людей. Цель — 100%.'],
+  ];
+  let projectId = null;
+
+  function renderLive(d) {
+    $('mm-model').textContent = `${d.prompt} · ${d.model}`;
+    $('mm-metrics').innerHTML = CARDS.map(([k, title, hint]) => {
+      const v = d.metrics[k];
+      const bad = v !== null && v !== undefined && ((k === 'M8' && v < 1) || (k === 'M1' && v < 1) || (k === 'M7' && v < 0.95));
+      return `<div class="col-6 col-md"><div class="card shadow-sm h-100" title="${esc(hint)}"><div class="card-body py-2">
+        <div class="small text-muted">${k}</div><div class="h4 mb-0 ${bad ? 'text-danger' : ''}">${pct(v)}</div><div class="small text-muted">${esc(title)}</div></div></div></div>`;
+    }).join('') + `<div class="col-6 col-md"><div class="card shadow-sm h-100"><div class="card-body py-2"><div class="small text-muted">M4–M6</div>
+      <div class="h6 mb-0 text-muted">позже</div><div class="small text-muted">появятся с речевыми актами, журналом событий и чатом</div></div></div></div>`;
+    $('mm-checklist').innerHTML = d.checklist.map((c) => {
+      const [cls, label] = STATUS[c.status] || STATUS.manual;
+      return `<li class="list-group-item d-flex gap-2 align-items-start"><span class="badge ${cls} flex-shrink-0" style="min-width:5.5rem">${label}</span>
+        <div><div>${esc(c.title)}</div><div class="small text-muted" style="overflow-wrap:anywhere">${esc(c.detail)}</div></div></li>`;
+    }).join('');
+    const auto = d.checklist.filter((c) => c.status !== 'manual');
+    $('mm-check-summary').textContent = `автопроверка: ${auto.filter((c) => c.status === 'ok').length} из ${auto.length}`;
+    const notes = [];
+    if (!d.has_gold) notes.push('эталон не найден (data/eval/memory_gold.csv)');
+    if (!d.has_people_sheet) notes.push('нет листа людей: scripts/memory_scorecard.py --export-people');
+    if (d.details.m8_wrong.length) notes.push('расхождения M8: ' + d.details.m8_wrong.map((w) => `${w.source} ${w.author}: ждали ${w.expected}, в контракте ${w.got.join('/')}`).join('; '));
+    say(notes.join(' · '), !!d.details.m8_wrong.length);
+  }
+  function renderHistory(rows) {
+    $('mm-history').innerHTML = rows.map((r) => `<tr><td class="text-nowrap small">${esc(r['дата'])}</td><td class="small">${esc(r['этап'])}</td><td class="small">${esc(r['промпт'])}</td>
+      ${['M1', 'M2', 'M3', 'M7', 'M8'].map((k) => `<td class="text-end">${pct(r[k])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="8" class="text-muted small">Прогонов пока нет.</td></tr>';
+  }
+  async function load(id) {
+    say('Считаю…');
+    const base = await getJson('/admin/memory/data' + (id ? '?project_id=' + id : ''));
+    if (!base) return;
+    projectId = base.project_id;
+    $('mm-project').innerHTML = base.projects.map((p) => `<option value="${p.id}"${p.id === projectId ? ' selected' : ''}>#${p.id} ${esc(p.name)}${p.platform ? ' · платформа включена' : ''}</option>`).join('');
+    renderHistory(base.history);
+    if (projectId === null) { say('Проектов нет.'); return; }
+    const live = await getJson('/admin/memory/live?project_id=' + projectId);
+    if (live) { renderLive(live); if (base.auto_ran) say('Сменились промпт или модель — прогон записан автоматически.'); }
+  }
+  $('mm-project').addEventListener('change', (e) => load(Number(e.target.value)));
+  $('mm-run').addEventListener('click', async (e) => {
+    if (projectId === null) return;
+    e.target.disabled = true; say('Считаю…');
+    const r = await getJson('/admin/memory/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: projectId }) });
+    e.target.disabled = false;
+    if (r) { await load(projectId); say('Строка записана в историю.'); }
+  });
+  load(null);
+})();
+</script>
+{% endblock %}
