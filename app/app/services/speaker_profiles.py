@@ -644,7 +644,7 @@ def enroll_speaker(
     external_voice = False
     if _platform_on(db, project_id):
         person = _registry_person_for_voice(db, project_id, artifact_id, name)
-        name = person.display_name  # «Мария» и «Мария Попова» — один человек, в голосах одно имя
+        name = person.display_name  # «Анна» и «Анна Пример» — один человек, в голосах одно имя
         external_voice = person.user_id is None
 
     link = (

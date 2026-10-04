@@ -13,6 +13,8 @@
   const ACTION = {
     create: 'добавлен человек', update: 'изменены данные', set_side: 'изменена сторона', merge: 'объединены люди', add_alias: 'добавлено написание',
     resolve_unknown: 'разобран вопрос «Кто это?»', set_party: 'сторона компании', platform_on: 'включено использование списка', platform_off: 'выключено использование списка',
+    voice_consent: 'отмечено согласие на голос', voice_withdraw: 'отозвано согласие на голос', link_voice: 'голос привязан к учётке',
+    prune: 'убрана лишняя запись', forget: 'человек удалён из проекта',
   };
   let state = { people: [], parties: [], members_without_person: [], unknown_open: 0, platform_enabled: false };
 
@@ -58,6 +60,7 @@
         <div class="px-form-row">
           <input type="text" class="form-control form-control-sm" data-act="alias-text" placeholder="Ещё одно написание имени" maxlength="200">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-act="alias">Добавить написание</button>
+          ${window.PX.role === 'admin' ? '<button type="button" class="btn btn-sm btn-outline-danger" data-act="forget" title="Удалить человека, его написания и голоса проекта навсегда">Удалить</button>' : ''}
           ${others ? `<select class="form-select form-select-sm" data-act="merge-with" aria-label="Кого объединить"><option value="">Объединить с…</option>${others}</select>
           <button type="button" class="btn btn-sm btn-outline-danger" data-act="merge">Это один человек</button>` : ''}
         </div>
@@ -177,7 +180,12 @@
     const btn = e.target.closest('button[data-act]'); const card = e.target.closest('[data-person]');
     if (!btn || !card) return;
     const id = card.dataset.person;
-    if (btn.dataset.act === 'link-voice') {
+    if (btn.dataset.act === 'forget') {
+      const name = state.people.find((p) => String(p.id) === id)?.display_name || '';
+      if (!confirm(`Удалить «${name}» из проекта навсегда? Будут стёрты его написания, голосовые слепки проекта и данные в журнале изменений. Учётка в портале останется. Это нельзя отменить.`)) return;
+      const r = await call(`/people/${id}`, 'DELETE');
+      if (r) { apply(r); await reloadUnknown(); say('Человек удалён из проекта.'); }
+    } else if (btn.dataset.act === 'link-voice') {
       const r = await call(`/people/${id}/voices/${btn.dataset.profile}/link`, 'POST');
       if (r) { apply(r); say('Голос привязан к учётке.'); }
     } else if (btn.dataset.act === 'consent') {

@@ -112,7 +112,7 @@ def cluster_mentions(mentions: list[Mention]) -> tuple[list[Cluster], list[Menti
             k = parent[k]
         return k
 
-    # «Илья Эталон (Ilya Abramov)» — одно написание двух имён одного человека: склеиваем то и другое
+    # «Иван Образцов (Ivan Sample)» — одно написание двух имён одного человека: склеиваем то и другое
     for m in mentions:
         if "(" in m.name and ")" in m.name:
             outer, _, rest = m.name.partition("(")
@@ -129,7 +129,7 @@ def cluster_mentions(mentions: list[Mention]) -> tuple[list[Cluster], list[Menti
     for group in two.values():
         for other in group[1:]:
             parent[find(other)] = find(group[0])
-    # «Ирина В.» = «Ирина Васильева», если такая ровно одна
+    # «Ольга В.» = «Ольга Васильева», если такая ровно одна
     for k in keys:
         t = k.split()
         if len(t) == 2 and len(t[1]) == 1:
