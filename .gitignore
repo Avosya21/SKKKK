@@ -124,3 +124,5 @@ docs/eval/chat_questions_*.json
 docs/eval/tz_facts_*.json
 docs/agent-exchange/letters/
 experiments/for_anar/
+
+Panel_users.txt
