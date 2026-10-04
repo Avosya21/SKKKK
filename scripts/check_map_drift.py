@@ -127,7 +127,9 @@ def _norm_params(text: str) -> str:
 # Системные и тестовые переменные: карте описывать их незачем (их задаёт ОС, pytest или стенд проверок).
 ENV_IGNORE = re.compile(
     r"^(PATH|PATHEXT|HOME|USERPROFILE|TEMP|TMP|APPDATA|LocalAppData|ProgramFiles(\(x86\))?|SESSIONNAME|COMPUTERNAME|"
-    r"PYCHARM_HOSTED|PYTEST_CURRENT_TEST|PYTHONPATH|PYTHONIOENCODING|SMOKE_\w*|\{\}\w*|\w*\{\}\w*)$"
+    r"PYCHARM_HOSTED|PYTEST_CURRENT_TEST|PYTHONPATH|PYTHONIOENCODING|SMOKE_\w*|\{\}\w*|\w*\{\}\w*|"
+    # внутренние: конвейер сам подставляет их подпроцессам (`pipeline_audio`, `artifact_audio`) и контейнерам ASR
+    r"SKKKK_ARTIFACT_ID|SKKKK_PROJECT_ID|SKKKK_AUDIO_URL|SKKKK_MATCH_JSON|APP_DIR|OUT_DIR|ASR_ENGINE)$"
 )
 
 

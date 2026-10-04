@@ -39,3 +39,13 @@ def test_coverage_sees_a_route_missing_from_the_map():
     full = drift.coverage("/admin/map " + " ".join(empty["tables"]) + " " + " ".join(empty["env"])
                           + " " + " ".join(r.split(" ", 1)[1] for r in empty["routes"]))
     assert full == {"routes": [], "tables": [], "env": []}
+
+
+def test_every_route_table_and_env_var_is_in_the_map():
+    """Новый роут, таблица БД или переменная окружения без записи в PROJECT-MAP.md — падение теста.
+    Лечение: описать в карте (§5, «Модели», §12.2); системные и внутренние переменные — в `ENV_IGNORE`."""
+    drift = _load_drift()
+    report = drift.analyse()
+    assert not report["missing_routes"], report["missing_routes"][:10]
+    assert not report["missing_tables"], report["missing_tables"][:10]
+    assert not report["missing_env"], report["missing_env"][:10]
