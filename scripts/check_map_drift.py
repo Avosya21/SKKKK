@@ -173,8 +173,16 @@ def coverage(map_text: str) -> dict:
     analyzers.analyze_routes(conn)
     analyzers.analyze_db(conn)
     flat = _norm_params(map_text)
+
+    def in_map(url: str) -> bool:
+        """Роут упомянут полным адресом или коротко — «…/agent-inbox» после `/projects/{id}` (перед хвостом
+        обязательно `…` или `{id}`); граница слова обязательна, чтобы `/people` не засчитывался из-за `/people/{id}/avatar`."""
+        norm = _norm_params(url)
+        tails = [norm] + (["{}" + norm[len("/projects/{}"):]] if norm.startswith("/projects/{}/") else [])
+        return any(re.search(re.escape(t) + r"(?![\w\-/{])", flat) for t in tails)
+
     routes = sorted({f"{r['method']} {r['url']}" for r in conn.execute("SELECT method, url FROM routes")
-                     if _norm_params(r["url"]) not in flat and r["url"] != "/"})
+                     if r["url"] != "/" and not in_map(r["url"])})
     tables = sorted(r[0] for r in conn.execute("SELECT DISTINCT tbl FROM db_columns") if not re.search(rf"\b{re.escape(r[0])}\b", map_text))
     env = sorted(n for n in _code_env_names() if not re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", map_text))
     conn.close()

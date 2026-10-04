@@ -334,6 +334,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/project_members.py` | `/projects/{id}/members` | выдача доступа: GET список, POST роль manager/user, DELETE участника |
 | `routers/project_mcp.py` | `/projects/{id}/mcp`, `/mcp` | ключи MCP портала + Streamable HTTP |
 | `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
+| `routers/project_people.py` | `/projects/{id}/people`, `/parties`, `/people-platform` | реестр людей и стороны проекта, очередь «Кто это?», согласие на голос — полный перечень в §5.14; admin и manager проекта |
 | `routers/requirement_review.py` | `/projects/{id}/requirements` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin |
 | `routers/admin_map.py` | `/admin/map`, `/admin/map/search` | страница «Карта проекта» (только admin): поиск по индексу кода и связей; читает `data/project_map.db`, боевую БД не трогает |
 | `routers/admin_map_graph.py` | `/admin/map/graph`, `/admin/map/graph/summary`, `/admin/map/graph/data` | страница «Граф зависимостей» (только admin): окрестность сущности, подсистема или модульный свод из графа (§16); читает выгрузку `data/project_map_graph.json`, при её отсутствии собирает граф из индекса |
@@ -580,7 +581,7 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 
 | Кнопка | API | Файл |
 |--------|-----|------|
-| **Выжимка Word** | `GET /artifacts/{id}/download/summary.docx` | `.docx` из `call_summary.md` |
+| **Выжимка Word** | `GET /artifacts/{id}/download/summary.docx` (старый адрес `…/summary.doc` отдаёт то же) | `.docx` из `call_summary.md` |
 | **Краткое резюме созвона** | `GET /artifacts/{id}/download/brief.docx` | `.docx` из `call_brief.md` |
 | **Стенограмма .txt** | `GET /artifacts/{id}/download/transcript.txt` | `[таймкод] имя: текст` из `docker_gigaam_speakers.json` |
 
@@ -695,7 +696,7 @@ python scripts/redescribe_screen_frames.py {artifact_id} --run {run_id} [--rebui
 Кнопка **лаб** в списке артефактов — **только admin**, и только когда у аудио есть хотя бы один
 лабораторный прогон (`lab_runs`). На report-lab после `asr/lab_voice.py` —
 карточки **Запомнить** / **Слить** (`POST /api/artifacts/{id}/lab/{run_id}/speaker-enroll`
-и `…/speaker-merge`, тоже только admin). Они пишут в ту же `speaker_profiles`, файл —
+и `POST /api/artifacts/{id}/lab/{run_id}/speaker-merge`, тоже только admin; кнопка **Слить** рисуется в сгенерированной странице лаборатории, `asr/build_lab_view.py`). Они пишут в ту же `speaker_profiles`, файл —
 `voice/match.json` прогона, не боевой match.
 
 #### 5.7.1. Лаборатория расшифровки
@@ -962,6 +963,65 @@ Enroll **не** требует нажимать «Подтвердить», чт
 - Считать WAV готовым, пока ffmpeg пишет (опрос `GET …/artifacts` не должен вызывать extract).
 - Резюмировать `--run-id`, если sha256 WAV ≠ `run.json`.
 - Подставлять `SPEAKER_00` вместо `speaker_N`.
+
+### 5.14. Люди и стороны проекта — карточка «Люди» (актуально 2026-10-05)
+
+Реестр людей проекта (план: `docs/plans/PLATFORM-FOUNDATION-PLAN.md`, ПФ2–ПФ3). Зачем: одного человека модель видит под разными написаниями («Иван», «Иванов И.», спикер созвона), а сторона (заказчик / исполнитель) нужна анализу проекта и контракту для агентов. Реестр хранит человека один раз, его написания (алиасы), сторону и голос; решение человека всегда сильнее решения модели.
+
+**UI:** сворачиваемая карточка `#pp-card` на странице проекта (`partials/people_card.html`, логика `static/people.js`, подключается в `project.html`). По умолчанию свёрнута; значок `#pp-badge` «Кто это? N» виден и у свёрнутой карточки, когда есть вопросы. Видят и меняют **admin и manager проекта** (`require_project_staff`), `user` — нет (403). Все вызовы идут в `routers/project_people.py` (prefix `/projects`), бизнес-логика — `services/people.py`; каждое изменение пишется в `people_log`.
+
+| Элемент UI | API | Что делает |
+|------------|-----|------------|
+| Загрузка карточки | `GET /projects/{id}/people` | люди проекта, `unknown_open` (сколько вопросов «Кто это?»), стороны компаний, сотрудники проекта без карточки, флаг платформы; у человека — алиасы, число голосов, предложения привязки голоса |
+| **Найти людей в материалах** (`#pp-seed`) | `POST /projects/{id}/people/seed` | `services/people_seed.py`: пополняет реестр черновиком **без модели** из карточек сотрудников, списка сторон проекта, участников и ролей из извлечения, авторов переписки и спикеров созвонов; решений человека не трогает |
+| **Добавить человека** (`#pp-add-form`: имя, компания, сторона «Сторона не определена / Заказчик / Исполнитель») | `POST /projects/{id}/people` | новый человек (`display_name`, `company_name`, `side`, `job_title`, `authority`, `user_id`) |
+| **Добавить сотрудника** (`#pp-member-add`, список `#pp-member-select`) | `POST /projects/{id}/people/from-user` `{user_id}` | сотрудник портала → человек проекта: имя, компания, должность из его карточки; сторона — от компании проекта или списка сторон |
+| Селекты строки человека: сторона, полномочия, поле компании | `PUT /projects/{id}/people/{person_id}` | правка карточки (`side`, `authority` / `clear_authority`, `company_name`, `job_title`, `display_name`); сторона слабее прежнего источника не перебивает решение человека |
+| **Добавить написание** | `POST /projects/{id}/people/{person_id}/aliases` `{alias}` | ещё одно написание человека; по нему его находят анализ и «Кто это?» |
+| **Объединить с…** → **Это один человек** | `POST /projects/{id}/people/{person_id}/merge` `{drop_id}` | алиасы, голоса, участия и вопросы «Кто это?» переходят к оставляемому; второй остаётся строкой с `merged_into` (после подтверждения `confirm`) |
+| Блок «Кто это?»: **Это он** / **Новый человек** / **Не участник** | `GET /projects/{id}/people/unknown`, `POST /projects/{id}/people/unknown/{actor_id}/resolve` `{person_id}` \| `{new_name, side}` \| `{ignore: true}` | очередь неопознанных написаний из материалов; решение превращает написание в алиас, чтобы больше не спрашивать |
+| **Отметить согласие на голос** (у внешнего человека без учётки) | `PUT /projects/{id}/people/{person_id}/voice-consent` `{given: true}` | менеджер подтверждает, что человек согласен на запись и распознавание голоса; отзыв — только администратором в консоли (`withdraw_voice_consent`) |
+| **Привязать голос** (предложение по точному имени сотрудника с согласием) | `POST /projects/{id}/people/{person_id}/voices/{profile_id}/link` | слепок `speaker_profiles` привязывается к учётке; привязывает только человек, не автоматика (`services/voice_link.py`) |
+| Блок «Стороны компаний»: название + Заказчик/Исполнитель, **Сохранить** | `PUT /projects/{id}/parties` `{company_name, side}` | сторона компании в этом проекте (`project_parties`) |
+| Флажок «Брать стороны из этого списка в анализе проекта» (`#pp-platform`) | `PUT /projects/{id}/people-platform` `{enabled}` | **только admin** (403 иначе): включает реестр как источник сторон в контракте; выключено — прежняя логика по ролям из текста; настройка проекта `memory_platform` главнее `MEMORY_PLATFORM` из `.env` (`services/memory_platform.py`) |
+| Раскрывающийся «Журнал» (`#pp-log-box`) | `GET /projects/{id}/people/log?limit=30` | последние правки реестра: кто, когда, что было и что стало (`people_log`, до 200 записей) |
+
+**Таблицы:** `people` (человек: имя, компания, сторона, должность, полномочия, `user_id`, согласие на голос, `merged_into`), `person_aliases`, `project_parties`, `unknown_actors`, `people_log`; связь с голосами — `speaker_profiles.person_id` / `user_id`. Модели — `models/person.py`.
+
+**Не ломать:** слитый человек не удаляется (`merged_into`, цепочка разрешается `people.canonical`); сторона от модели не перебивает сторону от человека без `force`; голос не привязывается без согласия; `side_to_contract` / `side_from_contract` — единственное место соответствия «заказчик / исполнитель» ↔ `customer` / `vendor` контракта.
+
+### 5.15. Остальные роуты, не вошедшие в таблицы выше (актуально 2026-10-05)
+
+| Адрес | Кто | Для чего |
+|-------|-----|----------|
+| `GET /projects/{id}/open-questions` | любой участник проекта | карточка «Вопросы к заказчику» (`#px-oq-list` в `px_agent.js`): открытые вопросы и варианты без выбора из материалов, с темой и цитатой; берёт `open_questions` из контракта (`services/contract.get_contract`) и подписи тем (`services/topics`) |
+| `GET /admin/users/data` | владелец панели (логин из `Panel_users.txt`, при этом администратор) | таблица учёток страницы «Пользователи» `/admin/users`: роль, карточка, компания, согласие на голос, проекты, последний вход, сводка и значения фильтров (`services/admin_panel.py`) |
+| `GET /admin/users/activity` | тот же | общая лента действий по всем проектам; фильтры `user_id`, `project_id`, `block`, `action`, `date_from`, `date_to`, `q`, постраничность `before_id` |
+| `GET /artifacts/{id}/download/summary.doc` | как у отчёта | старый URL выжимки: отдаёт тот же `.docx`, что `…/download/summary.docx` (`artifact_summary_doc_legacy`) |
+
+### 5.16. Загрузка файла частями и дата записи материала (актуально 2026-10-05)
+
+Страница проекта, список материалов. Загрузка идёт частями с докачкой (`services/resumable_upload.py`, `routers/upload.py`): обрыв связи не теряет уже принятые части; размер части — `UPLOAD_CHUNK_SIZE` (по умолчанию 4 МБ), предел файла — `MAX_UPLOAD_BYTES`. Чужую сессию загрузки трогать нельзя (403), у сессии свой пользователь.
+
+| Шаг / элемент | API | Что делает |
+|---------------|-----|------------|
+| Начало загрузки (кнопка **Загрузить**) | `POST /projects/{id}/uploads/init` `{filename, size, source_type, client_key}` | открывает сессию или находит прежнюю по `client_key` (тогда в ответе уже есть принятые части — докачка); неподдерживаемое расширение — 400, слишком большой файл — 413 |
+| Опрос состояния | `GET /projects/{id}/uploads/{upload_id}` | какие части приняты; нужно, чтобы продолжить после обрыва (404, если сессии нет) |
+| Отправка части | `PUT /projects/{id}/uploads/{upload_id}/chunks/{index}` тело — байты части | пишет часть `index`; часть больше ожидаемого размера — 413 |
+| Конец загрузки | `POST /projects/{id}/uploads/{upload_id}/complete` | не хватает частей — 409 со списком `missing`; иначе собирает файл, сверяет размер, считает sha256, кладёт в `raw_inputs/`, создаёт артефакт и задание воркеру (дальше §4) |
+| **изменить** / **поставить дату** рядом с датой материала (только admin; ввод `ДД.ММ.ГГГГ` или `ДД.ММ.ГГГГ ЧЧ:ММ`, пусто — вернуть автоматическую) | `PATCH /projects/{id}/artifacts/{artifact_id}/recorded-at` `{date, datetime_local}` | **только admin** (403 иначе): дата записи вручную — от неё зависит порядок «что сказано позже»; пустое тело возвращает автоматическую дату (имя файла → метаданные → дата загрузки); пишет запись в ленту действий «Изменил дату материала» и сбрасывает кеш контракта проекта |
+
+### 5.17. Список компаний — `/admin/companies` (актуально 2026-10-05)
+
+Общий справочник компаний портала (PLATFORM-FOUNDATION-PLAN, ПФ4): из него берутся компании в карточках сотрудников и стороны («заказчик / исполнитель» по умолчанию) в реестре людей (§5.14). **Источник истины — файл `Companies.txt`** (образец `Companies.example.txt`, путь `COMPANIES_PATH`; не в git): правка из портала сначала записывает файл, затем обновляет таблицу `companies`; каждый запрос сначала синхронизирует таблицу с файлом (`services/companies.sync_companies`). Код — `routers/companies_admin.py`, `services/companies.py`, шаблон `companies.html`.
+
+| Элемент UI | API | Кто |
+|------------|-----|-----|
+| Страница «Компании» | `GET /admin/companies` | только admin (HTML) |
+| Таблица: компания, сторона по умолчанию, число человек в карточках | `GET /companies` | admin и manager (остальным 403) |
+| **Добавить** (название + сторона), смена стороны, **Скрыть** / **Показать** | `PUT /companies` `{name, side, active}` | только admin; возвращает обновлённый список; ошибка правки — 400 с текстом |
+
+Переименования нет: новое название — новая компания; название сравнивается без учёта регистра и лишних пробелов (`canonical_company`), поэтому «Компания» и «КОМПАНИЯ» — одна компания. Скрытая компания остаётся в справочнике, но не предлагается в выборе.
 
 ---
 
