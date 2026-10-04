@@ -16,38 +16,38 @@ venv\Scripts\python.exe scripts\export_project_graph.py
 
 <!-- generated:begin atlas -->
 
-_Собрано: 2026-10-03 04:28 · индекс от 2026-10-03 04:28 · коммит `c80a36a7` · узлов 8124, рёбер 32661_
+_Собрано: 2026-10-05 00:42 · индекс от 2026-10-05 00:41 · коммит `c71cef55` · узлов 8274, рёбер 33679_
 
 ## 1. Из чего состоит граф
 
 | Узлы | Штук |
 |---|---|
-| символ | 6602 |
-| файл | 674 |
-| элемент интерфейса | 361 |
-| роут | 155 |
-| коммит | 147 |
-| окружение | 131 |
+| символ | 6711 |
+| файл | 683 |
+| элемент интерфейса | 377 |
+| роут | 160 |
+| коммит | 157 |
+| окружение | 132 |
 | таблица БД | 33 |
 | узел карты | 21 |
 
 | Связь | Смысл | Штук |
 |---|---|---|
-| `calls` | вызывает | 13382 |
-| `defines` | определяет | 6602 |
-| `covers` | покрывает тестом | 5548 |
-| `changed` | изменил | 2078 |
-| `calls_ref` | передаёт как значение | 1383 |
-| `imports` | импортирует | 1108 |
-| `handled_by` | обрабатывается в JS | 407 |
-| `reads` | читает | 392 |
-| `declares` | объявляет | 391 |
-| `depends_on` | зависит от | 329 |
-| `writes` | пишет | 206 |
-| `reads_env` | читает переменную | 180 |
-| `handles` | обрабатывает | 156 |
-| `guarded_by` | защищён | 154 |
-| `calls_api` | вызывает API | 34 |
+| `calls` | вызывает | 13772 |
+| `defines` | определяет | 6711 |
+| `covers` | покрывает тестом | 5862 |
+| `changed` | изменил | 2119 |
+| `calls_ref` | передаёт как значение | 1434 |
+| `imports` | импортирует | 1124 |
+| `handled_by` | обрабатывается в JS | 428 |
+| `reads` | читает | 421 |
+| `declares` | объявляет | 407 |
+| `depends_on` | зависит от | 339 |
+| `writes` | пишет | 215 |
+| `reads_env` | читает переменную | 181 |
+| `handles` | обрабатывает | 161 |
+| `guarded_by` | защищён | 157 |
+| `calls_api` | вызывает API | 37 |
 | `m:imports` | imports | 17 |
 | `m:mounts` | mounts | 12 |
 | `m:reads` | reads | 12 |
@@ -59,32 +59,32 @@ _Собрано: 2026-10-03 04:28 · индекс от 2026-10-03 04:28 · ко�
 | `m:api` | api | 5 |
 | `m:require_project` | require_project | 4 |
 
-Всего связей: **32661**; видов: 211.
+Всего связей: **33679**; видов: 211.
 
 ## 2. Подсистемы и их связи
 
 | Подсистема | Файлов | Узлов | Связей наружу | Связей внутрь |
 |---|---|---|---|---|
-| сервисы | 112 | 2401 | 1283 | 6302 |
-| тесты | 141 | 1615 | 8551 | 4 |
-| ASR-скрипты | 45 | 608 | 572 | 534 |
-| шаблоны | 17 | 520 | 285 | 286 |
-| служебные скрипты | 81 | 513 | 812 | 556 |
-| роутеры | 16 | 418 | 1761 | 1060 |
-| фронтенд | 13 | 304 | 42 | 867 |
-| лаборатория ASR | 16 | 279 | 126 | 767 |
-| тесты ASR | 34 | 266 | 863 | 1 |
-| ядро API | 16 | 252 | 121 | 2077 |
-| карта проекта | 11 | 232 | 217 | 397 |
-| комната LiveKit | 4 | 134 | 103 | 299 |
-| стадии ASR | 8 | 87 | 133 | 145 |
-| модели БД | 20 | 71 | 19 | 1736 |
-| смоук портала | 19 | 52 | 114 | 7 |
+| сервисы | 113 | 2423 | 1362 | 6452 |
+| тесты | 146 | 1668 | 9073 | 4 |
+| ASR-скрипты | 45 | 608 | 574 | 497 |
+| шаблоны | 18 | 545 | 294 | 546 |
+| служебные скрипты | 82 | 527 | 841 | 591 |
+| роутеры | 17 | 430 | 1805 | 1158 |
+| фронтенд | 13 | 304 | 42 | 899 |
+| лаборатория ASR | 16 | 279 | 127 | 777 |
+| тесты ASR | 34 | 266 | 861 | 1 |
+| ядро API | 16 | 253 | 122 | 2111 |
+| карта проекта | 11 | 245 | 222 | 419 |
+| комната LiveKit | 4 | 134 | 103 | 313 |
+| стадии ASR | 8 | 87 | 133 | 137 |
+| модели БД | 20 | 71 | 19 | 1809 |
+| смоук портала | 19 | 52 | 114 | 1 |
 | .cursor | 29 | 29 | 0 | 0 |
 | промпты LLM | 25 | 25 | 0 | 9 |
 | .env.example | 1 | 21 | 0 | 0 |
 | планы | 20 | 20 | 0 | 0 |
-| воркер и конвейеры | 4 | 19 | 96 | 48 |
+| воркер и конвейеры | 4 | 19 | 96 | 61 |
 | документация | 18 | 18 | 1 | 0 |
 | MCP портала | 2 | 12 | 29 | 33 |
 | этапы | 12 | 12 | 0 | 0 |
@@ -125,72 +125,72 @@ flowchart LR
   g18["фронтенд"]
   g19["шаблоны"]
   g20["ядро API"]
-  g16 -->|4802| g12
-  g16 -->|1115| g9
-  g16 -->|1003| g11
-  g13 -->|988| g12
-  g16 -->|863| g20
+  g16 -->|4957| g12
+  g16 -->|1160| g9
+  g16 -->|1099| g11
+  g13 -->|1001| g12
+  g16 -->|869| g20
+  g11 -->|862| g20
   g0 -->|851| g12
-  g11 -->|839| g20
-  g11 -->|825| g12
-  g16 -->|685| g18
-  g12 -->|615| g9
-  g12 -->|421| g20
-  g5 -->|403| g12
-  g17 -->|352| g0
-  g16 -->|324| g6
+  g11 -->|847| g12
+  g16 -->|725| g18
+  g12 -->|646| g9
+  g16 -->|444| g19
+  g12 -->|425| g20
+  g5 -->|406| g12
+  g17 -->|347| g0
+  g16 -->|338| g6
+  g16 -->|270| g5
   g17 -->|261| g8
-  g12 -->|255| g13
-  g16 -->|244| g5
+  g12 -->|259| g13
   g17 -->|230| g12
-  g19 -->|209| g18
-  g16 -->|203| g19
-  g16 -->|195| g8
+  g19 -->|213| g18
+  g16 -->|199| g8
+  g16 -->|179| g13
   g8 -->|177| g12
-  g16 -->|147| g13
-  g12 -->|145| g8
-  g16 -->|142| g0
+  g12 -->|156| g8
   g15 -->|141| g8
-  g5 -->|136| g8
+  g5 -->|138| g8
   g6 -->|127| g12
+  g13 -->|115| g5
   g17 -->|113| g15
-  g13 -->|108| g5
+  g16 -->|110| g0
 ```
 
 ## 3. База данных: кто пишет и кто читает
 
 | Таблица | Столбцов | Пишущих файлов | Читающих файлов | Кто пишет (топ-4) |
 |---|---|---|---|---|
-| `artifacts` | 27 | 15 | 46 | `app/app/routers/knowledge.py`, `app/app/routers/upload.py`, `app/app/services/agent_gateway.py`, `app/app/services/agent_verdicts.py` |
+| `artifacts` | 27 | 15 | 47 | `app/app/db.py`, `app/app/routers/knowledge.py`, `app/app/routers/upload.py`, `app/app/services/agent_gateway.py` |
 | `entities` | 9 | 12 | 25 | `app/app/routers/knowledge.py`, `app/app/services/agent_gateway.py`, `app/app/services/agent_verdicts.py`, `app/app/services/entities.py` |
+| `projects` | 7 | 2 | 31 | `app/app/routers/projects.py`, `scripts/qa_meeting_lifecycle.py` |
 | `chunks` | 11 | 6 | 13 | `app/app/services/indexing.py`, `app/app/services/pipeline_progress.py`, `app/app/services/project_index/analyzers.py`, `app/app/services/project_index/chunkers.py` |
-| `projects` | 7 | 2 | 28 | `app/app/routers/projects.py`, `scripts/qa_meeting_lifecycle.py` |
-| `speaker_profiles` | 15 | 6 | 7 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py`, `app/app/services/speaker_profiles.py` |
+| `speaker_profiles` | 15 | 6 | 8 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py`, `app/app/services/speaker_profiles.py` |
+| `users` | 7 | 4 | 16 | `app/app/main.py`, `app/app/routers/auth.py`, `app/app/services/project_members.py`, `app/app/services/user_identity.py` |
 | `jobs` | 11 | 4 | 13 | `app/app/services/project_purge.py`, `app/app/services/queue.py`, `app/app/services/speaker_profiles.py`, `app/app/services/upload.py` |
 | `links` | 11 | 5 | 7 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py`, `app/app/services/review_relevance.py` |
-| `users` | 7 | 4 | 14 | `app/app/main.py`, `app/app/routers/auth.py`, `app/app/services/project_members.py`, `app/app/services/user_identity.py` |
 | `artifact_speaker_links` | 11 | 4 | 2 | `app/app/services/people.py`, `app/app/services/project_purge.py`, `app/app/services/speaker_profiles.py`, `asr/match_sortformer_speakers.py` |
-| `resolutions` | 7 | 6 | 7 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py`, `app/app/services/review_conflicts.py` |
-| `meetings` | 11 | 2 | 11 | `app/app/services/meetings.py`, `app/app/services/project_purge.py` |
 | `meeting_participants` | 12 | 4 | 4 | `app/app/services/meetings.py`, `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
-| `user_profiles` | 12 | 1 | 4 | `app/app/services/user_profile.py` |
-| `companies` | 7 | 2 | 9 | `app/app/services/companies.py`, `app/app/services/user_profile.py` |
-| `people` | 16 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
+| `meetings` | 11 | 3 | 12 | `app/app/services/meetings.py`, `app/app/services/people.py`, `app/app/services/project_purge.py` |
+| `resolutions` | 7 | 6 | 7 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py`, `app/app/services/review_conflicts.py` |
+| `people` | 16 | 3 | 3 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
+| `user_profiles` | 12 | 1 | 6 | `app/app/services/user_profile.py` |
+| `companies` | 7 | 2 | 11 | `app/app/services/companies.py`, `app/app/services/user_profile.py` |
 | `chat_messages` | 11 | 2 | 4 | `app/app/services/chat.py`, `app/app/services/project_purge.py` |
+| `project_members` | 6 | 2 | 5 | `app/app/services/project_members.py`, `app/app/services/project_purge.py` |
 | `topics` | 6 | 3 | 6 | `app/app/services/project_purge.py`, `app/app/services/topics.py`, `scripts/eval_auto_review.py` |
+| `user_activity_log` | 11 | 2 | 4 | `app/app/services/project_purge.py`, `app/app/services/user_activity.py` |
+| `person_aliases` | 7 | 3 | 2 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `project_mcp_tokens` | 17 | 3 | 2 | `app/app/db.py`, `app/app/services/project_mcp_tokens.py`, `app/app/services/project_purge.py` |
-| `project_members` | 6 | 2 | 4 | `app/app/services/project_members.py`, `app/app/services/project_purge.py` |
 | `project_tasks` | 11 | 2 | 2 | `app/app/services/project_purge.py`, `app/app/services/project_tasks.py` |
+| `unknown_actors` | 13 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `user_notes` | 5 | 2 | 5 | `app/app/routers/knowledge.py`, `app/app/services/project_purge.py` |
 | `agent_exchange_log` | 15 | 2 | 2 | `app/app/services/agent_gateway.py`, `app/app/services/project_purge.py` |
-| `person_aliases` | 7 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
-| `unknown_actors` | 13 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
-| `user_activity_log` | 11 | 2 | 3 | `app/app/services/project_purge.py`, `app/app/services/user_activity.py` |
 | `changelog` | 6 | 3 | 1 | `app/app/services/project_purge.py`, `app/app/services/tz.py`, `scripts/fast_summarize_tz.py` |
+| `people_log` | 8 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `agent_questions` | 15 | 2 | 1 | `app/app/services/agent_inbox.py`, `app/app/services/project_purge.py` |
 | `contract_items` | 9 | 2 | 1 | `app/app/services/contract.py`, `app/app/services/project_purge.py` |
 | `note_refs` | 4 | 3 | 0 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py` |
-| `people_log` | 8 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `project_parties` | 7 | 2 | 2 | `app/app/services/people.py`, `app/app/services/project_purge.py` |
 | `asr_runs` | 6 | 2 | 0 | `app/app/services/pipeline_audio.py`, `app/app/services/project_purge.py` |
 | `chat_guidance` | 7 | 2 | 1 | `app/app/services/chat.py`, `app/app/services/project_purge.py` |
@@ -204,6 +204,7 @@ flowchart LR
 | `DELETE /projects/{project_id}/mcp/tokens/{token_id}` | `app/app/routers/project_mcp.py` | revoke_token | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | — |
 | `DELETE /projects/{project_id}/meetings/{meeting_id}` | `app/app/routers/meetings.py` | delete_project_meeting | — | get_db, get_settings, get_current_user | — |
 | `DELETE /projects/{project_id}/members/{user_id}` | `app/app/routers/project_members.py` | delete_member | require_grant_access | get_db, get_current_user | — |
+| `DELETE /projects/{project_id}/people/{person_id}` | `app/app/routers/project_people.py` | forget_person | require_project_staff, user.role != 'admin' | get_db, get_settings, get_current_user | — |
 | `GET /` | `app/app/routers/pages.py` | index_page | require_html_user | require_html_user | — |
 | `GET /.well-known/acme-challenge/{token}` | `app/app/routers/acme.py` | acme_challenge | — | get_settings | — |
 | `GET /admin/companies` | `app/app/routers/companies_admin.py` | companies_page | require_html_user | require_html_user | — |
@@ -213,6 +214,9 @@ flowchart LR
 | `GET /admin/map/graph/data` | `app/app/routers/admin_map_graph.py` | admin_map_graph_data | — | get_current_user | — |
 | `GET /admin/map/graph/summary` | `app/app/routers/admin_map_graph.py` | admin_map_graph_summary | — | get_current_user | — |
 | `GET /admin/map/search` | `app/app/routers/admin_map.py` | admin_map_search | — | get_current_user | — |
+| `GET /admin/users` | `app/app/routers/admin_users.py` | users_page | require_html_user | require_html_user | — |
+| `GET /admin/users/activity` | `app/app/routers/admin_users.py` | users_activity | — | get_db, get_current_user | — |
+| `GET /admin/users/data` | `app/app/routers/admin_users.py` | users_data | — | get_db, get_current_user | — |
 | `GET /api/artifacts/{artifact_id}/speakers-status` | `app/app/routers/speaker_profiles.py` | api_speakers_status | require_project_staff | get_db, get_current_user | — |
 | `GET /api/artifacts/{artifact_id}/tasks/active` | `app/app/routers/speaker_profiles.py` | artifact_active_tasks | — | get_db, get_current_user | — |
 | `GET /api/meetings/public/{token}` | `app/app/routers/meetings.py` | public_meeting_info | — | get_db | — |
@@ -272,6 +276,7 @@ flowchart LR
 | `GET /projects/{project_id}/members` | `app/app/routers/project_members.py` | list_members | require_grant_access | get_db, get_settings, get_current_user | — |
 | `GET /projects/{project_id}/open-questions` | `app/app/routers/knowledge.py` | project_open_questions | require_project | get_db, get_settings, get_current_user | — |
 | `GET /projects/{project_id}/people` | `app/app/routers/project_people.py` | list_people | require_project_staff | get_db, get_settings, get_current_user | — |
+| `GET /projects/{project_id}/people/directory` | `app/app/routers/project_people.py` | people_directory | require_project | get_db, get_current_user | — |
 | `GET /projects/{project_id}/people/log` | `app/app/routers/project_people.py` | people_log | require_project_staff | get_db, get_current_user | people_log, users |
 | `GET /projects/{project_id}/people/unknown` | `app/app/routers/project_people.py` | list_unknown | require_project_staff | get_db, get_current_user | — |
 | `GET /projects/{project_id}/requirements/review` | `app/app/routers/requirement_review.py` | review_list | require_project, user.role == 'admin', require_role, require_role('admin', 'manager') | get_db, get_settings, require_role('admin', 'manager') | — |
@@ -396,6 +401,13 @@ flowchart LR
 | `#artifacts-nodate-note` | artifacts-nodate-note | `app/app/templates/project.html` | `GET /projects/{project_id}/artifacts` | `refreshArtifacts` |
 | `#artifacts-status` | artifacts-status | `app/app/templates/project.html` | — | `project.html` |
 | `#artifacts-table` | artifacts-table | `app/app/templates/project.html` | `GET /projects/{project_id}/artifacts` | `refreshArtifacts` |
+| `#au-feed-body` | au-feed-body | `app/app/templates/admin_users.html` | `GET /admin/users/activity` | `loadFeed` |
+| `#au-feed-note` | au-feed-note | `app/app/templates/admin_users.html` | `GET /admin/users/activity` | `loadFeed` |
+| `#au-filters` | au-filters | `app/app/templates/admin_users.html` | — | `admin_users.html` |
+| `#au-more` | Показать ещё | `app/app/templates/admin_users.html` | `GET /admin/users/activity` | `admin_users.html`, `loadFeed` |
+| `#au-status` | au-status | `app/app/templates/admin_users.html` | — | `say` |
+| `#au-summary` | Загрузка… | `app/app/templates/admin_users.html` | — | `admin_users.html` |
+| `#au-users-body` | au-users-body | `app/app/templates/admin_users.html` | — | `admin_users.html`, `renderUsers` |
 | `#btn-new-project` | Новый проект | `app/app/templates/index.html` | — | `index.html` |
 | `#chat-log` | chat-log | `app/app/templates/project.html` | — | `project.html` |
 | `#chat-send` | Спросить | `app/app/templates/project.html` | — | `project.html` |
@@ -446,6 +458,13 @@ flowchart LR
 | `#download-banner-progress-wrap` | download-banner-progress-wrap | `app/app/templates/project.html` | — | `project.html` |
 | `#download-banner-spinner` | download-banner-spinner | `app/app/templates/project.html` | — | `project.html` |
 | `#download-banner-text` | Скачивание… | `app/app/templates/project.html` | — | `project.html` |
+| `#f-action` | Действие | `app/app/templates/admin_users.html` | — | `fillFilters`, `query` |
+| `#f-block` | Раздел | `app/app/templates/admin_users.html` | — | `fillFilters`, `query` |
+| `#f-from` | С даты | `app/app/templates/admin_users.html` | — | `query` |
+| `#f-project` | Проект | `app/app/templates/admin_users.html` | — | `fillFilters`, `query` |
+| `#f-reset` | Сбросить | `app/app/templates/admin_users.html` | — | `admin_users.html` |
+| `#f-to` | По дату | `app/app/templates/admin_users.html` | — | `query` |
+| `#f-user` | Пользователь | `app/app/templates/admin_users.html` | — | `admin_users.html`, `fillFilters`, `query` |
 | `#grant-access-panel` | grant-access-panel | `app/app/templates/project.html` | — | `project.html` |
 | `#grant-add` | Добавить | `app/app/templates/project.html` | — | `project.html` |
 | `#grant-members-body` | grant-members-body | `app/app/templates/project.html` | — | `project.html` |
@@ -757,6 +776,7 @@ flowchart LR
 | `OLLAMA_EMBED_MODEL` | переменная | 'bge-m3' | да | app/app/config.py:13 |
 | `OLLAMA_NUM_GPU` | переменная | 0 | да | app/app/config.py:13 |
 | `OUT_DIR` | переменная | '/out' | нет | asr/serve.py:14 |
+| `PANEL_USERS_PATH` | переменная | ROOT / 'Panel_users.txt' | нет | app/app/config.py:13 |
 | `PATH` | переменная | '' | нет | asr/lab/onnx_env.py:32 |
 | `PERSONAL_PASSWORD` | переменная | 'required' | да | app/app/config.py:13, app/app/tests/conftest.py: |
 | `PERSONAL_PASSWORD_MIN_LEN` | переменная | 10 | да | app/app/config.py:13 |
@@ -850,33 +870,33 @@ flowchart LR
 
 | Подсистема | Файл | Тестовых файлов |
 |---|---|---|
-| сервисы | app/app/services/meeting_recordings.py | 80 |
-| сервисы | app/app/services/people.py | 75 |
-| ядро API | app/app/config.py | 66 |
-| комната LiveKit | tools/livekit/screen_recorder.py | 59 |
-| фронтенд | app/app/static/px_agent.js | 47 |
-| шаблоны | app/app/templates/login.html | 47 |
-| модели БД | app/app/models/user.py | 43 |
-| модели БД | app/app/models/artifact.py | 39 |
-| роутеры | app/app/routers/projects.py | 39 |
-| модели БД | app/app/models/project.py | 37 |
-| служебные скрипты | scripts/qa_room.py | 28 |
+| сервисы | app/app/services/meeting_recordings.py | 83 |
+| сервисы | app/app/services/people.py | 79 |
+| ядро API | app/app/config.py | 67 |
+| комната LiveKit | tools/livekit/screen_recorder.py | 62 |
+| фронтенд | app/app/static/px_agent.js | 50 |
+| шаблоны | app/app/templates/login.html | 50 |
+| модели БД | app/app/models/user.py | 46 |
+| роутеры | app/app/routers/projects.py | 43 |
+| модели БД | app/app/models/artifact.py | 40 |
+| модели БД | app/app/models/project.py | 39 |
+| шаблоны | app/app/templates/admin_users.html | 35 |
+| служебные скрипты | scripts/qa_room.py | 30 |
+| фронтенд | app/app/static/app.js | 27 |
+| сервисы | app/app/services/user_profile_console.py | 27 |
 | сервисы | app/app/services/storage.py | 26 |
-| фронтенд | app/app/static/app.js | 26 |
-| сервисы | app/app/services/user_profile_console.py | 25 |
-| лаборатория ASR | asr/lab/paths.py | 23 |
-| роутеры | app/app/routers/pages.py | 22 |
-| сервисы | app/app/services/personal_password_console.py | 22 |
+| лаборатория ASR | asr/lab/paths.py | 25 |
+| сервисы | app/app/services/personal_password_console.py | 24 |
+| роутеры | app/app/routers/pages.py | 23 |
 | модели БД | app/app/models/entity.py | 20 |
-| ядро API | app/app/db.py | 18 |
+| ядро API | app/app/db.py | 19 |
 | роутеры | app/app/routers/auth.py | 17 |
 | сервисы | app/app/services/transcript_turns.py | 16 |
 | ASR-скрипты | asr/speakers.py | 15 |
-| сервисы | app/app/services/entities.py | 13 |
-| карта проекта | app/app/services/project_index/store.py | 13 |
-| лаборатория ASR | asr/lab/pipeline.py | 13 |
+| карта проекта | app/app/services/project_index/store.py | 14 |
+| лаборатория ASR | asr/lab/pipeline.py | 14 |
 
-Файлов Python без тестов: **43** из 507. Первые 25:
+Файлов Python без тестов: **44** из 515. Первые 25:
 
 - `app/app/__init__.py`
 - `app/app/cursor_compat.py`
@@ -901,38 +921,38 @@ flowchart LR
 - `app/app/services/resumable_upload.py`
 - `app/app/services/tesseract_tools.py`
 - `app/app/workers/processor.py`
-- `asr/build_lab_view.py`
 - `asr/build_sortformer_transcript_view.py`
+- `asr/client.py`
 
 ## 9. Пересечения: самые связанные узлы
 
 | Узел | Вид | Адрес | Исходящих | Входящих |
 |---|---|---|---|---|
-| `get` | символ | `app/app/services/people.py:116` | 3 | 3632 |
-| `append` | символ | `app/app/services/meeting_recordings.py:397` | 1 | 1209 |
-| `join` | символ | `scripts/qa_room.py:72` | 1 | 709 |
-| `post` | символ | `app/app/static/px_agent.js:24` | 1 | 690 |
-| `get_settings` | символ | `app/app/config.py:159` | 1 | 656 |
-| `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 367 |
-| `close` | символ | `app/app/services/meeting_recordings.py:759` | 1 | 446 |
-| `execute` | символ | `asr/lab/pipeline.py:108` | 6 | 346 |
+| `get` | символ | `app/app/services/people.py:116` | 3 | 3715 |
+| `append` | символ | `app/app/services/meeting_recordings.py:397` | 1 | 1215 |
+| `join` | символ | `scripts/qa_room.py:72` | 1 | 733 |
+| `post` | символ | `app/app/static/px_agent.js:24` | 1 | 710 |
+| `get_settings` | символ | `app/app/config.py:161` | 1 | 663 |
+| `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 381 |
+| `close` | символ | `app/app/services/meeting_recordings.py:759` | 1 | 467 |
+| `execute` | символ | `asr/lab/pipeline.py:108` | 6 | 369 |
 | `Снимок проекта для приватного репозитория SKKKK` | коммит | `:` | 349 | 0 |
-| `resolve` | символ | `app/app/services/people.py:181` | 13 | 330 |
-| `project.html` | файл | `app/app/templates/project.html:` | 225 | 98 |
-| `Artifact` | символ | `app/app/models/artifact.py:13` | 0 | 323 |
-| `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 57 | 241 |
-| `get_db` | символ | `app/app/db.py:152` | 1 | 286 |
+| `resolve` | символ | `app/app/services/people.py:181` | 13 | 336 |
+| `Artifact` | символ | `app/app/models/artifact.py:13` | 0 | 328 |
+| `project.html` | файл | `app/app/templates/project.html:` | 225 | 99 |
+| `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 57 | 255 |
+| `query` | символ | `app/app/templates/admin_users.html:93` | 0 | 300 |
+| `get_db` | символ | `app/app/db.py:161` | 1 | 294 |
 | `Entity` | символ | `app/app/models/entity.py:11` | 0 | 276 |
 | `log_event` | символ | `app/app/logging_setup.py:71` | 3 | 267 |
 | `Первое сохранение Primary Analytics` | коммит | `:` | 263 | 0 |
-| `User` | символ | `app/app/models/user.py:13` | 0 | 234 |
-| `check` | символ | `scripts/check_stand_inventory.py:141` | 15 | 202 |
+| `User` | символ | `app/app/models/user.py:13` | 0 | 248 |
+| `Project` | символ | `app/app/models/project.py:14` | 0 | 217 |
+| `check` | символ | `scripts/check_stand_inventory.py:142` | 15 | 202 |
 | `Turn` | символ | `app/app/services/transcript_turns.py:32` | 0 | 216 |
-| `Settings` | символ | `app/app/config.py:13` | 68 | 142 |
-| `Project` | символ | `app/app/models/project.py:14` | 0 | 208 |
-| `create_project` | символ | `app/app/routers/projects.py:36` | 15 | 186 |
-| `count` | символ | `app/app/static/app.js:47` | 1 | 199 |
-| `post` | символ | `app/app/templates/login.html:141` | 1 | 193 |
+| `create_project` | символ | `app/app/routers/projects.py:36` | 15 | 199 |
+| `count` | символ | `app/app/static/app.js:47` | 1 | 211 |
+| `Settings` | символ | `app/app/config.py:13` | 69 | 142 |
 
 ## 10. Никто не вызывает (проверить: мёртвый код или точка входа)
 
@@ -945,7 +965,7 @@ _Строгий список: у функции нет ни вызовов, ни
 | `_ensurePlayback` | `app/app/static/meeting_room.js:1958` | function |
 | `sideOf` | `app/app/static/px_agent.js:88` | function |
 | `hideDownloadBanner` | `app/app/templates/project.html:1203` | function |
-| `toggleMcpSubmit` | `app/app/templates/project.html:2375` | function |
+| `toggleMcpSubmit` | `app/app/templates/project.html:2379` | function |
 | `Confirm-Step` | `scripts/bootstrap.ps1:45` | function |
 
 Всего: 7.
