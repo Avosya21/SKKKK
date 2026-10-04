@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -243,6 +244,9 @@ def main() -> int:
     ap.add_argument("--docs", action="store_true", help="обновить раздел §17 в docs/PROJECT-MAP.md")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
     report = check()
     if args.json:
