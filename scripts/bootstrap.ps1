@@ -196,6 +196,19 @@ if ($Asr) {
     $manual.Add('Собрать Docker-образы ASR: INSTALL.bat -Asr  (или docker compose -f asr\docker-compose.yml build)')
 }
 
+# ---------- 7б. Git-хуки: индекс проекта и проверка карты при коммите ----------
+if (Test-Path -LiteralPath (Join-Path $root '.git\hooks')) {
+    try {
+        & (Join-Path $PSScriptRoot 'install_hooks.ps1') | Out-Null
+        Say 'OK' 'Git-хуки установлены: карта проекта проверяется при каждом коммите'
+    } catch {
+        Say 'WARN' "Git-хуки не установлены: $($_.Exception.Message)"
+        $manual.Add('Поставить git-хуки: powershell -ExecutionPolicy Bypass -File scripts\install_hooks.ps1')
+    }
+} else {
+    Say 'WARN' 'Это не git-копия (.git не найден): хуки проверки карты не поставлены'
+}
+
 # ---------- 8. Итог ----------
 $manual.Add('LM Studio: скачать модель из .env (LMSTUDIO_MODEL) на вкладке Search и включить локальный сервер (порт 1234)')
 $manual.Add('Проверка всей системы: powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1')

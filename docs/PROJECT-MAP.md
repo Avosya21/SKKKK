@@ -1475,9 +1475,11 @@ run_pipeline
 | `export_project_graph.py` | сборка графа зависимостей (§16): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops` |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
-| `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество |
+| `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
-| `install_hooks.ps1` | git-хуки post-commit/post-merge: фоновое обновление индекса |
+| `install_hooks.ps1` | git-хуки: `post-commit`/`post-merge` — фоновое обновление индекса; `pre-commit`/`commit-msg` — проверка карты при коммите (ставят `INSTALL.bat` и `restart.ps1`) |
+| `check_map_staged.py` | хук `pre-commit`: сверяет карту с содержимым индекса git (снимок коммита, не рабочая копия): файлы кода, роуты, таблицы БД, переменные окружения, реестр модулей, манифест |
+| `check_map_commit_msg.py` | хук `commit-msg`: при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку «Карта: не требуется — причина» |
 | `dev_changelog.py` | журнал разработки из git → `docs/CHANGELOG-DEV.md` |
 | `fast_summarize_tz.py` | быстрая сводка ТЗ из CLI: top-K по sqlite-vec + заметки → один reduce → `current_tz.md` + changelog |
 | `kb_inbox.py` | ящик вопросов внешнего агента из командной строки (`list`, ответ), без входа по паролю |
@@ -1509,6 +1511,7 @@ run_pipeline
 | `app/app/tests/test_edge_runtime.py` | TLS → Caddy → LiveKit → voice; портал жив если LiveKit упал |
 | `app/app/tests/test_tls_cert.py` | проверка файла сертификата и перевыпуск при старте |
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
+| `app/app/tests/test_map_guard.py` | защита актуальности карты: правила сообщения коммита, разбор расхождений, установка git-хуков |
 | `app/app/tests/test_map_coverage.py` | логика проверки покрытия карты: роуты, таблицы БД и переменные окружения из кода (`check_map_drift.coverage`) |
 | `app/app/tests/test_meetings.py` / `test_livekit_env.py` | комнаты, JWT, yaml ICE, кнопка Проанализировать |
 | `app/app/tests/test_meeting_recordings.py` | сырые дорожки одной комнаты в одном `manifest.json` |
@@ -1629,7 +1632,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 6. После архитектурных изменений → `venv\Scripts\python.exe scripts\index_project_map.py` (нужен Ollama bge-m3). Граф агентов: `lightrag_sync_docs.py` + `lightrag_index.py --wait`.
 7. **Граф зависимостей** (§16): после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py` (пересобирает `data/project_map_graph.json`, `docs/project-map/graph-modules.json` и атлас `DEPENDENCIES.md`).
 8. **Инвентарь стенда** (§17): появилось новое окружение, инструмент, каталог данных или модель — допишите `docs/project-map/stand.yaml` и выполните `venv\Scripts\python.exe scripts\check_stand_inventory.py --docs` (тест `app/app/tests/test_stand_inventory.py` следит, чтобы карта не отставала от диска).
-9. Агенты: правило `.cursor/rules/07-project-map.mdc`.
+9. **Принуждение.** Карту держат git-хуки: `pre-commit` (`scripts/check_map_staged.py`) сверяет карту с индексом git — проверяются те же вещи, что в `check_map_drift.py` и `test_map_coverage.py`, — а `commit-msg` (`scripts/check_map_commit_msg.py`) при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку `Карта: не требуется — причина`. Хуки ставит `scripts/install_hooks.ps1` (его зовут `INSTALL.bat` и `restart.ps1`); состояние — `scripts/index_doctor.py`. Обход (`--no-verify`) запрещён, `AGENTS.md`.
+10. Агенты: правило `.cursor/rules/07-project-map.mdc`.
 
 *Актуальность карты: дата последней проверки инвентаря стенда — в §17, история правок — `git log docs/PROJECT-MAP.md`; журнал прежних обновлений — в «Архиве разработки».*
 
@@ -1977,7 +1981,9 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
 | `chat_exports.py` | Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1). |
 | `check_env.ps1` | — |
+| `check_map_commit_msg.py` | Проверка сообщения коммита: изменения интерфейса или данных требуют карты или явного отказа от неё. |
 | `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
+| `check_map_staged.py` | Проверка карты проекта перед коммитом: сверяет карту с тем, что реально попадает в коммит. |
 | `check_stand_inventory.py` | Проверка полноты карты: всё, что лежит на стенде, должно быть в инвентаре `docs/project-map/stand.yaml`. |
 | `check_systems.ps1` | SKKKK — только проверка всех систем, без запуска |
 | `collect_ui_copy.py` | Реестр текстов интерфейса (пункт плана 3.9): собирает русские подписи, подсказки, aria-label и строки JS. |
@@ -1996,7 +2002,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `index_project_map.py` | Индексатор проекта (карта, код Python/JS/шаблонов/CSS, документы, символы, роуты, БД, окружение, история). |
 | `inspect_project_index.py` | Сверка векторного индекса проекта: чанки ↔ sqlite-vec ↔ lab _final.txt. |
 | `install_caddy.ps1` | SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора) |
-| `install_hooks.ps1` | Установить (или снять) git-хуки, которые после коммита и слияния обновляют индекс проекта. |
+| `install_hooks.ps1` | Установить (или снять) git-хуки проекта: обновление индекса после коммита и слияния, проверка карты проекта перед коммитом. |
 | `install_meeting_voice.py` | Isolated CPU venv for the LiveKit DeepFilterNet cleaner. Not the app venv. |
 | `install_services.ps1` | SKKKK — установка служб Windows через NSSM (запуск от администратора) |
 | `kb_inbox.py` | Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю). |

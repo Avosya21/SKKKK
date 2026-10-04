@@ -251,7 +251,8 @@ pytest app -m "not gpu" -q
 | Расхождения карты и кода | `venv\Scripts\python.exe scripts\check_map_drift.py` (`--fix` — реестр модулей и узлы манифеста) |
 | Граф зависимостей: полный граф, свод по подсистемам, атлас | `venv\Scripts\python.exe scripts\export_project_graph.py` (см. §16 карты; `--stats` — только цифры) |
 | Качество поиска | `venv\Scripts\python.exe scripts\eval_index.py --show-misses` (набор: `docs/eval/index_questions.json`) |
-| Автообновление после коммита | `powershell -ExecutionPolicy Bypass -File scripts\install_hooks.ps1` (снять: `-Remove`) |
+| Git-хуки: индекс после коммита и проверка карты перед коммитом | `powershell -ExecutionPolicy Bypass -File scripts\install_hooks.ps1` (снять: `-Remove`; ставятся сами из `INSTALL.bat` и `restart.ps1`; `scripts\index_doctor.py` показывает, стоят ли) |
+| Проверка карты по индексу git (то, что запускает `pre-commit`) | `venv\Scripts\python.exe scripts\check_map_staged.py` (`--all` — даже без файлов кода в индексе) |
 
 - Эмбеддинги считает Ollama `bge-m3` на CPU (GPU не занимается); первая полная сборка — около получаса, дальше секунды: неизменённые фрагменты берутся из кэша. Если Ollama не запущена, точный поиск работает, смысловой — после следующего запуска индексатора.
 - Индексатор один: повторный запуск во время работы ждёт и сообщает. Лок-файл `data/project_map.lock`, устаревший снимается сам.
