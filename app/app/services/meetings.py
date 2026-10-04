@@ -138,8 +138,25 @@ def end_meeting(db: Session, meeting: Meeting) -> Meeting:
     meeting.ended_at = meeting.ended_at or _now()
     db.commit()
     db.refresh(meeting)
+    link_registry(db, meeting)
     close_livekit_room(meeting.room_name)
     return meeting
+
+
+def link_registry(db: Session, meeting: Meeting) -> None:
+    """Платформа памяти включена для проекта: участники комнаты -> люди проекта или «Кто это?» (ПФ7). Ошибка не мешает встрече."""
+    try:
+        from app.app.config import get_settings
+        from app.app.models.project import Project
+        from app.app.services import memory_platform, people
+
+        if not memory_platform.enabled(get_settings(), db.get(Project, meeting.project_id)):
+            return
+        people.link_meeting_participants(db, meeting)
+        db.commit()
+    except Exception:  # noqa: BLE001 - реестр не должен ломать завершение встречи
+        db.rollback()
+        logging.getLogger("skkkk.meetings").warning("реестр людей по встрече %s не обновлён", meeting.id, exc_info=True)
 
 
 def close_livekit_room(room_name: str) -> bool:

@@ -342,8 +342,11 @@ def resolve_unknown(db: Session, project_id: int, actor_id: int, *, person_id: i
             raise PeopleError("Не выбран человек")
         person = get(db, project_id, person_id)
         if row.kind in ("chat_author", "document_author", "guest"):  # метка speaker_N живёт в одном материале — алиасом не делаем
-            add_alias(db, project_id, person.id, row.label, source="chat" if row.kind == "chat_author" else "human", by_user_id=by_user_id)
+            add_alias(db, project_id, person.id, row.label, source="chat" if row.kind == "chat_author" else "room" if row.kind == "guest" else "human",
+                      by_user_id=by_user_id)
         row.person_id, row.status = person.id, "resolved"
+        if row.kind == "guest":
+            attach_guest_rows(db, project_id, row.label_key, person.id)
     row.resolved_by, row.resolved_at = by_user_id, datetime.now(timezone.utc)
     _log(db, project_id, row.person_id, by_user_id, "resolve_unknown", {"label": row.label, "kind": row.kind}, {"status": row.status, "person_id": row.person_id})
     db.flush()
@@ -456,3 +459,56 @@ def withdraw_voice_consent(db: Session, project_id: int, person_id: int, *, by_u
     _log(db, project_id, person.id, by_user_id, "voice_withdraw", before, {"profiles_deleted": len(ids)})
     db.flush()
     return len(ids)
+
+
+# ---------------------------------------------------------------- участники комнаты (ПФ7)
+
+def attach_guest_rows(db: Session, project_id: int, label_key: str, person_id: int) -> int:
+    """Все записи гостя с этим написанием во встречах проекта получают человека (повторные встречи — без вопросов)."""
+    from app.app.models.meeting import Meeting, MeetingParticipant
+
+    rows = db.execute(
+        select(MeetingParticipant).join(Meeting, Meeting.id == MeetingParticipant.meeting_id)
+        .where(Meeting.project_id == project_id, MeetingParticipant.user_id.is_(None), MeetingParticipant.person_id.is_(None))
+    ).scalars().all()
+    n = 0
+    for row in rows:
+        if alias_key(row.display_name) == label_key:
+            row.person_id = person_id
+            n += 1
+    db.flush()
+    return n
+
+
+def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | None = None) -> dict[str, int]:
+    """После встречи: каждый участник комнаты становится человеком проекта или вопросом «Кто это?».
+    Сотрудник (учётка) — человек по карточке (создаётся, если его ещё нет); гость — по написанию имени в реестре, иначе вопрос.
+    Повтор безопасен: уже связанные участники пропускаются, вопросы не дублируются."""
+    from app.app.models.meeting import MeetingParticipant
+
+    out = {"linked": 0, "created": 0, "unknown": 0}
+    rows = db.scalars(select(MeetingParticipant).where(MeetingParticipant.meeting_id == meeting.id).order_by(MeetingParticipant.id)).all()
+    for row in rows:
+        if row.person_id is not None:
+            continue
+        person = None
+        if row.user_id is not None:
+            person = db.scalar(select(Person).where(Person.project_id == meeting.project_id, Person.user_id == row.user_id, Person.merged_into.is_(None)))
+            if person is None:
+                try:
+                    with db.begin_nested():
+                        person = person_from_user(db, meeting.project_id, row.user_id, by_user_id=by_user_id)
+                    out["created"] += 1
+                except PeopleError:  # имя уже занято другим человеком: ищем по написанию
+                    person = None
+        if person is None:
+            hit = resolve(db, meeting.project_id, row.display_name)
+            person = hit.person if hit is not None else None
+        if person is not None:
+            row.person_id = person.id
+            out["linked"] += 1
+        else:
+            note_unknown(db, meeting.project_id, "guest", row.display_name, example=f"Участник встречи №{meeting.id}")
+            out["unknown"] += 1
+    db.flush()
+    return out
