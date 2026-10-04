@@ -241,7 +241,7 @@ def fix(report: dict) -> None:
         _, tail = rest.split(END, 1)
         text = head + block + tail
     else:
-        marker = "\n---\n\n## 14. Как поддерживать карту"
+        marker = "\n---\n\n## 16. Граф зависимостей проекта"
         section = "\n---\n\n## 15. Реестр модулей (генерируется)\n\n" + block + "\n"
         text = text.replace(marker, section + marker, 1) if marker in text else text.rstrip() + "\n" + section
     MAP.write_text(text, encoding="utf-8", newline="")
