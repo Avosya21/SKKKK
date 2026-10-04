@@ -2954,6 +2954,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: router_admin_memory
+    kind: router
+    path: app/app/routers/admin_memory.py
+    title: "Табло памяти решений /admin/memory: метрики качества, чек-лист приёмки платформы, история прогонов (ПФ10)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_memory_scorecard
+    kind: service
+    path: app/app/services/memory_scorecard.py
+    title: "Табло памяти решений: метрики качества и чек-лист приёмки платформы (DECISION-MEMORY-PLAN §4.3, PLATFORM-FOUNDATION-PLAN ПФ10)."
+    tags: [auto]
+    auto: true
+
+  - id: ui_admin_memory
+    kind: file
+    path: app/app/templates/admin_memory.html
+    title: "Табло памяти решений (/admin/memory): метрики, чек-лист приёмки платформы, история прогонов; доступ — по списку Panel_users.txt"
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

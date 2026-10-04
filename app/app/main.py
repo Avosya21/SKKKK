@@ -41,6 +41,7 @@ from app.app.routers import (  # noqa: E402
     acme,
     admin_map,
     admin_users,
+    admin_memory,
     admin_map_graph,
     auth,
     knowledge,
@@ -246,6 +247,7 @@ app.include_router(project_mcp.router)
 app.include_router(requirement_review.router)
 app.include_router(admin_map.router)
 app.include_router(admin_users.router)
+app.include_router(admin_memory.router)
 app.include_router(admin_map_graph.router)
 app.include_router(project_members.router)
 app.include_router(project_people.router)

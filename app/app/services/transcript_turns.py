@@ -133,16 +133,17 @@ def speech_turns(turns: list[Turn]) -> list[Turn]:
 
 
 def turn_at(turns: list[Turn], sec: float | None) -> Turn | None:
-    """Реплика речи, которая покрывает момент ``sec``; иначе ближайшая по началу."""
+    """Реплика речи, которая покрывает момент ``sec``; иначе ближайшая по началу.
+    На стыке реплик (конец одной = начало следующей) побеждает та, что начинается в этот момент: иначе слова следующего
+    говорящего приписывались бы предыдущему (находка табло M8, 2026-10-05)."""
     if sec is None:
         return None
     timed = [t for t in turns if t.is_speech and t.start_sec is not None]
     if not timed:
         return None
-    for turn in timed:
-        end = turn.end_sec if turn.end_sec is not None else turn.start_sec
-        if turn.start_sec <= sec <= end:
-            return turn
+    covering = [t for t in timed if t.start_sec <= sec <= (t.end_sec if t.end_sec is not None else t.start_sec)]
+    if covering:
+        return max(covering, key=lambda t: t.start_sec)
     return min(timed, key=lambda t: abs((t.start_sec or 0.0) - sec))
 
 
