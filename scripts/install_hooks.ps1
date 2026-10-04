@@ -6,6 +6,8 @@
     Добавляет блоки между маркерами в .git/hooks; существующее содержимое хуков (например, Git LFS) не трогается.
 
     SKKKK-INDEX (post-commit, post-merge): обновляет индекс проекта в фоне, только изменённые файлы; ошибка не ломает git.
+    SKKKK-PRIVACY (pre-commit): scripts/scan_personal_data.py --staged — в файлах коммита не должно быть имён людей и названий
+      компаний из базы портала (находки видны только в консоли); совпадение отклоняет коммит. Без базы портала пропускается.
     SKKKK-MAP (pre-commit, commit-msg): карта проекта должна соответствовать коммиту.
       pre-commit  -> scripts/check_map_staged.py: сверяет карту с содержимым индекса git (роуты, таблицы БД, переменные
                      окружения, файлы кода, реестр модулей, манифест); расхождение отклоняет коммит.
@@ -33,7 +35,7 @@ $indexBlock = @'
 '@
 
 $mapHead = @'
-# Карта проекта должна соответствовать коммиту. Без venv проверка пропускается.
+# Проверки проекта работают на Python из venv; без venv они пропускаются.
 SKKKK_TOP="$(git rev-parse --show-toplevel)"
 SKKKK_PY="$SKKKK_TOP/venv/Scripts/python.exe"
 [ -x "$SKKKK_PY" ] || SKKKK_PY="$(git rev-parse --path-format=absolute --git-common-dir)/../venv/Scripts/python.exe"
@@ -53,10 +55,21 @@ if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/check_map_commit_msg.py" ]; th
 fi
 '@
 
+$privacyBlock = $mapHead + @'
+
+if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/scan_personal_data.py" ]; then
+  "$SKKKK_PY" "$SKKKK_TOP/scripts/scan_personal_data.py" --staged || {
+    echo "SKKKK: в коммите имена людей или названия компаний из базы портала. Замените их вымышленными и повторите коммит (DECISIONS: приватность)." >&2
+    exit 1
+  }
+fi
+'@
+
 $hooks = @(
     @{ Name = 'post-commit'; Tag = 'SKKKK-INDEX'; Body = $indexBlock },
     @{ Name = 'post-merge';  Tag = 'SKKKK-INDEX'; Body = $indexBlock },
     @{ Name = 'pre-commit';  Tag = 'SKKKK-MAP';   Body = $preCommitBlock },
+    @{ Name = 'pre-commit';  Tag = 'SKKKK-PRIVACY'; Body = $privacyBlock },
     @{ Name = 'commit-msg';  Tag = 'SKKKK-MAP';   Body = $commitMsgBlock }
 )
 

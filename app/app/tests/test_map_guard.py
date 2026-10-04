@@ -92,7 +92,8 @@ def test_node_for_a_file_outside_git_is_not_dead():
 
 def test_installer_declares_both_map_hooks_and_the_scripts_exist():
     text = (ROOT / "scripts" / "install_hooks.ps1").read_text(encoding="utf-8-sig")
-    for needle in ("pre-commit", "commit-msg", "SKKKK-MAP", "check_map_staged.py", "check_map_commit_msg.py"):
+    for needle in ("pre-commit", "commit-msg", "SKKKK-MAP", "SKKKK-PRIVACY", "check_map_staged.py", "check_map_commit_msg.py",
+                   "scan_personal_data.py"):
         assert needle in text, needle
     assert (ROOT / "scripts" / "check_map_staged.py").is_file() and (ROOT / "scripts" / "check_map_commit_msg.py").is_file()
 
@@ -110,3 +111,12 @@ def test_git_hooks_that_guard_the_map_are_installed():
     if missing is None:
         pytest.skip("не git-копия: каталога хуков нет")
     assert missing == [], f"не установлены хуки {missing}: powershell -ExecutionPolicy Bypass -File scripts\\install_hooks.ps1"
+
+
+def test_privacy_scan_reads_the_index_version_and_skips_when_nothing_to_check():
+    scan = _load("scan_personal_data")
+    src = (ROOT / "scripts" / "scan_personal_data.py").read_text(encoding="utf-8")
+    assert "def _lines" in src and 'f":{rel}"' in src  # с --staged читается blob из индекса, не рабочая копия
+    assert "if args.staged and not files" in src  # коммит без текстовых файлов базу не открывает
+    assert "базы портала нет" in src and "настройки портала не прочитаны" in src  # чистая копия коммит не блокирует
+    assert callable(scan.main)

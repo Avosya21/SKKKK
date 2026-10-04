@@ -1,7 +1,7 @@
 """Проверка перед коммитом и отправкой: нет ли в файлах git имён людей и компаний из базы портала.
 
     venv\\Scripts\\python scripts\\scan_personal_data.py            # все отслеживаемые файлы
-    venv\\Scripts\\python scripts\\scan_personal_data.py --staged   # только то, что в индексе (для хука)
+    venv\\Scripts\\python scripts\\scan_personal_data.py --staged   # только то, что в индексе (его зовёт хук pre-commit)
 
 Имена берутся из базы (люди проекта и их написания, карточки, логины, компании) и ищутся как целые слова без учёта регистра.
 Находки показываются только здесь, в консоли; код выхода 1, если что-то найдено. В git не должно быть имён, компаний,
@@ -70,10 +70,40 @@ def _files(staged: bool) -> list[Path]:
     return [ROOT / f for f in out if f and Path(f).suffix.lower() in TEXT_SUFFIXES and not any(part in f.replace("\\", "/") for part in SKIP_PARTS)]
 
 
+def _lines(path: Path, staged: bool) -> list[str]:
+    """Строки файла. С `--staged` — версия из индекса git (то, что реально уйдёт в коммит), а не рабочая копия:
+    при частичном `git add` в рабочем файле бывают чужие несохранённые правки."""
+    if staged:
+        rel = path.relative_to(ROOT).as_posix()
+        blob = subprocess.run(["git", "show", f":{rel}"], cwd=ROOT, capture_output=True, check=False)
+        if blob.returncode == 0:
+            return blob.stdout.decode("utf-8", errors="ignore").splitlines()
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return []
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--staged", action="store_true", help="только файлы в индексе git")
     args = ap.parse_args(argv)
+
+    files = _files(args.staged)
+    if args.staged and not files:
+        return 0  # в коммите нет текстовых файлов: базу не открываем
+
+    from app.app.config import get_settings
+
+    try:
+        url = get_settings().database_url
+    except Exception as exc:  # noqa: BLE001 - нет .env (чистый клон, рабочее дерево сессии): проверять нечем
+        print(f"SKKKK: настройки портала не прочитаны ({exc.__class__.__name__}), проверка личных данных пропущена", file=sys.stderr)
+        return 0
+    if url.startswith("sqlite:///") and not Path(url[len("sqlite:///"):]).is_file():
+        # копия без данных: sqlite создал бы пустую базу, а имён для проверки нет
+        print("SKKKK: базы портала нет, проверка личных данных пропущена", file=sys.stderr)
+        return 0
 
     from app.app.db import SessionLocal
     import app.app.models  # noqa: F401
@@ -88,11 +118,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     pattern = re.compile(r"(?<![\w])(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
     found = 0
-    for path in _files(args.staged):
-        try:
-            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except OSError:
-            continue
+    for path in files:
+        lines = _lines(path, args.staged)
         for number, line in enumerate(lines, 1):
             for match in pattern.finditer(line):
                 found += 1
