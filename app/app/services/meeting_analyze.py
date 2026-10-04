@@ -181,6 +181,9 @@ def analyze_meeting(db: Session, settings: Settings, meeting: Meeting) -> Meetin
     tracks = analyzable_tracks(settings.data_dir, meeting.room_name)
     if not tracks:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No speaker recordings")
+    from app.app.services.meetings import link_registry
+
+    link_registry(db, meeting)  # гости, пришедшие после завершения или не связанные раньше, попадают в «Кто это?» до разбора
     current = analyze_state(settings, meeting, db)
     if current["analyze_status"] in BUSY_STATUSES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Analyze already running")
@@ -362,7 +365,7 @@ def _track_contract(db: Session, meeting: Meeting, track: dict) -> dict:
     row = {
         "identity": identity,
         "speaker": _speaker_name(db, meeting.id, identity),
-        **_participant_card(db, identity),
+        **_participant_card(db, identity, meeting.project_id),
         "source": source,
         "src": str(src),
         "started_epoch": track.get("started_epoch"),
@@ -454,12 +457,42 @@ def _enqueue_meeting(db: Session, settings: Settings, meeting: Meeting, tracks: 
     ]
 
 
-def _participant_card(db: Session, identity: str) -> dict:
+def _registry_person(db: Session, project_id: int | None, identity: str):
+    """Человек проекта для участника комнаты, если платформа памяти включена и участник уже связан с реестром (ПФ7)."""
+    if project_id is None:
+        return None
+    from app.app.config import get_settings
+    from app.app.models.person import Person
+    from app.app.models.project import Project
+    from app.app.services import memory_platform, people
+
+    if not memory_platform.enabled(get_settings(), db.get(Project, project_id)):
+        return None
+    row = db.scalars(
+        select(MeetingParticipant).join(Meeting, Meeting.id == MeetingParticipant.meeting_id)
+        .where(MeetingParticipant.identity == identity, MeetingParticipant.person_id.is_not(None), Meeting.project_id == project_id)
+        .order_by(MeetingParticipant.id.desc())
+    ).first()
+    person = db.get(Person, row.person_id) if row is not None else None
+    if person is None or person.project_id != project_id:
+        return None
+    return people.canonical(db, person)
+
+
+def _participant_card(db: Session, identity: str, project_id: int | None = None) -> dict:
     """Сотрудник (`member:<id>`) — кто он по карточке: user_id, компания и сторона (executor/customer).
 
     Сторона нужна анализу: чья реплика — исполнителя или заказчика — без угадывания моделью.
     У гостей карточки нет — полей нет (сторона неизвестна).
     """
+    registry = _registry_person(db, project_id, identity)
+    if registry is not None and registry.side != "unknown":  # сторона из реестра проекта главнее стороны компании по умолчанию
+        card = {"person_id": registry.id, "side": registry.side}
+        if registry.user_id:
+            card["user_id"] = registry.user_id
+        if registry.company_name:
+            card["company"] = registry.company_name
+        return card
     match = re.fullmatch(r"member:(\d+)", identity or "")
     if not match:
         return {}
