@@ -21,7 +21,7 @@ from app.app.models.project_member import ProjectMember
 from app.app.models.speaker_profile import SpeakerProfile
 from app.app.models.user import User
 from app.app.services import memory_platform, people, voice_link
-from app.app.services.project_access import require_project_staff
+from app.app.services.project_access import require_project, require_project_staff
 
 router = APIRouter(prefix="/projects", tags=["project-people"])
 
@@ -379,3 +379,35 @@ def set_platform(
 
     ctr._cache.pop(project_id, None)  # стороны в контракте пересчитаются
     return _payload(db, settings, project)
+
+
+@router.delete("/{project_id}/people/{person_id}")
+def forget_person(
+    project_id: int, person_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Удалить человека из проекта навсегда (только админ): написания, голоса проекта, данные в журнале правок. Учётка не удаляется."""
+    project = require_project_staff(db, user, project_id)
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Удаляет только администратор")
+    try:
+        people.forget_person(db, project_id, person_id, by_user_id=user.id)
+        db.commit()
+    except people.PeopleError as exc:
+        db.rollback()
+        raise _fail(exc) from exc
+    return _payload(db, settings, project)
+
+
+@router.get("/{project_id}/people/directory")
+def people_directory(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Справочник для любого участника проекта: имя, компания, должность, сторона. Без написаний, голосов, согласий и учёток."""
+    require_project(db, user, project_id)
+    return {"people": [{"id": p.id, "display_name": p.display_name, "company_name": p.company_name, "job_title": p.job_title, "side": p.side}
+                       for p in people.list_people(db, project_id)]}

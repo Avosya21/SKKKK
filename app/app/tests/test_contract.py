@@ -27,13 +27,13 @@ CHAT = """**ПИЛОТ | АКМЕ**
 **13:44 Елена:**
 Если все устроит - добавить еще одно поле для покрытия - будет по дооценке (в текущем ТЗ четко фиксировали доработку двух полей), будет в районе 5-8 часов, я думаю.
 
-**13:49 Ilya Abramov:**
+**13:49 Ivan Sample:**
 Будем делать, потому что это позволяет сократить до 205 строк номенклатуру по профнастилу.
 
 **13:50 Елена:**
 Хорошо, тогда согласуем перечень значений.
 
-**13:51 Ilya Abramov:**
+**13:51 Ivan Sample:**
 Да, пришлю список. Документ: https://docs.google.com/document/d/abc123.
 
 **16 сентября 2026**
@@ -45,7 +45,7 @@ CHAT = """**ПИЛОТ | АКМЕ**
 
 def test_parse_chat_dates_speakers_and_bodies():
     msgs = ct.parse_chat(CHAT)
-    assert [m.speaker for m in msgs][:3] == ["Елена", "Елена", "Ilya Abramov"]
+    assert [m.speaker for m in msgs][:3] == ["Елена", "Елена", "Ivan Sample"]
     assert msgs[1].at().isoformat() == "2026-09-15T13:44:00"
     assert msgs[-1].at().isoformat() == "2026-09-16T09:00:00"
     assert "5-8 часов" in msgs[1].text and ct.looks_like_chat(CHAT)

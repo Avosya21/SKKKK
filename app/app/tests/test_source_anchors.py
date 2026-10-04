@@ -17,7 +17,7 @@ TELEGRAM = """<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Exported 
 <div class="message service" id="message-1"><div class="body details">25 August 2026</div></div>
 <div class="message default clearfix" id="message106"><div class="pull_left userpic_wrap"><div class="userpic userpic8"><div class="initials">IA</div></div></div>
 <div class="body"><div class="pull_right date details" title="25.08.2026 15:58:22 UTC+03:00">15:58</div>
-<div class="from_name">Ilya Abramov</div>
+<div class="from_name">Ivan Sample</div>
 <div class="reply_to details">In reply to <a href="#go_to_message105" onclick="return GoToMessage(105)">this message</a></div>
 <div class="text">Здравствуйте. Приложение в Битрикс24 для ввода характеристик номенклатуры делаем?</div></div></div>
 <div class="message default clearfix" id="message107"><div class="body"><div class="pull_right date details" title="25.08.2026 16:02:00 UTC+03:00">16:02</div>
@@ -26,7 +26,7 @@ TELEGRAM = """<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Exported 
 <div class="media_wrap clearfix"><a class="photo_wrap clearfix pull_left" href="photos/p.jpg"><img class="photo" src="photos/p_thumb.jpg"/></a></div>
 <div class="text">Вот схема</div></div></div>
 <div class="message default clearfix" id="message109"><div class="body"><div class="pull_right date details" title="25.08.2026 16:10:00 UTC+03:00">16:10</div>
-<div class="from_name">Ilya Abramov</div>
+<div class="from_name">Ivan Sample</div>
 <div class="reply_to details">In reply to <a href="#go_to_message107" onclick="return GoToMessage(107)">this message</a></div>
 <div class="text">Да, согласен, так и делаем.</div></div></div>
 <div class="message default clearfix" id="message110"><div class="body"><div class="pull_right date details" title="26.08.2026 16:37:09 UTC+03:00">16:37</div>
@@ -49,7 +49,7 @@ def test_parse_telegram_export():
     assert msgs[108]["author"] == "Елена" and msgs[108]["text"] == "[фото]\nВот схема"  # joined — автор предыдущего
     assert msgs[110]["text"] == "[файл: Нормализация_НСИ.docx]"
     parsed = ct.parse_chat(render_chat_text(export))
-    assert [(m.speaker, m.at()) for m in parsed][:2] == [("Ilya Abramov", datetime(2026, 8, 25, 15, 58)), ("Елена", datetime(2026, 8, 25, 16, 2))]
+    assert [(m.speaker, m.at()) for m in parsed][:2] == [("Ivan Sample", datetime(2026, 8, 25, 15, 58)), ("Елена", datetime(2026, 8, 25, 16, 2))]
 
 
 def _chat_artifact(db, settings, project, user, aid, html, uploaded):
@@ -94,14 +94,14 @@ def test_document_pipeline_ingests_export_and_overlap(client, admin_token, tmp_d
     try:
         project, user = _project(db, "Переписка")
         first, text = _chat_artifact(db, settings, project, user, f"art_tg_a_{project.id}", TELEGRAM, datetime(2026, 8, 27, 10, 0))
-        assert "**15:58 Ilya Abramov:** Здравствуйте." in text and first.recorded_at_source == "messages"
+        assert "**15:58 Ivan Sample:** Здравствуйте." in text and first.recorded_at_source == "messages"
         assert material_date(first)[0].isoformat() == "2026-08-25"
         later_html = TELEGRAM.replace('id="message110"', 'id="message111"')
         second, _ = _chat_artifact(db, settings, project, user, f"art_tg_b_{project.id}", later_html, datetime(2026, 9, 17, 10, 0))
         path = artifact_messages_path(settings, second)
         assert owned_elsewhere(path.parent, load_export(path)) == {106, 107, 108, 109, 110}
         parts = ents._numbered_message_parts(settings, second)
-        assert len(parts) == 1 and parts[0][1].startswith("M111 ") and "M109 [25.08.2026 16:10] Ilya Abramov (в ответ на M107)" in parts[0][0]
+        assert len(parts) == 1 and parts[0][1].startswith("M111 ") and "M109 [25.08.2026 16:10] Ivan Sample (в ответ на M107)" in parts[0][0]
         fully = TELEGRAM  # полностью совпадающая выгрузка — пунктов не даёт, модель не зовём
         third, _ = _chat_artifact(db, settings, project, user, f"art_tg_c_{project.id}", fully, datetime(2026, 9, 20, 10, 0))
         monkeypatch.setattr(ents, "chat_completion_no_think", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("LLM")))
@@ -116,11 +116,11 @@ def test_bind_chat_source_author_time_and_agreement():
 
     msgs = parse_telegram_html(TELEGRAM)["messages"]
     value = {"text": "Характеристики номенклатуры ведём в 1С: нормализуем справочник профнастила", "messages": [107],
-             "decided_by": [{"name": "Ilya Abramov", "message": 109}, {"name": "Елена", "message": 108}]}
+             "decided_by": [{"name": "Ivan Sample", "message": 109}, {"name": "Елена", "message": 108}]}
     bound = bind_chat_source(value, msgs, set())
     assert bound["message_id"] == 107 and bound["speaker"] == "Елена" and bound["speaker_source"] == "chat"
     assert bound["message_at"] == "2026-08-25T16:02:00+03:00"
-    assert bound["decided_by"] == [{"name": "Ilya Abramov", "message_id": 109, "at": "2026-08-25T16:10:00+03:00"}]  # автор сам себя не утверждает
+    assert bound["decided_by"] == [{"name": "Ivan Sample", "message_id": 109, "at": "2026-08-25T16:10:00+03:00"}]  # автор сам себя не утверждает
     far = dict(value, decided_by=[{"name": "Елена", "message": 110}])
     assert "decided_by" not in bind_chat_source({**far, "text": "Приложение в Битрикс24 для ввода характеристик номенклатуры", "messages": [106]}, msgs, set())
     assert bind_chat_source(value, msgs, {107}) is None  # сообщение принадлежит более ранней выгрузке (Я1)
@@ -143,7 +143,7 @@ def test_chat_items_in_contract_and_relevance(client, admin_token, tmp_data, mon
         payload = EntitiesPayload(decisions=[
             {"text": "Сделать приложение в Битрикс24 для ввода характеристик номенклатуры", "kind": "project", "messages": [106]},
             {"text": "Характеристики номенклатуры ведём в 1С: нормализуем справочник профнастила", "kind": "project", "messages": [107],
-             "decided_by": [{"name": "Ilya Abramov", "message": 109}]}])
+             "decided_by": [{"name": "Ivan Sample", "message": 109}]}])
         persist_entities(db, settings.model_copy(update={"dry_run": True}), art, payload)
         topic = Topic(project_id=project.id, label="ввод характеристик номенклатуры")
         db.add(topic)
@@ -158,7 +158,7 @@ def test_chat_items_in_contract_and_relevance(client, admin_token, tmp_data, mon
         ev = reqs[norm.id]["evidence"][0]
         assert ev["speaker"] == "Елена" and ev["speaker_basis"] == "chat" and ev["date_basis"] == "message"
         assert ev["said_at"].startswith("2026-08-25T16:02") and ev["message_id"] == 107
-        assert ev["url"].startswith(f"/artifacts/{art.artifact_id}/report?m=107") and ev["agreed_by"][0]["name"] == "Ilya Abramov"
+        assert ev["url"].startswith(f"/artifacts/{art.artifact_id}/report?m=107") and ev["agreed_by"][0]["name"] == "Ivan Sample"
 
         reply = {"items": [{"id": f"E{app_ent.id}", "state": "superseded", "by": f"E{norm.id}", "quote": "ведём в 1С",
                             "reason": "перешли на 1С", "confidence": 0.9}]}

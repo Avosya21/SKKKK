@@ -1,6 +1,6 @@
 """Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2).
 
-Извлечение и контракт называют человека строкой («Мария», «Ilya Abramov»). Реестр превращает строку в человека:
+Извлечение и контракт называют человека строкой («Анна», «Ivan Sample»). Реестр превращает строку в человека:
 ``resolve`` ищет по алиасу, сторона (исполнитель / заказчик) берётся у человека, а не угадывается по роли.
 Изменения — только через функции этого модуля: каждая пишет запись в ``people_log`` (Д6).
 Словарь сторон контракта — ``customer`` / ``vendor`` (исполнитель); в БД — ``customer`` / ``executor``.
@@ -85,7 +85,7 @@ def canonical(db: Session, person: Person) -> Person:
 
 
 def normalize_company(db: Session, company_name: str | None, company_id: int | None = None) -> tuple[int | None, str | None]:
-    """Название компании человека к виду общего списка: «intervolga» и «INTERVOLGA» — одна компания.
+    """Название компании человека к виду общего списка: «acme» и «ACME» — одна компания.
     Нет в списке — название остаётся как ввели (заказчик может быть только в этом проекте)."""
     from app.app.services.companies import canonical_company
 
@@ -179,7 +179,7 @@ def add_alias(db: Session, project_id: int, person_id: int, alias: str, *, sourc
 
 
 def resolve(db: Session, project_id: int, label: str | None, *, allow_first_name: bool = True) -> Match | None:
-    """Человек по написанию. Точный алиас — надёжно; «Мария» вместо «Мария Попова» — только если такое имя одно."""
+    """Человек по написанию. Точный алиас — надёжно; «Анна» вместо «Анна Пример» — только если такое имя одно."""
     key = alias_key(label)
     if not key:
         return None
@@ -370,7 +370,7 @@ def sides_map(db: Session, project_id: int) -> dict[str, str]:
         contract_side = side_to_contract(person.side)
         if contract_side:
             out[alias.alias.casefold()] = contract_side
-    # «Мария» вместо «Мария Попова»: первое слово годится, только если у всех людей с таким первым словом одна сторона
+    # «Анна» вместо «Анна Пример»: первое слово годится, только если у всех людей с таким первым словом одна сторона
     firsts: dict[str, set[str]] = {}
     for name, side in out.items():
         if " " in name:
@@ -512,3 +512,46 @@ def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | No
             out["unknown"] += 1
     db.flush()
     return out
+
+
+# ---------------------------------------------------------------- удаление человека из проекта (ПФ8)
+
+def forget_person(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None) -> dict[str, int]:
+    """Полностью убрать человека из реестра проекта (вместе с теми, кого в него объединили): написания, голосовые слепки
+    проекта, ссылки из встреч и вопросов, а в журнале правок — имена и данные «до / после». Остаётся запись «удалён» без имени.
+    Учётка портала и общие голоса сотрудника не затрагиваются. Необратимо."""
+    from app.app.models.meeting import MeetingParticipant
+    from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+
+    root = get(db, project_id, person_id)
+    ids = {root.id}
+    frontier = {root.id}
+    while frontier:  # те, кого объединили с этим человеком (и кого объединили с ними)
+        nxt = set(db.scalars(select(Person.id).where(Person.project_id == project_id, Person.merged_into.in_(frontier))).all()) - ids
+        ids |= nxt
+        frontier = nxt
+    voices = list(db.scalars(select(SpeakerProfile).where(SpeakerProfile.person_id.in_(ids))).all())
+    own = [v for v in voices if v.scope == "project" and v.project_id == project_id]
+    own_ids = [v.id for v in own]
+    if own_ids:
+        for link in db.scalars(select(ArtifactSpeakerLink).where(ArtifactSpeakerLink.profile_id.in_(own_ids))).all():
+            link.profile_id, link.status = None, "pending"
+        for link in db.scalars(select(ArtifactSpeakerLink).where(ArtifactSpeakerLink.suggested_profile_id.in_(own_ids))).all():
+            link.suggested_profile_id = None
+    for v in voices:
+        if v in own:
+            db.delete(v)
+        else:
+            v.person_id = None
+    for model in (MeetingParticipant, UnknownActor):
+        for row in db.scalars(select(model).where(model.person_id.in_(ids))).all():
+            row.person_id = None
+    for entry in db.scalars(select(PeopleLog).where(PeopleLog.project_id == project_id, PeopleLog.person_id.in_(ids))).all():
+        entry.person_id, entry.before_json, entry.after_json = None, None, None  # имя и данные — стереть, факт правки остаётся
+    removed_aliases = db.query(PersonAlias).filter(PersonAlias.person_id.in_(ids)).delete(synchronize_session=False)
+    db.query(Person).filter(Person.id.in_(ids)).update({Person.merged_into: None}, synchronize_session=False)
+    db.flush()
+    db.query(Person).filter(Person.id.in_(ids)).delete(synchronize_session=False)
+    _log(db, project_id, None, by_user_id, "forget", None, {"people": len(ids), "aliases": removed_aliases, "voices": len(own_ids)})
+    db.flush()
+    return {"people": len(ids), "aliases": removed_aliases, "voices": len(own_ids)}

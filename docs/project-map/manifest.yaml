@@ -2905,6 +2905,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_scan_personal_data
+    kind: file
+    path: scripts/scan_personal_data.py
+    title: "Проверка перед коммитом и отправкой: нет ли в файлах git имён людей и компаний из базы портала."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
