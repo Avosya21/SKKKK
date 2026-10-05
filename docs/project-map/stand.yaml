@@ -114,6 +114,7 @@ items:
   - {path: "tools/libreoffice", kind: "бинарник", purpose: "LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git", optional: true}
   - {path: "tools/lightrag", kind: "сервис", purpose: "LightRAG в Docker (:9621): граф знаний по документации"}
   - {path: "tools/livekit", kind: "сервис", purpose: "livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py"}
+  - {path: "tools/projectmap", kind: "инструмент", purpose: "переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md)"}
   - {path: "tools/tesseract", kind: "бинарник", purpose: "OCR rus+eng и tessdata; бинарник не в git, языковые данные в git", optional: true}
   - {path: "tools/projindex_mcp.py", kind: "MCP", purpose: "MCP-сервер индекса карты (stdio): поиск по коду и графу"}
   - {path: "tools/_monitor_snapshot.py", kind: "утилита", purpose: "снимок состояния для мониторинга"}
