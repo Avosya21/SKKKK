@@ -30,7 +30,7 @@ flowchart TB
     subgraph Edge["Edge (main all / api)"]
         Caddy[Caddy :777]
         LK[LiveKit :7880]
-        VC[voice_cleaner skkkk-dfn]
+        VC[voice_cleaner skkkk-dfn запись голоса]
     end
 
     subgraph Worker["GPU Worker (jobs queue)"]
@@ -216,7 +216,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **Только портал** | `python -m app.app.main api` | То же без воркера. Воркер (`main worker`) edge **не** поднимает |
 | **Caddy** | поднимает `main` (`ensure_tls_cert` → `ensure_caddy`); опц. служба `SKKKK-CADDY` | `:777` HTTPS (готовый файл, Chrome к IP часто без SNI) + `:8088` HTTP-01 + `:8443` выпуск/продление Let's Encrypt **на IP** (`shortlived`). При старте `main` проверяет файл сертификата и перевыпускает, если его нет или он недействителен. Конфиг — `tools/caddy/Caddyfile` |
 | **LiveKit** | поднимает `main` (`ensure_livekit`) | Native `tools/livekit/livekit-server.exe` `:7880`. Не Docker (STUN ломается) |
-| **Voice cleaner** | поднимает `main` после `:7880` | `venvs/voice` + `tools/livekit/voice_cleaner.py`, участник `skkkk-dfn` (**не** hidden: у hidden LiveKit прячет и дорожки). Чистит живой звук потоком (`_LiveFilter`: STFT без сброса, память GRU и нормировок между кусками по 80 мс — как обработка всей записи, +30 мс), публикует `clean-<identity>` — **одну на человека на всё время в комнате** (`get_out`/`drop_out`: переключатель шумодава и переподключение меняют только задачу, не публикацию); чистит только голос, не звук показа экрана (`is_voice_source`); сам поднимает себе приоритет (above normal); не больше `MEETING_VOICE_MAX_TRACKS` (8) дорожек на процесс; очередь входа > 150 мс выбрасывается, буфер выхода 120 мс; раз в 10 с сверяет с сервером, что он в комнате (`MemberWatch`). Пишет сырые дорожки в `data/meetings/{room}/` (`MEETING_RECORD=1`). Ставит `scripts/install_meeting_voice.py`. GPU не трогает (`CUDA_VISIBLE_DEVICES=-1`). Нет venv — комната без серверной чистки и без записи |
+| **Voice recorder** | поднимает `main` после `:7880` | `venvs/voice` + `tools/livekit/voice_cleaner.py` (имя историческое), участник `skkkk-dfn`, hidden, ничего не публикует. Пишет голос каждого человека в `data/meetings/{room}/` (`MEETING_RECORD=1`): сырую дорожку `skkkk-raw` (браузер с DFN3), без неё — основную (`voice_pub_to_record`); пришла сырая после основной — та же WAV продолжается с сырой, пропала сырая — обратно на основную. Сам поднимает себе приоритет (above normal); раз в 10 с сверяет с сервером, что он в комнате (`MemberWatch`). Шумодава на сервере нет (он в браузере, см. «Гостевая страница»). Ставит `scripts/install_meeting_voice.py` (только livekit SDK). Нет venv — созвон без записи |
 | **Screen recorder** | поднимает `main` после `voice_cleaner` | `venvs/voice` + `tools/livekit/screen_recorder.py`, участник `skkkk-rec` (hidden, без publish; `MemberWatch` — перезаход, если сервер его потерял). Пишет `tracks/{identity}-screen_video-{sid}.mp4` в ту же кучу, 1 fps, холст 1920×1080, 5 Мбит/с. Камеру не пишет. `MEETING_SCREEN_RECORD=0` — без файлов |
 | **GPU Worker** | `python -m app.app.main worker` | Очередь `jobs` — lab ASR, knowledge, один job за раз |
 | **GigaAM** | Docker `skkkk-gigaam` | `:18102` — второй слух + **embed_voice** |
@@ -470,12 +470,12 @@ Enter в textarea — тоже отправка. Отдельная страни
 | **Проанализировать** | `POST /projects/{id}/meetings/{mid}/analyze` | admin, manager. Один артефакт + job. Повтор `done`/`error` — **Повторить**, тот же артефакт. Воркер для встречи всегда гонит `process_meeting_artifact`, не `asr.resume` со старой стенограммы. queued/running — 409 |
 | **лаб встречи** | `GET /artifacts/{id}/report-meeting-lab` | только admin. В колонке анализа, если уже есть `analyze_jobs[0].artifact_id`; и в таблице файлов у артефакта встречи |
 | **Удалить созвон** | `DELETE /projects/{id}/meetings/{mid}` | admin, manager. Иконка корзины в строке (как у файлов). Стирает `meetings` / `meeting_participants`, `data/meetings/{room}/`, артефакт `встреча-{id}.wav` + дочерние lab-папки и jobs очереди |
-| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `SKKKK_MEETING_VOICE` из `pages.meeting_voice_flags`. Канон звука — сервер `skkkk-dfn` (`MEETING_VOICE_SERVER=1`). `#meeting-denoise` — **Шумодав** у себя: выкл → все слышат сырой мик этого человека (громкость остаётся). Сигнал `publishData` topic `skkkk-denoise`; metadata — запасной. Свой `clean-*` не играется (`publication.trackName`). Что играть решает один `_routeAudio` (`voicePlan`): на человека **ровно одна** дорожка голоса — самая свежая `clean-*`, если он не выключил шумодав, иначе сырой микрофон; нет `clean-*` (готовится, предел дорожек, шумодав переподключается) — сырой; звук показа экрана — всегда как есть. Остальные дорожки и «осиротевшие» `<audio>` снимаются; сверка по событиям LiveKit и раз в 2 с (`_startAudioRoute`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). Клиентский DFN3 выкл. `#meeting-sound` — отписка чужого аудио (`setSubscribed(false)` на все remote audio, включая `clean-*`), не `muted`. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
+| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `SKKKK_MEETING_VOICE` из `pages.meeting_voice_flags`. Шумодав — **в браузере говорящего** (`MEETING_VOICE_DFN3=1`): DFN3 (`DeepFilterNoiseFilterProcessor`) — процессор livekit-client на моём микрофоне (`_startDfn3`/`_applyVoice`), захват без шумоподавления браузера; `#meeting-denoise` включает/выключает фильтр (`setEnabled`), серверу ничего не шлёт. Рядом — сырая дорожка `skkkk-raw` (клон исходника `_mediaStreamTrack`, `_syncRawTrack`: смена устройства, мьют, раз в 2 с) только для рекордера: слушатели от неё отписываются (`isRawPub`). Нет DFN3 (телефон, нет WASM, не загрузился) — шумоподавление браузера, кнопка перезахватывает микрофон, сырой дорожки нет. Что играть решает один `_routeAudio` (`voicePlan`): всё звуковое от людей, кроме `skkkk-raw`; «осиротевшие» `<audio>` снимаются; сверка по событиям LiveKit и раз в 2 с (`_startAudioRoute`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). `#meeting-sound` — отписка чужого аудио (`setSubscribed(false)`), не `muted`. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
 | Статус для гостя | `GET /api/meetings/public/{token}` | `project_id: null` |
 | **Войти во встречу** | `POST /api/meetings/public/{token}/join` `{display_name, guest_id}` | `guest_id` из `localStorage` `skkkk-guest-{token}`; identity = `guest:` + sha256(hash токена + guest_id)[:32]; перезаход — та же identity и одна строка `meeting_participants`. Без `guest_id` — как раньше (`token_hex`). Невалидный id → 400. До start → 409; после → LiveKit JWT (`canPublish`, без `canPublishSources`) |
 | **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. `#meeting-end` → `POST .../end` для всех. «Скопировать ссылку»: сырой токен не хранится (вариант A) — тост «ссылка во вкладке, где встречу создали, или через «Новая ссылка»»; `sessionStorage` `skkkk-meeting-invite-{id}` если ещё открыта вкладка создания |
 | Сигналинг LiveKit | `wss://<хост>:777/livekit` → Caddy → `:7880` | Поднимает `main` (`edge_runtime`). Native exe, не Docker. ICE = `node_ip` `SKKKK_PUBLIC_HOST` + LAN + 127.0.0.1, без STUN (иначе рекламируется чужой исходящий IP). TURN = тот же хост. Медиа: TCP 7881, UDP mux 50000, TURN 3478. Смена `livekit.yaml` перезапускает exe. Чистильщик ждёт `:7880`, затем `LIVEKIT_RTC_INTERNAL` |
-| Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:`; `skkkk-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек (как DFN), не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
+| Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:` (дорожка `skkkk-raw`, без неё — основная); `skkkk-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек, не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
 | Анализ дорожек | `data/meetings/{room_name}/analyze.json` + `events.jsonl` | `meeting_analyze.py`: очередь GPU на каждую WAV с речью; lab `03_diar` пишет одного `speaker_0` без Sortformer |
 
 **Пульт встречи (`#meeting-dock`, `static/meeting_room.js`)** — одинаков на гостевой странице и в комнате сотрудника; работает в браузере через LiveKit, без API портала (кроме выхода, завершения и пульса).
@@ -506,7 +506,7 @@ Enter в textarea — тоже отправка. Отдельная страни
 
 **Закрытие комнаты и рекордеры:** `close_livekit_room` — по внутреннему `livekit_rtc_internal`, в своём потоке (работает и из асинхронного кода). Рекордеры (`voice_cleaner`, `screen_recorder`) заходят только в комнаты встреч со статусом `live` (`meeting_recordings.live_room_names`, база только на чтение; нет базы — пишут все, как раньше): комнату завершённой встречи мог заново создать клиент со старым токеном в момент завершения, и боты держали её открытой, записывая удалённую встречу.
 
-**Путь звука (проверка 2026-09-30, `scripts/qa_media_path.py`):** браузер (шумодав браузера, AGC) → Opus/RED → LiveKit → `skkkk-dfn` пишет сырой WAV (96 000 Б/с) и публикует `clean-*` → слушатель играет ровно одну дорожку человека: `clean-*`, если он есть и человек не выключил «Шумодав», иначе сырую. Замер: шум без речи −14…−26 дБ сверх шумодава браузера, речь −1…−2 дБ; `clean-*` отстаёт от сырой на 0,2–0,36 с (синтетический слушатель, приоритет above normal; с обычным приоритетом на занятой машине — 0,25–0,75 с и ~2 с выброшенного звука в минуту). Камера: simulcast 180/360/540, VP8; экран — один слой, 5 к/с.
+**Путь звука (с 2026-10-05, `scripts/qa_media_path.py`):** браузер: эхоподавление и AGC браузера → DFN3 (процессор livekit-client) → Opus/RED → LiveKit → слушатели (одна дорожка на человека); тот же захват до DFN3 уходит сырой дорожкой `skkkk-raw` → рекордер `skkkk-dfn` пишет WAV (96 000 Б/с). Замер стенда (Chromium, локальный LiveKit): фон в паузах у слушателя на ~52 дБ ниже сырой записи, речь −2 дБ, DFN3 добавляет ~22 мс; «Шумодав» выкл — фон как в сырой. Прежняя серверная схема (`clean-*` от бота) отставала на 0,25–0,56 с и давала эхо/задвоение (находки 80–89). Камера: simulcast 180/360/540, VP8; экран — один слой, 5 к/с.
 
 Камера у гостя выключена. Join до `start` — 409. Удаление созвона или проекта стирает `meetings`, `meeting_participants`, очередь GPU и `data/meetings/{room_name}/`.
 
@@ -750,7 +750,7 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/projects/{id}/graph` | — | `GET …/graph/data` (Cytoscape) |
 | `/admin/map/graph` | поиск узла, вид **Модули** / **Сущности**, фильтры видов узлов и связей, глубина, панель узла со ссылкой «открыть в PyCharm» | `GET /admin/map/graph/summary`, `GET /admin/map/graph/data?focus=…&depth=…` (только admin, §16) |
 | `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
-| `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; слушает `skkkk-dfn` | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
+| `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; шумодав DFN3 в браузере, сырая `skkkk-raw` — рекордеру | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
 | `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `skkkk_session`) |
 | все HTML-оболочки | **Выйти** (иконка у ника в шапке) | `POST /auth/logout` — сброс cookie + localStorage |
@@ -767,7 +767,7 @@ API без кнопок в UI (для будущего / интеграций):
 | Исполнитель | Что |
 |-------------|-----|
 | **GPU worker** | lab ASR, knowledge (entities, index, summary, graph) после upload и после confirm |
-| **`main` edge** | Caddy, LiveKit, `voice_cleaner` (`skkkk-dfn`) — только `all`/`api`, не worker |
+| **`main` edge** | Caddy, LiveKit, рекордер голоса `voice_cleaner` (`skkkk-dfn`) — только `all`/`api`, не worker |
 | **FastAPI sync** | recalculate, enroll, merge, rebuild-summary, reindex, rebuild-tz, chat |
 | **Docker GigaAM** | второй слух + voice embed |
 | **LLM** (Cursor / Local LLM) | sense, proof, summary, entities, TZ, chat |
@@ -1176,7 +1176,7 @@ data/projects/{project_id}/
 | `meeting_merge.py` | сдвиг слов, `word_text` (пустой `final` не оживает), реплики по общей шкале (смена спикера + пауза), `find_leaks`/`leaks.json`, `source_span_id` |
 | `meeting_overlap.py` | same-room (rank→RMS→окно diar / CONFLICT), one-mic (`unknown`, не carry-forward) |
 | `lab_errors.py` | вычищает ANSI/ONNX warning из ошибки в таблице файлов |
-| `edge_runtime.py` | `main all`/`api`: сертификат → Caddy → LiveKit → `voice_cleaner` → `screen_recorder`; LiveKit fail не валит портал; `voice_venv_ready` проверяет шумодав так же, как грузит его `voice_cleaner` (подмена `torchaudio.backend` для torchaudio 2.9+; голый импорт давал ложное «чистильщик не стартует») |
+| `edge_runtime.py` | `main all`/`api`: сертификат → Caddy → LiveKit → `voice_cleaner` (рекордер голоса) → `screen_recorder`; LiveKit fail не валит портал; `voice_venv_ready` проверяет так же, как стартует рекордер (модуль + livekit SDK) |
 | `tls_cert.py` | при старте: файл `:777` есть и живой (не staging, не истекает раньше `SKKKK_TLS_RENEW_HOURS`); иначе перевыпуск Caddy `:8443` |
 | `livekit_env.py` | `livekit.yaml` + ключи; ICE LAN + `127.0.0.1`; TURN = `SKKKK_PUBLIC_HOST` |
 | `acme_challenge.py` | HTTP-01 для Let's Encrypt на IP |
@@ -1468,7 +1468,7 @@ run_pipeline
 | `install_caddy.ps1` | бинарь Caddy + опциональная служба `SKKKK-CADDY` |
 | `install_meeting_voice.py` | изолированный `venvs/voice` + DeepFilterNet CPU (не app venv) |
 | `screen_recorder.py` | `skkkk-rec`: VideoStream I420 → packed yuv420p → ffmpeg mp4 1 fps в `data/meetings/{room}/tracks/`; смена WxH — scale в размер первого кадра, не сырой хвост буфера |
-| `fetch_meeting_dfn3.py` | WASM DFN3 в `static/vendor/dfn3/` — клиент выключен, канон сервер |
+| `fetch_meeting_dfn3.py` | WASM DFN3 в `static/vendor/dfn3/` — шумодав голоса в браузере (канон с 2026-10-05) |
 | `redescribe_screen_frames.py` | Vision-переописание кадров экрана и/или пересборка HTML стенограммы (`--rebuild-only`) |
 | `scripts/start.ps1` | Запуск API+воркер: `-Llm cursor|gemma` или из `.env` |
 | `scripts/start-cursor.ps1` / `start-gemma.ps1` | Быстрый старт с выбранным LLM |
@@ -1498,7 +1498,7 @@ run_pipeline
 | `qa_navbar.py` | проверка шапки на разных экранах |
 | `qa_room.py` | комната созвона в Chromium с фейковыми устройствами, без паролей (песочница `SMOKE_PROJECT_ID`); проверки индикатора связи изолированы от настоящих оценок LiveKit |
 | `qa_room_ui.py` | комната: раскладка телефона при повороте (с показом экрана и без), пульт (подсказки, переключатели, окна, Esc) на ПК и телефоне, камера после системного выключения, поток `mic_silent`, качество связи после переподключения |
-| `qa_media_path.py` | путь звука и видео: что публикует гость (микрофон, слои камеры), что публикует шумодав, растёт ли сырая WAV; у слушателя — одна дорожка на человека, срез шума в дБ, громкость речи, задержка `clean-*`, потери/джиттер, кадры камеры; «Шумодав» туда-обратно и выпадение шумодава без тишины; запись продолжается; экран одним слоем |
+| `qa_media_path.py` | путь звука и видео: у гостя DFN3 на микрофоне и сырая `skkkk-raw`; что на сервере (микрофон, сырая, слои камеры, рекордер ничего не публикует), растёт ли WAV; у слушателя — одна дорожка на человека, сырую не качает, срез шума в паузах против записи рекордера, громкость речи, потери/джиттер, кадры камеры; «Шумодав» туда-обратно без тишины и двойного звука; выпадение рекордера не трогает звук, запись продолжается; экран одним слоем |
 | `qa_meeting_lifecycle.py` | жизненный цикл встречи на живом сервере: создание, вход до запуска, удаление без запуска, запуск, запись, повторный вход, пульс, отзыв и новая ссылка, запрет удалять идущую, завершение (комната закрыта, дорожки закрыты, не воскресает), удаление записанной встречи и проекта с идущей встречей; запись не возвращается на диск |
 | `qa_analysis.py`, `qa_publish_wav.py` | сквозная проверка «созвон → запись → анализ» на синтезированной русской речи |
 | `qa_call_stress.py` | стресс записи звонка на реальном сервере: рост дорожек, убийство рекордера |
@@ -1548,7 +1548,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Ollama bge-m3 | `OLLAMA_*` | Индекс артефактов, search |
 | Docker ASR | `GIGAAM_URL` | Прод: GigaAM (второй слух + embed). Whisper/T-one URL — откат |
 | LiveKit | `LIVEKIT_*`, `LIVEKIT_RTC_INTERNAL` | комнаты; native server поднимает `main` |
-| Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_VOICE_ATTEN_LIM`, `MEETING_VOICE_POST_FILTER`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | серверная чистка (канон); запись экрана `skkkk-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`); клиентский DFN3 выкл |
+| Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | шумодав DFN3 в браузере (`MEETING_VOICE_DFN3=1`, канон); `MEETING_VOICE_SERVER` — рекордер голоса; запись экрана `skkkk-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`) |
 | Telegram | `TELEGRAM_*` | Уведомления (stub) |
 | Живые проверки страниц: Playwright + браузеры (Chromium, WebKit) | — (пакеты в `venv`) | `qa_pages.py`, `qa_flows.py`, `qa_room*.py`. Браузеры ставятся `venv\Scripts\python.exe -m playwright install chromium` (и `webkit`); если их нет — `--channel chrome` берёт системный Chrome. См. §12.1 |
 | Эмулятор Android (виртуальный Pixel 7) | `JAVA_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_AVD_HOME` (ставит скрипт) | `qa_mobile_android.py` — настоящий Chrome на Android; `tools/android` (в git не хранится) |
@@ -1609,7 +1609,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 См. `.cursor/rules/01-nonnegotiables.mdc` и `docs/DECISIONS.md`:
 
 - Двойной слух: Parakeet-TDT + GigaAM + диаризация Nemotron 3 (откат Sortformer 4spk); Whisper/T-one/merge окон **не** вызываются
-- DeepFilterNet в **комнате** (`skkkk-dfn`, CPU) ≠ lab `01_audio` (`copy_16k`). На ASR DFN не возвращать
+- DeepFilterNet в **комнате** (DFN3 в браузере говорящего) ≠ lab `01_audio` (`copy_16k`). На ASR DFN не возвращать
 - Очередь `jobs` + один GPU worker
 - sqlite-vec + entities/links (не Qdrant/Neo4j до этапа 10)
 - Секреты только в `.env`
@@ -2011,7 +2011,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `inspect_project_index.py` | Сверка векторного индекса проекта: чанки ↔ sqlite-vec ↔ lab _final.txt. |
 | `install_caddy.ps1` | SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора) |
 | `install_hooks.ps1` | Установить (или снять) git-хуки проекта: обновление индекса после коммита и слияния, проверка карты проекта перед коммитом. |
-| `install_meeting_voice.py` | Isolated CPU venv for the LiveKit DeepFilterNet cleaner. Not the app venv. |
+| `install_meeting_voice.py` | Isolated venv for the LiveKit voice recorder (tools/livekit/voice_cleaner.py). Not the app venv. |
 | `install_services.ps1` | SKKKK — установка служб Windows через NSSM (запуск от администратора) |
 | `kb_inbox.py` | Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю). |
 | `lightrag_doctor.py` | Проверка LightRAG: Docker, Ollama embed, LLM, inputs. |
@@ -2031,7 +2031,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
 | `qa_call_stress.py` | Стресс-проверка записи звонка на РЕАЛЬНОМ сервере (рекордеры, LiveKit): песочный проект SMOKE_PROJECT_ID (29), два браузерных гостя. |
 | `qa_flows.py` | Интерактивные сценарии по всему порталу в браузере (изолированный экземпляр с копией базы, как в qa_pages.py; боевой сервер не затрагивается |
-| `qa_media_path.py` | Путь звука и видео созвона в настоящем браузере: от издателя через LiveKit и шумодав `skkkk-dfn` к слушателю. |
+| `qa_media_path.py` | Путь звука и видео созвона в настоящем браузере: шумодав DFN3 в браузере говорящего, сырая дорожка — рекордеру. |
 | `qa_meeting_lifecycle.py` | Жизненный цикл встречи на живом сервере: создание, запуск, ссылка, вход и выход, завершение, удаление (в том числе без запуска |
 | `qa_mobile_android.py` | Проверка комнаты на настоящем Chrome для Android: эмулятор Pixel 7 (Android 14, папка tools/android) или телефон по USB с отладкой. |
 | `qa_mobile_webkit.py` | Проверка гостевого входа и комнаты на мобильных профилях: WebKit (движок Safari) для iPhone/iPad и Chromium для Android-профилей. |
@@ -2105,7 +2105,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `ensure_livekit.py` | CLI: write LiveKit keys into .env and tools/livekit/livekit.yaml. |
 | `screen_recorder.py` | CPU screen-share recorder for live rooms. Not DFN. Not ASR. Not camera. |
-| `voice_cleaner.py` | CPU DeepFilterNet for live rooms. Not lab ASR. Not GPU. |
+| `voice_cleaner.py` | Рекордер голоса комнаты: пишет каждого человека в свою WAV-дорожку для двойного слуха. Не ASR, не GPU. |
 
 <!-- generated:end registry -->
 
@@ -2253,7 +2253,7 @@ _Проверено 2026-10-05 00:16: сущностей 127, не описан�
 |---|---|---|---|
 | `venvs/lab` | окружение | ONNX-контур ASR: Parakeet-TDT, Sortformer, Silero VAD _(может отсутствовать)_ | нет |
 | `venvs/nemo-diar` | окружение | Nemotron 3 Diarization (NeMo + torch) отдельным процессом _(может отсутствовать)_ | нет |
-| `venvs/voice` | окружение | DeepFilterNet: голосовой чистильщик комнаты (skkkk-dfn, CPU) _(может отсутствовать)_ | нет |
+| `venvs/voice` | окружение | livekit SDK: рекордер голоса (skkkk-dfn) и запись экрана (skkkk-rec) _(может отсутствовать)_ | нет |
 | `venvs/gigaam` | окружение | легаси-движок GigaAM (asr/engines.json), в рабочем контуре не вызывается _(может отсутствовать)_ | нет |
 | `venvs/tone` | окружение | легаси-движок T-one, откат _(может отсутствовать)_ | нет |
 | `venvs/whisper` | окружение | легаси-движок Whisper large-v3, откат _(может отсутствовать)_ | нет |

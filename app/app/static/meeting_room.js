@@ -25,9 +25,9 @@ const DFN3_ASSETS = "/static/vendor/dfn3";
 const DFN3_CDN = "https://cdn.mezon.ai/AI/models/datas/noise_suppression/deepfilternet3";
 const DFN3_SAMPLE_RATE = 48000;
 const DFN3_LEVEL = 50;
-const DFN3_HINT = "Очистка звука недоступна, обычный микрофон.";
-const CLEANER_ID = "skkkk-dfn";
-const DENOISE_TOPIC = "skkkk-denoise";
+const DFN3_HINT = "Очистка звука недоступна, работает шумоподавление браузера.";
+// Имя сырой дорожки микрофона для записи (то же — RAW_TRACK_NAME в tools/livekit/voice_cleaner.py)
+const RAW_TRACK_NAME = "skkkk-raw";
 const AUDIO_ROUTE_EVERY_MS = 2000;
 const LOUDNESS_THRESHOLD = -24;
 const LOUDNESS_KNEE = 12;
@@ -208,117 +208,26 @@ function isHidden(person) {
   return Boolean(id && String(id).indexOf("skkkk-") === 0);
 }
 
-function isCleaner(person) {
-  return Boolean(person && person.identity === CLEANER_ID);
-}
-
-function hasCleaner(room) {
-  if (!room) return false;
-  let found = isCleaner(room.localParticipant);
-  if (room.remoteParticipants && room.remoteParticipants.forEach) {
-    room.remoteParticipants.forEach((person) => {
-      if (isCleaner(person)) found = true;
-    });
-  }
-  return found;
-}
-
-function parseDenoisePayload(raw) {
-  try {
-    const data = JSON.parse(raw);
-    if (!data || typeof data.denoise !== "boolean") return null;
-    return data.denoise;
-  } catch (err) {
-    return null;
-  }
-}
-
-function wantsDenoise(person, prefs) {
-  const identity = person && person.identity;
-  if (prefs && identity && Object.prototype.hasOwnProperty.call(prefs, identity)) {
-    return prefs[identity] !== false;
-  }
-  if (!person) return true;
-  const raw = person.metadata;
-  if (!raw) return true;
-  try {
-    return JSON.parse(raw).denoise !== false;
-  } catch (err) {
-    return true;
-  }
-}
-
 function trackPublishName(track, pub) {
   return String((pub && (pub.trackName || pub.name)) || (track && track.name) || "");
 }
 
-function decodeCleanIdentity(raw) {
-  // Заменяем ВСЕ точки на двоеточия
-  return String(raw || "").replace(/\./g, ":");
+// Сырая дорожка микрофона (до шумодава) — только для записи двойного слуха: её слушает рекордер, люди на неё не подписываются.
+function isRawPub(pub) {
+  return trackPublishName(pub && pub.track, pub) === RAW_TRACK_NAME;
 }
 
-function identitiesMatch(left, right) {
-  if (!left || !right) return false;
-  return left === right || String(left).replace(/:/g, ".") === String(right).replace(/:/g, ".");
-}
-
-function cleanSourceId(track, pub) {
-  const name = trackPublishName(track, pub);
-  return name.indexOf("clean-") === 0 ? decodeCleanIdentity(name.slice(6)) : "";
-}
-
-function findPerson(room, identity) {
-  if (!room || !identity) return null;
-  if (identitiesMatch(room.localParticipant && room.localParticipant.identity, identity)) {
-    return room.localParticipant;
-  }
-  let found = null;
-  if (room.remoteParticipants && room.remoteParticipants.forEach) {
-    room.remoteParticipants.forEach((person) => {
-      if (identitiesMatch(person.identity, identity)) found = person;
-    });
-  }
-  return found;
-}
-
-function isOwnIdentity(room, identity) {
-  const local = room && room.localParticipant && room.localParticipant.identity;
-  return identitiesMatch(local, identity);
-}
-
-function isScreenAudioPub(pub) {
-  return Boolean(pub && String(pub.source || "").toLowerCase().indexOf("screen") >= 0);
-}
-
-// Что играть у слушателя: на каждого человека ровно одна дорожка голоса — самая свежая clean-<identity> шумодава,
-// если человек не выключил шумодав, иначе его сырой микрофон; звук показа экрана — всегда как есть.
-// Две дорожки голоса одного человека (старая clean-* ещё не снята, новая уже пришла; сырая рядом с очищенной)
-// звучат со сдвигом 0,2–0,5 с — это и было «эхо» и «задвоение».
-function voicePlan(room, prefs) {
+// Что играть у слушателя: всё звуковое, что опубликовали люди, кроме сырой дорожки для записи. Шумодав работает в браузере
+// говорящего, поэтому на человека приходит одна дорожка голоса (уже очищенная) и, если он показывает экран, звук экрана.
+function voicePlan(room) {
   const want = new Set();
   if (!room || !room.remoteParticipants) return want;
-  const cleanFor = {};
-  room.remoteParticipants.forEach((person) => {
-    if (!isCleaner(person)) return;
-    person.trackPublications.forEach((pub) => {
-      if (pub.kind !== "audio" || !pub.track) return;
-      const identity = cleanSourceId(pub.track, pub);
-      if (!identity || isOwnIdentity(room, identity)) return;
-      cleanFor[identity] = pub; // порядок публикаций: последняя — самая свежая
-    });
-  });
   room.remoteParticipants.forEach((person) => {
     if (isHidden(person)) return;
-    let clean = null;
-    Object.keys(cleanFor).forEach((identity) => {
-      if (identitiesMatch(identity, person.identity)) clean = cleanFor[identity];
-    });
-    const useClean = Boolean(clean) && wantsDenoise(person, prefs);
     person.trackPublications.forEach((pub) => {
-      if (pub.kind !== "audio" || !pub.track) return;
-      if (isScreenAudioPub(pub) || !useClean) want.add(pub.track);
+      if (pub.kind !== "audio" || !pub.track || isRawPub(pub)) return;
+      want.add(pub.track);
     });
-    if (useClean) want.add(clean.track);
   });
   return want;
 }
@@ -377,11 +286,13 @@ function audioConstraints(deviceId) {
   );
 }
 
-function micCaptureOpts(deviceId, dfn3On) {
+// browserNs — шумоподавление браузера. С шумодавом DFN3 захват без него: та же дорожка идёт в запись как сырая,
+// а очищает её DFN3 уже после эхоподавления браузера (порядок «эхо → шум», как в Jitsi и LiveKit).
+function micCaptureOpts(deviceId, browserNs) {
   const opts = {
     echoCancellation: true,
     autoGainControl: true,
-    noiseSuppression: !dfn3On,
+    noiseSuppression: Boolean(browserNs),
   };
   if (deviceId) opts.deviceId = deviceId;
   return opts;
@@ -408,7 +319,7 @@ function localMicTrack(room) {
   if (room.localParticipant.trackPublications) {
     room.localParticipant.trackPublications.forEach((pub) => {
       const source = String(pub.source || "").toLowerCase();
-      if (!found && pub.kind === "audio" && pub.track && source.indexOf("screen") < 0) {
+      if (!found && pub.kind === "audio" && pub.track && source.indexOf("screen") < 0 && !isRawPub(pub)) {
         found = pub.track;
       }
     });
@@ -541,14 +452,16 @@ const SKKKKMeeting = {
   _sinkId: "",
   _endedTimer: 0,
   _heartbeatTimer: 0,
-  _dfn3On: false,
+  // Шумодав моего голоса: _denoiseOn — желание человека (кнопка), _dfn3Ok — DFN3 в этом браузере работает
+  // (иначе шумоподавление браузера), _dfn3 — запущенный фильтр, _raw — сырая дорожка для записи.
+  _denoiseOn: true,
+  _dfn3Ok: false,
   _dfn3: null,
-  _serverDenoise: true,
+  _raw: null,
   _soundOn: true,
   _publishedAt: {},
   _quality: {},
   _raf: 0,
-  _denoisePrefs: {},
   _playCtx: null,
   _playComp: null,
   _silentMeterCtx: null,
@@ -666,7 +579,7 @@ const SKKKKMeeting = {
       audioCaptureDefaults: {
         echoCancellation: true,
         autoGainControl: true,
-        noiseSuppression: !canUseDfn3(),
+        noiseSuppression: !canUseDfn3() && this._denoiseOn,
       },
     });
     this.room = room;
@@ -711,21 +624,16 @@ const SKKKKMeeting = {
         });
       }
       this._requestWakeLock();
-      this._serverDenoise = true;
       this._soundOn = true;
-      this._denoisePrefs = {};
-      this._dfn3On = false;
+      this._dfn3Ok = canUseDfn3();
+      this._dfn3 = null;
 
       // Безопасное подключение микрофона (не выбрасывает из комнаты при ошибке разрешений)
-      const audioOpts = micCaptureOpts(devices && devices.audioDeviceId, this._dfn3On);
+      const audioOpts = micCaptureOpts(devices && devices.audioDeviceId, this._captureNs());
       try {
         await room.localParticipant.setMicrophoneEnabled(true, audioOpts);
         this._watchLocalMic();
-        if (this._dfn3On && !(await this._startDfn3())) {
-          this._dfn3On = false;
-          await this._restartMic(false);
-          this._toast(DFN3_HINT);
-        }
+        await this._applyVoice();
       } catch (micErr) {
         this._toast(mediaErrorText(micErr, "Микрофон"));
       }
@@ -771,19 +679,16 @@ const SKKKKMeeting = {
       const picked = this.selectedDevices();
       await this.room.localParticipant.setMicrophoneEnabled(
         next,
-        next ? micCaptureOpts(this._pickedMicId || picked.audioDeviceId, this._dfn3On) : undefined,
+        next ? micCaptureOpts(this._pickedMicId || picked.audioDeviceId, this._captureNs()) : undefined,
       );
       if (next) {
         await this._ensureAudioContexts();
-        if (this._dfn3On && !(await this._startDfn3())) {
-          this._dfn3On = false;
-          await this._restartMic(false);
-          this._toast(DFN3_HINT);
-        }
+        await this._applyVoice();
         this._watchLocalMic();
       } else {
         this._stopMicLevelWatch();
         this._clearMicSilent();
+        await this._syncRawTrack();
       }
     } catch (err) {
       this._setStatus("Микрофон: " + (err && err.message ? err.message : err));
@@ -1225,12 +1130,10 @@ const SKKKKMeeting = {
       return;
     }
     try {
-      if (this._dfn3On) {
-        await this._restartMic(true);
-      } else {
-        await this.room.switchActiveDevice(KIND_AUDIO_IN, deviceId);
-        this._watchLocalMic();
-      }
+      // livekit-client перезапускает захват сам, процессору DFN3 — restart(); сырая дорожка подхватывает новый источник
+      await this.room.switchActiveDevice(KIND_AUDIO_IN, deviceId);
+      this._watchLocalMic();
+      await this._applyVoice();
       this._toast("Микрофон: " + (label || "выбран"));
     } catch (err) {
       this._toast(mediaErrorText(err, "Микрофон"));
@@ -1255,6 +1158,7 @@ const SKKKKMeeting = {
       try {
         await this.room.switchActiveDevice(KIND_AUDIO_IN, mics[0].deviceId);
         this._pickedMicId = mics[0].deviceId;
+        await this._applyVoice();
         this._toast("Микрофон отключён, переключился на «" + (mics[0].label || "другой") + "»");
         this.refreshMics();
       } catch (err) {
@@ -1482,9 +1386,13 @@ const SKKKKMeeting = {
       // Камера — по намерению человека: если её перед обрывом погасила система, _lastMedia уже говорит «выключена»
       const wantCam = this._camWanted !== undefined ? this._camWanted : media.cam;
       try {
-        if (media.mic) await this.room.localParticipant.setMicrophoneEnabled(true, micCaptureOpts(this._pickedMicId || this.selectedDevices().audioDeviceId, this._dfn3On));
+        await this._stopDfn3(); // фильтр стоял на дорожке прошлой комнаты
+        if (media.mic) await this.room.localParticipant.setMicrophoneEnabled(true, micCaptureOpts(this._pickedMicId || this.selectedDevices().audioDeviceId, this._captureNs()));
         if (wantCam) await this.room.localParticipant.setCameraEnabled(true, this.selectedDevices().videoDeviceId ? { deviceId: this.selectedDevices().videoDeviceId } : undefined);
-        if (media.mic) this._watchLocalMic();
+        if (media.mic) {
+          this._watchLocalMic();
+          await this._applyVoice();
+        }
       } catch (mediaErr) {
         this._toast(mediaErrorText(mediaErr, "Микрофон"));
       }
@@ -1560,50 +1468,20 @@ const SKKKKMeeting = {
     if (!this.room) return out;
     this.room.remoteParticipants.forEach((person) => {
       person.trackPublications.forEach((pub) => {
-        if (pub.kind === "audio") out.push(pub);
+        if (pub.kind === "audio" && !isRawPub(pub)) out.push(pub);
       });
     });
     return out;
   },
 
+  // Шумодав моего голоса — у меня в браузере: остальные сразу слышат результат, серверу ничего не сообщаем.
   async toggleDenoise() {
-    const next = !this._serverDenoise;
-    const local = this.room && this.room.localParticipant;
-    this._serverDenoise = next;
-    if (local && local.identity) this._denoisePrefs[local.identity] = next;
+    this._denoiseOn = !this._denoiseOn;
     this._syncControls(this._roomEls);
-    this._routeAudio();
-    if (!(await this._publishDenoise(next))) {
-      this._serverDenoise = !next;
-      if (local && local.identity) this._denoisePrefs[local.identity] = !next;
-      this._syncControls(this._roomEls);
-      this._routeAudio();
-      this._toast("Не удалось сменить шумодав");
-      return;
-    }
-    this._setDenoiseMeta(next);
-  },
-
-  async _publishDenoise(on) {
-    const local = this.room && this.room.localParticipant;
-    if (!local || typeof local.publishData !== "function") return false;
-    try {
-      const body = new TextEncoder().encode(JSON.stringify({ denoise: on }));
-      await local.publishData(body, { reliable: true, topic: DENOISE_TOPIC });
-      return true;
-    } catch (err) {
-      return false;
-    }
-  },
-
-  _setDenoiseMeta(on) {
-    const local = this.room && this.room.localParticipant;
-    if (!local || typeof local.setMetadata !== "function") return;
-    try {
-      const pending = local.setMetadata(JSON.stringify({ denoise: on }));
-      if (pending && typeof pending.catch === "function") pending.catch(() => undefined);
-    } catch (err) {
-      return;
+    if (this._dfn3Ok) {
+      await this._applyVoice();
+    } else {
+      await this._restartMic(); // шумоподавление браузера меняется только новым захватом
     }
   },
 
@@ -1847,20 +1725,26 @@ const SKKKKMeeting = {
     this._preview.meterTimer = requestAnimationFrame(tick);
   },
 
-  async _restartMic(dfn3On) {
+  // Шумоподавление браузера включается только при новом захвате: без DFN3 оно и есть шумодав.
+  _captureNs() {
+    return !this._dfn3Ok && this._denoiseOn;
+  },
+
+  // Перезахват микрофона с текущими настройками (кнопка «Перезапустить», шумодав без DFN3, отказ DFN3).
+  async _restartMic() {
     if (!this.room) return false;
     const picked = this.selectedDevices();
-    const wasOn = this.room.localParticipant.isMicrophoneEnabled;
+    const mic = localMicTrack(this.room);
     await this._stopDfn3();
-    if (!wasOn) return !dfn3On || canUseDfn3();
+    if (!mic || !this.room.localParticipant.isMicrophoneEnabled) {
+      await this._syncRawTrack();
+      return true;
+    }
     try {
-      await this.room.localParticipant.setMicrophoneEnabled(false);
-      await this.room.localParticipant.setMicrophoneEnabled(
-        true,
-        micCaptureOpts(this._pickedMicId || picked.audioDeviceId, dfn3On),
-      );
+      await mic.restartTrack(micCaptureOpts(this._pickedMicId || picked.audioDeviceId, this._captureNs()));
       this._watchLocalMic();
-      return dfn3On ? this._startDfn3() : true;
+      await this._applyVoice();
+      return true;
     } catch (err) {
       this._setStatus("Микрофон: " + (err && err.message ? err.message : err));
       return false;
@@ -1880,49 +1764,33 @@ const SKKKKMeeting = {
     }
   },
 
+  // DFN3 — процессор livekit-client на моём микрофоне: слушатели получают уже очищенный голос, исходник остаётся
+  // у дорожки (_mediaStreamTrack) и уходит в запись сырой дорожкой. При смене устройства livekit-client сам вызывает
+  // restart() процессора. Кнопка «Шумодав» не пересобирает граф, а включает и выключает фильтр (setEnabled).
   async _startDfn3() {
-    await this._stopDfn3();
     const track = localMicTrack(this.room);
-    if (!track) return false;
+    if (!track || typeof track.setProcessor !== "function") return false;
+    if (this._dfn3 && this._dfn3.track === track && track.getProcessor && track.getProcessor() === this._dfn3.filter) {
+      await this._dfn3.filter.setEnabled(this._denoiseOn);
+      return true;
+    }
+    await this._stopDfn3();
     try {
       const mod = await import(DFN3_MODULE);
-      const assets = await dfn3AssetConfig();
-      if (typeof track.setProcessor === "function" && mod.DeepFilterNoiseFilterProcessor) {
-        const filter = new mod.DeepFilterNoiseFilterProcessor({
-          sampleRate: DFN3_SAMPLE_RATE,
-          noiseReductionLevel: DFN3_LEVEL,
-          enabled: true,
-          assetConfig: assets,
-        });
-        await track.setProcessor(filter);
-        this._dfn3 = { filter: filter, track: track, mode: "processor" };
-        return true;
-      }
-      return this._startDfn3Replace(track, mod, assets);
+      if (!mod.DeepFilterNoiseFilterProcessor) return false;
+      const filter = new mod.DeepFilterNoiseFilterProcessor({
+        sampleRate: DFN3_SAMPLE_RATE,
+        noiseReductionLevel: DFN3_LEVEL,
+        enabled: this._denoiseOn,
+        assetConfig: await dfn3AssetConfig(),
+      });
+      await track.setProcessor(filter);
+      this._dfn3 = { filter: filter, track: track };
+      return true;
     } catch (err) {
       await this._stopDfn3();
       return false;
     }
-  },
-
-  async _startDfn3Replace(track, mod, assets) {
-    if (!mod.DeepFilterNet3Core || typeof track.replaceTrack !== "function") return false;
-    const raw = track.mediaStreamTrack;
-    if (!raw) return false;
-    const core = new mod.DeepFilterNet3Core({
-      sampleRate: DFN3_SAMPLE_RATE,
-      noiseReductionLevel: DFN3_LEVEL,
-      assetConfig: assets,
-    });
-    await core.initialize();
-    const ctx = new AudioContext({ sampleRate: DFN3_SAMPLE_RATE });
-    const node = await core.createAudioWorkletNode(ctx);
-    const src = ctx.createMediaStreamSource(new MediaStream([raw]));
-    const dest = ctx.createMediaStreamDestination();
-    src.connect(node).connect(dest);
-    await track.replaceTrack(dest.stream.getAudioTracks()[0]);
-    this._dfn3 = { core: core, ctx: ctx, node: node, src: src, track: track, raw: raw, mode: "replace" };
-    return true;
   },
 
   async _stopDfn3() {
@@ -1930,20 +1798,92 @@ const SKKKKMeeting = {
     this._dfn3 = null;
     if (!bag) return;
     try {
-      if (bag.mode === "processor" && bag.track && bag.track.setProcessor) {
-        await bag.track.setProcessor(null);
+      if (bag.track && bag.track.getProcessor && bag.track.getProcessor() === bag.filter) {
+        await bag.track.stopProcessor();
       }
       if (bag.filter && bag.filter.destroy) await bag.filter.destroy();
-      if (bag.src) bag.src.disconnect();
-      if (bag.node) bag.node.disconnect();
-      if (bag.core && bag.core.destroy) bag.core.destroy();
-      if (bag.ctx) await bag.ctx.close().catch(() => undefined);
-      if (bag.mode === "replace" && bag.track && bag.raw && bag.track.replaceTrack) {
-        await bag.track.replaceTrack(bag.raw);
-      }
     } catch (err) {
       return;
     }
+  },
+
+  // Мой голос под текущее состояние: на компьютере DFN3 стоит на микрофоне всегда (кнопка лишь включает фильтр),
+  // рядом идёт сырая дорожка для записи. DFN3 не завёлся (телефон, нет WASM) — шумоподавление браузера, без сырой.
+  async _applyVoice() {
+    const mic = localMicTrack(this.room);
+    if (mic && this._dfn3Ok && !(await this._startDfn3())) {
+      this._dfn3Ok = false;
+      this._toast(DFN3_HINT);
+      await this._restartMic();
+      return;
+    }
+    await this._syncRawTrack();
+  },
+
+  // Сырая дорожка (тот же микрофон до DFN3) публикуется, пока микрофон включён в режиме DFN3. Сменилось устройство —
+  // подменяем источник, человек выключил микрофон — глушим и её. Вызывается и по таймеру сверки звука.
+  async _syncRawTrack() {
+    if (this._rawBusy) {
+      this._rawAgain = true;
+      return;
+    }
+    this._rawBusy = true;
+    try {
+      do {
+        this._rawAgain = false;
+        await this._syncRawOnce();
+      } while (this._rawAgain);
+    } catch (err) {
+      // запись возьмёт основную дорожку
+    } finally {
+      this._rawBusy = false;
+    }
+  },
+
+  async _syncRawOnce() {
+    const LK = window.LivekitClient;
+    const room = this.room;
+    const local = room && room.localParticipant;
+    if (!LK || !local) return;
+    const pub = local.getTrackPublication(LK.Track.Source.Microphone);
+    const mic = pub && pub.track;
+    // livekit-client 2.15: с процессором mediaStreamTrack — уже обработанный звук, исходник — _mediaStreamTrack
+    const src = mic ? mic._mediaStreamTrack || mic.mediaStreamTrack : null;
+    const want = Boolean(this._joined && this._dfn3Ok && src && src.readyState === "live");
+    let bag = this._raw;
+    if (bag && (bag.room !== room || !want)) {
+      this._raw = null;
+      if (bag.room === room) {
+        await local.unpublishTrack(bag.track, true).catch(() => undefined);
+      } else {
+        bag.track.stop();
+      }
+      bag = null;
+    }
+    if (!want) return;
+    if (!bag) {
+      const clone = src.clone();
+      const track = new LK.LocalAudioTrack(clone, undefined, true);
+      bag = { room: room, track: track, srcId: src.id, clone: clone };
+      this._raw = bag;
+      try {
+        // dtx выключен: запись идёт сплошным потоком, без пропусков в паузах
+        await local.publishTrack(track, { name: RAW_TRACK_NAME, source: LK.Track.Source.Unknown, dtx: false, red: false });
+      } catch (err) {
+        if (this._raw === bag) this._raw = null;
+        track.stop();
+        throw err;
+      }
+    } else if (bag.srcId !== src.id) {
+      const old = bag.clone;
+      bag.clone = src.clone();
+      bag.srcId = src.id;
+      await bag.track.replaceTrack(bag.clone, true);
+      if (old && old !== bag.clone) old.stop();
+    }
+    const muted = Boolean(pub.isMuted);
+    if (muted && !bag.track.isMuted) await bag.track.mute();
+    if (!muted && bag.track.isMuted) await bag.track.unmute();
   },
 
   async _stopVoice() {
@@ -2003,7 +1943,7 @@ const SKKKKMeeting = {
     if (els.soundBtn) this._markToggle(els.soundBtn, this._soundOn, "Звук");
     if (els.denoiseBtn) {
       els.denoiseBtn.hidden = false;
-      this._markToggle(els.denoiseBtn, this._serverDenoise, "Шумодав");
+      this._markToggle(els.denoiseBtn, this._denoiseOn, "Шумодав");
     }
   },
 
@@ -2094,7 +2034,7 @@ const SKKKKMeeting = {
     }
     this._toast(TEXT_MIC_SILENT, {
       label: TEXT_MIC_RESTART,
-      run: () => this._restartMic(this._dfn3On),
+      run: () => this._restartMic(),
     });
     if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
   },
@@ -2222,11 +2162,11 @@ const SKKKKMeeting = {
       const sid = String((pub && (pub.trackSid || pub.sid)) || "");
       if (sid) this._publishedAt[sid] = Date.now();
       if (
-        !this._soundOn &&
         pub &&
         pub.kind === "audio" &&
         person !== room.localParticipant &&
-        pub.setSubscribed
+        pub.setSubscribed &&
+        (!this._soundOn || isRawPub(pub)) // сырая дорожка — только для записи, людям её не качаем
       ) {
         pub.setSubscribed(false);
       }
@@ -2243,7 +2183,6 @@ const SKKKKMeeting = {
     };
     room.on(LK.RoomEvent.ParticipantConnected, (person) => {
       forgetQuality(person);
-      if (!isHidden(person) && this._serverDenoise === false) this._publishDenoise(false);
       redraw();
     });
     room.on(LK.RoomEvent.ParticipantDisconnected, (person) => {
@@ -2271,25 +2210,13 @@ const SKKKKMeeting = {
         this._onMicSilent();
       });
     }
-    if (LK.RoomEvent.ParticipantMetadataChanged) {
-      room.on(LK.RoomEvent.ParticipantMetadataChanged, () => this._routeAudio());
-    }
-    if (LK.RoomEvent.DataReceived) {
-      room.on(LK.RoomEvent.DataReceived, (payload, person, _kind, topic) => {
-        if (topic && topic !== DENOISE_TOPIC) return;
-        const raw =
-          payload && payload.byteLength !== undefined
-            ? new TextDecoder().decode(payload)
-            : payload;
-        const on = parseDenoisePayload(raw);
-        if (on === null || !person || !person.identity) return;
-        this._denoisePrefs[person.identity] = on;
-        this._routeAudio();
-      });
-    }
     room.on(LK.RoomEvent.LocalTrackPublished, onPublished);
-    room.on(LK.RoomEvent.LocalTrackUnpublished, redraw);
+    room.on(LK.RoomEvent.LocalTrackUnpublished, () => {
+      this._syncRawTrack();
+      redraw();
+    });
     room.on(LK.RoomEvent.TrackMuted, (pub, person) => {
+      if (person === room.localParticipant && pub && pub.source === LK.Track.Source.Microphone) this._syncRawTrack();
       // Камеру выключил не человек, а система (livekit-client глушит трек, который не смог перезапустить)
       if (person === room.localParticipant && pub && pub.source === LK.Track.Source.Camera && this._camWanted) {
         this._scheduleCamRevive();
@@ -2297,7 +2224,8 @@ const SKKKKMeeting = {
       this._syncControls(els);
       this._renderTiles(room, els);
     });
-    room.on(LK.RoomEvent.TrackUnmuted, () => {
+    room.on(LK.RoomEvent.TrackUnmuted, (pub, person) => {
+      if (person === room.localParticipant && pub && pub.source === LK.Track.Source.Microphone) this._syncRawTrack();
       this._syncControls(els);
       this._renderTiles(room, els);
     });
@@ -2347,6 +2275,11 @@ const SKKKKMeeting = {
     });
     room.on(LK.RoomEvent.TrackSubscribed, (track, pub, participant) => {
       if (participant === room.localParticipant && track.kind === "audio") return;
+      if (isRawPub(pub)) {
+        // подписка успела случиться до отказа в onPublished (сервер подписывает сам) — отказываемся сейчас
+        if (pub.setSubscribed) pub.setSubscribed(false);
+        return;
+      }
       this._attachTrack(els, participant, track, pub);
       redraw();
     });
@@ -2655,7 +2588,9 @@ const SKKKKMeeting = {
     if (this._audioRouteTimer) clearInterval(this._audioRouteTimer);
     // страховка: события LiveKit приходят не всегда в удобном порядке — раз в 2 с сверяем, что играет
     this._audioRouteTimer = setInterval(() => {
-      if (this._joined && !this._leaving) this._routeAudio();
+      if (!this._joined || this._leaving) return;
+      this._routeAudio();
+      this._syncRawTrack();
     }, AUDIO_ROUTE_EVERY_MS);
   },
 
@@ -2663,7 +2598,7 @@ const SKKKKMeeting = {
     const els = this._roomEls;
     const room = this.room;
     if (!els || !room || !room.remoteParticipants) return;
-    const want = this._soundOn ? voicePlan(room, this._denoisePrefs) : new Set();
+    const want = this._soundOn ? voicePlan(room) : new Set();
     const keep = new Set();
     room.remoteParticipants.forEach((person) => {
       person.trackPublications.forEach((pub) => {
@@ -2680,9 +2615,7 @@ const SKKKKMeeting = {
         });
         let node = live[0];
         if (!node) {
-          const host = isCleaner(person)
-            ? els.stageEl || els.tilesEl
-            : this._ensureTile(els.tilesEl, person, false);
+          const host = this._ensureTile(els.tilesEl, person, false);
           node = track.attach();
           node.autoplay = true;
           node.className = "visually-hidden";
@@ -2708,12 +2641,11 @@ const SKKKKMeeting = {
 
   _attachTrack(els, person, track, pub) {
     if (!els || !els.tilesEl) return;
-    if (isHidden(person) && !isCleaner(person)) return;
+    if (isHidden(person)) return;
     if (track.kind === "audio") {
       if (person !== this.room.localParticipant) this._routeAudio();
       return;
     }
-    if (isCleaner(person)) return;
     const host = this._ensureTile(els.tilesEl, person, person === this.room.localParticipant);
     const node = track.attach();
     this._paintVideo(host.querySelector(".meeting-tile-stage"), person);
@@ -2741,7 +2673,7 @@ function chosenVideoPub(person) {
 function findKindPub(person, kind, screen) {
   let found = null;
   person.trackPublications.forEach((pub) => {
-    if (pub.kind !== kind || found) return;
+    if (pub.kind !== kind || found || isRawPub(pub)) return;
     if (screen && !isScreenPub(pub)) return;
     if (!screen && isScreenPub(pub)) return;
     found = pub;

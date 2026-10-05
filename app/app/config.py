@@ -109,8 +109,10 @@ class Settings(BaseSettings):
     livekit_url: str = ""
     livekit_api_key: str = ""
     livekit_api_secret: str = ""
-    meeting_voice_dfn3: bool = False
+    # Шумодав голоса — DFN3 в браузере говорящего (на телефоне — шумоподавление браузера); 0 — везде шумоподавление браузера
+    meeting_voice_dfn3: bool = True
     meeting_voice_loudness: bool = True
+    # Рекордер голоса (tools/livekit/voice_cleaner.py): пишет дорожки людей для двойного слуха
     meeting_voice_server: bool = True
     livekit_rtc_internal: str = "ws://127.0.0.1:7880"
 

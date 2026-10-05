@@ -340,24 +340,24 @@ def _log(item: CheckResult) -> None:
 
 def check_meeting_voice(settings: Settings) -> CheckResult:
     if not settings.meeting_voice_server:
-        return CheckResult("meeting_voice", OK, "чистка комнаты выключена")
+        return CheckResult("meeting_voice", OK, "запись голоса созвонов выключена")
     from app.app.services.edge_runtime import VOICE_CLEANER, VOICE_PY, voice_venv_ready
 
     if not VOICE_PY.is_file() or not VOICE_CLEANER.is_file():
         return CheckResult(
             "meeting_voice",
             WARN,
-            "нет venvs/voice, комната будет без серверной очистки",
+            "нет venvs/voice, голос созвонов не запишется",
             hint="venv\\Scripts\\python.exe scripts\\install_meeting_voice.py",
         )
     if not voice_venv_ready():
         return CheckResult(
             "meeting_voice",
             WARN,
-            "venvs/voice без torchaudio/DeepFilterNet, чистильщик не стартует",
+            "venvs/voice без livekit, рекордер голоса не стартует",
             hint="venv\\Scripts\\python.exe scripts\\install_meeting_voice.py",
         )
-    return CheckResult("meeting_voice", OK, "venvs/voice готов, main поднимет чистильщик")
+    return CheckResult("meeting_voice", OK, "venvs/voice готов, main поднимет рекордер голоса")
 
 
 def run_preflight(settings: Settings, *, mode: str = "all") -> list[CheckResult]:

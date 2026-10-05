@@ -58,11 +58,11 @@ flowchart LR
 
 | Процесс | Роль |
 |---|---|
-| **API + UI** (`python -m app.app.main`) | FastAPI + Jinja2. Preflight, затем поднимает edge (Caddy, LiveKit, чистильщик звука, запись экрана), GPU-воркер и портал на `127.0.0.1:1777`. |
+| **API + UI** (`python -m app.app.main`) | FastAPI + Jinja2. Preflight, затем поднимает edge (Caddy, LiveKit, запись голоса, запись экрана), GPU-воркер и портал на `127.0.0.1:1777`. |
 | **GPU-воркер** (`main worker`) | Единственный исполнитель очереди `jobs`: один тяжёлый job за раз, защита от второго экземпляра. |
 | **Caddy** | Внешний HTTPS (Let's Encrypt, в т.ч. на IP) → портал на loopback. |
 | **LiveKit** | Медиасервер встреч (native, не Docker). |
-| **voice_cleaner / screen_recorder** | Участники-боты комнаты: чистят живой звук, пишут сырые дорожки и экран. |
+| **voice_cleaner / screen_recorder** | Скрытые боты комнаты: пишут сырые дорожки голоса и экран. Шумодав голоса — DFN3 в браузере говорящего. |
 | **Docker `skkkk-gigaam`** | Второй слух GigaAM + голосовые эмбеддинги (`:18102`). |
 | **Ollama** | Эмбеддинги `bge-m3` на CPU (`:11434`). |
 | **LLM** | Единый адаптер: LM Studio (локально, Qwen/Gemma) **или** Cursor API — переключается при старте. |

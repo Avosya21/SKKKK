@@ -382,7 +382,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert "Встреча" in guest
     assert "Выдать доступ" not in guest
     assert 'href="/projects"' not in guest
-    assert "meeting_room.js?v=a58" in guest
+    assert "meeting_room.js?v=a59" in guest
     assert "meeting_layout.js" in guest
     assert 'rel="manifest"' in guest
     assert "meeting-room" in guest
@@ -397,7 +397,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-leave"' in guest
     assert 'id="meeting-fs"' in guest
     staff_room = (templates / "meeting_room.html").read_text(encoding="utf-8")
-    assert "meeting_room.js?v=a58" in staff_room
+    assert "meeting_room.js?v=a59" in staff_room
     assert "meeting_layout.js" in staff_room
     assert 'rel="manifest"' in staff_room
     assert 'id="meeting-screen-lead"' in staff_room
@@ -423,8 +423,8 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-btn"' in staff_room
     assert 'id="meeting-speaker-menu"' in guest
     assert 'id="meeting-speaker-menu"' in staff_room
-    assert "meeting_room.js?v=a58" in guest
-    assert "meeting_room.js?v=a58" in staff_room
+    assert "meeting_room.js?v=a59" in guest
+    assert "meeting_room.js?v=a59" in staff_room
     assert "SKKKK_MEETING_VOICE" in guest
     assert "SKKKK_MEETING_VOICE" in staff_room
     assert "skkkk-guest-" in guest
@@ -516,7 +516,7 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "toggleSound" in js
     assert "_soundOn" in js
     assert "setSubscribed(false)" in js
-    assert "const want = this._soundOn ? voicePlan(room, this._denoisePrefs) : new Set();" in js
+    assert "const want = this._soundOn ? voicePlan(room) : new Set();" in js
     assert "RoomEvent.TrackPublished" in js
     assert "requestAnimationFrame" in js
     assert "_silentMeterCtx" in js
@@ -533,24 +533,25 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "flagState" in js
     assert "contentHint" in js
     assert "ScreenSharePresets.h720fps5.encoding" in js
-    assert "DENOISE_TOPIC" in js
-    assert "publishData" in js
-    assert "isOwnIdentity" in js
+    # шумодав в браузере говорящего: серверу о нём ничего не сообщаем, чужих clean-* нет
+    assert "DENOISE_TOPIC" not in js and "_denoisePrefs" not in js and "clean-" not in js
     assert "pub.trackName" in js
     assert "src.connect(this._playComp)" not in js
     assert "dfn3: raw.dfn3 === true" in js
     assert "DFN3_MODULE" in js
-    assert "noiseSuppression: !dfn3On" in js
+    assert "noiseSuppression: Boolean(browserNs)" in js
     assert "/static/vendor/dfn3/index.esm.js" in js
-    assert "CLEANER_ID" in js
-    assert "hasCleaner" in js
-    assert "isCleaner" in js
-    # нет очищенной дорожки человека (готовится, снята, шумодав ушёл) — играет сырая, человек не замолкает
-    # один маршрутизатор звука: на человека одна дорожка голоса (свежая clean-* или сырая), экранный звук как есть,
-    # остальное и «сироты» снимаются; сверка по событиям и раз в 2 с
-    assert "function voicePlan(room, prefs)" in js
-    assert "if (isScreenAudioPub(pub) || !useClean) want.add(pub.track);" in js
-    assert "cleanFor[identity] = pub; // порядок публикаций: последняя — самая свежая" in js
+    assert "CLEANER_ID" not in js and "isCleaner" not in js
+    # DFN3 — процессор livekit-client на моём микрофоне; кнопка лишь включает фильтр; рядом сырая дорожка для записи
+    assert "await track.setProcessor(filter);" in js
+    assert "await this._dfn3.filter.setEnabled(this._denoiseOn);" in js
+    assert 'const RAW_TRACK_NAME = "skkkk-raw";' in js
+    assert "mic._mediaStreamTrack || mic.mediaStreamTrack" in js
+    assert "source: LK.Track.Source.Unknown, dtx: false, red: false" in js
+    # люди на сырую дорожку не подписываются; играет всё звуковое, кроме неё; «сироты» снимаются; сверка раз в 2 с
+    assert "(!this._soundOn || isRawPub(pub))" in js
+    assert "function voicePlan(room)" in js
+    assert 'if (pub.kind !== "audio" || !pub.track || isRawPub(pub)) return;' in js
     assert "_routeAudio() {" in js and "_startAudioRoute() {" in js
     assert '(els.stageEl || document).querySelectorAll("audio")' in js
     assert "_reattachAudio" not in js and "_dropRawIfCleaner" not in js and "playRawAudio" not in js
@@ -588,11 +589,11 @@ def test_lab_audio_stage_stays_raw_copy():
     assert "без денойза" in text
 
 
-def test_voice_cleaner_is_server_side_not_asr():
+def test_voice_recorder_is_not_asr():
     src = Path(__file__).resolve().parents[3] / "tools" / "livekit" / "voice_cleaner.py"
     text = src.read_text(encoding="utf-8")
-    assert 'CLEANER_ID = "skkkk-dfn"' in text
-    assert "CUDA_VISIBLE_DEVICES" in text
+    assert 'CLEANER_ID = "skkkk-dfn"' in text  # имя участника рекордера голоса (историческое)
+    assert "RAW_TRACK_NAME" in text
     assert "01_audio" not in text
 
 

@@ -203,8 +203,7 @@ def test_recorders_are_never_started_under_tests(monkeypatch, tmp_path):
 
 
 def test_voice_venv_ready_checks_like_the_cleaner(monkeypatch, tmp_path):
-    """Готовность шумодава проверяется с той же подменой torchaudio.backend, что делает voice_cleaner: голый
-    ``import df.enhance`` падает на torchaudio 2.9+ и давал ложное «чистильщик не стартует»."""
+    """Готовность рекордера голоса: модуль грузится и livekit SDK на месте. DeepFilterNet/torch не нужны — шумодав в браузере."""
     py = tmp_path / "python.exe"
     py.write_text("")
     monkeypatch.setattr(er, "VOICE_PY", py)
@@ -213,5 +212,6 @@ def test_voice_venv_ready_checks_like_the_cleaner(monkeypatch, tmp_path):
     assert er.voice_venv_ready() is True
     cmd = calls[0]
     assert cmd[0] == str(py) and cmd[1] == "-c"
-    assert "voice_cleaner._ensure_df_io_compat()" in cmd[2] and "import df.enhance" in cmd[2]
+    assert "import voice_cleaner" in cmd[2] and "from livekit import rtc" in cmd[2]
+    assert "df.enhance" not in cmd[2]
     assert cmd[3] == str(er.VOICE_CLEANER.parent)

@@ -348,12 +348,11 @@ def _kill_pid_tree(pid: int) -> None:
             pass
 
 
-# Готовность — так же, как грузит модель сам чистильщик: DeepFilterNet импортирует torchaudio.backend, которого нет в
-# torchaudio 2.9+, и voice_cleaner подменяет его (_ensure_df_io_compat). Голый импорт падал и при каждом старте давал
-# ложное «чистильщик не стартует», хотя шумодав работал.
+# Готовность — так же, как стартует сам рекордер голоса: модуль грузится, livekit SDK на месте. Шумодав теперь в браузере,
+# DeepFilterNet и torch в venvs/voice не нужны.
 _VOICE_READY_CODE = (
     "import sys; sys.path.insert(0, sys.argv[1]); import voice_cleaner; "
-    "voice_cleaner._ensure_df_io_compat(); import df.enhance"
+    "from livekit import rtc"
 )
 
 

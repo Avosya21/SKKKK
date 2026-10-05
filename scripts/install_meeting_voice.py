@@ -1,4 +1,7 @@
-"""Isolated CPU venv for the LiveKit DeepFilterNet cleaner. Not the app venv."""
+"""Isolated venv for the LiveKit voice recorder (tools/livekit/voice_cleaner.py). Not the app venv.
+
+Шумодав созвона работает в браузере (DFN3), рекордеру нужен только livekit SDK.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / "venvs" / "voice"
-TORCH_CPU = "https://download.pytorch.org/whl/cpu"
 
 
 def _py() -> Path:
@@ -21,10 +23,7 @@ def main() -> int:
         subprocess.check_call([sys.executable, "-m", "venv", str(VENV)])
     pip = [str(_py()), "-m", "pip", "install", "--upgrade", "pip"]
     subprocess.check_call(pip)
-    subprocess.check_call(
-        [str(_py()), "-m", "pip", "install", "torch", "torchaudio", "numpy", "--index-url", TORCH_CPU]
-    )
-    subprocess.check_call([str(_py()), "-m", "pip", "install", "livekit", "deepfilternet"])
+    subprocess.check_call([str(_py()), "-m", "pip", "install", "livekit"])
     print("voice venv ready:", _py())
     return 0
 
