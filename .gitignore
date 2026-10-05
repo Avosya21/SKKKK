@@ -126,3 +126,6 @@ docs/agent-exchange/letters/
 experiments/for_anar/
 
 Panel_users.txt
+# projectmap: грамматики tree-sitter и выгрузки инструмента (локальный кэш, не в git)
+.projectmap/grammars/
+.projectmap/out/

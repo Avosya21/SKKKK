@@ -1519,6 +1519,7 @@ run_pipeline
 | `app/app/tests/test_edge_runtime.py` | TLS → Caddy → LiveKit → voice; портал жив если LiveKit упал |
 | `app/app/tests/test_tls_cert.py` | проверка файла сертификата и перевыпуск при старте |
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
+| `tools/projectmap/tests/test_languages_and_grammars.py` | реестр языков (расширения, уровни, 12 языков Emerge) и грамматики tree-sitter: кэш проекта, докачка, разбор простого кода |
 | `tools/projectmap/tests/test_metrics.py` | метрики графа: группы Louvain без тестов и их воспроизводимость, fan-in/out, хабы, согласие с подсистемами, правки и co-change, ключевые слова |
 | `tools/projectmap/tests/test_schema_and_coverage.py` | схема графа и слоёв, проверка целостности, расчёт охвата, отчёты, маски путей и конфиг инструмента projectmap |
 | `tools/projectmap/tests/test_probes_and_check.py` | пробы охвата на небольшом проекте и команда `projectmap check` (отчёт, `--strict`, форматы) |
@@ -1556,6 +1557,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Docker ASR | `GIGAAM_URL` | Прод: GigaAM (второй слух + embed). Whisper/T-one URL — откат |
 | LiveKit | `LIVEKIT_*`, `LIVEKIT_RTC_INTERNAL` | комнаты; native server поднимает `main` |
 | Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | шумодав DFN3 в браузере (`MEETING_VOICE_DFN3=1`, канон); `MEETING_VOICE_SERVER` — рекордер голоса; запись экрана `skkkk-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`) |
+| tree-sitter (разбор многих языков) | пакеты `tree-sitter`, `tree-sitter-language-pack` (в `app/requirements.txt`); грамматики в `.projectmap/grammars` | projectmap: символы, импорты и вызовы не-Python кода; грамматики скачиваются один раз, дальше без интернета; кэш не в git |
 | Telegram | `TELEGRAM_*` | Уведомления (stub) |
 | Живые проверки страниц: Playwright + браузеры (Chromium, WebKit) | — (пакеты в `venv`) | `qa_pages.py`, `qa_flows.py`, `qa_room*.py`. Браузеры ставятся `venv\Scripts\python.exe -m playwright install chromium` (и `webkit`); если их нет — `--channel chrome` берёт системный Chrome. См. §12.1 |
 | Эмулятор Android (виртуальный Pixel 7) | `JAVA_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_AVD_HOME` (ставит скрипт) | `qa_mobile_android.py` — настоящий Chrome на Android; `tools/android` (в git не хранится) |
@@ -2124,7 +2126,9 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `config.py` | Конфиг проекта для projectmap: где граф, что не считать (осознанные исключения) и цели охвата по пробам. |
 | `context.py` | Контекст проекта для проб: корень, граф, конфиг, список файлов и разбор графа по файлам. |
 | `coverage.py` | Охват карты: какая доля существующего в проекте описана и связана в графе, по слоям. |
+| `grammars.py` | Грамматики tree-sitter: локальный кэш проекта, какие языки доступны и как докачать недостающие. |
 | `keywords.py` | Ключевые слова файлов: TF-IDF по именам, которые файл определяет (функции, классы, константы). |
+| `languages.py` | Реестр языков: расширения файлов, уровень поддержки и имя грамматики tree-sitter. |
 | `metrics.py` | Метрики графа: группы по связности (Louvain), fan-in/out, нестабильность, «хабы», частота правок и co-change. |
 | `metrics_report.py` | Отчёт по метрикам графа: разделы Markdown для атласа и документов (группы, хабы, правки, скрытая связность). |
 | `paths.py` | Пути проекта: признаки, общие для проб и метрик (тестовый ли файл). |
