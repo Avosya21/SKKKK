@@ -1478,7 +1478,7 @@ run_pipeline
 | `run_all.ps1` / `run_api.ps1` / `run_worker.ps1` | Запуск служб |
 | `smoke_cycle.py` | Smoke test |
 | `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
-| `export_project_graph.py` | сборка графа зависимостей (§16): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
+| `export_project_graph.py` | сборка графа зависимостей (§16) вместе с метриками projectmap (группы Louvain, fan-in/out, частота правок, co-change; `--no-metrics` отключает): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops` |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
@@ -1519,6 +1519,7 @@ run_pipeline
 | `app/app/tests/test_edge_runtime.py` | TLS → Caddy → LiveKit → voice; портал жив если LiveKit упал |
 | `app/app/tests/test_tls_cert.py` | проверка файла сертификата и перевыпуск при старте |
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
+| `tools/projectmap/tests/test_metrics.py` | метрики графа: группы Louvain без тестов и их воспроизводимость, fan-in/out, хабы, согласие с подсистемами, правки и co-change, ключевые слова |
 | `tools/projectmap/tests/test_schema_and_coverage.py` | схема графа и слоёв, проверка целостности, расчёт охвата, отчёты, маски путей и конфиг инструмента projectmap |
 | `tools/projectmap/tests/test_probes_and_check.py` | пробы охвата на небольшом проекте и команда `projectmap check` (отчёт, `--strict`, форматы) |
 | `tools/projectmap/tests/test_cli.py`, `test_core_is_project_neutral.py` | командная строка и защита общности: в ядре нет названий нашего проекта |
@@ -2123,6 +2124,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `config.py` | Конфиг проекта для projectmap: где граф, что не считать (осознанные исключения) и цели охвата по пробам. |
 | `context.py` | Контекст проекта для проб: корень, граф, конфиг, список файлов и разбор графа по файлам. |
 | `coverage.py` | Охват карты: какая доля существующего в проекте описана и связана в графе, по слоям. |
+| `keywords.py` | Ключевые слова файлов: TF-IDF по именам, которые файл определяет (функции, классы, константы). |
+| `metrics.py` | Метрики графа: группы по связности (Louvain), fan-in/out, нестабильность, «хабы», частота правок и co-change. |
+| `metrics_report.py` | Отчёт по метрикам графа: разделы Markdown для атласа и документов (группы, хабы, правки, скрытая связность). |
+| `paths.py` | Пути проекта: признаки, общие для проб и метрик (тестовый ли файл). |
 | `probes.py` | Пробы охвата: независимо от графа находят, что есть в проекте, и сверяют это с графом. |
 | `schema.py` | Схема графа projectmap: слои карты, виды узлов и связей, проверка целостности. |
 
@@ -2151,6 +2156,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 интерфейс (`route`, `ui`, `handled_by`, `calls_api`, `guards`), окружение (`env`; `reads_env`), смысл (узлы манифеста и рёбра `m:<relation>`).
 
 **Привязка вызовов.** Вызов связывается с определением по порядку: тот же файл, метод своего класса (`self`), имя из импортов файла, модуль или класс проекта, единственное определение с таким именем в проекте того же семейства языков. Если одноимённых определений несколько и по импортам не выбрать, связь **не создаётся** (раньше брался первый по алфавиту, из-за чего `conn.close()` и `client.post()` попадали в проектные `close` и `post`, а fan-in у отдельных файлов завышался в разы); общие имена встроенных типов (`get`, `close`, `post`, `run` и т. п.) на объекте неизвестного типа тоже остаются внешними. На ребре `calls` / `calls_ref` поле `how` показывает способ (`local`, `self`, `import`, `module`, `class`, `unique`); число точных, единственных по имени и неоднозначных вызовов — в примечаниях графа и атласа.
+
+**Метрики графа (инструмент projectmap).** При сборке граф дополняется метриками (`tools/projectmap/projectmap/metrics.py`): у файлов — группа по связности (`community`: алгоритм Louvain по вызовам, импортам и наследованию **без тестов**, пять запусков, результат воспроизводим), `fan_in` / `fan_out`, `instability`, `churn` (в скольких коммитах менялся файл), `keywords` (TF-IDF по именам, которые определяет файл); у символов — `fan_in` / `fan_out`; между файлами, которые часто меняют вместе, — рёбра `co_changes`. Итоги лежат в `graph["metrics"]` и в разделах 12–15 атласа (группы, хабы и рейтинги, файлы в «чужой» группе, частота правок и скрытая связность). Связи, найденные только по единственному имени, весят в группах вдвое меньше точных. Параметры — раздел `metrics` в `.projectmap/config.yaml`. Рёбра наследования (`inherits`) строятся по сигнатурам классов.
 
 **Как этим пользоваться:**
 

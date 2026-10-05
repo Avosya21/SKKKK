@@ -82,7 +82,7 @@ RELATION_LABELS = {
     "handles": "обрабатывает", "guarded_by": "защищён", "depends_on": "зависит от",
     "reads": "читает", "writes": "пишет", "has_column": "имеет столбец", "reads_env": "читает переменную",
     "declares": "объявляет", "handled_by": "обрабатывается в JS", "calls_api": "вызывает API",
-    "covers": "покрывает тестом", "changed": "изменил",
+    "covers": "покрывает тестом", "changed": "изменил", "inherits": "наследует",
 }
 
 
@@ -136,6 +136,32 @@ def _language_family(path: str) -> str:
     name = path.rsplit("/", 1)[-1]
     suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     return LANGUAGE_FAMILIES.get(suffix, suffix)
+
+
+def _class_bases(signature: str | None) -> list[str]:
+    """Базовые классы из сигнатуры `class A(B, mod.C[T], metaclass=M)`: простые и точечные имена без параметров типа и ключевых аргументов."""
+    match = re.match(r"\s*class\s+\w+\s*\((.*)\)\s*:?\s*$", signature or "")
+    if not match:
+        return []
+    parts: list[str] = []
+    depth, current = 0, ""
+    for char in match.group(1):
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    bases = []
+    for part in parts:
+        part = re.sub(r"\[.*\]$", "", part.strip()).strip()
+        if part and "=" not in part and re.fullmatch(r"[A-Za-z_][\w.]*", part):
+            bases.append(part)
+    return bases
 
 
 def _symbol_id(path: str, qualname: str) -> str:
@@ -373,6 +399,19 @@ class _Builder:
         if externals:
             self.notes.append("внешних вызовов: " + str(sum(externals.values())) + " у " + str(len(externals)) + " имён")
 
+    def inheritance(self) -> None:
+        """Класс -> базовый класс проекта (по сигнатуре `class A(B)`); базы вне проекта (ORM, стандартная библиотека) не показываем."""
+        for path, rows in self.symbols_by_path.items():
+            for row in rows:
+                if row["kind"] != "class":
+                    continue
+                child = self.by_path_name.get((path, row["qualname"]))
+                for base in _class_bases(row["signature"]):
+                    qualifier, _, name = base.rpartition(".")
+                    target, how = self._resolve_call(path, "", name, qualifier)
+                    if child and target and target != child and self.nodes.get(target, {}).get("sub") == "class":
+                        self.edge(child, target, "inherits", row["line"], how=how)
+
     def imports(self) -> None:
         for row in self.conn.execute("SELECT path, module, names, line FROM imports").fetchall():
             for target_path in self._resolve_import(row["path"], row["module"], row["names"]):
@@ -537,6 +576,7 @@ class _Builder:
         self.symbols()
         self.imports()
         self.calls()
+        self.inheritance()
         self.routes()
         self.tables()
         self.table_access()
@@ -606,7 +646,7 @@ def module_graph(graph: dict[str, Any]) -> dict[str, Any]:
             continue
         rel = edge["rel"]
         bucket = ("covers" if rel == "covers" else
-                  "imports" if rel.startswith("import") else
+                  "imports" if rel.startswith("import") or rel == "inherits" else
                   "calls" if rel.startswith("calls") else
                   "data" if rel in {"reads", "writes"} else
                   "manifest" if rel.startswith("m:") else
@@ -841,6 +881,10 @@ def to_graphml(graph: dict[str, Any]) -> str:
            '<key id="group" for="node" attr.name="group" attr.type="string"/>',
            '<key id="path" for="node" attr.name="path" attr.type="string"/>',
            '<key id="line" for="node" attr.name="line" attr.type="int"/>',
+           '<key id="community" for="node" attr.name="community" attr.type="int"/>',
+           '<key id="fan_in" for="node" attr.name="fan_in" attr.type="int"/>',
+           '<key id="fan_out" for="node" attr.name="fan_out" attr.type="int"/>',
+           '<key id="churn" for="node" attr.name="churn" attr.type="int"/>',
            '<key id="rel" for="edge" attr.name="relation" attr.type="string"/>',
            '<key id="n" for="edge" attr.name="count" attr.type="int"/>',
            '<key id="eline" for="edge" attr.name="line" attr.type="int"/>',
@@ -852,6 +896,9 @@ def to_graphml(graph: dict[str, Any]) -> str:
         out.append(f'<data key="group">{xml_escape(str(node.get("group", "")))}</data>')
         out.append(f'<data key="path">{xml_escape(str(node.get("path", "")))}</data>')
         out.append(f'<data key="line">{int(node.get("line") or 0)}</data>')
+        for metric in ("community", "fan_in", "fan_out", "churn"):
+            if node.get(metric) is not None:
+                out.append(f'<data key="{metric}">{int(node[metric])}</data>')
         out.append("</node>")
     for n, edge in enumerate(graph["edges"]):
         if edge["from"] not in index or edge["to"] not in index:

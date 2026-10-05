@@ -236,7 +236,17 @@ def atlas(graph: dict[str, Any], conn: Any = None, *, top: int = 25, routes_limi
             lines.append("_циклов нет_")
         lines += [""]
 
-    lines += ["## 12. Как обновлять", "",
+    next_section = 12
+    if graph.get("metrics"):
+        try:
+            from projectmap.metrics_report import render_sections
+        except ImportError:  # инструмент projectmap не в пути поиска модулей: разделы метрик пропускаем
+            render_sections = None
+        if render_sections:
+            section_lines, next_section = render_sections(graph["metrics"], next_section)
+            lines += section_lines
+
+    lines += [f"## {next_section}. Как обновлять", "",
               "1. После правок кода — `venv\\Scripts\\python.exe scripts\\index_project_map.py` (обновляет индекс).",
               "2. Затем — `venv\\Scripts\\python.exe scripts\\export_project_graph.py` (пересобирает граф и этот атлас).",
               "3. Расхождения ловит тест `app/app/tests/test_project_graph.py` (у каждого файла и роута есть узел, висячих рёбер нет).",

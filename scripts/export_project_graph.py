@@ -46,6 +46,7 @@ def main() -> int:
     ap.add_argument("--no-history", action="store_true", help="без коммитов и рёбер «коммит → файл»")
     ap.add_argument("--no-manifest", action="store_true", help="без смысловых рёбер манифеста карты")
     ap.add_argument("--no-atlas", action="store_true", help="не пересобирать атлас")
+    ap.add_argument("--no-metrics", action="store_true", help="без метрик (группы Louvain, fan-in/out, правки) инструмента projectmap")
     ap.add_argument("--stats", action="store_true", help="только показать цифры")
     ap.add_argument("--json", action="store_true", help="цифры в json")
     args = ap.parse_args()
@@ -59,6 +60,13 @@ def main() -> int:
     try:
         graph = G.build(conn, include_external=args.with_external, include_history=not args.no_history,
                         include_manifest=not args.no_manifest, with_columns=args.with_columns)
+        if not args.no_metrics:
+            sys.path.insert(0, str(ROOT / "tools" / "projectmap"))
+            from projectmap.config import load_config
+            from projectmap.metrics import MetricsOptions, enrich
+
+            enrich(graph, MetricsOptions(**load_config(ROOT).metrics))
+            graph["stats"] = G.stats(graph)
         stats = graph["stats"]
         written: list[str] = []
         if not args.stats:
@@ -84,6 +92,10 @@ def main() -> int:
         print(f'узлов: {stats["nodes"]}  рёбер: {stats["edges"]}  за {time.time() - started:.1f} с')
         print("узлы: " + ", ".join(f"{G.NODE_LABELS.get(k, k)} {v}" for k, v in stats["by_kind"].items()))
         print("связи: " + ", ".join(f"{k} {v}" for k, v in list(stats["by_relation"].items())[:14]))
+        if graph.get("metrics"):
+            m = graph["metrics"]
+            print(f'метрики: групп {len(m["communities"])}, модулярность {m["modularity"]}, согласие с подсистемами {m["agreement_with_groups"]}, '
+                  f'хабов {len(m["hubs"])}, пар с совместными правками {m["cochange_pairs"]}')
         if graph.get("notes"):
             print("примечания: " + "; ".join(graph["notes"]))
         for path in written:

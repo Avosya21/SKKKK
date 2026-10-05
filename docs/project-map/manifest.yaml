@@ -3031,6 +3031,34 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_keywords
+    kind: file
+    path: tools/projectmap/projectmap/keywords.py
+    title: "Ключевые слова файлов: TF-IDF по именам, которые файл определяет (функции, классы, константы)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_metrics
+    kind: file
+    path: tools/projectmap/projectmap/metrics.py
+    title: "Метрики графа: группы по связности (Louvain), fan-in/out, нестабильность, «хабы», частота правок и co-change."
+    tags: [auto]
+    auto: true
+
+  - id: tool_metrics_report
+    kind: file
+    path: tools/projectmap/projectmap/metrics_report.py
+    title: "Отчёт по метрикам графа: разделы Markdown для атласа и документов (группы, хабы, правки, скрытая связность)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_paths
+    kind: file
+    path: tools/projectmap/projectmap/paths.py
+    title: "Пути проекта: признаки, общие для проб и метрик (тестовый ли файл)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

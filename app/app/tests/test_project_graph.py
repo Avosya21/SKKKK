@@ -37,8 +37,9 @@ def _tiny_index(tmp_path, files: dict[str, list[tuple]], *, calls=(), imports=()
     conn.executemany("INSERT INTO files(path, sha, size, mtime, kind) VALUES (?, 'x', 1, 1, ?)",
                      [(path, path.rsplit(".", 1)[-1]) for path in files])
     for path, symbols in files.items():
-        conn.executemany("INSERT INTO symbols(name, qualname, kind, path, line, end_line, lang) "
-                         "VALUES (?, ?, ?, ?, ?, ?, 'py')", [(s[0], s[1], s[2], path, s[3], s[4]) for s in symbols])
+        conn.executemany("INSERT INTO symbols(name, qualname, kind, path, line, end_line, signature, lang) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, 'py')",
+                         [(s[0], s[1], s[2], path, s[3], s[4], s[5] if len(s) > 5 else None) for s in symbols])
     for row in calls:
         conn.execute("INSERT INTO calls(path, caller, callee, qualifier, line) VALUES (?, ?, ?, ?, ?)", row)
     for row in imports:
@@ -353,3 +354,39 @@ def test_call_never_crosses_between_language_families(tmp_path):
     graph = _call_graph(tmp_path, files, [("caller.py", "go", "query", "", 3), ("page.html", "show", "query", "", 5)])
     edges = _calls_to(graph, "helper.js", "query")
     assert [e["from"] for e in edges] == [G._symbol_id("page.html", "show")], "из Python в JS по имени связи быть не должно"
+
+
+def test_class_inherits_from_a_project_class_and_ignores_outside_bases(tmp_path):
+    files = {"base.py": [_module("base.py"), ("Base", "Base", "class", 2, 5, "class Base(DeclarativeBase)")],
+             "other.py": [_module("other.py"), ("Base", "Base", "class", 2, 5, "class Base")],
+             "models.py": [_module("models.py"),
+                           ("User", "User", "class", 2, 9, "class User(Base, metaclass=Meta)"),
+                           ("Mixed", "Mixed", "class", 10, 12, "class Mixed(Generic[T], Missing)")]}
+    graph = _call_graph(tmp_path, files, [], imports=[("models.py", "base", "Base", 1)])
+    inherits = [(e["from"], e["to"]) for e in graph["edges"] if e["rel"] == "inherits"]
+    assert inherits == [(G._symbol_id("models.py", "User"), G._symbol_id("base.py", "Base"))]
+
+
+def test_class_bases_parser_handles_generics_keywords_and_dotted_names():
+    assert G._class_bases("class A(B, mod.C[T], metaclass=M)") == ["B", "mod.C"]
+    assert G._class_bases("class A") == [] and G._class_bases(None) == [] and G._class_bases("def f(x)") == []
+
+
+def test_atlas_gets_metric_sections_and_graphml_gets_metrics(tmp_path):
+    from projectmap.metrics import enrich
+
+    files = {f"p/m{i}.py": [(f"p/m{i}.py", f"p/m{i}.py", "module", 1, 9), (f"run_{i}", f"run_{i}", "function", 2, 4)] for i in range(4)}
+    calls = [(f"p/m{i}.py", f"run_{i}", f"run_{j}", "", 3) for i in range(4) for j in range(4) if i < j]
+    imports = [(f"p/m{i}.py", f"p.m{j}", "", 1) for i in range(4) for j in range(4) if i < j]
+    conn = _tiny_index(tmp_path, files, calls=calls, imports=imports)
+    graph = G.build(conn, include_manifest=False, include_history=False)
+    enrich(graph)
+    text = A.atlas(graph, conn)
+    for section in ("## 12. Группы по связности (Louvain)", "## 13. Узлы-перекрёстки", "## 14. Файлы в «чужой» группе",
+                    "## 15. Частота правок и скрытая связность", "## 16. Как обновлять"):
+        assert section in text, section
+    xml = G.to_graphml(graph)
+    assert 'key id="community"' in xml and '<data key="community">' in xml and '<data key="fan_in">' in xml
+    plain = A.atlas(G.build(conn, include_manifest=False, include_history=False), conn)
+    assert "## 12. Как обновлять" in plain, "без метрик нумерация атласа прежняя"
+    conn.close()

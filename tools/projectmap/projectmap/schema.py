@@ -55,6 +55,7 @@ RELATIONS: dict[str, tuple[str, str]] = {
     "calls_ext": ("structure", "вызывает внешнее"),
     "imports": ("structure", "импортирует"),
     "inherits": ("structure", "наследует"),
+    "imports_ext": ("structure", "импортирует внешнее"),
     "handles": ("interfaces", "обрабатывает"),
     "handled_by": ("interfaces", "обрабатывается"),
     "calls_api": ("interfaces", "обращается к API"),
@@ -62,6 +63,7 @@ RELATIONS: dict[str, tuple[str, str]] = {
     "reads": ("data", "читает таблицу"),
     "writes": ("data", "пишет в таблицу"),
     "declares": ("data", "объявляет"),
+    "has_column": ("data", "имеет столбец"),
     "reads_env": ("settings", "читает переменную"),
     "covers": ("tests", "покрывает тестом"),
     "changed": ("history", "изменил"),
@@ -71,6 +73,8 @@ RELATIONS: dict[str, tuple[str, str]] = {
     "runs": ("environment", "запускает"),
 }
 
+# метрики, которые инструмент дописывает в узлы файлов и символов (модуль metrics)
+NODE_METRICS = ("community", "fan_in", "fan_out", "instability", "churn", "keywords")
 REQUIRED_NODE_FIELDS = ("id", "kind")
 REQUIRED_EDGE_FIELDS = ("from", "to", "rel")
 

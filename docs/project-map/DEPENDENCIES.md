@@ -16,16 +16,16 @@ venv\Scripts\python.exe scripts\export_project_graph.py
 
 <!-- generated:begin atlas -->
 
-_Собрано: 2026-10-05 18:59 · индекс от 2026-10-05 18:58 · коммит `45f7e72b` · узлов 8716, рёбер 31192_
+_Собрано: 2026-10-05 19:06 · индекс от 2026-10-05 19:00 · коммит `274acfc1` · узлов 8720, рёбер 31302_
 
 ## 1. Из чего состоит граф
 
 | Узлы | Штук |
 |---|---|
-| символ | 7062 |
+| символ | 7065 |
 | файл | 719 |
 | элемент интерфейса | 406 |
-| коммит | 170 |
+| коммит | 171 |
 | роут | 169 |
 | окружение | 136 |
 | таблица БД | 33 |
@@ -33,10 +33,10 @@ _Собрано: 2026-10-05 18:59 · индекс от 2026-10-05 18:58 · ко�
 
 | Связь | Смысл | Штук |
 |---|---|---|
-| `calls` | вызывает | 10197 |
-| `defines` | определяет | 7062 |
-| `covers` | покрывает тестом | 6263 |
-| `changed` | изменил | 2231 |
+| `calls` | вызывает | 10202 |
+| `defines` | определяет | 7065 |
+| `covers` | покрывает тестом | 6264 |
+| `changed` | изменил | 2235 |
 | `calls_ref` | передаёт как значение | 1488 |
 | `imports` | импортирует | 1165 |
 | `handled_by` | обрабатывается в JS | 462 |
@@ -47,7 +47,9 @@ _Собрано: 2026-10-05 18:59 · индекс от 2026-10-05 18:58 · ко�
 | `reads_env` | читает переменную | 185 |
 | `handles` | обрабатывает | 170 |
 | `guarded_by` | защищён | 164 |
+| `co_changes` | co_changes | 59 |
 | `calls_api` | вызывает API | 39 |
+| `inherits` | наследует | 38 |
 | `m:imports` | imports | 17 |
 | `m:mounts` | mounts | 12 |
 | `m:reads` | reads | 12 |
@@ -56,44 +58,42 @@ _Собрано: 2026-10-05 18:59 · индекс от 2026-10-05 18:58 · ко�
 | `m:runs_stage` | runs_stage | 7 |
 | `m:persists` | persists | 6 |
 | `m:does_not_mutate` | does_not_mutate | 6 |
-| `m:api` | api | 5 |
-| `m:require_project` | require_project | 4 |
 
-Всего связей: **31192**; видов: 211.
+Всего связей: **31302**; видов: 213.
 
 ## 2. Подсистемы и их связи
 
 | Подсистема | Файлов | Узлов | Связей наружу | Связей внутрь |
 |---|---|---|---|---|
-| сервисы | 117 | 2559 | 1027 | 4890 |
-| тесты | 150 | 1751 | 8339 | 2 |
+| сервисы | 117 | 2559 | 1032 | 4890 |
+| тесты | 150 | 1752 | 8342 | 15 |
 | ASR-скрипты | 45 | 608 | 215 | 567 |
-| шаблоны | 20 | 583 | 291 | 320 |
-| служебные скрипты | 87 | 570 | 453 | 194 |
-| роутеры | 19 | 459 | 1694 | 1203 |
-| фронтенд | 14 | 304 | 0 | 518 |
+| шаблоны | 20 | 583 | 296 | 328 |
+| служебные скрипты | 87 | 570 | 453 | 198 |
+| роутеры | 19 | 459 | 1699 | 1203 |
+| фронтенд | 14 | 304 | 6 | 521 |
 | лаборатория ASR | 16 | 279 | 27 | 599 |
 | тесты ASR | 34 | 266 | 757 | 0 |
-| ядро API | 16 | 259 | 77 | 2168 |
-| карта проекта | 12 | 250 | 9 | 360 |
+| ядро API | 16 | 259 | 85 | 2204 |
+| карта проекта | 12 | 252 | 9 | 368 |
 | инструменты | 17 | 140 | 37 | 28 |
-| комната LiveKit | 4 | 91 | 60 | 300 |
+| комната LiveKit | 4 | 91 | 60 | 301 |
 | стадии ASR | 8 | 87 | 96 | 145 |
-| модели БД | 20 | 71 | 19 | 1864 |
+| модели БД | 20 | 71 | 52 | 1864 |
 | смоук портала | 19 | 52 | 30 | 1 |
 | .cursor | 29 | 29 | 0 | 0 |
 | промпты LLM | 25 | 25 | 0 | 9 |
 | воркер и конвейеры | 5 | 23 | 102 | 50 |
-| планы | 22 | 22 | 0 | 0 |
-| .env.example | 1 | 19 | 0 | 0 |
-| документация | 18 | 18 | 1 | 0 |
+| планы | 22 | 22 | 1 | 1 |
+| .env.example | 1 | 19 | 4 | 0 |
+| документация | 18 | 18 | 8 | 5 |
 | MCP портала | 2 | 12 | 25 | 32 |
 | этапы | 12 | 12 | 0 | 0 |
 | {artifact} | 0 | 3 | 0 | 6 |
 | корень | 0 | 3 | 3 | 3 |
 | app | 2 | 2 | 0 | 0 |
 | LightRAG | 2 | 2 | 0 | 0 |
-| AGENTS.md | 1 | 1 | 0 | 0 |
+| AGENTS.md | 1 | 1 | 2 | 0 |
 | README.md | 1 | 1 | 0 | 0 |
 | pytest.ini | 1 | 1 | 0 | 0 |
 | parsed | 0 | 1 | 0 | 2 |
@@ -104,57 +104,60 @@ _Собрано: 2026-10-05 18:59 · индекс от 2026-10-05 18:58 · ко�
 
 ```mermaid
 flowchart LR
-  g0["ASR-скрипты"]
-  g1["MCP портала"]
-  g2["воркер и конвейеры"]
-  g3["документация"]
-  g4["инструменты"]
-  g5["карта проекта"]
-  g6["комната LiveKit"]
-  g7["корень"]
-  g8["лаборатория ASR"]
-  g9["модели БД"]
-  g10["промпты LLM"]
-  g11["роутеры"]
-  g12["сервисы"]
-  g13["служебные скрипты"]
-  g14["смоук портала"]
-  g15["стадии ASR"]
-  g16["тесты"]
-  g17["тесты ASR"]
-  g18["фронтенд"]
-  g19["шаблоны"]
-  g20["ядро API"]
-  g16 -->|4170| g12
-  g16 -->|1203| g9
-  g16 -->|1138| g11
-  g11 -->|915| g20
-  g16 -->|854| g20
-  g11 -->|697| g12
-  g12 -->|671| g9
-  g12 -->|441| g20
-  g17 -->|350| g0
-  g13 -->|338| g12
-  g16 -->|320| g19
-  g16 -->|308| g6
-  g16 -->|286| g18
-  g17 -->|258| g8
-  g16 -->|239| g5
-  g19 -->|234| g18
-  g16 -->|175| g13
-  g16 -->|161| g0
-  g16 -->|152| g8
-  g17 -->|113| g15
-  g15 -->|106| g8
-  g0 -->|103| g8
-  g2 -->|91| g12
-  g11 -->|87| g9
-  g13 -->|82| g5
-  g13 -->|74| g9
-  g17 -->|69| g12
-  g13 -->|66| g20
-  g12 -->|61| g5
-  g6 -->|60| g12
+  g0[".env.example"]
+  g1["AGENTS.md"]
+  g2["ASR-скрипты"]
+  g3["MCP портала"]
+  g4["воркер и конвейеры"]
+  g5["документация"]
+  g6["инструменты"]
+  g7["карта проекта"]
+  g8["комната LiveKit"]
+  g9["корень"]
+  g10["лаборатория ASR"]
+  g11["модели БД"]
+  g12["планы"]
+  g13["промпты LLM"]
+  g14["роутеры"]
+  g15["сервисы"]
+  g16["служебные скрипты"]
+  g17["смоук портала"]
+  g18["стадии ASR"]
+  g19["тесты"]
+  g20["тесты ASR"]
+  g21["фронтенд"]
+  g22["шаблоны"]
+  g23["ядро API"]
+  g19 -->|4170| g15
+  g19 -->|1203| g11
+  g19 -->|1138| g14
+  g14 -->|919| g23
+  g19 -->|854| g23
+  g14 -->|697| g15
+  g15 -->|671| g11
+  g15 -->|441| g23
+  g20 -->|350| g2
+  g16 -->|338| g15
+  g19 -->|320| g22
+  g19 -->|311| g8
+  g19 -->|286| g21
+  g20 -->|258| g10
+  g19 -->|241| g7
+  g22 -->|234| g21
+  g19 -->|175| g16
+  g19 -->|161| g2
+  g19 -->|152| g10
+  g20 -->|113| g18
+  g18 -->|106| g10
+  g2 -->|103| g10
+  g4 -->|91| g15
+  g14 -->|87| g11
+  g16 -->|82| g7
+  g16 -->|74| g11
+  g20 -->|69| g15
+  g16 -->|66| g23
+  g15 -->|61| g7
+  g8 -->|60| g15
 ```
 
 ## 3. База данных: кто пишет и кто читает
@@ -972,28 +975,28 @@ flowchart LR
 | `get_settings` | символ | `app/app/config.py:172` | 1 | 689 |
 | `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 397 |
 | `Снимок проекта для приватного репозитория SKKKK` | коммит | `:` | 349 | 0 |
-| `Artifact` | символ | `app/app/models/artifact.py:13` | 0 | 341 |
-| `project.html` | файл | `app/app/templates/project.html:` | 226 | 100 |
-| `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 52 | 263 |
+| `Artifact` | символ | `app/app/models/artifact.py:13` | 1 | 341 |
+| `project.html` | файл | `app/app/templates/project.html:` | 232 | 103 |
+| `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 55 | 263 |
 | `get_db` | символ | `app/app/db.py:161` | 0 | 310 |
 | `get` | символ | `app/app/services/people.py:116` | 3 | 298 |
-| `Entity` | символ | `app/app/models/entity.py:11` | 0 | 282 |
+| `Entity` | символ | `app/app/models/entity.py:11` | 1 | 282 |
 | `log_event` | символ | `app/app/logging_setup.py:71` | 1 | 278 |
 | `Первое сохранение Primary Analytics` | коммит | `:` | 263 | 0 |
-| `User` | символ | `app/app/models/user.py:13` | 0 | 260 |
-| `Project` | символ | `app/app/models/project.py:14` | 0 | 227 |
+| `User` | символ | `app/app/models/user.py:13` | 1 | 260 |
+| `Project` | символ | `app/app/models/project.py:14` | 1 | 227 |
 | `create_project` | символ | `app/app/routers/projects.py:36` | 14 | 208 |
 | `Settings` | символ | `app/app/config.py:13` | 73 | 145 |
 | `list_projects` | символ | `app/app/routers/projects.py:25` | 5 | 208 |
 | `get_current_user` | символ | `app/app/dependencies.py:164` | 4 | 204 |
 | `post` | символ | `app/app/static/px_agent.js:24` | 1 | 207 |
 | `post` | символ | `app/app/templates/login.html:141` | 0 | 207 |
+| `meeting_room.js` | файл | `app/app/static/meeting_room.js:` | 178 | 14 |
+| `config.py` | файл | `app/app/config.py:` | 22 | 163 |
 | `entities.py` | файл | `app/app/services/entities.py:` | 151 | 26 |
-| `meeting_room.js` | файл | `app/app/static/meeting_room.js:` | 166 | 11 |
-| `config.py` | файл | `app/app/config.py:` | 9 | 158 |
 | `evaluate` | символ | `app/app/services/agent_gateway.py:148` | 31 | 130 |
 | `meeting: events.jsonl, meeting.json contract, per-track replicas, leaks, checks,` | коммит | `:` | 147 | 0 |
-| `Зафиксировать рабочий контур эталона: lab ASR, имена, индекс и автосбор ТЗ.` | коммит | `:` | 136 | 0 |
+| `meeting_room.html` | файл | `app/app/templates/meeting_room.html:` | 67 | 76 |
 
 ## 10. Никто не вызывает (проверить: мёртвый код или точка входа)
 
@@ -1014,7 +1017,146 @@ _Строгий список: у функции нет ни вызовов, ни
 
 _циклов нет_
 
-## 12. Как обновлять
+## 12. Группы по связности (Louvain)
+
+Файлы без тестов, связанные вызовами, импортами и наследованием, разбиты на группы алгоритмом Louvain (разрешение 1.5, запусков 5, берётся лучший по модулярности). Модулярность **0.54** (выше 0,3 — группы выражены); согласие групп с заданными подсистемами (NMI, 1 — совпадают) **0.46**; в группах 344 из 531 файлов.
+
+| Группа | Файлов | Подсистема (доля) | Ключевые слова | Главные файлы |
+|---|---|---|---|---|
+| 0 | 47 | сервисы (62%) | review, chat, chunk, artifact | `app/app/models/artifact.py`, `app/app/models/project.py`, `app/app/models/entity.py` |
+| 1 | 37 | сервисы (57%) | llm, ensure, chat, tokens | `app/app/logging_setup.py`, `app/app/services/llm.py`, `app/app/services/tz.py` |
+| 2 | 34 | лаборатория ASR (44%) | stage, voice, json, artifact | `asr/lab/paths.py`, `asr/lab/run.py`, `app/app/models/company.py` |
+| 3 | 33 | роутеры (39%) | project, user, token, activity | `app/app/config.py`, `app/app/db.py`, `app/app/models/user.py` |
+| 4 | 31 | смоук портала (58%) | question, login, call, exchange | `app/app/services/agent_gateway.py`, `scripts/qa_flows.py`, `scripts/smoke/common.py` |
+| 5 | 27 | служебные скрипты (48%) | map, symbol, deadline, hit | `app/app/services/project_index/search.py`, `app/app/services/entities.py`, `app/app/services/project_index/store.py` |
+| 6 | 23 | сервисы (74%) | artifact, ffprobe, report, audio | `app/app/services/storage.py`, `app/app/services/artifact_lab.py`, `app/app/services/status.py` |
+| 7 | 23 | ASR-скрипты (74%) | turns, speech, word, default | `asr/speakers.py`, `tools/projectmap/projectmap/coverage.py`, `asr/hallucination_guard.py` |
+| 8 | 20 | шаблоны (55%) | render, esc, load, history | `app/app/static/app.js`, `app/app/static/errors_ru.js`, `app/app/static/meeting_layout.js` |
+| 9 | 12 | сервисы (50%) | profile, login, personal, avatar | `app/app/services/personal_password.py`, `app/app/services/user_profile.py`, `app/app/models/user_profile.py` |
+| 10 | 12 | служебные скрипты (33%) | meeting, public, track, url | `app/app/models/meeting.py`, `app/app/services/meetings.py`, `app/app/services/meeting_analyze.py` |
+| 11 | 12 | сервисы (92%) | table, extract, tables, span | `app/app/services/prompts.py`, `app/app/services/table_md.py`, `app/app/services/pipeline_documents.py` |
+| 12 | 10 | служебные скрипты (30%) | profile, match, speaker, link | `app/app/models/speaker_profile.py`, `app/app/services/speaker_profiles.py`, `app/app/services/project_tasks.py` |
+| 13 | 8 | сервисы (38%) | job, task, project, jobs | `app/app/services/queue.py`, `app/app/models/job.py`, `app/app/services/single_instance.py` |
+| 14 | 7 | сервисы (57%) | progress, session, recorded, date | `app/app/services/recorded_at.py`, `app/app/services/upload.py`, `app/app/schemas/artifact.py` |
+| 15 | 5 | служебные скрипты (40%) | side, person, unknown, party | `app/app/services/people.py`, `app/app/models/person.py`, `app/app/services/people_seed.py` |
+| 16 | 3 | ASR-скрипты (100%) | docker, work, stage, input | `asr/docker_stage.py`, `asr/pipeline_checklist.py`, `asr/run_pipeline.py` |
+
+## 13. Узлы-перекрёстки и рейтинги связности
+
+Fan-in — сколько других файлов зависят от файла, fan-out — от скольких файлов зависит он сам. «Хаб» — оба не меньше 10: такие файлы дороже всего менять.
+
+| Хаб | Fan-in | Fan-out |
+|---|---|---|
+| `app/app/services/agent_gateway.py` | 26 | 15 |
+| `app/app/services/entities.py` | 12 | 21 |
+| `app/app/services/speaker_profiles.py` | 10 | 22 |
+| `app/app/services/graph.py` | 14 | 13 |
+| `app/app/services/tz.py` | 12 | 14 |
+| `app/app/services/contract.py` | 10 | 16 |
+| `app/app/services/artifact_audio.py` | 10 | 11 |
+
+**Больше всего зависят от файла (fan-in)**
+
+| Файл | Fan-in |
+|---|---|
+| `app/app/config.py` | 128 |
+| `app/app/models/artifact.py` | 72 |
+| `app/app/db.py` | 60 |
+| `app/app/logging_setup.py` | 47 |
+| `app/app/services/storage.py` | 44 |
+| `app/app/models/project.py` | 41 |
+| `app/app/services/project_index/search.py` | 38 |
+| `app/app/models/user.py` | 35 |
+| `app/app/models/entity.py` | 33 |
+| `app/app/services/agent_gateway.py` | 26 |
+
+**Больше всего зависит файл (fan-out)**
+
+| Файл | Fan-out |
+|---|---|
+| `app/app/main.py` | 28 |
+| `app/app/routers/knowledge.py` | 26 |
+| `app/app/services/pipeline_lab.py` | 25 |
+| `app/app/services/chat.py` | 24 |
+| `app/app/services/project_purge.py` | 24 |
+| `app/app/routers/upload.py` | 23 |
+| `app/app/services/speaker_profiles.py` | 22 |
+| `app/app/services/entities.py` | 21 |
+| `app/app/services/pipeline_meeting.py` | 20 |
+| `app/app/models/__init__.py` | 19 |
+
+## 14. Файлы в «чужой» группе
+
+Файл связан кодом в основном с другой подсистемой, чем та, где он лежит: кандидат на перенос или признак скрытой зависимости. Показаны группы, где одна подсистема составляет большинство.
+
+| Файл | Лежит в | Живёт в группе | Группа № |
+|---|---|---|---|
+| `app/app/mcp/project_protocol.py` | MCP портала | сервисы | 0 |
+| `app/app/models/__init__.py` | модели БД | сервисы | 0 |
+| `app/app/models/artifact.py` | модели БД | сервисы | 0 |
+| `app/app/models/chat_guidance.py` | модели БД | сервисы | 0 |
+| `app/app/models/chat_message.py` | модели БД | сервисы | 0 |
+| `app/app/models/contract.py` | модели БД | сервисы | 0 |
+| `app/app/models/entity.py` | модели БД | сервисы | 0 |
+| `app/app/models/project.py` | модели БД | сервисы | 0 |
+| `app/app/workers/review.py` | воркер и конвейеры | сервисы | 0 |
+| `scripts/audit_integrity.py` | служебные скрипты | сервисы | 0 |
+| `scripts/auto_review_backlog.py` | служебные скрипты | сервисы | 0 |
+| `scripts/eval_auto_review.py` | служебные скрипты | сервисы | 0 |
+| `scripts/fast_summarize_tz.py` | служебные скрипты | сервисы | 0 |
+| `scripts/fix_conflict_links.py` | служебные скрипты | сервисы | 0 |
+| `scripts/inspect_project_index.py` | служебные скрипты | сервисы | 0 |
+| `scripts/memory_scorecard.py` | служебные скрипты | сервисы | 0 |
+| `scripts/reextract_project.py` | служебные скрипты | сервисы | 0 |
+| `scripts/review_project.py` | служебные скрипты | сервисы | 0 |
+| `app/app/workers/pipeline.py` | воркер и конвейеры | сервисы | 6 |
+| `app/app/workers/processor.py` | воркер и конвейеры | сервисы | 6 |
+| `asr/prepare_audio.py` | ASR-скрипты | сервисы | 6 |
+| `asr/seed_artifact_asr.py` | ASR-скрипты | сервисы | 6 |
+| `scripts/rebuild_artifact_report.py` | служебные скрипты | сервисы | 6 |
+| `scripts/redescribe_screen_frames.py` | служебные скрипты | сервисы | 6 |
+| `tools/projectmap/projectmap/cli.py` | инструменты | ASR-скрипты | 7 |
+| `tools/projectmap/projectmap/config.py` | инструменты | ASR-скрипты | 7 |
+| `tools/projectmap/projectmap/context.py` | инструменты | ASR-скрипты | 7 |
+| `tools/projectmap/projectmap/coverage.py` | инструменты | ASR-скрипты | 7 |
+| `tools/projectmap/projectmap/probes.py` | инструменты | ASR-скрипты | 7 |
+| `tools/projectmap/projectmap/schema.py` | инструменты | ASR-скрипты | 7 |
+
+Всего: 31.
+
+## 15. Частота правок и скрытая связность
+
+Частота правок — в скольких коммитах менялся файл. Скрытая связность — файлы, которые часто меняют вместе, хотя прямой связи в коде между ними нет (пар с совместными правками: 59).
+
+| Файл | Коммитов |
+|---|---|
+| `docs/PROJECT-MAP.md` | 49 |
+| `docs/project-map/manifest.yaml` | 27 |
+| `docs/DECISIONS.md` | 20 |
+| `app/app/main.py` | 16 |
+| `docs/TESTING.md` | 15 |
+| `app/app/templates/project.html` | 14 |
+| `app/app/config.py` | 13 |
+| `.env.example` | 11 |
+| `app/app/routers/pages.py` | 11 |
+| `app/app/templates/base.html` | 11 |
+
+**Меняются вместе без связи в коде**
+
+| Файл | Файл | Коммитов вместе |
+|---|---|---|
+| `docs/PROJECT-MAP.md` | `docs/project-map/manifest.yaml` | 17 |
+| `docs/DECISIONS.md` | `docs/PROJECT-MAP.md` | 9 |
+| `docs/PROJECT-MAP.md` | `docs/TESTING.md` | 8 |
+| `docs/PROJECT-MAP.md` | `docs/project-map/DEPENDENCIES.md` | 7 |
+| `docs/DECISIONS.md` | `docs/project-map/manifest.yaml` | 6 |
+| `.env.example` | `app/app/config.py` | 5 |
+| `app/app/main.py` | `docs/PROJECT-MAP.md` | 5 |
+| `app/app/templates/base.html` | `app/app/templates/meeting_public.html` | 5 |
+| `app/app/templates/meeting_public.html` | `app/app/templates/meeting_room.html` | 5 |
+| `docs/PROJECT-MAP.md` | `scripts/check_map_drift.py` | 5 |
+
+## 16. Как обновлять
 
 1. После правок кода — `venv\Scripts\python.exe scripts\index_project_map.py` (обновляет индекс).
 2. Затем — `venv\Scripts\python.exe scripts\export_project_graph.py` (пересобирает граф и этот атлас).
