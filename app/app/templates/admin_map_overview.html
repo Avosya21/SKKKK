@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{# Страница «Обзор карты» (/admin/map/overview, только admin): просмотрщик projectmap — подсистемы, метрики, тепловая карта правок, шкала времени.
+   Сам просмотрщик — самостоятельная страница /admin/map/overview/frame (граф и библиотека внутри), здесь она показана во фрейме. #}
+{% block extra_head %}
+<style>
+  .amo-frame { width: 100%; height: min(78vh, 860px); border: 1px solid var(--ds-line); border-radius: var(--ds-r-md); background: var(--ds-surface); }
+  .amo-meta { color: var(--ds-muted); font-size: .85rem; min-height: 1.5rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-baseline mb-2">
+  <h1 class="h4 mb-0">Обзор карты</h1>
+  <a class="small" href="/admin/map">← Карта проекта</a>
+  <a class="small" href="/admin/map/graph">Граф зависимостей</a>
+</div>
+<p class="text-muted small mb-2">
+  Подсистемы и группы связности, размер по связям, тепловая карта правок и шкала времени. Строит инструмент projectmap
+  (<code>.projectmap/out/graph.json</code>). Только для администратора.
+</p>
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+  <button id="amo-rebuild" class="btn btn-sm btn-outline-secondary" type="button" data-idle-label="Перестроить карту">Перестроить карту</button>
+  <span id="amo-meta" class="amo-meta" role="status"></span>
+</div>
+<iframe id="amo-frame" class="amo-frame" src="/admin/map/overview/frame" title="Обзор карты проекта"></iframe>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const btn = document.getElementById('amo-rebuild');
+  const meta = document.getElementById('amo-meta');
+  const frame = document.getElementById('amo-frame');
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString('ru-RU') : '—';
+  async function refresh() {
+    const r = await SKKKK.api('/admin/map/overview/state');
+    if (r.ok) { const s = await r.json(); meta.textContent = s.exists ? 'Граф построен ' + when(s.built_at) : 'Граф ещё не построен — первый показ соберёт его (до минуты).'; }
+  }
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Строю…'; meta.textContent = 'Разбираю проект, считаю метрики и раскладку — это до минуты.';
+    try {
+      const r = await SKKKK.api('/admin/map/overview/rebuild', { method: 'POST' });
+      if (r.status === 403) { meta.textContent = 'Нужна роль администратора.'; return; }
+      if (!r.ok) { meta.textContent = 'Не удалось перестроить карту.'; return; }
+      const s = await r.json();
+      meta.textContent = 'Готово: узлов ' + s.nodes + ', связей ' + s.edges + ', построено ' + when(s.built_at);
+      frame.src = '/admin/map/overview/frame?t=' + Date.now();
+    } finally { btn.disabled = false; btn.textContent = btn.dataset.idleLabel; }
+  });
+  refresh();
+})();
+</script>
+{% endblock %}
