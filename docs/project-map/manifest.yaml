@@ -3269,6 +3269,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_scaffold
+    kind: file
+    path: tools/projectmap/projectmap/scaffold.py
+    title: "Заготовка карты проекта (Markdown) по графу: подсистемы, роуты, таблицы БД, переменные окружения, сервисы, экраны, модули."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
