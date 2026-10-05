@@ -1,7 +1,8 @@
 """Запуск инструмента projectmap из репозитория: `venv\Scripts\python.exe scripts\projectmap.py check`.
 
 Добавляет `tools/projectmap` в путь поиска модулей и вызывает его командную строку; пакет не нужно ставить в окружение.
-Команда `report` пересобирает документ охвата карты `docs/project-map/COVERAGE.md` (по графу `data/project_map_graph.json`).
+Команда `report` строит граф заново (`index`) и пересобирает документ охвата карты `docs/project-map/COVERAGE.md`.
+Команды `index` и `graph` строят граф проекта (`.projectmap/out/graph.json`, не в git) с метриками; `graph` добавляет атлас `atlas.md`.
 """
 
 from __future__ import annotations
@@ -30,6 +31,9 @@ HEAD = """# Охват карты проекта
 
 
 def report() -> int:
+    code = main(["index", "--root", str(ROOT)])  # граф строится заново: отчёт должен отражать текущее состояние проекта
+    if code:
+        return code
     with tempfile.TemporaryDirectory() as tmp:
         body = Path(tmp) / "body.md"
         code = main(["check", "--root", str(ROOT), "--format", "markdown", "--output", str(body)])
@@ -45,6 +49,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] == "report":
         raise SystemExit(report())
-    if args and args[0] == "check" and "--root" not in args:
+    if args and args[0] in ("check", "index", "graph") and "--root" not in args:
         args += ["--root", str(ROOT)]
     raise SystemExit(main(args))
