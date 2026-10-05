@@ -3115,6 +3115,34 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_build
+    kind: file
+    path: tools/projectmap/projectmap/build.py
+    title: "Построение графа проекта: разбор файлов, привязка вызовов и импортов, история, тесты, подсистемы."
+    tags: [auto]
+    auto: true
+
+  - id: tool_history
+    kind: file
+    path: tools/projectmap/projectmap/history.py
+    title: "История правок из git: коммиты и какие файлы каждый из них менял."
+    tags: [auto]
+    auto: true
+
+  - id: tool_imports
+    kind: file
+    path: tools/projectmap/projectmap/imports.py
+    title: "Привязка импортов к файлам проекта: какой файл подключает строка `import` на каждом языке."
+    tags: [auto]
+    auto: true
+
+  - id: tool_resolve
+    kind: file
+    path: tools/projectmap/projectmap/resolve.py
+    title: "Привязка вызовов и базовых классов к определениям проекта, одинаково для всех языков."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

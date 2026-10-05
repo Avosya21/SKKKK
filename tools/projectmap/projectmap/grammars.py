@@ -7,10 +7,12 @@ Python разбирается стандартным `ast` и в граммат�
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 CACHE_DIR = Path(".projectmap") / "grammars"
+CACHE_ENV = "PROJECTMAP_GRAMMARS"  # общий каталог грамматик для нескольких проектов на одной машине
 
 
 class GrammarUnavailable(RuntimeError):
@@ -32,9 +34,9 @@ def _pack():
 
 
 def configure(root: Path) -> Path:
-    """Направить кэш грамматик в каталог проекта; возвращает его путь."""
+    """Направить кэш грамматик в каталог проекта (или в каталог из переменной PROJECTMAP_GRAMMARS); возвращает его путь."""
     pack = _pack()
-    cache = (root / CACHE_DIR).resolve()
+    cache = Path(os.environ[CACHE_ENV]).resolve() if os.environ.get(CACHE_ENV) else (root / CACHE_DIR).resolve()
     cache.mkdir(parents=True, exist_ok=True)
     pack.configure(pack.PackConfig(cache_dir=str(cache)))
     return cache

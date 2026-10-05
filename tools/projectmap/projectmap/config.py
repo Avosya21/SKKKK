@@ -6,6 +6,7 @@
     ignore: [маски путей, которые карте не нужны: данные, сторонний код, бинарники]
     targets: {проба: минимальная доля охвата, 0..1}
     metrics: {resolution, seeds, hub_min, cochange_min, cochange_max_files, top, misplaced_share, misplaced_min_size}
+    groups: {префикс пути: название подсистемы}; без правила подсистема — первый каталог пути
 
 Маски: `*` — любые символы кроме `/`, `**` — любые символы включая `/`, `?` — один символ.
 """
@@ -29,6 +30,7 @@ class Config:
     ignore: list[str] = field(default_factory=list)
     targets: dict[str, float] = field(default_factory=dict)
     metrics: dict[str, Any] = field(default_factory=dict)  # параметры metrics.MetricsOptions
+    groups: dict[str, str] = field(default_factory=dict)  # префикс пути -> подсистема
 
     def is_ignored(self, rel_path: str) -> bool:
         return any(glob_to_regex(pattern).match(rel_path) for pattern in self.ignore)
@@ -66,6 +68,7 @@ def parse_config(data: dict[str, Any] | None) -> Config:
     config.ignore = [str(p) for p in data.get("ignore") or []]
     config.targets = {str(k): float(v) for k, v in (data.get("targets") or {}).items()}
     config.metrics = dict(data.get("metrics") or {})
+    config.groups = {str(k).rstrip("/"): str(v) for k, v in (data.get("groups") or {}).items()}
     return config
 
 
