@@ -2,8 +2,24 @@
   "mcpServers": {
     "skkkk-index": {
       "command": "venv/Scripts/python.exe",
-      "args": ["tools/projindex_mcp.py"],
-      "env": { "PYTHONIOENCODING": "utf-8" }
+      "args": [
+        "tools/projindex_mcp.py"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    "projectmap": {
+      "command": "venv/Scripts/python.exe",
+      "args": [
+        "-m",
+        "projectmap",
+        "mcp"
+      ],
+      "env": {
+        "PYTHONPATH": "tools/projectmap",
+        "PYTHONIOENCODING": "utf-8"
+      }
     }
   }
 }

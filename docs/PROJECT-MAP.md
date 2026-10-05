@@ -2251,7 +2251,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `.gitignore` | git | что не попадает в репозиторий | да |
 | `.kiloignore` | чужой инструмент | исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел) | нет |
 | `.kilo` | чужой инструмент | рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится) | нет |
-| `.mcp.json` | MCP | локальный MCP-сервер skkkk-index (tools/projindex_mcp.py) | да |
+| `.mcp.json` | MCP | локальные MCP-серверы: skkkk-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) | да |
 | `.claude` | агент | конфиг Claude Code: launch.json, worktrees | да |
 | `.projectmap` | конфиг | конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты | да |
 | `.cursor` | агент | правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max) | да |
