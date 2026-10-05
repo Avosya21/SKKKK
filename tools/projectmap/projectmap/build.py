@@ -1,7 +1,8 @@
-"""Построение графа проекта: разбор файлов, привязка вызовов и импортов, история, тесты, подсистемы.
+"""Построение графа проекта: разбор файлов, привязка вызовов и импортов, адаптеры стека, история, тесты, подсистемы.
 
-`build_graph(root, config)` возвращает граф в формате схемы (`schema`): узлы `file`, `symbol`, `commit` и рёбра `defines`, `calls`,
-`calls_ref`, `imports`, `inherits`, `covers`, `changed`. Метрики дописывает `metrics.enrich` отдельным шагом.
+`build_graph(root, config)` возвращает граф в формате схемы (`schema`): узлы `file`, `symbol`, `ui`, `route`, `table`, `env`, `service`,
+`commit` и рёбра `defines`, `calls`, `calls_ref`, `imports`, `inherits`, `covers`, `changed`, а от адаптеров — `handles`, `reads`,
+`writes`, `reads_env`, `calls_api`, `refers_to`, `runs`. Метрики дописывает `metrics.enrich` отдельным шагом.
 """
 
 from __future__ import annotations
@@ -12,30 +13,22 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from projectmap.adapters import AdapterContext, run_adapters
 from projectmap.config import Config
 from projectmap.context import tracked_files
 from projectmap.extract import extract_file
+from projectmap.graphbuf import Edges, enclosing_function, file_id, read_text, symbol_id, ui_id  # noqa: F401 (повторный экспорт)
 from projectmap.history import read_history
 from projectmap.imports import FileIndex
 from projectmap.languages import language_of
-from projectmap.model import MODULE_CALLER, REF, Call, FileFacts, Symbol
+from projectmap.model import MODULE_CALLER, REF, Call, FileFacts
 from projectmap.paths import is_test_path
 from projectmap.resolve import Resolver
 from projectmap.schema import SCHEMA_VERSION
 
-MAX_FILE_BYTES = 1_000_000
 ID_REFERENCES = (re.compile(r"getElementById\(\s*['\"]([\w-]+)['\"]"), re.compile(r"querySelector(?:All)?\(\s*['\"]#([\w-]+)"),
                  re.compile(r"\$\(\s*['\"]#?([\w-]+)['\"]\s*\)"))
 WEB_LANGUAGES = frozenset({"javascript", "typescript", "tsx", "html"})
-CALL_RELATIONS = {"calls", "calls_ref"}
-
-
-def file_id(path: str) -> str:
-    return f"file:{path}"
-
-
-def symbol_id(path: str, qualname: str) -> str:
-    return f"sym:{path}::{qualname}"
 
 
 def group_of(path: str, config: Config) -> str:
@@ -57,51 +50,7 @@ def graph_stats(graph: dict[str, Any]) -> dict[str, Any]:
             "by_relation": dict(by_rel.most_common()), "by_group": dict(by_group.most_common())}
 
 
-def ui_id(path: str, element_id: str) -> str:
-    return f"ui:{path}#{element_id}"
-
-
-def read_text(root: Path, path: str) -> str | None:
-    file = root / path
-    try:
-        if file.stat().st_size > MAX_FILE_BYTES:
-            return None
-        return file.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError):
-        return None
-
-
-class _Edges:
-    """Рёбра графа: повтор той же тройки (откуда, куда, вид) увеличивает счётчик `n`, а не плодит ребро."""
-
-    def __init__(self) -> None:
-        self.items: dict[tuple[str, str, str], dict[str, Any]] = {}
-
-    def add(self, source: str, target: str, rel: str, line: int = 0, **attrs: Any) -> None:
-        if source == target:
-            return
-        key = (source, target, rel)
-        edge = self.items.get(key)
-        if edge is None:
-            self.items[key] = {"from": source, "to": target, "rel": rel, "line": line, "n": 1, **attrs}
-        else:
-            edge["n"] += 1
-            if not edge["line"] and line:
-                edge["line"] = line
-
-
-def _enclosing(file_facts: FileFacts, line: int) -> Symbol | None:
-    """Самый узкий символ-функция, внутри которого находится строка."""
-    best: Symbol | None = None
-    for symbol in file_facts.symbols:
-        if symbol.kind in ("module", "class", "interface", "enum", "struct", "trait", "constant"):
-            continue
-        if symbol.line <= line <= symbol.end_line and (best is None or symbol.end_line - symbol.line < best.end_line - best.line):
-            best = symbol
-    return best
-
-
-def _link_id_references(facts: dict[str, FileFacts], texts: dict[str, str], nodes: dict[str, dict[str, Any]], edges: _Edges) -> None:
+def _link_id_references(facts: dict[str, FileFacts], texts: dict[str, str], nodes: dict[str, dict[str, Any]], edges: Edges) -> None:
     """Скрипт обращается к элементу по `id` (`getElementById`, `querySelector('#x')`, `$('x')`): элемент -> функция, которая с ним работает."""
     by_id: dict[str, list[str]] = {}
     for node_id, node in nodes.items():
@@ -114,7 +63,7 @@ def _link_id_references(facts: dict[str, FileFacts], texts: dict[str, str], node
                     candidates = by_id.get(match.group(1), [])
                     same_file = [c for c in candidates if nodes[c]["path"] == path]
                     chosen = same_file or (candidates if len(candidates) == 1 else [])
-                    symbol = _enclosing(facts[path], number)
+                    symbol = enclosing_function(facts[path], number)
                     owner = symbol_id(path, symbol.qualname) if symbol else file_id(path)
                     for ui in chosen:
                         edges.add(ui, owner, "handled_by", number, how="id")
@@ -142,7 +91,7 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
             web_texts[path] = text
 
     nodes: dict[str, dict[str, Any]] = {}
-    edges = _Edges()
+    edges = Edges()
     groups = {path: group_of(path, config) for path in facts}
     for path, file_facts in facts.items():
         language = language_of(path)
@@ -167,6 +116,8 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
         test_file = is_test_path(path)
         for imp_target, count in resolver.import_edges(path):
             edges.add(file_id(path), file_id(imp_target), "imports", n=count)
+            if test_file and not is_test_path(imp_target):  # слабое покрытие: тест подключает файл кода, даже если вызовы не разобрались
+                edges.add(file_id(path), file_id(imp_target), "covers", how="import")
         for call in file_facts.calls:
             resolution = resolver.resolve_call(call)
             how_counts[resolution.how] += 1
@@ -191,9 +142,12 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
                 found = resolver.resolve_base(path, base)
                 if found.symbol is not None and (found.symbol.path, found.symbol.qualname) != (path, symbol.qualname):
                     edges.add(symbol_id(path, symbol.qualname), symbol_id(found.symbol.path, found.symbol.qualname), "inherits", symbol.line, how=found.how)
-
     _link_id_references(facts, web_texts, nodes, edges)
+
     notes: list[str] = []
+    adapter_ctx = AdapterContext(root, config, facts, nodes, edges, groups, resolver, notes)
+    ran = run_adapters(adapter_ctx, config.adapters or None)
+
     commits = read_history(root, history_limit)
     in_graph = {file_id(p) for p in facts}
     for commit in commits:
@@ -206,8 +160,10 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
         for f in touched:
             edges.add(cid, file_id(f), "changed")
     exact = sum(how_counts[k] for k in ("local", "self", "package", "import", "module", "class"))
-    notes.append(f"вызовы: точных {exact}, по единственному имени {how_counts['unique']}, неоднозначных (не связаны) {how_counts['ambiguous']}, "
-                 f"внешних {how_counts['external']}")
+    notes.insert(0, f"вызовы: точных {exact}, по единственному имени {how_counts['unique']}, неоднозначных (не связаны) {how_counts['ambiguous']}, "
+                    f"внешних {how_counts['external']}")
+    if ran:
+        notes.append("адаптеры: " + ", ".join(ran))
     if unreadable:
         notes.append(f"файлов не прочитано (большие или не текст): {unreadable}")
     failed = [p for p, f in facts.items() if f.error and not f.error.startswith("в коде есть участки")]
