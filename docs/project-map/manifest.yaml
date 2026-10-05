@@ -3073,6 +3073,48 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_extract
+    kind: file
+    path: tools/projectmap/projectmap/extract.py
+    title: "Разбор одного файла: выбирает разборщик по языку и возвращает факты (символы, вызовы, импорты)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_lang_python
+    kind: file
+    path: tools/projectmap/projectmap/lang_python.py
+    title: "Разбор Python стандартным `ast`: символы, вызовы, импорты, базовые классы."
+    tags: [auto]
+    auto: true
+
+  - id: tool_lang_regex
+    kind: file
+    path: tools/projectmap/projectmap/lang_regex.py
+    title: "Разбор по регулярным выражениям для языков, у которых грамматика tree-sitter непригодна (сейчас — Groovy)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_lang_specs
+    kind: file
+    path: tools/projectmap/projectmap/lang_specs.py
+    title: "Правила языков для общего разбора tree-sitter (`lang_treesitter`): типы узлов, имена, базовые классы, импорты."
+    tags: [auto]
+    auto: true
+
+  - id: tool_lang_treesitter
+    kind: file
+    path: tools/projectmap/projectmap/lang_treesitter.py
+    title: "Общий разбор языков через tree-sitter: символы, вызовы, импорты, базовые классы по таблице правил языка."
+    tags: [auto]
+    auto: true
+
+  - id: tool_model
+    kind: file
+    path: tools/projectmap/projectmap/model.py
+    title: "Факты, которые разбор достаёт из одного файла: символы, вызовы, импорты."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

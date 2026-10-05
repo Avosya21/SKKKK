@@ -43,6 +43,14 @@ Python разбирается стандартным `ast`. Остальные �
 Rust, C, C++, C#, Ruby, PHP, Swift, Groovy, Objective-C, Scala, Dart, Lua, Shell, PowerShell, JavaScript и TypeScript. Грамматики скачиваются один раз
 в `.projectmap/grammars` (не в git), дальше разбор идёт без интернета. Язык без грамматики остаётся на файловом уровне.
 
+### Что разбор даёт по языкам
+
+`s` — символы, `c` — вызовы, `i` — импорты, `b` — базовые классы и интерфейсы (список `CAPABILITIES` в `lang_specs.py`):
+`scib` — JavaScript, TypeScript, TSX, Java, Rust, C#, C++, Ruby, PHP, Swift, Scala, Kotlin, Objective-C, Python; `sci` — Go, C, Lua, Shell, PowerShell;
+`sib` — Dart (в дереве нет узлов вызовов) и Groovy (грамматика непригодна, разбор по регулярным выражениям). Замыкания принадлежат объемлющей функции
+и своих символов не получают. Пределы: у Kotlin грамматика не разбирает `object` и `interface` с методами, у PowerShell — команды вида `Verb-Noun` в начале
+строки внутри функций (имена функций и вызовы на уровне файла находятся).
+
 ## Запуск из репозитория
 
 ```
