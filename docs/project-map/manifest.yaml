@@ -2989,6 +2989,48 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_projectmap
+    kind: file
+    path: scripts/projectmap.py
+    title: "Запуск инструмента projectmap из репозитория: `venv\\Scripts\\python.exe scripts\\projectmap.py check`."
+    tags: [auto]
+    auto: true
+
+  - id: tool_config
+    kind: file
+    path: tools/projectmap/projectmap/config.py
+    title: "Конфиг проекта для projectmap: где граф, что не считать (осознанные исключения) и цели охвата по пробам."
+    tags: [auto]
+    auto: true
+
+  - id: tool_context
+    kind: file
+    path: tools/projectmap/projectmap/context.py
+    title: "Контекст проекта для проб: корень, граф, конфиг, список файлов и разбор графа по файлам."
+    tags: [auto]
+    auto: true
+
+  - id: tool_coverage
+    kind: file
+    path: tools/projectmap/projectmap/coverage.py
+    title: "Охват карты: какая доля существующего в проекте описана и связана в графе, по слоям."
+    tags: [auto]
+    auto: true
+
+  - id: tool_probes
+    kind: file
+    path: tools/projectmap/projectmap/probes.py
+    title: "Пробы охвата: независимо от графа находят, что есть в проекте, и сверяют это с графом."
+    tags: [auto]
+    auto: true
+
+  - id: tool_schema
+    kind: file
+    path: tools/projectmap/projectmap/schema.py
+    title: "Схема графа projectmap: слои карты, виды узлов и связей, проверка целостности."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

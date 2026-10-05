@@ -182,6 +182,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | `scripts/` | Утилиты, мониторинг, rerun, индекс карты |
 | `tools/lightrag/` | **LightRAG** Docker (:9621) — граф знаний по docs (кнопки, API, БД) |
 | `tools/projectmap/` | **projectmap** — переносимый инструмент карты проекта (ядро, адаптеры стека, CLI, просмотрщик; этап 0 плана `docs/plans/PROJECTMAP-PLAN.md`) |
+| `.projectmap/` | конфиг инструмента projectmap для этого проекта (`config.yaml`: граф, осознанные исключения, цели охвата); внутри `out/` — выгрузки, не в git |
 | `tools/android/` | Эмулятор Android (sdk, jdk, avd, platform-tools) — мобильные проверки комнаты; в git не хранится |
 | `docs/project-map/` | Манифест карты, атлас зависимостей `DEPENDENCIES.md` и свод `graph-modules.json` (§16) |
 | `data/project_map_graph.json` | Полный граф зависимостей проекта (рабочий артефакт, в git не хранится) |
@@ -1483,6 +1484,7 @@ run_pipeline
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
 | `install_hooks.ps1` | git-хуки: `post-commit`/`post-merge` — фоновое обновление индекса; `pre-commit`/`commit-msg` — проверка карты и личных данных при коммите (ставят `INSTALL.bat` и `restart.ps1`) |
+| `projectmap.py` | запуск инструмента projectmap (`tools/projectmap`): `check` — охват карты по слоям, `report` — документ `docs/project-map/COVERAGE.md`; конфиг `.projectmap/config.yaml` |
 | `check_map_staged.py` | хук `pre-commit`: сверяет карту с содержимым индекса git (снимок коммита, не рабочая копия): файлы кода, роуты, таблицы БД, переменные окружения, реестр модулей, манифест |
 | `scan_personal_data.py` | хук `pre-commit` (блок `SKKKK-PRIVACY`): ищет в файлах коммита (версия из индекса git) имена людей, их написания, фамилии и названия компаний из базы портала; находка отклоняет коммит, имена видны только в консоли; без базы портала пропускается |
 | `check_map_commit_msg.py` | хук `commit-msg`: при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку «Карта: не требуется — причина» |
@@ -1517,6 +1519,9 @@ run_pipeline
 | `app/app/tests/test_edge_runtime.py` | TLS → Caddy → LiveKit → voice; портал жив если LiveKit упал |
 | `app/app/tests/test_tls_cert.py` | проверка файла сертификата и перевыпуск при старте |
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
+| `tools/projectmap/tests/test_schema_and_coverage.py` | схема графа и слоёв, проверка целостности, расчёт охвата, отчёты, маски путей и конфиг инструмента projectmap |
+| `tools/projectmap/tests/test_probes_and_check.py` | пробы охвата на небольшом проекте и команда `projectmap check` (отчёт, `--strict`, форматы) |
+| `tools/projectmap/tests/test_cli.py`, `test_core_is_project_neutral.py` | командная строка и защита общности: в ядре нет названий нашего проекта |
 | `app/app/tests/test_map_guard.py` | защита актуальности карты: правила сообщения коммита, разбор расхождений, установка git-хуков |
 | `app/app/tests/test_map_coverage.py` | логика проверки покрытия карты: роуты, таблицы БД и переменные окружения из кода (`check_map_drift.coverage`) |
 | `app/app/tests/test_meetings.py` / `test_livekit_env.py` | комнаты, JWT, yaml ICE, кнопка Проанализировать |
@@ -2028,6 +2033,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
 | `people_voice.py` | Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5). |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
+| `projectmap.py` | Запуск инструмента projectmap из репозитория: `venv\Scripts\python.exe scripts\projectmap.py check`. |
 | `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
 | `qa_call_stress.py` | Стресс-проверка записи звонка на РЕАЛЬНОМ сервере (рекордеры, LiveKit): песочный проект SMOKE_PROJECT_ID (29), два браузерных гостя. |
@@ -2114,6 +2120,11 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `__main__.py` | Запуск `python -m projectmap`. |
 | `cli.py` | Командная строка projectmap: `projectmap <команда>`. |
+| `config.py` | Конфиг проекта для projectmap: где граф, что не считать (осознанные исключения) и цели охвата по пробам. |
+| `context.py` | Контекст проекта для проб: корень, граф, конфиг, список файлов и разбор графа по файлам. |
+| `coverage.py` | Охват карты: какая доля существующего в проекте описана и связана в графе, по слоям. |
+| `probes.py` | Пробы охвата: независимо от графа находят, что есть в проекте, и сверяют это с графом. |
+| `schema.py` | Схема графа projectmap: слои карты, виды узлов и связей, проверка целостности. |
 
 <!-- generated:end registry -->
 
@@ -2131,6 +2142,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |-----|-----|-------|
 | Полный граф (все узлы и рёбра, включая вызовы функций) | `data/project_map_graph.json` | нет (рабочий артефакт) |
 | Свод по подсистемам и файлам (степени связности) | `docs/project-map/graph-modules.json` | да |
+| Охват карты по слоям: что есть в проекте и сколько из этого в графе, цели и пробелы | `docs/project-map/COVERAGE.md` | да (генерируется `scripts/projectmap.py report`) |
 | Атлас для человека: разделы от состава графа до циклов импортов, с актуальными цифрами | `docs/project-map/DEPENDENCIES.md` | да (генерируется между маркерами) |
 | Выгрузки для Gephi/yEd и Graphviz | `--graphml` / `--dot` | нет |
 
@@ -2170,7 +2182,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-05 00:16: сущностей 128, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-05 00:16: сущностей 129, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2184,6 +2196,7 @@ _Проверено 2026-10-05 00:16: сущностей 128, не описан�
 | `.mcp.json` | MCP | локальный MCP-сервер skkkk-index (tools/projindex_mcp.py) | да |
 | `.claude` | агент | конфиг Claude Code: launch.json, worktrees | да |
 | `.cursor` | агент | правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max) | да |
+| `.projectmap` | конфиг | конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты | да |
 | `AGENTS.md` | инструкции | правила работы агента: индекс, коммиты, «Исправлено» | да |
 | `AUDIT_REPORT.md` | отчёт | внешний аудит 2026-08: находки с первопричинами (исторический документ) | да |
 | `Companies.example.txt` | шаблон | образец справочника компаний | да |

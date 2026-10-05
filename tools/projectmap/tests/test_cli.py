@@ -22,5 +22,5 @@ def test_planned_commands_exist_but_say_when_they_arrive(command, capsys):
 
 def test_every_planned_command_is_listed_in_help():
     text = build_parser().format_help()
-    for command in COMMANDS:
+    for command in [*COMMANDS, "check", "version"]:
         assert command in text

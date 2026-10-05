@@ -41,6 +41,7 @@ items:
   - {path: ".kilo", kind: "чужой инструмент", purpose: "рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится)"}
   - {path: ".mcp.json", kind: "MCP", purpose: "локальный MCP-сервер skkkk-index (tools/projindex_mcp.py)"}
   - {path: ".claude", kind: "агент", purpose: "конфиг Claude Code: launch.json, worktrees"}
+  - {path: ".projectmap", kind: "конфиг", purpose: "конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты"}
   - {path: ".cursor", kind: "агент", purpose: "правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max)"}
   - {path: "AGENTS.md", kind: "инструкции", purpose: "правила работы агента: индекс, коммиты, «Исправлено»"}
   - {path: "AUDIT_REPORT.md", kind: "отчёт", purpose: "внешний аудит 2026-08: находки с первопричинами (исторический документ)"}
