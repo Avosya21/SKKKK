@@ -30,7 +30,7 @@ def test_every_extension_belongs_to_exactly_one_language():
 
 def test_python_needs_no_grammar_but_the_others_do():
     ids = grammar_ids()
-    assert "python" not in ids and {"java", "go", "javascript", "powershell"} <= set(ids)
+    assert "python" not in ids and "html" not in ids and {"java", "go", "javascript", "powershell"} <= set(ids)
 
 
 def test_baseline_languages_are_all_supported():

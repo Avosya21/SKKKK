@@ -22,13 +22,44 @@ def _unquote(text: str) -> str:
 
 # ───────────────────────────── JavaScript / TypeScript ─────────────────────────────
 
+def _js_add_function(ctx: Context, qualname: str, node, function, visit, scope) -> None:
+    """Символ-функция с заданным именем (метод объекта, `NS.fn = …`); тело разбирается как её тело."""
+    ctx.facts.symbols.append(Symbol(qualname.rsplit(".", 1)[-1], qualname, "test" if ctx.test_file else "method" if "." in qualname else "function",
+                                    ctx.path, ctx.line_of(node), ctx.end_line_of(node),
+                                    signature=ctx.text(node).strip().splitlines()[0][:140], lang=ctx.language.id))
+    for child in function.children:
+        visit(ctx, child, scope, False, qualname)
+
+
 def _js_handle(ctx: Context, node, scope, in_class, caller, visit) -> bool:
     """Особые узлы JS/TS: стрелочные функции в переменных, импорты, `require`, `export ... from`."""
     kind = node.type
     in_function = caller != "<module>" and not caller.endswith(".<class>")
+    if kind == "assignment_expression" and not in_function:  # `NS.api = function () {}` / `window.NS.api = () => …`
+        left, right = node.child_by_field_name("left"), node.child_by_field_name("right")
+        if left is not None and right is not None and left.type == "member_expression" and right.type in JS_FUNCTION_VALUES:
+            owner, prop = left.child_by_field_name("object"), left.child_by_field_name("property")
+            if owner is not None and prop is not None:
+                owner_name = re.split(r"[.]", ctx.text(owner).strip())[-1]
+                name = ctx.text(prop).strip()
+                qualname = name if owner_name in ("exports", "module", "prototype", "window", "globalThis", "self") else f"{owner_name}.{name}"
+                _js_add_function(ctx, qualname, node, right, visit, scope)
+                return True
+        return False
     if kind == "variable_declarator" and not in_function:
         value = node.child_by_field_name("value")
         name_node = node.child_by_field_name("name")
+        if value is not None and name_node is not None and name_node.type == "identifier" and value.type == "object":
+            namespace = ctx.text(name_node)  # `const NS = { api() {…}, load: async () => {…} }` — методы объекта
+            for member in value.named_children:
+                function = member.child_by_field_name("value") if member.type == "pair" else member if member.type == "method_definition" else None
+                key = member.child_by_field_name("key" if member.type == "pair" else "name")
+                if function is not None and key is not None and (member.type == "method_definition" or function.type in JS_FUNCTION_VALUES):
+                    _js_add_function(ctx, f"{namespace}.{ctx.text(key).strip(chr(34) + chr(39))}", member, function, visit, scope)
+                else:
+                    for child in member.children:
+                        visit(ctx, child, scope, False, caller)
+            return True
         if value is not None and name_node is not None and value.type in JS_FUNCTION_VALUES and name_node.type == "identifier":
             name = ctx.text(name_node)
             qualname = ".".join(scope + [name])

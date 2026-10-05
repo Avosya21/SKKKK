@@ -47,6 +47,18 @@ class Import:
 
 
 @dataclass
+class Element:
+    """Элемент интерфейса с `id` в разметке: что на экране и какие функции вызывает атрибутами `onclick` и подобными."""
+
+    path: str
+    id: str
+    tag: str
+    line: int
+    label: str = ""
+    handlers: list[str] = field(default_factory=list)
+
+
+@dataclass
 class FileFacts:
     path: str
     language: str | None = None
@@ -54,5 +66,6 @@ class FileFacts:
     symbols: list[Symbol] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
     imports: list[Import] = field(default_factory=list)
+    elements: list[Element] = field(default_factory=list)
     lines: int = 0
     error: str = ""  # причина, по которой файл разобран не полностью

@@ -29,7 +29,7 @@ COMMON_METHODS = frozenset({
 SELF_QUALIFIERS = frozenset({"self", "cls", "this", "$this", "super", "base", "parent", "Self"})
 SAME_PACKAGE_LANGUAGES = frozenset({"go", "java", "kotlin", "scala", "csharp", "groovy", "swift"})
 CLASS_KINDS = frozenset({"class", "interface", "enum", "struct", "trait"})
-FAMILIES = {"python": "py", "javascript": "web", "typescript": "web", "tsx": "web", "java": "jvm", "kotlin": "jvm", "scala": "jvm",
+FAMILIES = {"python": "py", "javascript": "web", "typescript": "web", "tsx": "web", "html": "web", "java": "jvm", "kotlin": "jvm", "scala": "jvm",
             "groovy": "jvm", "c": "c", "cpp": "c", "objc": "c"}
 
 

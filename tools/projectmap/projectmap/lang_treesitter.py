@@ -48,8 +48,9 @@ class Spec:
 class Context:
     """Состояние обхода одного файла."""
 
-    def __init__(self, path: str, language: Language, spec: Spec, source: bytes) -> None:
+    def __init__(self, path: str, language: Language, spec: Spec, source: bytes, line_offset: int = 0) -> None:
         self.path = path
+        self.line_offset = line_offset  # номер строки фрагмента в файле минус единица (скрипт внутри HTML)
         self.language = language
         self.spec = spec
         self.source = source
@@ -62,10 +63,10 @@ class Context:
         return self.source[node.start_byte:node.end_byte].decode("utf-8", "replace")
 
     def line_of(self, node) -> int:
-        return node.start_point[0] + 1
+        return node.start_point[0] + 1 + self.line_offset
 
     def end_line_of(self, node) -> int:
-        return node.end_point[0] + 1
+        return node.end_point[0] + 1 + self.line_offset
 
 
 def _field_text(ctx: Context, node, *names: str) -> str | None:
@@ -216,8 +217,9 @@ def _visit(ctx: Context, node, scope: list[str], in_class: bool, caller: str) ->
         _visit(ctx, child, scope, in_class, caller)
 
 
-def extract_treesitter(root: Path, path: str, text: str, language: Language, spec: Spec) -> FileFacts:
-    """Факты одного файла не на Python. Нет грамматики — файловый уровень с пометкой."""
+def extract_treesitter(root: Path, path: str, text: str, language: Language, spec: Spec, *, line_offset: int = 0,
+                       with_module: bool = True) -> FileFacts:
+    """Факты одного файла не на Python (или фрагмента файла: `line_offset`, `with_module=False`). Нет грамматики — файловый уровень."""
     source = text.encode("utf-8")
     facts = FileFacts(path, language.id, language.tier, lines=len(text.splitlines()))
     try:
@@ -226,10 +228,11 @@ def extract_treesitter(root: Path, path: str, text: str, language: Language, spe
         facts.error = str(exc)
         return facts
     tree = parser.parse(source)
-    ctx = Context(path, language, spec, source)
+    ctx = Context(path, language, spec, source, line_offset)
     stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
     ctx.facts.lines = facts.lines
-    ctx.facts.symbols.append(Symbol(stem, path, "module", path, 1, max(facts.lines, 1), lang=language.id))
+    if with_module:
+        ctx.facts.symbols.append(Symbol(stem, path, "module", path, 1, max(facts.lines, 1), lang=language.id))
     _visit(ctx, tree.root_node, [], False, MODULE_CALLER)
     unique: dict[tuple[str, str], Symbol] = {}
     for symbol in ctx.facts.symbols:  # объявление и реализация (Objective-C, C++) дают один символ

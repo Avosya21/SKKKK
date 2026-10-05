@@ -130,7 +130,7 @@ def test_language_sample_gives_expected_facts(language):
 
 
 def test_every_supported_language_has_a_sample_and_capabilities():
-    supported = {lang.id for lang in LANGUAGES if lang.id != "python"}
+    supported = {lang.id for lang in LANGUAGES if not lang.native}
     assert supported == set(CASES), "на каждый язык реестра нужен образец"
     assert set(SPECS) | {"groovy"} == supported
     assert set(CAPABILITIES) == supported and all(set(v) <= set("scib") and "s" in v for v in CAPABILITIES.values())
@@ -197,3 +197,13 @@ def test_syntax_errors_are_marked_but_facts_are_kept():
 def test_results_are_deterministic():
     path, source = CASES["java"][:2]
     assert extract_file(ROOT, path, source) == extract_file(ROOT, path, source)
+
+
+def test_javascript_namespace_objects_give_method_symbols_and_resolvable_calls():
+    source = ("const NS = {\n  token() { return 1; },\n  async api(path) { return helper(path); },\n  load: () => NS.api('/x'),\n  version: 3,\n};\n"
+              "NS.extra = function () { return NS.token(); };\nwindow.G = {};\nwindow.G.run = () => NS.load();\nmodule.exports.exported = function () {};\n")
+    facts = extract_file(ROOT, "ns.js", source)
+    assert {(s.kind, s.qualname) for s in facts.symbols if s.kind != "module"} == {
+        ("method", "NS.token"), ("method", "NS.api"), ("method", "NS.load"), ("method", "NS.extra"), ("method", "G.run"), ("function", "exported")}
+    calls = {(c.caller, c.callee, c.qualifier) for c in facts.calls}
+    assert ("NS.api", "helper", "") in calls and ("NS.load", "api", "NS") in calls and ("NS.extra", "token", "NS") in calls
