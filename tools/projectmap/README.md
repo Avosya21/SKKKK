@@ -37,6 +37,12 @@ targets: {проба: минимальная доля охвата}
 Пробы: файлы, функции скриптов, сервисы compose, запуски «скрипт → скрипт», ссылки документов, интерфейс ↔ API, таблицы,
 переменные окружения, тесты, история, метрики.
 
+## Языки и грамматики
+
+Python разбирается стандартным `ast`. Остальные языки — через tree-sitter (`tree-sitter`, `tree-sitter-language-pack`): Java, Kotlin, Go,
+Rust, C, C++, C#, Ruby, PHP, Swift, Groovy, Objective-C, Scala, Dart, Lua, Shell, PowerShell, JavaScript и TypeScript. Грамматики скачиваются один раз
+в `.projectmap/grammars` (не в git), дальше разбор идёт без интернета. Язык без грамматики остаётся на файловом уровне.
+
 ## Запуск из репозитория
 
 ```

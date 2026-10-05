@@ -3059,6 +3059,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_grammars
+    kind: file
+    path: tools/projectmap/projectmap/grammars.py
+    title: "Грамматики tree-sitter: локальный кэш проекта, какие языки доступны и как докачать недостающие."
+    tags: [auto]
+    auto: true
+
+  - id: tool_languages
+    kind: file
+    path: tools/projectmap/projectmap/languages.py
+    title: "Реестр языков: расширения файлов, уровень поддержки и имя грамматики tree-sitter."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
