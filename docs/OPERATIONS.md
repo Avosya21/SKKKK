@@ -16,7 +16,7 @@ cd C:\1C_NEW_SKKKK
 
 | Команда | Что делает |
 |---|---|
-| `main` или `main all` | проверка систем, Caddy, LiveKit, очистка голоса (`skkkk-dfn`), портал и воркер |
+| `main` или `main all` | проверка систем, Caddy, LiveKit, запись голоса (`skkkk-dfn`), портал и воркер |
 | `main check` | только проверка систем, код возврата 2 при провале |
 | `main api` | Caddy + LiveKit + очистка голоса + веб-портал |
 | `main worker` | только GPU-воркер |
@@ -66,9 +66,9 @@ cd C:\1C_NEW_SKKKK
 и `:777` (HTTPS). Порт 443 не используем. Гостевая встреча: `https://<хост>:777/m/{token}`
 (страница без входа в портал; сырой токен в БД не хранится).
 LiveKit — обычный процесс `tools/livekit/livekit-server.exe`, не Docker.
-Очистка голоса в комнате — **на сервере**: `venv\Scripts\python.exe scripts\install_meeting_voice.py`, затем перезапуск портала. Процесс `voice_cleaner` (CPU, `skkkk-dfn`) чистит каждую дорожку для всех. Нет `venvs/voice` — обычный звук. ASR / `01_audio` не трогает. Сила DFN: `MEETING_VOICE_ATTEN_LIM` (дБ, по умолчанию 20; `0` = полная модель). `MEETING_VOICE_POST_FILTER=1` — жёстче. Клиентский DFN3 не включать (`MEETING_VOICE_DFN3=0`) — иначе двойной денойз. Живой `enhance(..., pad=True)`: иначе каждый чанк короче входа, хвост добивается тишиной — в комнате голос «разваливается», сырая запись для ASR остаётся нормальной. После правки `voice_cleaner.py` нужен перезапуск процесса (не посреди встречи).
+Шумодав голоса в комнате — **в браузере говорящего** (DFN3, `static/vendor/dfn3`, ставит `scripts/fetch_meeting_dfn3.py`): процессор livekit-client на микрофоне, слушатели получают одну очищенную дорожку, кнопка «Шумодав» включает и выключает фильтр у себя. `MEETING_VOICE_DFN3=0` — везде шумоподавление браузера. На телефоне и без WASM — тоже шумоподавление браузера. Рядом браузер публикует сырую дорожку `skkkk-raw` (захват до DFN3) — её слушает только рекордер. ASR / `01_audio` не трогает.
 
-Тот же процесс пишет **сырые** дорожки спикеров в `data/meetings/{room_name}/tracks/*.wav` и `manifest.json` (все файлы одной комнаты = один созвон). Чистый звук `skkkk-dfn` в архив не кладётся. `MEETING_RECORD=0` — без записи. `events.jsonl` появляется после реального входа в LiveKit, не после API `join`. Видео шаринга пишет отдельный `skkkk-rec` (`tools/livekit/screen_recorder.py`) в ту же `tracks/` (`{identity}-screen_video-{sid}.mp4`), `MEETING_SCREEN_RECORD=0` выключает файлы.
+Рекордер голоса `voice_cleaner` (участник `skkkk-dfn`, имя историческое; ставит `venv\Scripts\python.exe scripts\install_meeting_voice.py`, нужен только livekit SDK) пишет **сырые** дорожки спикеров (`skkkk-raw`, без неё — основную) в `data/meetings/{room_name}/tracks/*.wav` и `manifest.json` (все файлы одной комнаты = один созвон). Очищенный звук в архив не кладётся. `MEETING_RECORD=0` — без записи. `events.jsonl` появляется после реального входа в LiveKit, не после API `join`. Видео шаринга пишет отдельный `skkkk-rec` (`tools/livekit/screen_recorder.py`) в ту же `tracks/` (`{identity}-screen_video-{sid}.mp4`), `MEETING_SCREEN_RECORD=0` выключает файлы.
 
 **Потолок:** перезапуск `voice_cleaner` посреди живой встречи открывает WAV заново (`wave.open(..., "wb")`) и обрезает уже записанное. То же для `screen_recorder` (`skkkk-rec`): mid-call рестарт бросает текущий ffmpeg и начинает новый mp4. Код рекордеров менять только между встречами; в комнате — дождаться «Завершить». После смены кода перезапустить портал (или только `voice_cleaner` / `screen_recorder`).
 

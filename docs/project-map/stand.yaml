@@ -121,7 +121,7 @@ items:
   # ─── venvs ───
   - {path: "venvs/lab", kind: "окружение", purpose: "ONNX-контур ASR: Parakeet-TDT, Sortformer, Silero VAD", optional: true}
   - {path: "venvs/nemo-diar", kind: "окружение", purpose: "Nemotron 3 Diarization (NeMo + torch) отдельным процессом", optional: true}
-  - {path: "venvs/voice", kind: "окружение", purpose: "DeepFilterNet: голосовой чистильщик комнаты (skkkk-dfn, CPU)", optional: true}
+  - {path: "venvs/voice", kind: "окружение", purpose: "livekit SDK: рекордер голоса (skkkk-dfn) и запись экрана (skkkk-rec)", optional: true}
   - {path: "venvs/gigaam", kind: "окружение", purpose: "легаси-движок GigaAM (asr/engines.json), в рабочем контуре не вызывается", optional: true}
   - {path: "venvs/tone", kind: "окружение", purpose: "легаси-движок T-one, откат", optional: true}
   - {path: "venvs/whisper", kind: "окружение", purpose: "легаси-движок Whisper large-v3, откат", optional: true}
