@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "projectmap"
+version = "0.0.1"
+description = "Карта любого проекта: граф кода, интерфейсов, данных, настроек, тестов и истории, с проверкой полноты"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx>=3.2",
+    "pyyaml>=6",
+]
+
+[project.scripts]
+projectmap = "projectmap.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["projectmap*"]

@@ -43,7 +43,7 @@ CODE_GLOBS = [
     "app/app/*.py", "app/app/services/*.py", "app/app/routers/*.py", "app/app/models/*.py", "app/app/workers/*.py",
     "app/app/mcp/*.py", "app/app/services/project_index/*.py", "app/app/static/*.js", "app/app/static/*.css", "app/app/templates/*.html",
     "app/app/templates/partials/*.html", "asr/*.py", "asr/lab/*.py", "scripts/*.py", "scripts/*.ps1", "scripts/smoke/*.py",
-    "tools/*.py", "tools/livekit/*.py",
+    "tools/*.py", "tools/livekit/*.py", "tools/projectmap/projectmap/*.py",
 ]
 DOC_DIRS = ["app/app/services", "app/app/routers", "app/app/models", "app/app/workers", "app/app/mcp", "app/app/services/project_index"]
 

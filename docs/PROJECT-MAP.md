@@ -181,6 +181,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | `docs/stages/` | STAGE-NN: критерии готовности этапов |
 | `scripts/` | Утилиты, мониторинг, rerun, индекс карты |
 | `tools/lightrag/` | **LightRAG** Docker (:9621) — граф знаний по docs (кнопки, API, БД) |
+| `tools/projectmap/` | **projectmap** — переносимый инструмент карты проекта (ядро, адаптеры стека, CLI, просмотрщик; этап 0 плана `docs/plans/PROJECTMAP-PLAN.md`) |
 | `tools/android/` | Эмулятор Android (sdk, jdk, avd, platform-tools) — мобильные проверки комнаты; в git не хранится |
 | `docs/project-map/` | Манифест карты, атлас зависимостей `DEPENDENCIES.md` и свод `graph-modules.json` (§16) |
 | `data/project_map_graph.json` | Полный граф зависимостей проекта (рабочий артефакт, в git не хранится) |
@@ -2107,6 +2108,13 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `screen_recorder.py` | CPU screen-share recorder for live rooms. Not DFN. Not ASR. Not camera. |
 | `voice_cleaner.py` | Рекордер голоса комнаты: пишет каждого человека в свою WAV-дорожку для двойного слуха. Не ASR, не GPU. |
 
+**`tools/projectmap/projectmap/`**
+
+| Файл | Назначение |
+|---|---|
+| `__main__.py` | Запуск `python -m projectmap`. |
+| `cli.py` | Командная строка projectmap: `projectmap <команда>`. |
+
 <!-- generated:end registry -->
 
 ---
@@ -2162,7 +2170,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-05 00:16: сущностей 127, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-05 00:16: сущностей 128, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2243,6 +2251,7 @@ _Проверено 2026-10-05 00:16: сущностей 127, не описан�
 | `tools/libreoffice` | бинарник | LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git _(может отсутствовать)_ | нет |
 | `tools/lightrag` | сервис | LightRAG в Docker (:9621): граф знаний по документации | да |
 | `tools/livekit` | сервис | livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py | да |
+| `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
 | `tools/tesseract` | бинарник | OCR rus+eng и tessdata; бинарник не в git, языковые данные в git _(может отсутствовать)_ | да |
 | `tools/projindex_mcp.py` | MCP | MCP-сервер индекса карты (stdio): поиск по коду и графу | да |
 | `tools/_monitor_snapshot.py` | утилита | снимок состояния для мониторинга | да |

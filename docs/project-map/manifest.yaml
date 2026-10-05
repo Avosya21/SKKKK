@@ -2975,6 +2975,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool___main__
+    kind: file
+    path: tools/projectmap/projectmap/__main__.py
+    title: "Запуск `python -m projectmap`."
+    tags: [auto]
+    auto: true
+
+  - id: tool_cli
+    kind: file
+    path: tools/projectmap/projectmap/cli.py
+    title: "Командная строка projectmap: `projectmap <команда>`."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
