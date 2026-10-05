@@ -15,7 +15,7 @@ import yaml
 
 from projectmap.context import ProjectContext
 from projectmap.coverage import Coverage, Report, make_coverage
-from projectmap.paths import is_test_path
+from projectmap.paths import is_test_path, unique_script_names
 
 CODE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs", ".c", ".cc", ".cpp", ".h", ".swift")
 SCRIPT_SUFFIXES = (".py", ".ps1", ".sh", ".bat", ".cmd")
@@ -60,8 +60,8 @@ def compose_services_probe(ctx: ProjectContext) -> list[Coverage]:
 
 def script_refs_probe(ctx: ProjectContext) -> list[Coverage]:
     """Упоминания одним файлом кода или скрипта другого скрипта по имени (`run_x.py`) и есть ли такая связь в графе."""
-    scripts = {p.split("/")[-1]: p for p in ctx.considered if p.endswith(SCRIPT_SUFFIXES) and not is_test_path(p)}
-    names = [n for n in scripts if len(n) >= 8 and re.search(r"[_.-]", n[:-len(n.split('.')[-1]) - 1])]
+    scripts = unique_script_names(ctx.considered)
+    names = list(scripts)
     pairs: list[str] = []
     present: set[str] = set()
     for path in ctx.considered:
@@ -103,7 +103,8 @@ def doc_refs_probe(ctx: ProjectContext) -> list[Coverage]:
         a, b = ctx.file_node_ids.get(doc), ctx.file_node_ids.get(target)
         if a and b and (a, b) in ctx.file_links:
             in_graph.add(f"{doc} → {target}")
-    existing = [f"{doc} → {target}" for doc, target in refs if target in exists]
+    files = set(ctx.tracked)
+    existing = [f"{doc} → {target}" for doc, target in refs if target in files]
     return [
         make_coverage("meaning", "doc_refs_valid", "Ссылки документов на файлы ведут на существующее", labels, valid,
                       "пропуск = битая ссылка"),
@@ -111,11 +112,15 @@ def doc_refs_probe(ctx: ProjectContext) -> list[Coverage]:
     ]
 
 
+INTERACTIVE_TAGS = frozenset({"button", "a", "input", "select", "textarea", "form", "summary"})
+
+
 def ui_api_probe(ctx: ProjectContext) -> list[Coverage]:
-    expected = [n["id"] for n in ctx.nodes_of("ui")]
+    """Интерактивные элементы (кнопка, ссылка, поле, форма) должны вести к обработчику или к API; контейнеры и подписи — нет."""
+    expected = [n["id"] for n in ctx.nodes_of("ui") if n.get("sub") in INTERACTIVE_TAGS]
     api = {"handled_by", "handles", "calls_api"}
     present = {i for i in expected if ctx.touched_by.get(i, set()) & api}
-    return [make_coverage("interfaces", "ui_api", "Элементы интерфейса связаны с обработчиком или API", expected, present)]
+    return [make_coverage("interfaces", "ui_api", "Интерактивные элементы связаны с обработчиком или API", expected, present)]
 
 
 def data_access_probe(ctx: ProjectContext) -> list[Coverage]:
@@ -125,9 +130,15 @@ def data_access_probe(ctx: ProjectContext) -> list[Coverage]:
 
 
 def env_probe(ctx: ProjectContext) -> list[Coverage]:
-    expected = [n["id"] for n in ctx.nodes_of("env")]
-    present = {i for i in expected if "reads_env" in ctx.touched_by.get(i, set())}
-    return [make_coverage("settings", "env", "Переменные окружения с известным читателем в коде", expected, present)]
+    """Две стороны одного вопроса: каждая читаемая кодом переменная описана в образце (`.env.example`, compose), и каждая описанная читается."""
+    envs = [n for n in ctx.nodes_of("env") if not ctx.config.is_env_ignored(n.get("label") or str(n["id"]).split(":", 1)[-1])]
+    read = [n["id"] for n in envs if "reads_env" in ctx.touched_by.get(n["id"], set())]
+    declared = {n["id"] for n in envs if n.get("declared") or "declares" in ctx.touched_by.get(n["id"], set())}
+    declared_list = sorted(declared)
+    read_set = set(read)
+    return [make_coverage("settings", "env", "Читаемые кодом переменные окружения описаны в образце", read, declared),
+            make_coverage("settings", "env_used", "Описанные в образце переменные читаются кодом", declared_list, read_set,
+                          "пропуск = переменная описана, но код её не читает (или читает другой язык вне разбора)")]
 
 
 def tests_probe(ctx: ProjectContext) -> list[Coverage]:

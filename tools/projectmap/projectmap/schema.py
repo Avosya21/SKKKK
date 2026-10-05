@@ -59,6 +59,7 @@ RELATIONS: dict[str, tuple[str, str]] = {
     "handles": ("interfaces", "обрабатывает"),
     "handled_by": ("interfaces", "обрабатывается"),
     "calls_api": ("interfaces", "обращается к API"),
+    "renders": ("interfaces", "отдаёт шаблон"),
     "guarded_by": ("interfaces", "защищён проверкой прав"),
     "reads": ("data", "читает таблицу"),
     "writes": ("data", "пишет в таблицу"),

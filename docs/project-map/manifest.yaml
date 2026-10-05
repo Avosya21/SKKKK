@@ -3150,6 +3150,69 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_adapter_docker
+    kind: file
+    path: tools/projectmap/projectmap/adapter_docker.py
+    title: "Адаптер Docker: сервисы compose-файлов как узлы `service` и их связи с файлами проекта."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapter_env
+    kind: file
+    path: tools/projectmap/projectmap/adapter_env.py
+    title: "Адаптер настроек: переменные окружения, которые код читает, и файлы-образцы, где они объявлены."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapter_fastapi
+    kind: file
+    path: tools/projectmap/projectmap/adapter_fastapi.py
+    title: "Адаптер FastAPI (и совместимых: Starlette, APIRouter): веб-роуты, обработчики, зависимости и проверки прав."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapter_markdown
+    kind: file
+    path: tools/projectmap/projectmap/adapter_markdown.py
+    title: "Адаптер документов: ссылки Markdown-файлов на файлы проекта становятся связями `refers_to`."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapter_scripts
+    kind: file
+    path: tools/projectmap/projectmap/adapter_scripts.py
+    title: "Адаптер запусков: один файл кода или скрипта запускает другой по имени (`run_pipeline.py`, `deploy.ps1`, `build.sh`)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapter_sqlalchemy
+    kind: file
+    path: tools/projectmap/projectmap/adapter_sqlalchemy.py
+    title: "Адаптер SQLAlchemy: таблицы и столбцы моделей, кто читает и пишет таблицы."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapter_web
+    kind: file
+    path: tools/projectmap/projectmap/adapter_web.py
+    title: "Адаптер связи экрана с сервером: обращения скриптов к адресам API (`calls_api`) и шаблоны, которые отдаёт серверный код (`renders`)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_adapters
+    kind: file
+    path: tools/projectmap/projectmap/adapters.py
+    title: "Адаптеры стека: знание фреймворков и среды поверх общего разбора кода."
+    tags: [auto]
+    auto: true
+
+  - id: tool_graphbuf
+    kind: file
+    path: tools/projectmap/projectmap/graphbuf.py
+    title: "Общие части построения графа: идентификаторы узлов, буфер рёбер, чтение файлов, поиск функции по строке."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

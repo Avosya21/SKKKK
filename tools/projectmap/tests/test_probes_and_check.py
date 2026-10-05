@@ -40,9 +40,9 @@ def project(tmp_path):
             {"id": "f:deploy", "kind": "file", "path": "tools/deploy.ps1"},
             {"id": "sym:deploy", "kind": "symbol", "path": "tools/deploy.ps1", "label": "Start-Deploy"},
             {"id": "svc:web", "kind": "service", "path": "docker-compose.yml", "label": "web"},
-            {"id": "ui:btn", "kind": "ui"}, {"id": "ui:lonely", "kind": "ui"}, {"id": "api:post", "kind": "route"},
+            {"id": "ui:btn", "kind": "ui", "sub": "button"}, {"id": "ui:lonely", "kind": "ui", "sub": "button"}, {"id": "ui:box", "kind": "ui", "sub": "div"}, {"id": "api:post", "kind": "route"},
             {"id": "tbl:users", "kind": "table"}, {"id": "tbl:log", "kind": "table"},
-            {"id": "env:KEY", "kind": "env"}, {"id": "env:OTHER", "kind": "env"},
+            {"id": "env:KEY", "kind": "env", "declared": True}, {"id": "env:OTHER", "kind": "env", "declared": True},
         ],
         "edges": [
             {"from": "f:app", "to": "s:run", "rel": "defines"}, {"from": "f:helper", "to": "s:help", "rel": "defines"},
@@ -89,9 +89,10 @@ def test_doc_refs_find_broken_links_and_missing_edges(project):
 
 def test_interface_data_settings_and_test_probes(project):
     probes = _by_probe(run_probes(project, ["ui_api", "data_access", "env", "tests"]))
-    assert (probes["ui_api"].total, probes["ui_api"].covered) == (2, 1)
+    assert (probes["ui_api"].total, probes["ui_api"].covered) == (2, 1)  # контейнер div в проверку не входит
     assert (probes["data_access"].total, probes["data_access"].covered) == (2, 1)
-    assert (probes["env"].total, probes["env"].covered) == (2, 1)
+    assert (probes["env"].total, probes["env"].covered) == (1, 1)  # KEY читается и описана
+    assert (probes["env_used"].total, probes["env_used"].covered) == (2, 1) and probes["env_used"].missing == ["env:OTHER"]
     tests = probes["tests"]
     assert tests.missing == ["src/helper_tool.py"] and tests.covered == 1 and tests.status == "gap"
 
@@ -119,7 +120,7 @@ def test_check_command_prints_report_and_strict_fails_on_gaps(project, capsys):
     capsys.readouterr()
     assert main(["check", "--root", str(root), "--format", "json", "--only", "env"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert [c["probe"] for c in data["coverages"]] == ["env"]
+    assert [c["probe"] for c in data["coverages"]] == ["env", "env_used"]
     out_file = root / "report.md"
     assert main(["check", "--root", str(root), "--format", "markdown", "--output", str(out_file)]) == 0
     assert "| Слой | Охват |" in out_file.read_text(encoding="utf-8")
