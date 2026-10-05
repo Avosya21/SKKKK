@@ -170,6 +170,64 @@ def metrics_probe(ctx: ProjectContext) -> list[Coverage]:
     return [make_coverage("metrics", "metrics", "Файлы кода с метриками (fan-in/out, группа)", expected, present)]
 
 
+def _map_text(ctx: ProjectContext) -> str | None:
+    """Текст файлов карты из конфига (`map.files`); None, если карта не настроена или файлов нет."""
+    texts = []
+    for rel in ctx.config.map_files:
+        path = ctx.root / rel
+        if path.is_file():
+            texts.append(path.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(texts) if texts else None
+
+
+def _normal_params(text: str) -> str:
+    return re.sub(r"\{[^}/]*\}", "{}", text)
+
+
+def _route_mentioned(needle: str, normal_text: str) -> bool:
+    """Адрес роута в карте: с другими именами параметров (`{id}` вместо `{project_id}`) или сокращённый до хвоста (`…/artifacts/{}/rebuild-summary`)."""
+    if not needle.startswith("/"):
+        return False
+    path = _normal_params(needle)
+    if path in normal_text:
+        return True
+    segments = path.strip("/").split("/")
+    tail = "/" + "/".join(segments[2:]) if len(segments) > 3 else ""
+    return bool(tail) and tail in normal_text
+
+
+def map_mentions_probe(ctx: ProjectContext) -> list[Coverage]:
+    """Каждый роут, таблица, переменная окружения и сервис графа упомянут в файлах карты."""
+    title = "Сущности графа (роуты, таблицы, переменные, сервисы) упомянуты в карте"
+    text = _map_text(ctx)
+    if text is None:
+        return [make_coverage("meaning", "map_mentions", title, [], set())]
+    expected: dict[str, str] = {}
+    for n in ctx.graph.get("nodes", []):
+        label = n.get("label") or ""
+        if n["kind"] == "route":
+            expected[label] = label.split(" ", 1)[-1]
+        elif n["kind"] in ("table", "service"):
+            expected[f"{n['kind']}:{label}"] = label
+        elif n["kind"] == "env" and not ctx.config.is_env_ignored(label):
+            expected[f"env:{label}"] = label
+    normal = _normal_params(text)
+    present = {key for key, needle in expected.items() if needle and (needle in text or _route_mentioned(needle, normal))}
+    return [make_coverage("meaning", "map_mentions", title, list(expected), present,
+                          "роут считается упомянутым, если в карте есть его адрес целиком, с любыми именами параметров, или хвост адреса после двух первых сегментов")]
+
+
+def map_described_probe(ctx: ProjectContext) -> list[Coverage]:
+    """Строки таблиц карты, у которых описание вписано, а не оставлено меткой или черновиком."""
+    from projectmap.scaffold import is_unfinished, parse_descriptions
+
+    title = "Строки карты с вписанным описанием"
+    rows = {f"{section}: {key}": desc for section, items in parse_descriptions(_map_text(ctx) or "").items() for key, desc in items.items()}
+    present = {key for key, desc in rows.items() if not is_unfinished(desc)}
+    return [make_coverage("meaning", "map_described", title, list(rows), present,
+                          "пропуск = в строке метка ⟨описать⟩ или ⟨черновик⟩: впишите смысл и уберите метку")]
+
+
 PROBES: dict[str, Callable[[ProjectContext], list[Coverage]]] = {
     "files": files_probe,
     "shell_functions": shell_functions_probe,
@@ -182,6 +240,8 @@ PROBES: dict[str, Callable[[ProjectContext], list[Coverage]]] = {
     "tests": tests_probe,
     "history": history_probe,
     "metrics": metrics_probe,
+    "map_mentions": map_mentions_probe,
+    "map_described": map_described_probe,
 }
 
 

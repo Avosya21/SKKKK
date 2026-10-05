@@ -1,6 +1,6 @@
 """Командная строка projectmap: `projectmap <команда>`.
 
-Реализованы все команды: `version`, `init`, `index`, `graph`, `check`, `export`, `serve`, `hooks`, `mcp` (и служебная `hook` для git); остальные команды объявлены, чтобы интерфейс был виден с первого дня, и отвечают,
+Реализованы все команды: `version`, `init`, `index`, `graph`, `check`, `export`, `serve`, `map`, `hooks`, `mcp` (и служебная `hook` для git); остальные команды объявлены, чтобы интерфейс был виден с первого дня, и отвечают,
 на каком этапе плана они появятся (код выхода 2).
 """
 
@@ -56,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     _common(init)
     init.add_argument("--force", action="store_true", help="перезаписать существующий конфиг")
     init.add_argument("--hooks", action="store_true", help="сразу поставить git-хуки")
+    scaffold = sub.add_parser("map", help="создать или обновить документ карты (Markdown) по графу: роуты, таблицы, настройки, модули")
+    _common(scaffold)
+    scaffold.add_argument("--graph", default="", help="готовый граф (json); по умолчанию из конфига, а если его нет — строится заново")
+    scaffold.add_argument("--output", default="", help="файл карты; по умолчанию первый из `map.files` конфига или docs/PROJECT-MAP.md")
+    scaffold.add_argument("--check", action="store_true", help="ничего не писать; код выхода 1, если документ отстаёт от графа")
     hooks = sub.add_parser("hooks", help="git-хуки: личные данные в коммите и карта вместе с кодом")
     _common(hooks)
     hooks.add_argument("action", choices=["install", "uninstall", "status"])
@@ -122,6 +127,27 @@ def run_index(args: argparse.Namespace, *, atlas: bool) -> int:
         atlas_path.write_text(render_atlas(graph), encoding="utf-8", newline="")
         print(f"записано: {atlas_path}")
     return 1 if problems else 0
+
+
+def run_map_command(args: argparse.Namespace) -> int:
+    from projectmap.scaffold import render_document
+
+    root, config = _load(args)
+    graph_path = Path(args.graph) if args.graph else root / config.graph
+    graph = load_graph(graph_path) if graph_path.is_file() else build_and_write(root, config, graph_path)
+    output = Path(args.output) if args.output else root / (config.map_files[0] if config.map_files else "docs/PROJECT-MAP.md")
+    existing = output.read_text(encoding="utf-8") if output.is_file() else None
+    text, report = render_document(graph, config, existing, title=config.title or root.name)
+    summary = (f"строк {report['rows']}, без вписанного описания {report['unfinished']}"
+               + (f", добавлено {report['added']}, удалено {report['removed']}" if existing else ""))
+    if args.check:
+        stale = existing != text
+        print(("карта отстаёт от графа: " if stale else "карта актуальна: ") + summary)
+        return 1 if stale else 0
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(text, encoding="utf-8", newline="")
+    print(f"записано: {output} ({summary})")
+    return 0
 
 
 def run_init_command(args: argparse.Namespace) -> int:
@@ -244,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_check(args)
     if args.command == "init":
         return run_init_command(args)
+    if args.command == "map":
+        return run_map_command(args)
     if args.command == "hooks":
         return run_hooks_command(args)
     if args.command == "hook":

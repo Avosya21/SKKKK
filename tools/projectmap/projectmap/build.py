@@ -100,10 +100,14 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
                                 "path": path, "line": None, "group": groups[path], "layer": "file"}
         for symbol in file_facts.symbols:
             if symbol.kind == "module":
+                if symbol.doc:
+                    nodes[file_id(path)]["doc"] = symbol.doc[:240]
                 continue
             sid = symbol_id(path, symbol.qualname)
             nodes[sid] = {"id": sid, "kind": "symbol", "label": symbol.name, "sub": symbol.kind, "path": path, "line": symbol.line,
                           "group": groups[path], "layer": "symbol", "lang": symbol.lang, "sig": symbol.signature[:160]}
+            if symbol.doc:
+                nodes[sid]["doc"] = symbol.doc[:240]
             edges.add(file_id(path), sid, "defines", symbol.line)
         for element in file_facts.elements:
             uid = ui_id(path, element.id)
