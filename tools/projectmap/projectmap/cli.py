@@ -1,6 +1,6 @@
 """Командная строка projectmap: `projectmap <команда>`.
 
-Реализованы `version`, `index`, `graph`, `check`, `export` и `serve`; остальные команды объявлены, чтобы интерфейс был виден с первого дня, и отвечают,
+Реализованы все команды: `version`, `init`, `index`, `graph`, `check`, `export`, `serve`, `hooks`, `mcp` (и служебная `hook` для git); остальные команды объявлены, чтобы интерфейс был виден с первого дня, и отвечают,
 на каком этапе плана они появятся (код выхода 2).
 """
 
@@ -24,12 +24,8 @@ from projectmap.probes import PROBES, run_probes
 from projectmap.schema import validate_graph
 from projectmap.view import build_view
 
-# команда -> (что делает, этап плана, на котором появится)
-PLANNED: dict[str, tuple[str, int]] = {
-    "init": ("определить стек проекта, создать конфиг и заготовку карты", 5),
-    "hooks": ("поставить или снять git-хуки проверки карты", 5),
-    "mcp": ("запустить MCP-сервер карты для ИИ-агентов", 5),
-}
+# команда -> (что делает, этап плана, на котором появится); все команды реализованы, словарь оставлен для будущих
+PLANNED: dict[str, tuple[str, int]] = {}
 COMMANDS = PLANNED  # совместимость: объявленные, но ещё не реализованные команды
 
 
@@ -56,6 +52,22 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--output", default="", help="записать отчёт в файл вместо вывода на экран")
     check.add_argument("--only", action="append", default=[], choices=sorted(PROBES), help="только эти пробы")
     check.add_argument("--strict", action="store_true", help="код выхода 1, если охват ниже цели")
+    init = sub.add_parser("init", help="определить стек проекта, создать .projectmap/config.yaml и правила .gitignore")
+    _common(init)
+    init.add_argument("--force", action="store_true", help="перезаписать существующий конфиг")
+    init.add_argument("--hooks", action="store_true", help="сразу поставить git-хуки")
+    hooks = sub.add_parser("hooks", help="git-хуки: личные данные в коммите и карта вместе с кодом")
+    _common(hooks)
+    hooks.add_argument("action", choices=["install", "uninstall", "status"])
+    hooks.add_argument("--force", action="store_true", help="заменить чужой хук (он сохранится и будет выполняться после нашего)")
+    hook = sub.add_parser("hook", help="служебная: вызов проверок из git-хуков")
+    _common(hook)
+    hook.add_argument("name")
+    hook.add_argument("hook_args", nargs="*")
+    mcp = sub.add_parser("mcp", help="MCP-сервер карты для ИИ-агентов (stdio, только чтение)")
+    _common(mcp)
+    mcp.add_argument("--graph", default="", help="граф (json); по умолчанию из конфига")
+    mcp.add_argument("--print-config", action="store_true", help="напечатать фрагмент .mcp.json для подключения и выйти")
     export = sub.add_parser("export", help="выгрузить карту: HTML-просмотрщик одним файлом, json, GraphML, DOT")
     _common(export)
     export.add_argument("--format", choices=FORMATS, default="html")
@@ -110,6 +122,46 @@ def run_index(args: argparse.Namespace, *, atlas: bool) -> int:
         atlas_path.write_text(render_atlas(graph), encoding="utf-8", newline="")
         print(f"записано: {atlas_path}")
     return 1 if problems else 0
+
+
+def run_init_command(args: argparse.Namespace) -> int:
+    from projectmap.hooks import install
+    from projectmap.init import run_init
+
+    root = Path(args.root).resolve()
+    code, messages = run_init(root, force=args.force)
+    for message in messages:
+        print(message)
+    if code == 0 and args.hooks:
+        for name, state in install(root).items():
+            print(f"хук {name}: {state}")
+    if code == 0:
+        print("дальше: projectmap index → projectmap check → projectmap export (или projectmap serve)")
+    return code
+
+
+def run_hooks_command(args: argparse.Namespace) -> int:
+    from projectmap import hooks
+
+    root = Path(args.root).resolve()
+    try:
+        result = {"install": lambda: hooks.install(root, force=args.force), "uninstall": lambda: hooks.uninstall(root), "status": lambda: hooks.status(root)}[args.action]()
+    except RuntimeError as exc:
+        print(f"projectmap hooks: {exc}", file=sys.stderr)
+        return 2
+    for name, state in result.items():
+        print(f"{name}: {state}")
+    return 1 if any(str(s).startswith("skipped") for s in result.values()) else 0
+
+
+def run_mcp_command(args: argparse.Namespace) -> int:
+    from projectmap import mcp_server
+
+    root, config = _load(args)
+    if args.print_config:
+        print(json.dumps(mcp_server.client_config(root), ensure_ascii=False, indent=2))
+        return 0
+    return mcp_server.serve(root, Path(args.graph) if args.graph else root / config.graph)
 
 
 def _view_of(args: argparse.Namespace) -> tuple[Path, dict]:
@@ -190,6 +242,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_index(args, atlas=args.command == "graph")
     if args.command == "check":
         return run_check(args)
+    if args.command == "init":
+        return run_init_command(args)
+    if args.command == "hooks":
+        return run_hooks_command(args)
+    if args.command == "hook":
+        from projectmap.hooks import run_hook
+
+        return run_hook(args.name, Path(args.root).resolve(), args.hook_args)
+    if args.command == "mcp":
+        return run_mcp_command(args)
     if args.command == "export":
         return run_export(args)
     if args.command == "serve":

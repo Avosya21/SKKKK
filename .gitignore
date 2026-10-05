@@ -132,3 +132,6 @@ Panel_users.txt
 
 # библиотека просмотрщика projectmap лежит в репозитории: страница выгружается без интернета
 !tools/projectmap/projectmap/viewer/vendor/
+
+# сборка колеса projectmap
+tools/projectmap/build/
