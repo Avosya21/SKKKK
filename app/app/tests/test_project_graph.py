@@ -259,3 +259,97 @@ def test_ui_element_links_to_route_and_js(tmp_path):
     assert ("handled_by", G._symbol_id("static/app.js", "pickMic")) in edges
     assert ("calls_api", G._node_id("route", "POST /api/x")) in edges
     conn.close()
+
+
+# ───────────────────────────── разрешение вызовов (этап 2 projectmap) ─────────────────────────────
+
+def _calls_to(graph, path, name):
+    return [e for e in graph["edges"] if e["rel"] == "calls" and e["to"] == G._symbol_id(path, name)]
+
+
+def _call_graph(tmp_path, files, calls, imports=()):
+    conn = _tiny_index(tmp_path, files, calls=calls, imports=imports)
+    graph = G.build(conn, include_manifest=False, include_history=False)
+    conn.close()
+    return graph
+
+
+def _module(path):
+    return (path, path, "module", 1, 20)
+
+
+def test_ambiguous_name_is_not_linked_by_guessing(tmp_path):
+    files = {"a.py": [_module("a.py"), ("resolve", "resolve", "function", 2, 4)],
+             "b.py": [_module("b.py"), ("resolve", "resolve", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "resolve", "", 3)])
+    assert not _calls_to(graph, "a.py", "resolve") and not _calls_to(graph, "b.py", "resolve")
+    assert any("неоднозначных (не связаны) 1" in note for note in graph["notes"])
+
+
+def test_imported_name_resolves_to_the_file_it_comes_from(tmp_path):
+    files = {"a.py": [_module("a.py"), ("resolve", "resolve", "function", 2, 4)],
+             "b.py": [_module("b.py"), ("resolve", "resolve", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "resolve", "", 3)], imports=[("caller.py", "b", "resolve", 1)])
+    edges = _calls_to(graph, "b.py", "resolve")
+    assert len(edges) == 1 and edges[0]["how"] == "import" and not _calls_to(graph, "a.py", "resolve")
+
+
+def test_module_qualified_call_resolves_through_the_imported_module(tmp_path):
+    files = {"pkg/people.py": [_module("pkg/people.py"), ("resolve", "resolve", "function", 2, 4)],
+             "pkg/other.py": [_module("pkg/other.py"), ("resolve", "resolve", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "resolve", "people", 3)], imports=[("caller.py", "pkg", "people", 1)])
+    edges = _calls_to(graph, "pkg/people.py", "resolve")
+    assert len(edges) == 1 and edges[0]["how"] == "module" and not _calls_to(graph, "pkg/other.py", "resolve")
+
+
+def test_self_call_resolves_to_a_method_of_the_same_class(tmp_path):
+    files = {"a.py": [_module("a.py"), ("run", "Box.run", "method", 2, 4), ("helper", "Box.helper", "method", 5, 6)],
+             "b.py": [_module("b.py"), ("helper", "helper", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("a.py", "Box.run", "helper", "self", 3)])
+    edges = _calls_to(graph, "a.py", "Box.helper")
+    assert len(edges) == 1 and edges[0]["how"] == "self" and not _calls_to(graph, "b.py", "helper")
+
+
+def test_common_method_on_unknown_object_stays_external(tmp_path):
+    files = {"io_tools.py": [_module("io_tools.py"), ("close", "close", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "close", "conn", 3)])
+    assert not _calls_to(graph, "io_tools.py", "close"), "conn.close() — не проектная функция close"
+
+
+def test_unique_specific_name_is_linked_even_on_an_object(tmp_path):
+    files = {"report.py": [_module("report.py"), ("build_report", "build_report", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "build_report", "service", 3)])
+    edges = _calls_to(graph, "report.py", "build_report")
+    assert len(edges) == 1 and edges[0]["how"] == "unique"
+
+
+def test_class_qualified_call_resolves_to_the_class_method(tmp_path):
+    files = {"a.py": [_module("a.py"), ("resolve", "LabRun.resolve", "method", 2, 4)],
+             "b.py": [_module("b.py"), ("resolve", "resolve", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "resolve", "LabRun", 3)])
+    edges = _calls_to(graph, "a.py", "LabRun.resolve")
+    assert len(edges) == 1 and edges[0]["how"] == "class"
+
+
+def test_function_passed_as_value_is_a_reference_to_the_imported_one(tmp_path):
+    files = {"deps.py": [_module("deps.py"), ("get_db", "get_db", "function", 2, 4)],
+             "other.py": [_module("other.py"), ("get_db", "get_db", "function", 2, 4)],
+             "router.py": [_module("router.py"), ("page", "page", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("router.py", "page", "get_db", "<ref>", 3)], imports=[("router.py", "deps", "get_db", 1)])
+    refs = [e for e in graph["edges"] if e["rel"] == "calls_ref"]
+    assert [e["to"] for e in refs] == [G._symbol_id("deps.py", "get_db")]
+
+
+def test_call_never_crosses_between_language_families(tmp_path):
+    files = {"helper.js": [("helper.js", "helper.js", "module", 1, 9), ("query", "query", "function", 2, 4)],
+             "caller.py": [_module("caller.py"), ("go", "go", "function", 2, 4)],
+             "page.html": [("page.html", "page.html", "module", 1, 9), ("show", "show", "function", 2, 4)]}
+    graph = _call_graph(tmp_path, files, [("caller.py", "go", "query", "", 3), ("page.html", "show", "query", "", 5)])
+    edges = _calls_to(graph, "helper.js", "query")
+    assert [e["from"] for e in edges] == [G._symbol_id("page.html", "show")], "из Python в JS по имени связи быть не должно"
