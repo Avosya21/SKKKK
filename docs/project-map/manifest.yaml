@@ -3213,6 +3213,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_atlas
+    kind: file
+    path: tools/projectmap/projectmap/atlas.py
+    title: "Атлас графа проекта: короткий документ Markdown о том, из чего состоит карта, как она разбита на подсистемы и что показывают метрики."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
