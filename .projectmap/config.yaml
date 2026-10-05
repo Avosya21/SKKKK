@@ -1,0 +1,43 @@
+# Конфиг projectmap для этого проекта.
+# graph — граф, по которому считается охват (строит scripts/export_project_graph.py, позже — сам projectmap).
+# ignore — осознанные исключения: то, что карте не нужно. Каждое исключение с причиной; всё остальное, чего нет в графе, — пробел.
+# targets — цели охвата по пробам (доля 0..1); ниже цели проба показывается как пробел, с --strict даёт код выхода 1.
+graph: data/project_map_graph.json
+
+ignore:
+  # сторонние навыки ИИ-агента (копия чужих наборов, не код проекта)
+  - ".cursor/skills/**"
+  # бинарные данные и носители: картинки, звук, архивы, словари OCR, таблицы данных
+  - "**/*.png"
+  - "**/*.webp"
+  - "**/*.wav"
+  - "**/*.jar"
+  - "**/*.traineddata"
+  - "**/*.train"
+  - "**/*.csv"
+  - "**/*.out"
+  # портативный OCR (бинарники и языковые данные)
+  - "tools/tesseract/**"
+  # эксперименты и архив: не рабочий код
+  - "experiments/**"
+  - "_archive/**"
+  # данные тестов и замеров, кэши моделей
+  - "app/app/tests/fixtures/**"
+  - "docs/eval/**"
+  - "asr/whisper-cache/**"
+  # списки версий пакетов: данные, не код
+  - "scripts/requirements_lock/**"
+
+targets:
+  files: 0.97
+  shell_functions: 0.9
+  compose_services: 0.9
+  script_refs: 0.7
+  doc_refs_valid: 0.97
+  doc_refs_in_graph: 0.9
+  ui_api: 0.9
+  data_access: 1.0
+  env: 1.0
+  tests: 0.7
+  history: 0.95
+  metrics: 0.95
