@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карта проекта</title>
+<style>
+:root{
+  --bg:#f7f6f2; --panel:#ffffff; --ink:#26241f; --muted:#6f6b62; --line:#dedbd2; --accent:#2f6fb3; --accent-soft:#e3edf8;
+  --edge:#8d8a80; --edge-hot:#2f6fb3; --dim:#c9c6bd; --hull-opacity:.07;
+  --heat-0:#f2ecd0; --heat-1:#f6c667; --heat-2:#ec8a3a; --heat-3:#c8372d; --heat-4:#7a1226; --nochange:#cfccc2;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:baseline;gap:14px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{margin:0;font-size:15px;font-weight:600}
+header .meta{color:var(--muted);font-size:12px}
+main{flex:1;display:flex;min-height:0}
+#side{width:300px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#tabs{display:flex;border-bottom:1px solid var(--line)}
+#tabs button{flex:1;padding:8px;border:0;background:none;font:inherit;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+#tabs button.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.pane{overflow:auto;padding:10px 12px;flex:1;min-height:0}
+.pane[hidden]{display:none}
+label.f{display:block;margin:9px 0 3px;color:var(--muted);font-size:12px}
+input[type=search],select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button.b{padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;cursor:pointer}
+button.b:hover{border-color:var(--accent)}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+h3{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.legend .it{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:5px;cursor:pointer}
+.legend .it:hover,.legend .it.on{background:var(--accent-soft)}
+.legend .sw{width:11px;height:11px;border-radius:50%;flex:none}
+.legend .n{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+.legend .kw{color:var(--muted);font-size:11px}
+.grad{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--heat-0),var(--heat-1),var(--heat-2),var(--heat-3),var(--heat-4));margin:6px 0 2px}
+.scale{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+#stage{flex:1;position:relative;min-width:0}
+#graph{position:absolute;inset:0}
+#tl{position:absolute;left:12px;right:12px;bottom:10px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+#tl .top{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px}
+#tl input[type=range]{width:100%;margin:2px 0}
+#card{position:absolute;top:10px;right:10px;width:320px;max-height:calc(100% - 100px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+#card[hidden]{display:none}
+#card h2{margin:0 0 2px;font-size:14px;word-break:break-all}
+#card .path{color:var(--muted);font-size:11px;word-break:break-all}
+#card .x{position:absolute;top:6px;right:8px;border:0;background:none;font-size:16px;cursor:pointer;color:var(--muted)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:8px 0}
+.kv span:nth-child(odd){color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{padding:1px 7px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:11px}
+a.lk{color:var(--accent);cursor:pointer;text-decoration:none}
+a.lk:hover{text-decoration:underline}
+ul.l{margin:2px 0 0;padding:0;list-style:none}
+ul.l li{padding:1px 0}
+table.s{width:100%;border-collapse:collapse}
+table.s td{padding:2px 0;border-bottom:1px solid var(--line)}
+table.s td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+@media (max-width:820px){#side{width:220px}#card{width:260px}}
+</style>
+</head>
+<body>
+<header><h1 id="title"></h1><span class="meta" id="meta"></span></header>
+<main>
+<aside id="side">
+  <div id="tabs"><button data-t="map" class="on">Карта</button><button data-t="sum">Сводка</button></div>
+  <section class="pane" id="p-map">
+    <label class="f" for="q">Поиск (имя, путь, ключевое слово)</label>
+    <input type="search" id="q" placeholder="например: queue, config.py">
+    <div id="qres" class="meta" style="color:var(--muted);margin-top:3px"></div>
+    <label class="f" for="color">Цвет</label>
+    <select id="color"><option value="group">По подсистеме</option><option value="community">По группе связности</option><option value="heat">Тепловая карта правок</option></select>
+    <label class="f" for="size">Размер</label>
+    <select id="size"><option value="fan_in">Кто использует (fan-in)</option><option value="fan_out">Что использует (fan-out)</option><option value="churn">Число правок</option><option value="none">Одинаковый</option></select>
+    <label class="f" for="labels">Подписи</label>
+    <select id="labels"><option value="main">Только главные</option><option value="all">Все</option><option value="none">Без подписей</option></select>
+    <label class="f" for="edges">Связи</label>
+    <select id="edges"><option value="sel">Только у выбранного</option><option value="all">Все</option><option value="none">Скрыть</option></select>
+    <label class="f"><input type="checkbox" id="tests"> Показывать тесты</label>
+    <div class="row"><button class="b" id="collapse">Свернуть группы</button><button class="b" id="expand">Развернуть</button><button class="b" id="fit">Вписать</button></div>
+    <h3 id="lgt">Легенда</h3>
+    <div class="legend" id="legend"></div>
+  </section>
+  <section class="pane" id="p-sum" hidden></section>
+</aside>
+<div id="stage">
+  <div id="graph"></div>
+  <div id="msg">Строится карта…</div>
+  <div id="card" hidden></div>
+  <div id="tl">
+    <div class="top"><span>Шкала времени: правки с <b id="tf"></b> по <b id="tt"></b></span><span><button class="b" id="play">▶</button> <button class="b" id="all">Весь период</button></span></div>
+    <input type="range" id="r0" min="0" value="0" aria-label="Начало периода">
+    <input type="range" id="r1" min="0" aria-label="Конец периода">
+  </div>
+</div>
+</main>
+<script type="application/json" id="data">__DATA__</script>
+<script>__G6__</script>
+<script>
+(function(){
+"use strict";
+const D=JSON.parse(document.getElementById('data').textContent);
+const $=id=>document.getElementById(id);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PAL=['#4e79a7','#f28e2b','#59a14f','#b07aa1','#e15759','#76b7b2','#edc948','#9c755f','#d37295','#86bc86','#5f9ed1','#c8a2c8'];
+const NEUTRAL='#a8a49a';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const byId=new Map(D.nodes.map(n=>[n.id,n]));
+const groupIndex=new Map(D.groups.map((g,i)=>[g.id,i]));
+const colorGroup=g=>PAL[groupIndex.get(g)%PAL.length];
+const comm=new Map(D.communities.map((c,i)=>[c.id,c]));
+const commColor=c=>c==null?NEUTRAL:PAL[(c*5)%PAL.length];
+const adj=new Map(D.nodes.map(n=>[n.id,{out:[],in:[]}]));
+D.edges.forEach((e,i)=>{e.id='e'+i;adj.get(e.s).out.push(e);adj.get(e.t).in.push(e);});
+const mainSet=new Set([...D.nodes].sort((a,b)=>(b.fan_in+b.fan_out)-(a.fan_in+a.fan_out)).slice(0,70).map(n=>n.id));
+const S={color:'group',size:'fan_in',labels:'main',edges:'sel',tests:false,q:'',sel:null,focus:null,from:0,to:Math.max(0,D.days.length-1),collapsed:new Set()};
+let graph=null;
+
+$('title').textContent=D.title;
+$('meta').textContent=`${D.nodes.length} файлов · ${D.edges.length} связей · ${D.groups.length} подсистем · собрано ${D.built}`;
+
+/* ---- значения по периоду ---- */
+function churnIn(n){let s=0;for(const [d,c] of n.ch) if(d>=S.from&&d<=S.to) s+=c;return s;}
+function heatColor(v,max){
+  if(!v) return css('--nochange');
+  const stops=[css('--heat-1'),css('--heat-2'),css('--heat-3'),css('--heat-4')];
+  const t=Math.min(1,Math.sqrt(v/Math.max(1,max)));const k=t*(stops.length-1);const i=Math.min(stops.length-2,Math.floor(k));
+  return mix(stops[i],stops[i+1],k-i);
+}
+function mix(a,b,t){const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));const x=p(a),y=p(b);return '#'+x.map((v,i)=>Math.round(v+(y[i]-v)*t).toString(16).padStart(2,'0')).join('');}
+function visible(n){return S.tests||!n.test;}
+function matches(n){
+  if(!S.q) return true;const q=S.q.toLowerCase();
+  return n.label.toLowerCase().includes(q)||n.path.toLowerCase().includes(q)||n.keywords.some(k=>k.toLowerCase().includes(q));
+}
+function inFocus(n){
+  const f=S.focus;if(!f) return true;
+  return f.type==='group'?n.group===f.id:f.type==='community'?n.community===f.id:true;
+}
+
+/* ---- стили ---- */
+function nodeStyle(n,ctx){
+  const dim=!matches(n)||!inFocus(n);
+  let fill=S.color==='group'?colorGroup(n.group):S.color==='community'?commColor(n.community):heatColor(ctx.churn.get(n.id),ctx.maxChurn);
+  let v=S.size==='fan_in'?n.fan_in:S.size==='fan_out'?n.fan_out:S.size==='churn'?ctx.churn.get(n.id):0;
+  const size=S.size==='none'?9:6+Math.sqrt(v/Math.max(1,ctx.maxSize))*22;
+  const selected=S.sel===n.id;
+  const showLabel=selected||(S.q&&matches(n))||(S.labels==='all')||(S.labels==='main'&&mainSet.has(n.id));
+  return {size,fill,fillOpacity:dim?.18:.92,stroke:selected?css('--ink'):'#ffffff',lineWidth:selected?2.5:1,
+    labelText:showLabel?n.label:'',labelFill:css('--ink'),labelFontSize:11,labelBackground:true,labelBackgroundFill:'#ffffff',labelBackgroundOpacity:.75,labelPadding:[0,3],labelOpacity:dim?.3:1,
+    visibility:visible(n)?'visible':'hidden'};
+}
+function context(){
+  const churn=new Map(D.nodes.map(n=>[n.id,churnIn(n)]));
+  const vis=D.nodes.filter(visible);
+  const key=S.size==='fan_in'?'fan_in':S.size==='fan_out'?'fan_out':null;
+  return {churn,maxChurn:Math.max(1,...vis.map(n=>churn.get(n.id))),maxSize:Math.max(1,...vis.map(n=>key?n[key]:churn.get(n.id)))};
+}
+function edgeStyle(e){
+  const hot=S.sel&&(e.s===S.sel||e.t===S.sel);
+  const shown=S.edges==='all'||(S.edges==='sel'&&hot);
+  const a=byId.get(e.s),b=byId.get(e.t);
+  const hidden=!shown||!visible(a)||!visible(b);
+  return {stroke:hot?css('--edge-hot'):css('--edge'),lineWidth:hot?1.6:Math.min(2,.5+Math.log1p(e.w)*.25),opacity:hot?.9:.22,visibility:hidden?'hidden':'visible',
+    endArrow:hot,endArrowSize:6};
+}
+function restyle(){
+  if(!graph) return;
+  const ctx=context();
+  graph.updateNodeData(D.nodes.map(n=>({id:n.id,style:nodeStyle(n,ctx)})));
+  graph.updateEdgeData(D.edges.map(e=>({id:e.id,style:edgeStyle(e)})));
+  graph.draw();
+  legend(ctx);qres();
+}
+
+/* ---- граф ---- */
+function groupSize(id){return D.groups[groupIndex.get(id)].count;}
+function init(){
+  const nodes=D.nodes.map(n=>({id:n.id,combo:'g:'+n.group,style:{x:n.x,y:n.y}}));
+  const combos=D.groups.map(g=>({id:'g:'+g.id,style:{labelText:`${g.id} · ${g.count}`}}));
+  const edges=D.edges.map(e=>({id:e.id,source:e.s,target:e.t}));
+  const ctx=context();
+  nodes.forEach((o,i)=>Object.assign(o.style,nodeStyle(D.nodes[i],ctx)));
+  edges.forEach((o,i)=>o.style=edgeStyle(D.edges[i]));
+  combos.forEach((o,i)=>{const c=colorGroup(D.groups[i].id);Object.assign(o.style,{fill:c,fillOpacity:+css('--hull-opacity'),stroke:c,strokeOpacity:.55,lineWidth:1.2,
+    labelFill:c,labelFontSize:14,labelFontWeight:600,labelPlacement:'top',collapsedFill:c,collapsedFillOpacity:.35,collapsedSize:34,padding:12});});
+  graph=new G6.Graph({container:'graph',padding:[30,30,110,30],data:{nodes,edges,combos},
+    node:{type:'circle'},edge:{type:'line'},combo:{type:'circle'},
+    behaviors:['zoom-canvas','drag-canvas',{type:'collapse-expand',trigger:'dblclick'}],animation:false});
+  graph.on('node:click',e=>select(e.target.id));
+  graph.on('canvas:click',()=>select(null));
+  graph.on('combo:click',e=>{const id=String(e.target.id).slice(2);focusGroup(id);});
+  return graph.render().then(()=>{$('msg').remove();graph.fitView({when:'always'});legend(context());qres();});
+}
+function select(id){
+  const prev=S.sel;S.sel=id;
+  if(S.edges==='sel') restyle(); else if(prev!==id) restyle();
+  card();
+}
+function focusGroup(id){S.focus=S.focus&&S.focus.id===id?null:{type:'group',id};restyle();}
+
+/* ---- легенда ---- */
+function legend(ctx){
+  const el=$('legend');let h='';
+  if(S.color==='heat'){
+    $('lgt').textContent='Правки за период';
+    h=`<div class="grad"></div><div class="scale"><span>1</span><span>${ctx.maxChurn}</span></div><div class="it" style="cursor:default"><span class="sw" style="background:var(--nochange)"></span>без правок<span class="n">${D.nodes.filter(n=>visible(n)&&!ctx.churn.get(n.id)).length}</span></div>`;
+  }else if(S.color==='community'){
+    $('lgt').textContent='Группы связности (клик — показать)';
+    h=D.communities.slice(0,14).map(c=>`<div class="it ${S.focus&&S.focus.type==='community'&&S.focus.id===c.id?'on':''}" data-c="${c.id}"><span class="sw" style="background:${commColor(c.id)}"></span><span>${esc(c.keywords.slice(0,3).join(', ')||'группа '+c.id)}<div class="kw">в основном ${esc(c.group)}</div></span><span class="n">${c.size}</span></div>`).join('');
+  }else{
+    $('lgt').textContent='Подсистемы (клик — показать)';
+    h=D.groups.map(g=>`<div class="it ${S.focus&&S.focus.type==='group'&&S.focus.id===g.id?'on':''}" data-g="${esc(g.id)}"><span class="sw" style="background:${colorGroup(g.id)}"></span>${esc(g.id)}<span class="n">${g.count}</span></div>`).join('');
+  }
+  el.innerHTML=h;
+  el.querySelectorAll('[data-g]').forEach(x=>x.onclick=()=>focusGroup(x.dataset.g));
+  el.querySelectorAll('[data-c]').forEach(x=>x.onclick=()=>{const id=+x.dataset.c;S.focus=S.focus&&S.focus.id===id?null:{type:'community',id};restyle();});
+}
+function qres(){
+  if(!S.q){$('qres').textContent='';return;}
+  const m=D.nodes.filter(n=>visible(n)&&matches(n));
+  $('qres').innerHTML=`Найдено: ${m.length}`+(m.length?': '+m.slice(0,6).map(n=>`<a class="lk" data-id="${esc(n.id)}">${esc(n.label)}</a>`).join(', ')+(m.length>6?' …':''):'');
+  $('qres').querySelectorAll('[data-id]').forEach(a=>a.onclick=()=>pick(a.dataset.id));
+}
+
+/* ---- карточка ---- */
+const fmt=v=>v==null?'—':v;
+function chips(a){return a&&a.length?`<div class="chips">${a.map(x=>`<span class="chip">${esc(x)}</span>`).join('')}</div>`:'';}
+function sect(t,body){return body?`<h3>${t}</h3>${body}`:'';}
+function neighbours(list,key){
+  const m=[...list].sort((a,b)=>b.w-a.w).slice(0,8);
+  return m.length?`<ul class="l">${m.map(e=>{const o=byId.get(e[key]);return `<li><a class="lk" data-id="${esc(o.id)}">${esc(o.label)}</a> <span style="color:var(--muted)">${esc(Object.entries(e.rels).map(([r,c])=>r+' '+c).join(', '))}</span></li>`;}).join('')}</ul>`:'';
+}
+function card(){
+  const el=$('card');
+  if(!S.sel){el.hidden=true;return;}
+  const n=byId.get(S.sel),c=n.card||{},a=adj.get(n.id);
+  const days=n.ch.length?`${D.days[n.ch[0][0]]} … ${D.days[n.ch[n.ch.length-1][0]]}`:'—';
+  const com=comm.get(n.community);
+  el.innerHTML=`<button class="x" title="Закрыть">×</button><h2>${esc(n.label)}</h2><div class="path">${esc(n.path)}</div>
+  <div class="kv"><span>Подсистема</span><span>${esc(n.group)}</span><span>Группа связности</span><span>${com?esc(com.keywords.slice(0,3).join(', ')||com.id):'—'}</span>
+  <span>Использует его</span><span>${n.fan_in}</span><span>Использует он</span><span>${n.fan_out}</span><span>Нестабильность</span><span>${fmt(n.instability)}</span>
+  <span>Правок</span><span>${n.churn} (${days})</span><span>Символов</span><span>${c.symbols||0}</span></div>
+  ${sect('Ключевые слова',chips(n.keywords))}${sect('Роуты',chips(c.routes))}${sect('Читает таблицы',chips(c.reads))}${sect('Пишет в таблицы',chips(c.writes))}
+  ${sect('Переменные окружения',chips(c.env))}${sect('Главные определения',chips(c.top))}${sect('Тесты',chips(c.tests))}${sect('Документы',chips(c.docs))}
+  ${sect('Его используют',neighbours(a.in,'s'))}${sect('Он использует',neighbours(a.out,'t'))}`;
+  el.hidden=false;
+  el.querySelector('.x').onclick=()=>select(null);
+  el.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>pick(x.dataset.id));
+}
+function pick(id){
+  const n=byId.get(id);if(!n) return;
+  if(n.test&&!S.tests){S.tests=true;$('tests').checked=true;}
+  const combo='g:'+n.group;
+  try{if(graph.getComboData(combo).style.collapsed) graph.expandElement(combo,false);}catch(e){}
+  select(id);
+  try{graph.focusElement(id,false);}catch(e){}
+}
+
+/* ---- сводка ---- */
+function summary(){
+  const st=D.stats;
+  const tbl=o=>`<table class="s">${Object.entries(o||{}).slice(0,14).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('')}</table>`;
+  const files=(l,f)=>l&&l.length?`<ul class="l">${l.slice(0,10).map(x=>`<li><a class="lk" data-p="${esc(x.path||x)}">${esc((x.path||x).split('/').slice(-2).join('/'))}</a>${f?` <span style="color:var(--muted)">${f(x)}</span>`:''}</li>`).join('')}</ul>`:'<div style="color:var(--muted)">нет</div>';
+  $('p-sum').innerHTML=`<table class="s"><tr><td>Узлов в графе</td><td>${st.nodes}</td></tr><tr><td>Связей</td><td>${st.edges}</td></tr><tr><td>Модулярность групп</td><td>${fmt(st.modularity)}</td></tr><tr><td>Согласие групп с подсистемами</td><td>${fmt(st.agreement)}</td></tr></table>
+  <h3>Узлы по видам</h3>${tbl(st.by_kind)}<h3>Связи по видам</h3>${tbl(st.by_relation)}
+  <h3>Хабы (используют и используются)</h3>${files(st.hubs,x=>`${x.fan_in}/${x.fan_out}`)}
+  <h3>Больше всего используют (fan-in)</h3>${files(st.top_fan_in,x=>x.fan_in)}
+  <h3>Чаще всего правили</h3>${files(st.top_churn,x=>x.churn)}
+  <h3>Не на своём месте</h3>${files(st.misplaced,x=>`${x.group} → ${x.community_group}`)}
+  <h3>Крупные коммиты</h3><ul class="l">${D.commits.slice(0,8).map(c=>`<li>${esc(D.days[c.day])}: ${esc(c.label.slice(0,48))} <span style="color:var(--muted)">${c.files} ф.</span></li>`).join('')}</ul>`;
+  $('p-sum').querySelectorAll('[data-p]').forEach(a=>a.onclick=()=>{const n=D.nodes.find(x=>x.path===a.dataset.p);if(n)pick(n.id);});
+}
+
+/* ---- управление ---- */
+function bind(){
+  $('q').oninput=e=>{S.q=e.target.value.trim();restyle();};
+  for(const k of ['color','size','labels','edges']) $(k).onchange=e=>{S[k]=e.target.value;if(k==='color')S.focus=null;restyle();};
+  $('tests').onchange=e=>{S.tests=e.target.checked;restyle();};
+  $('fit').onclick=()=>graph.fitView();
+  $('collapse').onclick=async()=>{for(const g of D.groups) await graph.collapseElement('g:'+g.id,false);graph.fitView();};
+  $('expand').onclick=async()=>{for(const g of D.groups) await graph.expandElement('g:'+g.id,false);graph.fitView();};
+  document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));$('p-map').hidden=b.dataset.t!=='map';$('p-sum').hidden=b.dataset.t!=='sum';});
+  const last=Math.max(0,D.days.length-1);
+  for(const r of ['r0','r1']){$(r).max=last;}
+  $('r1').value=last;
+  const period=()=>{let a=+$('r0').value,b=+$('r1').value;if(a>b){[a,b]=[b,a];}S.from=a;S.to=b;$('tf').textContent=D.days[a]||'—';$('tt').textContent=D.days[b]||'—';};
+  const apply=()=>{period();restyle();};
+  $('r0').oninput=apply;$('r1').oninput=apply;
+  $('all').onclick=()=>{$('r0').value=0;$('r1').value=last;apply();};
+  let timer=null;
+  $('play').onclick=()=>{
+    if(timer){clearInterval(timer);timer=null;$('play').textContent='▶';return;}
+    $('r0').value=0;$('r1').value=0;if(S.color!=='heat'){$('color').value='heat';S.color='heat';}apply();$('play').textContent='❚❚';
+    timer=setInterval(()=>{const v=+$('r1').value+1;if(v>last){clearInterval(timer);timer=null;$('play').textContent='▶';return;}$('r1').value=v;apply();},700);
+  };
+  period();
+  if(D.days.length<2) $('tl').style.display='none';
+  window.addEventListener('resize',()=>{try{graph.resize();}catch(e){}});
+}
+bind();summary();
+$('p-sum').addEventListener('click',()=>{});
+init().catch(e=>{$('msg').textContent='Ошибка: '+e;console.error(e);});
+window.__projectmap={S,D,get graph(){return graph;},restyle,pick};
+})();
+</script>
+</body>
+</html>

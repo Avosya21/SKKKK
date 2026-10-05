@@ -49,6 +49,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] == "report":
         raise SystemExit(report())
-    if args and args[0] in ("check", "index", "graph") and "--root" not in args:
+    if args and args[0] in ("check", "index", "graph", "export", "serve") and "--root" not in args:
         args += ["--root", str(ROOT)]
     raise SystemExit(main(args))
