@@ -19,10 +19,12 @@ class Language:
     title: str
     extensions: tuple[str, ...]
     tier: str
+    native: bool = False  # разбирается без своей грамматики (Python — `ast`, HTML — разметка и скрипты внутри)
 
 
 LANGUAGES: tuple[Language, ...] = (
-    Language("python", "Python", (".py", ".pyi"), DEEP),
+    Language("python", "Python", (".py", ".pyi"), DEEP, native=True),
+    Language("html", "HTML и шаблоны", (".html", ".htm", ".jinja", ".j2"), STRUCTURAL, native=True),
     Language("javascript", "JavaScript", (".js", ".mjs", ".cjs", ".jsx"), DEEP),
     Language("typescript", "TypeScript", (".ts", ".mts", ".cts"), DEEP),
     Language("tsx", "TypeScript (JSX)", (".tsx",), DEEP),
@@ -63,5 +65,5 @@ def tier_of(path: str) -> str:
 
 
 def grammar_ids() -> list[str]:
-    """Грамматики tree-sitter, нужные для всех структурных языков (Python разбирается стандартным `ast`)."""
-    return [language.id for language in LANGUAGES if language.id != "python"]
+    """Грамматики tree-sitter, нужные для языков с грамматикой (Python и HTML разбираются сами; HTML берёт грамматику JavaScript)."""
+    return [language.id for language in LANGUAGES if not language.native]

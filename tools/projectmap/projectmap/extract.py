@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from projectmap.lang_html import extract_html
 from projectmap.lang_python import extract_python
 from projectmap.lang_regex import extract_groovy
 from projectmap.lang_specs import spec_for
@@ -23,6 +24,8 @@ def extract_file(root: Path, path: str, text: str) -> FileFacts:
     try:
         if language.id == "python":
             return extract_python(path, text)
+        if language.id == "html":  # разметка: скрипты внутри, элементы, подключения шаблонов
+            return extract_html(root, path, text, language)
         if language.id == "groovy":  # грамматика Groovy непригодна: разбор по регулярным выражениям
             return extract_groovy(path, text, language)
         spec = spec_for(language)

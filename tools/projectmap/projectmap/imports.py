@@ -239,6 +239,21 @@ def _script_targets(importer: str, imp: Import, index: FileIndex, language: str)
     return [Target(_stem(candidates[0]), None, candidates[0], True)] if candidates else []
 
 
+# ───────────────────────────── HTML и шаблоны ─────────────────────────────
+
+def _html_targets(importer: str, imp: Import, index: FileIndex) -> list[Target]:
+    """`{% include "partials/x.html" %}`, `<script src="/static/app.js">`: путь от корня шаблонов, от корня сайта или относительный."""
+    module = imp.module.strip()
+    base = importer.rsplit("/", 1)[0] if "/" in importer else ""
+    candidates: list[str] = []
+    if module.startswith("."):
+        relative = posixpath.normpath(posixpath.join(base, module))
+        candidates = [relative] if relative in index.files else []
+    if not candidates:
+        candidates = _pick(index.find_suffix(module.lstrip("/")), importer)
+    return [Target(_stem(candidates[0]), None, candidates[0], True)] if candidates else []
+
+
 def resolve_import(importer: str, imp: Import, index: FileIndex) -> list[Target]:
     """Цели импорта в проекте; пусто — пакет вне проекта или файл не найден."""
     language = language_of(importer)
@@ -249,6 +264,8 @@ def resolve_import(importer: str, imp: Import, index: FileIndex) -> list[Target]
         return _python_targets(importer, imp, index)
     if lang in ("javascript", "typescript", "tsx"):
         return _js_targets(importer, imp, index)
+    if lang == "html":
+        return _html_targets(importer, imp, index)
     if lang in CLASSPATH_EXTENSIONS:
         return _classpath_targets(importer, imp, index, lang)
     if lang == "go":

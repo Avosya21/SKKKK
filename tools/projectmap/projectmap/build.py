@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections import Counter
 from pathlib import Path
@@ -17,12 +18,15 @@ from projectmap.extract import extract_file
 from projectmap.history import read_history
 from projectmap.imports import FileIndex
 from projectmap.languages import language_of
-from projectmap.model import MODULE_CALLER, REF, FileFacts, Symbol
+from projectmap.model import MODULE_CALLER, REF, Call, FileFacts, Symbol
 from projectmap.paths import is_test_path
 from projectmap.resolve import Resolver
 from projectmap.schema import SCHEMA_VERSION
 
 MAX_FILE_BYTES = 1_000_000
+ID_REFERENCES = (re.compile(r"getElementById\(\s*['\"]([\w-]+)['\"]"), re.compile(r"querySelector(?:All)?\(\s*['\"]#([\w-]+)"),
+                 re.compile(r"\$\(\s*['\"]#?([\w-]+)['\"]\s*\)"))
+WEB_LANGUAGES = frozenset({"javascript", "typescript", "tsx", "html"})
 CALL_RELATIONS = {"calls", "calls_ref"}
 
 
@@ -51,6 +55,10 @@ def graph_stats(graph: dict[str, Any]) -> dict[str, Any]:
     by_group = Counter(n["group"] for n in graph["nodes"] if n.get("group"))
     return {"nodes": len(graph["nodes"]), "edges": len(graph["edges"]), "by_kind": dict(by_kind.most_common()),
             "by_relation": dict(by_rel.most_common()), "by_group": dict(by_group.most_common())}
+
+
+def ui_id(path: str, element_id: str) -> str:
+    return f"ui:{path}#{element_id}"
 
 
 def read_text(root: Path, path: str) -> str | None:
@@ -82,11 +90,42 @@ class _Edges:
                 edge["line"] = line
 
 
+def _enclosing(file_facts: FileFacts, line: int) -> Symbol | None:
+    """Самый узкий символ-функция, внутри которого находится строка."""
+    best: Symbol | None = None
+    for symbol in file_facts.symbols:
+        if symbol.kind in ("module", "class", "interface", "enum", "struct", "trait", "constant"):
+            continue
+        if symbol.line <= line <= symbol.end_line and (best is None or symbol.end_line - symbol.line < best.end_line - best.line):
+            best = symbol
+    return best
+
+
+def _link_id_references(facts: dict[str, FileFacts], texts: dict[str, str], nodes: dict[str, dict[str, Any]], edges: _Edges) -> None:
+    """Скрипт обращается к элементу по `id` (`getElementById`, `querySelector('#x')`, `$('x')`): элемент -> функция, которая с ним работает."""
+    by_id: dict[str, list[str]] = {}
+    for node_id, node in nodes.items():
+        if node["kind"] == "ui":
+            by_id.setdefault(node["label"], []).append(node_id)
+    for path, text in texts.items():
+        for number, line in enumerate(text.splitlines(), 1):
+            for pattern in ID_REFERENCES:
+                for match in pattern.finditer(line):
+                    candidates = by_id.get(match.group(1), [])
+                    same_file = [c for c in candidates if nodes[c]["path"] == path]
+                    chosen = same_file or (candidates if len(candidates) == 1 else [])
+                    symbol = _enclosing(facts[path], number)
+                    owner = symbol_id(path, symbol.qualname) if symbol else file_id(path)
+                    for ui in chosen:
+                        edges.add(ui, owner, "handled_by", number, how="id")
+
+
 def build_graph(root: Path, config: Config | None = None, *, history_limit: int = 500) -> dict[str, Any]:
     config = config or Config()
     started = time.time()
     tracked = [p for p in tracked_files(root) if not config.is_ignored(p)]
     facts: dict[str, FileFacts] = {}
+    web_texts: dict[str, str] = {}
     unreadable = 0
     for path in tracked:
         language = language_of(path)
@@ -99,6 +138,8 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
             unreadable += 1
             continue
         facts[path] = extract_file(root, path, text)
+        if language.id in WEB_LANGUAGES:
+            web_texts[path] = text
 
     nodes: dict[str, dict[str, Any]] = {}
     edges = _Edges()
@@ -115,6 +156,10 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
             nodes[sid] = {"id": sid, "kind": "symbol", "label": symbol.name, "sub": symbol.kind, "path": path, "line": symbol.line,
                           "group": groups[path], "layer": "symbol", "lang": symbol.lang, "sig": symbol.signature[:160]}
             edges.add(file_id(path), sid, "defines", symbol.line)
+        for element in file_facts.elements:
+            uid = ui_id(path, element.id)
+            nodes[uid] = {"id": uid, "kind": "ui", "label": element.id, "sub": element.tag, "path": path, "line": element.line,
+                          "group": groups[path], "layer": "ui", "text": element.label}
 
     resolver = Resolver(facts, FileIndex(set(facts)))
     how_counts: Counter[str] = Counter()
@@ -135,12 +180,19 @@ def build_graph(root: Path, config: Config | None = None, *, history_limit: int 
                 edges.add(caller, target, "covers", call.line, how=resolution.how)
             elif not test_file:
                 edges.add(caller, target, "calls_ref" if call.qualifier == REF else "calls", call.line, how=resolution.how)
+        for element in file_facts.elements:
+            for handler in element.handlers:
+                head, _, last = handler.rpartition(".")
+                found = resolver.resolve_call(Call(path, MODULE_CALLER, last, head, element.line))
+                if found.symbol is not None:
+                    edges.add(ui_id(path, element.id), symbol_id(found.symbol.path, found.symbol.qualname), "handled_by", element.line, how=found.how)
         for symbol in file_facts.symbols:
             for base in symbol.bases:
                 found = resolver.resolve_base(path, base)
                 if found.symbol is not None and (found.symbol.path, found.symbol.qualname) != (path, symbol.qualname):
                     edges.add(symbol_id(path, symbol.qualname), symbol_id(found.symbol.path, found.symbol.qualname), "inherits", symbol.line, how=found.how)
 
+    _link_id_references(facts, web_texts, nodes, edges)
     notes: list[str] = []
     commits = read_history(root, history_limit)
     in_graph = {file_id(p) for p in facts}
