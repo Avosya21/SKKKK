@@ -1,5 +1,7 @@
 """Страница «Граф зависимостей» (/admin/map/graph): все сущности проекта и все связи между ними. Только admin.
 
+Рядом — «Обзор карты» (`/admin/map/overview`): просмотрщик инструмента projectmap (`services/projectmap_view.py`).
+
 Читает граф из выгрузки `data/project_map_graph.json` (её делает `scripts/export_project_graph.py`);
 если выгрузки нет или она старше индекса — собирает граф из самого индекса и обновляет выгрузку.
 Боевая БД проекта (data/app.db) не читается: только индекс карты и манифест.
@@ -13,11 +15,13 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.app.dependencies import get_current_user, require_html_user
 from app.app.models.user import User
+from app.app.services import projectmap_view
 from app.app.services.project_index import graph as G
 from app.app.services.project_index import search as index_search
 from app.app.services.project_index import store
@@ -122,6 +126,34 @@ def _modules_view(graph: dict[str, Any], *, kinds: set[str], relations: set[str]
         modules["edges"] = [e for e in modules["edges"] if e["rel"] in relations]
     nodes, edges, truncated = _trim(modules, kinds=kinds or {"file"}, relations=relations, limit=limit)
     return {"view": "modules", "center": None, "nodes": nodes, "edges": edges, "truncated": truncated}
+
+
+@router.get("/admin/map/overview", response_class=HTMLResponse)
+def admin_map_overview_page(request: Request, user: Annotated[User, Depends(require_html_user)]):
+    """Обзор карты: оболочка портала с просмотрщиком projectmap во фрейме."""
+    _admin_only(user)
+    return templates.TemplateResponse(request, "admin_map_overview.html", {"title": "Обзор карты"})
+
+
+@router.get("/admin/map/overview/frame", response_class=HTMLResponse)
+async def admin_map_overview_frame(user: Annotated[User, Depends(require_html_user)]):
+    """Самостоятельная страница просмотрщика (граф и библиотека внутри); графа нет — строится при первом показе."""
+    _admin_only(user)
+    html = await run_in_threadpool(projectmap_view.page_html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/admin/map/overview/state")
+def admin_map_overview_state(user: Annotated[User, Depends(get_current_user)]):
+    _admin_only(user)
+    return projectmap_view.state()
+
+
+@router.post("/admin/map/overview/rebuild")
+async def admin_map_overview_rebuild(user: Annotated[User, Depends(get_current_user)]):
+    """Перестроить граф projectmap (разбор проекта, метрики, история git): до минуты, под замком."""
+    _admin_only(user)
+    return await run_in_threadpool(projectmap_view.rebuild)
 
 
 @router.get("/admin/map/graph", response_class=HTMLResponse)

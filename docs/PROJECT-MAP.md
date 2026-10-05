@@ -339,7 +339,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/project_people.py` | `/projects/{id}/people`, `/parties`, `/people-platform` | реестр людей и стороны проекта, очередь «Кто это?», согласие на голос — полный перечень в §5.14; admin и manager проекта |
 | `routers/requirement_review.py` | `/projects/{id}/requirements` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin |
 | `routers/admin_map.py` | `/admin/map`, `/admin/map/search` | страница «Карта проекта» (только admin): поиск по индексу кода и связей; читает `data/project_map.db`, боевую БД не трогает |
-| `routers/admin_map_graph.py` | `/admin/map/graph`, `/admin/map/graph/summary`, `/admin/map/graph/data` | страница «Граф зависимостей» (только admin): окрестность сущности, подсистема или модульный свод из графа (§16); читает выгрузку `data/project_map_graph.json`, при её отсутствии собирает граф из индекса |
+| `routers/admin_map_graph.py` | `/admin/map/graph`, `/admin/map/graph/summary`, `/admin/map/graph/data`, `/admin/map/overview`, `/admin/map/overview/frame`, `/admin/map/overview/state`, `/admin/map/overview/rebuild` | страница «Граф зависимостей» (только admin): окрестность сущности, подсистема или модульный свод из графа (§16); читает выгрузку `data/project_map_graph.json`, при её отсутствии собирает граф из индекса. «Обзор карты» — просмотрщик инструмента projectmap во фрейме (`services/projectmap_view.py`) |
 | `routers/acme.py` | `/.well-known/acme-challenge` | HTTP-01 → Caddy (Let's Encrypt на IP) |
 | `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта (+ идущие сейчас `GET …/meetings/live` для полоски «Идёт созвон») + гостевой join/leave/heartbeat по токену + сотрудник: `/projects/{id}/meetings/{mid}/heartbeat` и `/leave` (identity только `member:{user.id}`); `GET /api/meetings/public/{token}/avatars/{user_id}` — фото сотрудника гостю, только участника этой встречи. Сотрудник входит под «Имя Фамилия» из карточки |
 | `routers/speaker_profiles.py` | `/api` | enroll, merge, lab enroll/merge, recalculate, speakers-confirm, rebuild-summary, reindex |
@@ -751,6 +751,7 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/projects/{id}/chat` | *(авто при pending)* | `GET /projects/{id}/chat/status` + poll history |
 | `/projects/{id}/graph` | — | `GET …/graph/data` (Cytoscape) |
 | `/admin/map/graph` | поиск узла, вид **Модули** / **Сущности**, фильтры видов узлов и связей, глубина, панель узла со ссылкой «открыть в PyCharm» | `GET /admin/map/graph/summary`, `GET /admin/map/graph/data?focus=…&depth=…` (только admin, §16) |
+| `/admin/map/overview` | **Обзор карты**: подсистемы и группы связности, цвет по подсистеме / группе / тепловой карте правок, размер по fan-in, fan-out или правкам, легенда-фильтр, поиск, карточка файла (метрики, роуты, таблицы, тесты, «открыть в PyCharm»), «Сводка», шкала времени; кнопка **Перестроить карту** | `GET /admin/map/overview/frame` (страница просмотрщика), `GET /admin/map/overview/state`, `POST /admin/map/overview/rebuild` (только admin; граф `.projectmap/out/graph.json`, §10 `projectmap`) |
 | `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
 | `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; шумодав DFN3 в браузере, сырая `skkkk-raw` — рекордеру | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
@@ -1112,6 +1113,7 @@ data/projects/{project_id}/
 | `llm.py` | Единый адаптер: lmstudio / cursor |
 | `gpu_phase.py` | Load/unload Gemma, VRAM-фазы |
 | `queue.py` | jobs: claim — сначала `kind=process_artifact`, затем фоновая `auto_review`; внутри вида FIFO (`created_at`, `id`); finish, requeue; `enqueue_auto_review` / `enqueue_knowledge_refresh` без дублей; очередь **глобальная**, не per-user |
+| `projectmap_view.py` | мост к инструменту projectmap: граф `.projectmap/out/graph.json`, страница просмотрщика для «Обзора карты» (кэш по времени файла), пересборка под замком |
 | `workers/review.py` | задачи `auto_review` (scope `reextract` / `artifact` / `topics` / `relevance` / `conflicts` / `summary`, режим shadow/live): исполнители регистрируются по области; ошибка не трогает статус артефакта; неизвестный `kind` — ошибка задачи, не запуск расшифровки |
 | `auto_review.py` | режим автопроверки (`AUTO_REVIEW_MODE` / настройка проекта), вердикт модели в `value_json.model_review`, «Вернуть», контрольная выборка (каждое N-е) |
 | `review_requirements.py` | этап 2 автопроверки: decision/task → источник (окно ±4 реплик канона / абзац документа), дубли без LLM, пачки по `AUTO_REVIEW_BATCH` в `review_requirement.md`, пороги confirm ≥ 0.7 / reject ≥ 0.8, «кто утвердил» через `_validated_decided_by`; контракт: `verification` = human_confirmed / model_confirmed / extracted; очередь «Ждут вас» и «Вернуть» (`POST /projects/{id}/requirements/entity/{entity_id}/undo-model`); замер — `scripts/eval_auto_review.py` (копия БД) |
@@ -1824,6 +1826,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `project_members.py` | Выдача доступа к проекту: роли manager и user, без admin. |
 | `project_purge.py` | Удаление проекта целиком или одного артефакта: записи БД и файлы на диске. |
 | `project_tasks.py` | Фоновые задачи API (пересборка ТЗ, переиндексация и т.п.): запись и статусы в таблице project_tasks, защита от параллельного запуска, очистк |
+| `projectmap_view.py` | Мост портала к инструменту projectmap (`tools/projectmap`): обзорная карта проекта для страницы `/admin/map/overview`. |
 | `prompts.py` | Загрузка промптов из docs/prompts/*.md (пункт плана 2.2). |
 | `queue.py` | Очередь задач (таблица jobs): захват следующей задачи, завершение, возврат «осиротевших», постановка обработки и повтора этапа знаний. |
 | `rate_limit.py` | Ограничитель неудачных попыток (пункт плана 4.7): защита входа от перебора паролей ролей. |
@@ -1897,6 +1900,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `admin_map.html` | Страница «Карта проекта» (/admin/map, только admin): поиск по индексу кода, документов и связей |
 | `admin_map_graph.html` | Страница «Граф зависимостей» (/admin/map/graph, только admin): модульный свод по файлам и окрестность отдельного узла — Cytoscape, легенда-ф |
+| `admin_map_overview.html` | Страница «Обзор карты» (/admin/map/overview, только admin): просмотрщик projectmap — подсистемы, метрики, тепловая карта правок, шкала време |
 | `admin_memory.html` | Табло памяти решений (/admin/memory): метрики, чек-лист приёмки платформы, история прогонов; доступ — по списку Panel_users.txt |
 | `admin_users.html` | Панель пользователей (/admin/users): таблица учёток и общая лента действий; доступ — по списку Panel_users.txt |
 | `base.html` | Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц |
@@ -2215,13 +2219,15 @@ venv\Scripts\python.exe scripts\export_project_graph.py                         
 фильтры по видам узлов и связей, панель выбранного узла со ссылкой «открыть в PyCharm». Для ИИ-агентов те же данные — через
 MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `module_deps`, `orphans`, `import_cycles`).
 
+Общая картина — `/admin/map/overview` («Обзор карты», только admin): тот же проект глазами инструмента projectmap (`tools/projectmap`, граф `.projectmap/out/graph.json`, раскладка посчитана заранее): подсистемы кругами со сворачиванием, группы связности, тепловая карта правок и шкала времени. Страница-фрейм отдаётся `services/projectmap_view.py` (кэш по времени графа); кнопка «Перестроить карту» запускает `projectmap index` под замком. Старая страница «Граф зависимостей» остаётся для окрестности отдельной сущности (роуты, таблицы, кнопки, переменные из индекса портала).
+
 **Что граф показывает про сам проект:** файлы и подсистемы, роуты с проверками прав, таблицы БД с файлами-читателями и писателями,
 элементы интерфейса и их API, переменные окружения, покрытие тестами, самые связанные узлы, функции-кандидаты в мёртвый код
 (без вызовов, тестов, декораторов и упоминаний в чужом тексте) и циклы импортов — по разделу атласа на каждое.
 
 **Стражи:** `app/app/tests/test_project_graph.py` (у каждого файла и роута есть узел, висячих рёбер нет,
 все слои на месте, окрестность, сироты, циклы, выгрузки, атлас не затирает рукописную шапку) и
-`app/app/tests/test_admin_map_graph.py` (права на страницу и фильтры эндпоинтов).
+`app/app/tests/test_admin_map_graph.py` (права на страницу и фильтры эндпоинтов), `app/app/tests/test_admin_map_overview.py` (права, оболочка с фреймом, самостоятельная страница просмотрщика, пересборка графа, кэш).
 
 **Живая проверка страницы:** `scripts\qa_flows.py --only s_map_graph` (свод по файлам, поиск узла, панель с адресом
 `путь:строка`, клик по связи, фильтр по виду узлов, телефон 390 px без горизонтального скролла) и

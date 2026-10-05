@@ -239,7 +239,7 @@ function card(){
   const n=byId.get(S.sel),c=n.card||{},a=adj.get(n.id);
   const days=n.ch.length?`${D.days[n.ch[0][0]]} … ${D.days[n.ch[n.ch.length-1][0]]}`:'—';
   const com=comm.get(n.community);
-  el.innerHTML=`<button class="x" title="Закрыть">×</button><h2>${esc(n.label)}</h2><div class="path">${esc(n.path)}</div>
+  el.innerHTML=`<button class="x" title="Закрыть">×</button><h2>${esc(n.label)}</h2><div class="path">${esc(n.path)}${n.ide?` · <a class="lk" target="_top" href="${esc(n.ide)}">открыть в редакторе</a>`:''}</div>
   <div class="kv"><span>Подсистема</span><span>${esc(n.group)}</span><span>Группа связности</span><span>${com?esc(com.keywords.slice(0,3).join(', ')||com.id):'—'}</span>
   <span>Использует его</span><span>${n.fan_in}</span><span>Использует он</span><span>${n.fan_out}</span><span>Нестабильность</span><span>${fmt(n.instability)}</span>
   <span>Правок</span><span>${n.churn} (${days})</span><span>Символов</span><span>${c.symbols||0}</span></div>

@@ -195,7 +195,7 @@ def _view_of(args: argparse.Namespace) -> tuple[Path, dict]:
     root, config = _load(args)
     graph_path = Path(args.graph) if args.graph else root / config.graph
     graph = load_graph(graph_path) if graph_path.is_file() else build_and_write(root, config, graph_path)
-    return root, build_view(graph, title=config.title or root.name)
+    return root, build_view(graph, title=config.title or root.name, ide=config.ide, root=root.as_posix())
 
 
 def run_export(args: argparse.Namespace) -> int:

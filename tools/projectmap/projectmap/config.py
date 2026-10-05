@@ -3,6 +3,7 @@
 Файл `.projectmap/config.yaml` в корне проекта:
 
     title: название проекта в просмотрщике; по умолчанию имя каталога
+    ide: шаблон ссылки «открыть в редакторе» в карточке файла, поля {root}, {path}, {line}, например pycharm://open?file={root}/{path}&line={line}
     graph: путь к графу (json), от корня проекта
     ignore: [маски путей, которые карте не нужны: данные, сторонний код, бинарники]
     targets: {проба: минимальная доля охвата, 0..1}
@@ -35,6 +36,7 @@ SYSTEM_ENV = frozenset({"PATH", "PATHEXT", "HOME", "USER", "USERNAME", "USERPROF
 @dataclass
 class Config:
     title: str = ""
+    ide: str = ""
     graph: str = str(DEFAULT_GRAPH).replace("\\", "/")
     ignore: list[str] = field(default_factory=list)
     targets: dict[str, float] = field(default_factory=dict)
@@ -84,6 +86,7 @@ def parse_config(data: dict[str, Any] | None) -> Config:
     data = data or {}
     config = Config()
     config.title = str(data.get("title") or "")
+    config.ide = str(data.get("ide") or "")
     if data.get("graph"):
         config.graph = str(data["graph"])
     config.ignore = [str(p) for p in data.get("ignore") or []]

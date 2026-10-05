@@ -82,7 +82,8 @@ def _history(nodes: dict[str, dict[str, Any]], edges: list[dict[str, Any]]) -> t
     return days, {f: sorted([d, n] for d, n in c.items()) for f, c in per_file.items()}, big
 
 
-def build_view(graph: dict[str, Any], *, title: str = "") -> dict[str, Any]:
+def build_view(graph: dict[str, Any], *, title: str = "", ide: str = "", root: str = "") -> dict[str, Any]:
+    """`ide` — шаблон ссылки «открыть в редакторе» с полями {root}, {path}, {line}; пусто — ссылок нет."""
     nodes = {n["id"]: n for n in graph.get("nodes", [])}
     edges = graph.get("edges", [])
     owner = _owner_map(nodes, edges)
@@ -110,6 +111,7 @@ def build_view(graph: dict[str, Any], *, title: str = "") -> dict[str, Any]:
                            "community": node.get("community"), "fan_in": node.get("fan_in", 0), "fan_out": node.get("fan_out", 0),
                            "instability": node.get("instability"), "churn": node.get("churn", 0), "keywords": node.get("keywords", []),
                            "test": is_test_path(node.get("path", "")), "x": x, "y": y, "ch": per_file.get(i, []),
+                           "ide": ide.format(root=root, path=node.get("path", ""), line=1) if ide else "",
                            "card": {k: v for k, v in card.items() if v}})
     view_edges = [{"s": a, "t": b, "w": sum(c.values()), "rels": dict(c)} for (a, b), c in sorted(pair.items())]
     metrics = graph.get("metrics") or {}

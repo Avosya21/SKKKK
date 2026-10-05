@@ -3276,6 +3276,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_projectmap_view
+    kind: service
+    path: app/app/services/projectmap_view.py
+    title: "Мост портала к инструменту projectmap (`tools/projectmap`): обзорная карта проекта для страницы `/admin/map/overview`."
+    tags: [auto]
+    auto: true
+
+  - id: ui_admin_map_overview
+    kind: file
+    path: app/app/templates/admin_map_overview.html
+    title: "Страница «Обзор карты» (/admin/map/overview, только admin): просмотрщик projectmap — подсистемы, метрики, тепловая карта правок, шкала време"
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
