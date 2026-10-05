@@ -116,6 +116,28 @@ def _split_list(value: str | None) -> list[str]:
     return [p for p in re.split(r"[,\s]+", value.strip()) if p]
 
 
+# Имена, которые у встроенных типов, файлов, баз данных и клиентов встречаются чаще, чем у функций проекта: вызов
+# `conn.close()` или `client.post()` с неизвестным `conn` нельзя привязывать к проектной функции `close` по одному имени.
+COMMON_METHODS = frozenset({
+    "get", "post", "put", "patch", "delete", "head", "request", "send", "recv", "close", "open", "read", "readline", "write",
+    "flush", "seek", "append", "extend", "insert", "remove", "pop", "add", "update", "discard", "clear", "copy", "items", "keys",
+    "values", "sort", "index", "count", "join", "split", "strip", "replace", "format", "encode", "decode", "startswith",
+    "endswith", "find", "lower", "upper", "start", "stop", "run", "wait", "set", "reset", "connect", "commit", "rollback",
+    "execute", "fetchone", "fetchall", "cursor", "load", "loads", "dump", "dumps", "save", "next", "exists", "mkdir", "resolve",
+    "is_file", "is_dir", "unlink", "rename", "terminate", "kill", "cancel", "result", "submit", "put_nowait", "get_nowait",
+})
+SELF_QUALIFIERS = frozenset({"self", "cls"})
+LANGUAGE_FAMILIES = {"py": "py", "js": "web", "mjs": "web", "cjs": "web", "jsx": "web", "ts": "web", "tsx": "web",
+                     "html": "web", "htm": "web", "css": "web", "ps1": "ps", "psm1": "ps"}
+
+
+def _language_family(path: str) -> str:
+    """Семейство языка по расширению: вызов из Python не может вести в JS-функцию с тем же именем и наоборот."""
+    name = path.rsplit("/", 1)[-1]
+    suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return LANGUAGE_FAMILIES.get(suffix, suffix)
+
+
 def _symbol_id(path: str, qualname: str) -> str:
     return f"sym:{path}::{qualname}"
 
@@ -183,6 +205,10 @@ class _Builder:
         self.edges: dict[tuple[str, str, str], dict] = {}
         self.by_name: dict[str, list[str]] = {}
         self.by_path_name: dict[tuple[str, str], str] = {}
+        self.by_qual: dict[str, list[str]] = {}
+        self.call_stats: dict[str, int] = {}
+        self._file_imports_cache: dict[str, tuple[dict[str, list[str]], dict[str, str]]] = {}
+        self._imports_rows: dict[str, list[tuple[str, str | None]]] | None = None
         self.symbols_by_path: dict[str, list[sqlite3.Row]] = {}
         self.routes_by_url: dict[str, list[str]] = {}
         self.notes: list[str] = []
@@ -246,27 +272,92 @@ class _Builder:
                                 path=path, line=row["line"], lang=row["lang"] or "py", sig=(row["signature"] or "")[:160])
             self.by_path_name[(path, qual)] = node_id
             self.by_name.setdefault(row["name"] or qual, []).append(node_id)
+            self.by_qual.setdefault(qual, []).append(node_id)
             self.edge(_file_id(path), node_id, "defines", row["line"])
 
-    def _resolve_symbol(self, path: str, name: str) -> tuple[str | None, int]:
-        """Символ по имени: сначала в том же файле, затем единственное определение в проекте."""
-        local = self.by_path_name.get((path, name))
-        if local:
-            return local, 0
-        candidates = self.by_name.get(name) or []
+    def _file_imports(self, path: str) -> tuple[dict[str, list[str]], dict[str, str]]:
+        """Импорты файла: имя из `from x import name` -> файлы, где оно может быть определено; модуль из `import a.b` -> файл."""
+        if path in self._file_imports_cache:
+            return self._file_imports_cache[path]
+        if self._imports_rows is None:
+            self._imports_rows = {}
+            for row in self.conn.execute("SELECT path, module, names FROM imports").fetchall():
+                self._imports_rows.setdefault(row["path"], []).append((row["module"], row["names"]))
+        by_name: dict[str, list[str]] = {}
+        by_module: dict[str, str] = {}
+        known = self._known_files()
+        for module, names in self._imports_rows.get(path, ()):
+            listed = _split_list(names)
+            if listed:
+                for name in listed:
+                    files = resolve_import(path, module, name, known)
+                    if files:
+                        by_name.setdefault(name, []).extend(files)
+            else:
+                files = resolve_import(path, module, None, known)
+                if files:
+                    by_module[module] = files[0]
+                    by_module[module.rsplit(".", 1)[-1]] = files[0]
+        self._file_imports_cache[path] = (by_name, by_module)
+        return by_name, by_module
+
+    def _resolve_call(self, path: str, caller: str, name: str, qualifier: str) -> tuple[str | None, str]:
+        """Куда ведёт вызов: (id символа или None, способ). Способы: `local`, `self`, `import`, `module`, `class`, `unique`
+        (точные или единственное определение в проекте), `ambiguous` (несколько одноимённых — не связываем, чтобы не гадать)
+        и `external` (в проекте такого имени нет или оно общее для встроенных типов)."""
+        q = "" if qualifier in ("", "<ref>") else qualifier.rsplit(".", 1)[-1]
+        if not q:
+            local = self.by_path_name.get((path, name))
+            if local:
+                return local, "local"
+        elif q in SELF_QUALIFIERS:
+            owner = caller.rsplit(".", 1)[0] if "." in caller else ""
+            for qual in ((f"{owner}.{name}",) if owner else ()) + (name,):
+                hit = self.by_path_name.get((path, qual))
+                if hit:
+                    return hit, "self"
+        by_name, by_module = self._file_imports(path)
+        if not q:
+            for file in by_name.get(name, ()):
+                hit = self.by_path_name.get((file, name))
+                if hit:
+                    return hit, "import"
+        else:
+            for file in by_name.get(q, ()):
+                hit = self.by_path_name.get((file, name if Path(file).stem == q else f"{q}.{name}"))
+                if hit:
+                    return hit, "module"
+            file = by_module.get(qualifier) or by_module.get(q)
+            if file:
+                hit = self.by_path_name.get((file, name))
+                if hit:
+                    return hit, "module"
+            owned = self.by_qual.get(f"{q}.{name}") or []
+            if len(owned) == 1:
+                return owned[0], "class"
+        family = _language_family(path)
+        candidates = [c for c in (self.by_name.get(name) or []) if _language_family(self.nodes[c].get("path", "")) == family]
         if not candidates:
-            return None, 0
+            return None, "external"
         if len(candidates) == 1:
-            return candidates[0], 0
-        return sorted(candidates)[0], len(candidates)
+            return (None, "external") if q and name in COMMON_METHODS else (candidates[0], "unique")
+        return None, "ambiguous"
+
+    def _resolve_symbol(self, path: str, name: str) -> tuple[str | None, int]:
+        """Символ по простому имени (обработчик роута, зависимость, проверка прав): тем же правилом, что и вызов."""
+        target, _ = self._resolve_call(path, "", name, "")
+        return target, 0
 
     def calls(self) -> None:
         externals: dict[str, int] = {}
         rows = self.conn.execute("SELECT path, caller, callee, qualifier, line FROM calls").fetchall()
         for row in rows:
             source = self.by_path_name.get((row["path"], row["caller"])) or _file_id(row["path"])
-            target, ambiguous = self._resolve_symbol(row["path"], row["callee"])
+            target, how = self._resolve_call(row["path"], row["caller"], row["callee"], row["qualifier"] or "")
+            self.call_stats[how] = self.call_stats.get(how, 0) + 1
             if target is None:
+                if how == "ambiguous":
+                    continue  # несколько одноимённых определений: связь не угадываем
                 externals[row["callee"]] = externals.get(row["callee"], 0) + 1
                 if self.include_external:
                     ext = self.node(_node_id("external", row["callee"]), kind="external", label=row["callee"],
@@ -274,7 +365,11 @@ class _Builder:
                     self.edge(source, ext, "calls_ext", row["line"])
                 continue
             relation = "calls_ref" if row["qualifier"] == "<ref>" else "calls"
-            self.edge(source, target, relation, row["line"], **({"amb": ambiguous, "cand": ambiguous} if ambiguous else {}))
+            self.edge(source, target, relation, row["line"], how=how)
+        if self.call_stats:
+            exact = sum(self.call_stats.get(k, 0) for k in ("local", "self", "import", "module", "class"))
+            self.notes.append(f"вызовы: точных {exact}, по единственному имени {self.call_stats.get('unique', 0)}, "
+                              f"неоднозначных (не связаны) {self.call_stats.get('ambiguous', 0)}")
         if externals:
             self.notes.append("внешних вызовов: " + str(sum(externals.values())) + " у " + str(len(externals)) + " имён")
 
