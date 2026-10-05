@@ -359,19 +359,20 @@ def main() -> int:
             a_rate = max((v for k, v in grow.items() if ida.split(":")[-1] in k), default=0)
             check(80000 <= a_rate <= 115000, f"WAV-дорожка А пишется ({a_rate:.0f} Б/с, норма 96000)")
 
-            # --- переключатель «Шумодав» у А: тот же один поток, паузы громче и снова тише
+            # --- переключатель «Шумодав» у А: тот же один поток, паузы громче и снова тише.
+            # Слушаем полный круг сигнала: пауза «только шум» в нём одна (~5 с), короткое окно может её не застать.
             t0 = b.evaluate("performance.now()")
             a.click("#meeting-denoise")
             time.sleep(2)
-            off = capture_b(b, ida, 8, tmp, "b_denoise_off.wav")
+            off = capture_b(b, ida, capture_s, tmp, "b_denoise_off.wav")
             a.click("#meeting-denoise")
             time.sleep(2)
-            on = capture_b(b, ida, 8, tmp, "b_denoise_on.wav")
+            on = capture_b(b, ida, capture_s, tmp, "b_denoise_on.wav")
             t1 = b.evaluate("performance.now()")
             if off is not None and on is not None:
                 lift = _pct_db(off, 10) - _pct_db(on, 10)
                 report["toggle_quiet_db"] = {"off": _pct_db(off, 10), "on": _pct_db(on, 10)}
-                check(lift >= 6, f"шумодав выкл → паузы у Б громче на {lift:.1f} дБ, вкл → снова тише")
+                check(lift >= 6, f"шумодав выкл → паузы у Б громче на {lift:.1f} дБ ({_pct_db(off, 10)} против {_pct_db(on, 10)}), вкл → снова тише")
             sw = route_summary(b.evaluate("window.__route"), t0, t1)
             report["toggle_route"] = sw
             check(sw["none"] == 0 and sw["both"] == 0 and sw["raw"] == 0, f"при переключениях у Б один поток А без тишины ({sw})")
