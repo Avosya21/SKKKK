@@ -2232,6 +2232,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 **Живая проверка страницы:** `scripts\qa_flows.py --only s_map_graph` (свод по файлам, поиск узла, панель с адресом
 `путь:строка`, клик по связи, фильтр по виду узлов, телефон 390 px без горизонтального скролла) и
 `scripts\qa_pages.py --only /admin/map/graph --shots папка` (вёрстка на шести экранах). Стенд проверок — §12.1.
+«Обзор карты» проверяют `scripts\qa_flows.py --only s_map_overview` (оболочка, просмотрщик во фрейме, полотно G6, легенда, поиск, тепловая карта, карточка файла, «Сводка», телефон 390 px) и `scripts\qa_pages.py --only overview` (вёрстка на шести экранах).
 
 ---
 
@@ -2456,6 +2457,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | SKKKK — Подготовка платформы к памяти решений |
 | `docs/plans/PROJECT-INDEX-PLAN.md` | План: индекс проекта, которым можно управлять (поиск по смыслу, коду, связям и истории) |
 | `docs/plans/PROJECTMAP-PLAN.md` | План: инструмент `projectmap` — полная карта любого проекта |
+| `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Пробная сборка просмотрщика карты: замеры G6 и Cytoscape на 150–3680 узлах и решение (G6 с раскладкой, посчитанной заранее) |
 | `docs/plans/REQUIREMENTS-PLAN.md` | SKKKK — Требования: понятные, с источником «кто и когда», актуальные |
 | `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | SKKKK — Кадры экрана: время, момент, дубли, база знаний |
 | `docs/plans/SKKKK-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | SKKKK — План полного закрытия дыр в конвейере созвона |

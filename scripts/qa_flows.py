@@ -426,6 +426,38 @@ def s_map_graph(browser, pw):
     ctx2.close()
 
 
+@scenario("Обзор карты: просмотрщик projectmap во фрейме, поиск, тепловая карта, телефон")
+def s_map_overview(browser, pw):
+    ctx, page = new_page(browser, viewport=(1440, 900))
+    login(page, "audit-admin", pw["admin"])
+    page.goto(BASE + "/admin/map/overview", wait_until="load", timeout=45000)
+    meta = wait_until(lambda: page.locator("#amo-meta").inner_text().strip(), 20)
+    check("построен" in (meta or ""), f"оболочка показывает состояние графа: {meta!r}")
+    frame = page.frame_locator("#amo-frame")
+    header = wait_until(lambda: frame.locator("#meta").inner_text(), 120)
+    check("файлов" in (header or "") and "связей" in (header or ""), f"просмотрщик загрузился во фрейме: {header!r}")
+    check(bool(wait_until(lambda: frame.locator("#graph canvas").count() > 0, 30)), "G6 отрисовал полотно")
+    check(frame.locator("#legend .it").count() >= 5, "легенда подсистем заполнена")
+    frame.locator("#q").fill("queue")
+    found = wait_until(lambda: frame.locator("#qres").inner_text(), 10)
+    check("Найдено" in (found or ""), f"поиск находит файлы: {found!r}")
+    frame.locator("#color").select_option("heat")
+    check(bool(wait_until(lambda: "правки" in frame.locator("#lgt").inner_text().lower(), 10)), "тепловая карта меняет легенду")
+    frame.locator("#qres a").first.click()
+    check(bool(wait_until(lambda: frame.locator("#card").is_visible(), 10)), "клик по найденному файлу открывает карточку")
+    frame.locator("#tabs button[data-t=sum]").click()
+    check("хабы" in frame.locator("#p-sum").inner_text().lower(), "вкладка «Сводка» показывает хабы")
+    check(not page.js_errors, f"ошибок JS нет: {page.js_errors[:2]}")
+    ctx.close()
+
+    ctx2, phone = new_page(browser, viewport=(390, 844))
+    login(phone, "audit-admin", pw["admin"])
+    phone.goto(BASE + "/admin/map/overview", wait_until="load", timeout=45000)
+    check(not phone.evaluate("() => document.documentElement.scrollWidth > innerWidth + 1"), "на телефоне 390 px нет горизонтального скролла")
+    check(phone.locator("#amo-frame").is_visible(), "фрейм виден на телефоне")
+    ctx2.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--engine", default="chromium", choices=["chromium", "webkit"])
@@ -439,7 +471,7 @@ def main() -> int:
     try:
         with sync_playwright() as p:
             browser = getattr(p, args.engine).launch(headless=True, **({"channel": args.channel} if args.channel else {}))
-            for fn in (s_login, s_projects, s_blocks, s_upload, s_meetings, s_mcp, s_px, s_map_graph, s_roles, s_nav, s_network):
+            for fn in (s_login, s_projects, s_blocks, s_upload, s_meetings, s_mcp, s_px, s_map_graph, s_map_overview, s_roles, s_nav, s_network):
                 if args.only and args.only not in fn.__name__:
                     continue
                 fn(browser, pw)
