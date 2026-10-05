@@ -29,7 +29,7 @@ PORT = 18777
 PAGES = [  # (путь, нужен вход)
     ("/login", False), ("/", True), ("/projects/18", True), ("/projects/29", True),
     ("/projects/18/tz", True), ("/projects/18/chat", True), ("/projects/18/graph", True), ("/admin/conflicts", True),
-    ("/admin/map/graph", True),
+    ("/admin/map/graph", True), ("/admin/map/overview", True),
 ]
 VIEWPORTS = [("desktop-1920", 1920, 1080), ("laptop-1366", 1366, 768), ("tablet-768", 768, 1024),
              ("phone-390", 390, 844), ("phone-320", 320, 568), ("phone-landscape", 844, 390)]

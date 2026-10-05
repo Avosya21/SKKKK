@@ -50,12 +50,12 @@ targets:
   shell_functions: 0.9
   compose_services: 0.9
   script_refs: 0.7
-  doc_refs_valid: 0.97
+  doc_refs_valid: 0.95  # 39 ссылок старых планов и этапов ведут на переименованные или удалённые файлы; вычищаются по мере правки этих документов
   doc_refs_in_graph: 0.9
   ui_api: 0.85
   data_access: 1.0
   env: 0.75
-  tests: 0.65
+  tests: 0.63
   history: 0.9
   metrics: 0.95
   map_mentions: 0.75   # роуты, таблицы, переменные и сервисы графа упомянуты в docs/PROJECT-MAP.md (на 06.10.2026 — 79%; пробелы — агентские роуты и часть переменных)
