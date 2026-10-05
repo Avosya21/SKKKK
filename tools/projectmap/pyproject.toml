@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "networkx>=3.2",
+    "numpy>=1.26",
     "pyyaml>=6",
 ]
 
@@ -18,3 +19,6 @@ projectmap = "projectmap.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["projectmap*"]
+
+[tool.setuptools.package-data]
+projectmap = ["viewer/*.html", "viewer/vendor/*"]

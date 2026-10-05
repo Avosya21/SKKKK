@@ -3220,6 +3220,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_export
+    kind: file
+    path: tools/projectmap/projectmap/export.py
+    title: "Выгрузка карты: страница просмотрщика одним файлом (HTML, работает без сети), данные просмотрщика (json), GraphML и DOT."
+    tags: [auto]
+    auto: true
+
+  - id: tool_layout
+    kind: file
+    path: tools/projectmap/projectmap/layout.py
+    title: "Раскладка графа заранее: координаты каждого узла считает инструмент, просмотрщик их только рисует."
+    tags: [auto]
+    auto: true
+
+  - id: tool_view
+    kind: file
+    path: tools/projectmap/projectmap/view.py
+    title: "Данные для просмотрщика: граф проекта, сведённый к файлам, с метриками, раскладкой, историей правок и карточками."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

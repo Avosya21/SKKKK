@@ -1,6 +1,6 @@
 """Командная строка projectmap: `projectmap <команда>`.
 
-Реализованы `version`, `index`, `graph` и `check`; остальные команды объявлены, чтобы интерфейс был виден с первого дня, и отвечают,
+Реализованы `version`, `index`, `graph`, `check`, `export` и `serve`; остальные команды объявлены, чтобы интерфейс был виден с первого дня, и отвечают,
 на каком этапе плана они появятся (код выхода 2).
 """
 
@@ -18,15 +18,15 @@ from projectmap.build import build_graph, graph_stats
 from projectmap.config import Config, load_config
 from projectmap.context import ProjectContext, load_graph
 from projectmap.coverage import render_markdown, render_text
+from projectmap.export import FORMATS, render
 from projectmap.metrics import MetricsOptions, enrich
 from projectmap.probes import PROBES, run_probes
 from projectmap.schema import validate_graph
+from projectmap.view import build_view
 
 # команда -> (что делает, этап плана, на котором появится)
 PLANNED: dict[str, tuple[str, int]] = {
     "init": ("определить стек проекта, создать конфиг и заготовку карты", 5),
-    "export": ("выгрузить граф (JSON, GraphML, DOT, HTML)", 4),
-    "serve": ("открыть просмотрщик карты", 4),
     "hooks": ("поставить или снять git-хуки проверки карты", 5),
     "mcp": ("запустить MCP-сервер карты для ИИ-агентов", 5),
 }
@@ -56,6 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--output", default="", help="записать отчёт в файл вместо вывода на экран")
     check.add_argument("--only", action="append", default=[], choices=sorted(PROBES), help="только эти пробы")
     check.add_argument("--strict", action="store_true", help="код выхода 1, если охват ниже цели")
+    export = sub.add_parser("export", help="выгрузить карту: HTML-просмотрщик одним файлом, json, GraphML, DOT")
+    _common(export)
+    export.add_argument("--format", choices=FORMATS, default="html")
+    export.add_argument("--graph", default="", help="готовый граф (json); по умолчанию из конфига, а если его нет — строится заново")
+    export.add_argument("--output", default="", help="файл результата; по умолчанию .projectmap/out/map.<формат>")
+    serve = sub.add_parser("serve", help="собрать просмотрщик и открыть его в браузере по адресу на этом компьютере")
+    _common(serve)
+    serve.add_argument("--graph", default="", help="готовый граф (json); по умолчанию из конфига, а если его нет — строится заново")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--no-open", action="store_true", help="не открывать браузер")
     for name, (about, stage) in PLANNED.items():
         sub.add_parser(name, help=f"{about} (этап {stage} плана, пока не реализовано)")
     return parser
@@ -102,6 +112,46 @@ def run_index(args: argparse.Namespace, *, atlas: bool) -> int:
     return 1 if problems else 0
 
 
+def _view_of(args: argparse.Namespace) -> tuple[Path, dict]:
+    """Данные просмотрщика по готовому графу (или по свежему, если графа ещё нет)."""
+    root, config = _load(args)
+    graph_path = Path(args.graph) if args.graph else root / config.graph
+    graph = load_graph(graph_path) if graph_path.is_file() else build_and_write(root, config, graph_path)
+    return root, build_view(graph, title=config.title or root.name)
+
+
+def run_export(args: argparse.Namespace) -> int:
+    root, view = _view_of(args)
+    output = Path(args.output) if args.output else root / ".projectmap" / "out" / f"map.{args.format}"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(render(view, args.format), encoding="utf-8", newline="")
+    print(f"записано: {output} ({output.stat().st_size // 1024} КБ)")
+    return 0
+
+
+def run_serve(args: argparse.Namespace) -> int:
+    import functools
+    import http.server
+    import webbrowser
+
+    root, view = _view_of(args)
+    output = root / ".projectmap" / "out" / "map.html"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(render(view, "html"), encoding="utf-8", newline="")
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(output.parent))
+    handler.log_message = lambda *a, **k: None  # type: ignore[attr-defined]
+    with http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler) as server:
+        url = f"http://127.0.0.1:{args.port}/map.html"
+        print(f"карта: {url} (остановить — Ctrl+C)")
+        if not args.no_open:
+            webbrowser.open(url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
 def run_check(args: argparse.Namespace) -> int:
     root, config = _load(args)
     graph_path = Path(args.graph) if args.graph else root / config.graph
@@ -140,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_index(args, atlas=args.command == "graph")
     if args.command == "check":
         return run_check(args)
+    if args.command == "export":
+        return run_export(args)
+    if args.command == "serve":
+        return run_serve(args)
     if args.command in PLANNED:
         about, stage = PLANNED[args.command]
         print(f"projectmap {args.command}: {about} — появится на этапе {stage} плана, пока не реализовано.", file=sys.stderr)

@@ -181,7 +181,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | `docs/stages/` | STAGE-NN: критерии готовности этапов |
 | `scripts/` | Утилиты, мониторинг, rerun, индекс карты |
 | `tools/lightrag/` | **LightRAG** Docker (:9621) — граф знаний по docs (кнопки, API, БД) |
-| `tools/projectmap/` | **projectmap** — переносимый инструмент карты проекта (ядро, адаптеры стека, CLI, просмотрщик; этап 0 плана `docs/plans/PROJECTMAP-PLAN.md`) |
+| `tools/projectmap/` | **projectmap** — переносимый инструмент карты проекта (ядро, адаптеры стека, CLI, просмотрщик на G6 с заранее посчитанной раскладкой; план `docs/plans/PROJECTMAP-PLAN.md`) |
 | `.projectmap/` | конфиг инструмента projectmap для этого проекта (`config.yaml`: граф, осознанные исключения, цели охвата); внутри `out/` — выгрузки, не в git |
 | `tools/android/` | Эмулятор Android (sdk, jdk, avd, platform-tools) — мобильные проверки комнаты; в git не хранится |
 | `docs/project-map/` | Манифест карты, атлас зависимостей `DEPENDENCIES.md` и свод `graph-modules.json` (§16) |
@@ -1484,7 +1484,7 @@ run_pipeline
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
 | `install_hooks.ps1` | git-хуки: `post-commit`/`post-merge` — фоновое обновление индекса; `pre-commit`/`commit-msg` — проверка карты и личных данных при коммите (ставят `INSTALL.bat` и `restart.ps1`) |
-| `projectmap.py` | запуск инструмента projectmap (`tools/projectmap`): `index`/`graph` — граф с метриками (`.projectmap/out/graph.json`, `graph` ещё и `atlas.md`), `check` — охват карты по слоям, `report` — строит граф и документ `docs/project-map/COVERAGE.md`; конфиг `.projectmap/config.yaml` |
+| `projectmap.py` | запуск инструмента projectmap (`tools/projectmap`): `index`/`graph` — граф с метриками (`.projectmap/out/graph.json`, `graph` ещё и `atlas.md`), `export` — просмотрщик одним HTML-файлом (`.projectmap/out/map.html`) или json/graphml/dot, `serve` — открыть просмотрщик в браузере, `check` — охват карты по слоям, `report` — строит граф и документ `docs/project-map/COVERAGE.md`; конфиг `.projectmap/config.yaml` |
 | `check_map_staged.py` | хук `pre-commit`: сверяет карту с содержимым индекса git (снимок коммита, не рабочая копия): файлы кода, роуты, таблицы БД, переменные окружения, реестр модулей, манифест |
 | `scan_personal_data.py` | хук `pre-commit` (блок `SKKKK-PRIVACY`): ищет в файлах коммита (версия из индекса git) имена людей, их написания, фамилии и названия компаний из базы портала; находка отклоняет коммит, имена видны только в консоли; без базы портала пропускается |
 | `check_map_commit_msg.py` | хук `commit-msg`: при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку «Карта: не требуется — причина» |
@@ -1529,6 +1529,7 @@ run_pipeline
 | `tools/projectmap/tests/test_metrics.py` | метрики графа: группы Louvain без тестов и их воспроизводимость, fan-in/out, хабы, согласие с подсистемами, правки и co-change, ключевые слова |
 | `tools/projectmap/tests/test_schema_and_coverage.py` | схема графа и слоёв, проверка целостности, расчёт охвата, отчёты, маски путей и конфиг инструмента projectmap |
 | `tools/projectmap/tests/test_probes_and_check.py` | пробы охвата на небольшом проекте и команда `projectmap check` (отчёт, `--strict`, форматы) |
+| `tools/projectmap/tests/test_layout_view_export.py` | раскладка заранее (воспроизводимость, круги подсистем не пересекаются, связанные ближе), данные просмотрщика (связи символов сведены к файлам, карточки, история по дням), страница без обращений к сети и защита от `</script>` в данных, GraphML/DOT/json, команда `export` |
 | `tools/projectmap/tests/test_cli.py`, `test_core_is_project_neutral.py` | командная строка и защита общности: в ядре нет названий нашего проекта |
 | `app/app/tests/test_map_guard.py` | защита актуальности карты: правила сообщения коммита, разбор расхождений, установка git-хуков |
 | `app/app/tests/test_map_coverage.py` | логика проверки покрытия карты: роуты, таблицы БД и переменные окружения из кода (`check_map_drift.coverage`) |
@@ -2142,6 +2143,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `config.py` | Конфиг проекта для projectmap: где граф, что не считать (осознанные исключения) и цели охвата по пробам. |
 | `context.py` | Контекст проекта для проб: корень, граф, конфиг, список файлов и разбор графа по файлам. |
 | `coverage.py` | Охват карты: какая доля существующего в проекте описана и связана в графе, по слоям. |
+| `export.py` | Выгрузка карты: страница просмотрщика одним файлом (HTML, работает без сети), данные просмотрщика (json), GraphML и DOT. |
 | `extract.py` | Разбор одного файла: выбирает разборщик по языку и возвращает факты (символы, вызовы, импорты). |
 | `grammars.py` | Грамматики tree-sitter: локальный кэш проекта, какие языки доступны и как докачать недостающие. |
 | `graphbuf.py` | Общие части построения графа: идентификаторы узлов, буфер рёбер, чтение файлов, поиск функции по строке. |
@@ -2154,6 +2156,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lang_specs.py` | Правила языков для общего разбора tree-sitter (`lang_treesitter`): типы узлов, имена, базовые классы, импорты. |
 | `lang_treesitter.py` | Общий разбор языков через tree-sitter: символы, вызовы, импорты, базовые классы по таблице правил языка. |
 | `languages.py` | Реестр языков: расширения файлов, уровень поддержки и имя грамматики tree-sitter. |
+| `layout.py` | Раскладка графа заранее: координаты каждого узла считает инструмент, просмотрщик их только рисует. |
 | `metrics.py` | Метрики графа: группы по связности (Louvain), fan-in/out, нестабильность, «хабы», частота правок и co-change. |
 | `metrics_report.py` | Отчёт по метрикам графа: разделы Markdown для атласа и документов (группы, хабы, правки, скрытая связность). |
 | `model.py` | Факты, которые разбор достаёт из одного файла: символы, вызовы, импорты. |
@@ -2161,6 +2164,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `probes.py` | Пробы охвата: независимо от графа находят, что есть в проекте, и сверяют это с графом. |
 | `resolve.py` | Привязка вызовов и базовых классов к определениям проекта, одинаково для всех языков. |
 | `schema.py` | Схема графа projectmap: слои карты, виды узлов и связей, проверка целостности. |
+| `view.py` | Данные для просмотрщика: граф проекта, сведённый к файлам, с метриками, раскладкой, историей правок и карточками. |
 
 <!-- generated:end registry -->
 

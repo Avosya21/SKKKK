@@ -129,3 +129,6 @@ Panel_users.txt
 # projectmap: грамматики tree-sitter и выгрузки инструмента (локальный кэш, не в git)
 .projectmap/grammars/
 .projectmap/out/
+
+# библиотека просмотрщика projectmap лежит в репозитории: страница выгружается без интернета
+!tools/projectmap/projectmap/viewer/vendor/
