@@ -1220,7 +1220,7 @@ data/projects/{project_id}/
 
 ### Индекс проекта (`services/project_index/`, сентябрь 2026)
 
-Поиск для людей и ИИ-агентов по коду, шаблонам, JS, документам, решениям, связям и истории. План и статус — `docs/plans/PROJECT-INDEX-PLAN.md`, эксплуатация — `docs/OPERATIONS.md` («Индекс проекта»). Хранилище `data/project_map.db` (SQLite + sqlite-vec + FTS5), эмбеддинги — Ollama `bge-m3` на CPU, GPU не занимается.
+Поиск для людей и ИИ-агентов по коду, шаблонам, JS, документам, решениям, связям и истории. План и статус — `docs/plans/PROJECT-INDEX-PLAN.md`, эксплуатация — `docs/OPERATIONS.md` («Индекс проекта»). Хранилище `data/project_map.db` (SQLite + sqlite-vec + FTS5), эмбеддинги — Ollama `bge-m3` на CPU, GPU не занимается. Следующий шаг развития — переносимый инструмент `projectmap` (карта любого проекта, многоязычный разбор, просмотрщик в одном файле): план `docs/plans/PROJECTMAP-PLAN.md`, статус — согласован, не начат.
 
 | Файл | Назначение |
 |------|------------|
