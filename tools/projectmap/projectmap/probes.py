@@ -15,6 +15,7 @@ import yaml
 
 from projectmap.context import ProjectContext
 from projectmap.coverage import Coverage, Report, make_coverage
+from projectmap.paths import is_test_path
 
 CODE_SUFFIXES = (".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs", ".c", ".cc", ".cpp", ".h", ".swift")
 SCRIPT_SUFFIXES = (".py", ".ps1", ".sh", ".bat", ".cmd")
@@ -23,12 +24,6 @@ PS_FUNCTION = re.compile(r"(?im)^\s*function\s+([\w-]+)")
 SH_FUNCTION = re.compile(r"(?m)^\s*(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\)\s*\{")
 BACKTICK_PATH = re.compile(r"`([\w.\-]+(?:/[\w.\-]+)+/?)`")
 COMPOSE_NAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
-
-
-def is_test_path(path: str) -> bool:
-    parts = path.split("/")
-    name = parts[-1]
-    return ("tests" in parts or "test" in parts or name.startswith("test_") or name.endswith(("_test.py", ".test.js", ".spec.js", ".test.ts", ".spec.ts")))
 
 
 def files_probe(ctx: ProjectContext) -> list[Coverage]:
@@ -157,10 +152,11 @@ def history_probe(ctx: ProjectContext) -> list[Coverage]:
 
 
 def metrics_probe(ctx: ProjectContext) -> list[Coverage]:
-    expected = [n["path"] for n in ctx.nodes_of("file") if n.get("path")]
+    # тестовые файлы в граф групп и степеней осознанно не входят: они покрывают код, а не участвуют в его структуре
+    expected = [n["path"] for n in ctx.nodes_of("file") if n.get("path") and not is_test_path(n["path"])]
     metric_fields = ("community", "fan_in", "fan_out")
     present = {n["path"] for n in ctx.nodes_of("file") if n.get("path") and any(f in n for f in metric_fields)}
-    return [make_coverage("metrics", "metrics", "Файлы с метриками (группа, fan-in/out)", expected, present)]
+    return [make_coverage("metrics", "metrics", "Файлы кода с метриками (fan-in/out, группа)", expected, present)]
 
 
 PROBES: dict[str, Callable[[ProjectContext], list[Coverage]]] = {

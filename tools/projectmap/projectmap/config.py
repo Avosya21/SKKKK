@@ -5,6 +5,7 @@
     graph: путь к графу (json), от корня проекта
     ignore: [маски путей, которые карте не нужны: данные, сторонний код, бинарники]
     targets: {проба: минимальная доля охвата, 0..1}
+    metrics: {resolution, seeds, hub_min, cochange_min, cochange_max_files, top, misplaced_share, misplaced_min_size}
 
 Маски: `*` — любые символы кроме `/`, `**` — любые символы включая `/`, `?` — один символ.
 """
@@ -27,6 +28,7 @@ class Config:
     graph: str = str(DEFAULT_GRAPH).replace("\\", "/")
     ignore: list[str] = field(default_factory=list)
     targets: dict[str, float] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)  # параметры metrics.MetricsOptions
 
     def is_ignored(self, rel_path: str) -> bool:
         return any(glob_to_regex(pattern).match(rel_path) for pattern in self.ignore)
@@ -63,6 +65,7 @@ def parse_config(data: dict[str, Any] | None) -> Config:
         config.graph = str(data["graph"])
     config.ignore = [str(p) for p in data.get("ignore") or []]
     config.targets = {str(k): float(v) for k, v in (data.get("targets") or {}).items()}
+    config.metrics = dict(data.get("metrics") or {})
     return config
 
 
