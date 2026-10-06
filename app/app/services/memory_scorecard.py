@@ -10,6 +10,7 @@
 - M3~ — доля эталонных событий, у которых есть пункт на том же сообщении или реплике (грубо: вопросы и «сделал» пунктами не становятся);
 - M7 — доля людей из эталона, найденных в реестре проекта с известной стороной;
 - M8 — доля эталонных событий, у которых сторона источника в контракте совпала с листом людей (там, где человек известен);
+- M9 — доля действующих пунктов документов, у которых есть абзац-источник P<n> (Э1; цель 100 %);
 - M4–M6 появятся вместе с речевыми актами, журналом событий и ответами чата.
 """
 from __future__ import annotations
@@ -28,7 +29,7 @@ from app.app.config import Settings
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity
 
-HEADER = ["дата", "этап", "проект", "промпт", "модель", "M1", "M2", "M3", "M7", "M8", "детали"]
+HEADER = ["дата", "этап", "проект", "промпт", "модель", "M1", "M2", "M3", "M7", "M8", "M9", "детали"]
 PENDING_METRICS = ("M4", "M5", "M6")
 SIDE_TO_CONTRACT = {"customer": "customer", "executor": "vendor"}
 TURN_TOLERANCE = 0.02  # секунд: соседние реплики бывают в одну секунду, поэтому реплику узнаём по точному началу
@@ -220,6 +221,23 @@ def _evidence_sides(db: Session, settings: Settings, project_id: int) -> list[tu
     return out
 
 
+def _m9(db: Session, settings: Settings, project_id: int) -> tuple[float | None, int, int]:
+    """Пункты документов проекта с абзацем-источником: (доля, с абзацем, всего). Нет документов с пунктами — (None, 0, 0)."""
+    from app.app.services import doc_anchors
+
+    total = bound = 0
+    for art in doc_anchors.document_artifacts(db, settings, project_id):
+        for ent in db.scalars(select(Entity).where(Entity.artifact_id == art.id, Entity.is_active.is_(True),
+                                                   Entity.entity_type.in_(doc_anchors.HUMAN_TYPES))).all():
+            try:
+                value = json.loads(ent.value_json or "{}")
+            except ValueError:
+                continue
+            total += 1
+            bound += isinstance(value, dict) and isinstance(value.get("source_paragraph"), int)
+    return (bound / total if total else None), bound, total
+
+
 def _m8(db: Session, settings: Settings, project_id: int, gold: list[dict[str, str]]) -> dict[str, Any]:
     """Сторона источника в контракте против листа людей. Считаются только события, где автор есть в листе и у события есть пункт."""
     from app.app.services.people import alias_key
@@ -328,12 +346,13 @@ def compute(db: Session, settings: Settings, project_id: int) -> dict[str, Any]:
     m3, m3_found, m3_total = _m3(db, settings, project_id, gold)
     m7, m7_missing = _m7(db, project_id, gold)
     m8 = _m8(db, settings, project_id, gold)
+    m9, m9_bound, m9_total = _m9(db, settings, project_id)
     return {
         "project_id": project_id, "prompt": PROMPT_VERSION, "model": settings.lmstudio_model,
         "has_gold": bool(gold), "has_people_sheet": bool(people_sheet(settings)),
-        "metrics": {"M1": _m1(counts), "M2": m2, "M3": m3, "M7": m7, "M8": m8["value"]},
+        "metrics": {"M1": _m1(counts), "M2": m2, "M3": m3, "M7": m7, "M8": m8["value"], "M9": m9},
         "details": {"unsourced": counts["unsourced"], "total": counts["total"], "m2": m2_details, "m3": [m3_found, m3_total],
-                    "m7_missing": m7_missing, "m8_checked": m8["checked"], "m8_wrong": m8["wrong"]},
+                    "m7_missing": m7_missing, "m8_checked": m8["checked"], "m8_wrong": m8["wrong"], "m9": [m9_bound, m9_total]},
         "pending": list(PENDING_METRICS),
         "checklist": checklist(db, settings, project_id, m8=m8),
     }
@@ -384,7 +403,7 @@ def record(settings: Settings, result: dict[str, Any], stage: str) -> dict[str, 
     if wrong:
         detail += f" | M8 расхождений: {len(wrong)}"
     row = [datetime.now().strftime("%Y-%m-%d %H:%M"), stage, result["project_id"], result["prompt"], result["model"],
-           _fmt(m["M1"]), _fmt(m["M2"]), _fmt(m["M3"]), _fmt(m["M7"]), _fmt(m["M8"]), detail]
+           _fmt(m["M1"]), _fmt(m["M2"]), _fmt(m["M3"]), _fmt(m["M7"]), _fmt(m["M8"]), _fmt(m.get("M9")), detail]
     new = not path.exists()
     with path.open("a", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f, delimiter=";")

@@ -36,8 +36,8 @@ logger = logging.getLogger("skkkk.entities")
 ROOT = Path(__file__).resolve().parents[3]
 # v3 = v2 (контекст проекта, виды пунктов, самодостаточные формулировки — REQUIREMENTS-PLAN этап 4) + переписка по
 # номерам сообщений (SOURCE-ANCHORS-PLAN этап 2); v1 и v2 оставлены файлами.
-PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities_v4.md"  # v4 = v3 + deadline_at (точный срок, 2026-09-30)
-PROMPT_VERSION = "extract_entities-v4"
+PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_entities_v5.md"  # v4 = v3 + deadline_at (2026-09-30); v5 = v4 + абзацы документа P<n> (2026-10-06)
+PROMPT_VERSION = "extract_entities-v5"
 SOURCE_TYPE_CALL = "call"
 TEXT_HASH_LEN = 16
 CALL_BOUND_TYPES = {"decision", "task", "fact", "open_question"}
@@ -105,6 +105,12 @@ class TaskItem(BaseModel):
     turns: list[int] = Field(default_factory=list)
     messages: list[int] = Field(default_factory=list)  # переписка: номера сообщений M<n> (SOURCE-ANCHORS-PLAN этап 2)
     quote: str = ""  # документ: дословная цитата-источник (DECISION-MEMORY-PLAN этап 2); проверяется по тексту материала
+    paragraphs: list[int] = Field(default_factory=list)  # документ: номера абзацев P<n> источника (DECISION-MEMORY-PLAN, Э1)
+
+    @field_validator("paragraphs", mode="before")
+    @classmethod
+    def _coerce_paragraphs(cls, value: Any) -> list[int]:
+        return _turn_ids(value)
 
     @field_validator("deadline_at", mode="before")
     @classmethod
@@ -135,6 +141,12 @@ class OpenQuestionItem(BaseModel):
     text: str = ""
     options: list[str] = Field(default_factory=list)
     quote: str = ""  # документ: дословная цитата-источник (DECISION-MEMORY-PLAN этап 2)
+    paragraphs: list[int] = Field(default_factory=list)  # документ: номера абзацев P<n> источника (DECISION-MEMORY-PLAN, Э1)
+
+    @field_validator("paragraphs", mode="before")
+    @classmethod
+    def _coerce_paragraphs(cls, value: Any) -> list[int]:
+        return _turn_ids(value)
     object: str | None = None
     topic: str | None = None
     turns: list[int] = Field(default_factory=list)
@@ -188,6 +200,12 @@ class DecisionItem(BaseModel):
     turns: list[int] = Field(default_factory=list)
     messages: list[int] = Field(default_factory=list)
     quote: str = ""  # документ: дословная цитата-источник (DECISION-MEMORY-PLAN этап 2)
+    paragraphs: list[int] = Field(default_factory=list)  # документ: номера абзацев P<n> источника (DECISION-MEMORY-PLAN, Э1)
+
+    @field_validator("paragraphs", mode="before")
+    @classmethod
+    def _coerce_paragraphs(cls, value: Any) -> list[int]:
+        return _turn_ids(value)
     decided_by: list[DecidedBy] = Field(default_factory=list)
 
     @field_validator("turns", mode="before")
@@ -668,6 +686,33 @@ def _material_timestamp(artifact: Artifact) -> str:
     return ""
 
 
+def _paragraphs_header() -> str:
+    return (
+        "Документ разбит на пронумерованные единицы: «P<номер> текст» (заголовок, абзац, пункт списка или строка таблицы). "
+        "Для decision/task/open_question укажи в paragraphs номера единиц-источника и в quote — дословную цитату из них "
+        "(без «P<номер>»).\n\n"
+    )
+
+
+def _numbered_unit_parts(text: str, max_chars: int = EXTRACT_PART_CHARS) -> list[str]:
+    """Документ: единицы ``P<n>`` (doc_units), нарезанные на части по целым единицам. Пустой текст — []."""
+    from app.app.services.doc_units import numbered_lines, split_units
+
+    lines = numbered_lines(split_units(text))
+    out: list[str] = []
+    buf: list[str] = []
+    size = 0
+    for line in lines:
+        if buf and size + len(line) + 1 > max_chars:
+            out.append("\n".join(buf))
+            buf, size = [], 0
+        buf.append(line)
+        size += len(line) + 1
+    if buf:
+        out.append("\n".join(buf))
+    return out
+
+
 def _turns_header() -> str:
     return (
         "Стенограмма разбита на пронумерованные реплики: «T<номер> [таймкод] Имя: текст». "
@@ -791,6 +836,9 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str, cont
     else:
         numbered = _numbered_turn_parts(settings, artifact, max_chars=EXTRACT_PART_CHARS)
         header = _turns_header() if numbered else ""
+        if not numbered and getattr(artifact, "file_type", "") != "audio":  # документ: абзацы P<n> (Э1)
+            numbered = _numbered_unit_parts(text, max_chars=EXTRACT_PART_CHARS)
+            header = _paragraphs_header() if numbered else ""
     pieces = numbered or _split_for_extraction(text)
     parts: list[EntitiesPayload] = []
     previous_tail = ""
@@ -1337,6 +1385,48 @@ def verify_document_quote(quote: str, text: str) -> str | None:
     return quote.strip() if norm in haystack else None
 
 
+DOC_HINT_COVERAGE = 0.3  # подсказанная моделью единица принимается без дословной цитаты, если покрывает слова пункта хотя бы так
+
+
+def bind_document_source(value: dict, units: list, doc_text: str) -> dict:
+    """Привязать пункт документа к абзацу-источнику (Э1): ``source_paragraph`` (номер P<n>) и ``source_quote``.
+
+    Порядок: дословная цитата модели, найденная в тексте → единица с цитатой (подсказанная моделью — первой); нет цитаты, но
+    подсказана единица, слова которой покрывают пункт, → цитату выбирает код (``source_basis=hint``); иначе пункт без
+    источника (``source_status=quote_not_found``). Цитату, которой нет в тексте, не принимаем."""
+    from app.app.services import contract_text as ct
+    from app.app.services.doc_units import find_unit_by_quote, unit_by_id
+
+    bound = dict(value)
+    claimed = str(bound.pop("quote", "") or "")
+    hints = [int(x) for x in (bound.pop("paragraphs", None) or []) if isinstance(x, int)]
+    statement = str(bound.get("text") or bound.get("description") or "")
+    verified = verify_document_quote(claimed, doc_text) if claimed else None
+    unit = find_unit_by_quote(units, verified, prefer=hints) if verified else None
+    if verified and unit is not None:
+        bound["source_quote"], bound["source_paragraph"] = verified, unit.id
+        return bound
+    if verified:  # цитата в тексте есть, но единицу не определили (спан через несколько единиц): адрес — подсказанная
+        hinted = unit_by_id(units, hints[0]) if hints else None
+        bound["source_quote"] = verified
+        if hinted is not None:
+            bound["source_paragraph"] = hinted.id
+        return bound
+    for hint in hints:
+        hinted = unit_by_id(units, hint)
+        if hinted is None:
+            continue
+        need = ct.stems(statement)
+        if need and ct.coverage(need, ct.stems(hinted.text)) >= DOC_HINT_COVERAGE:
+            found = ct.best_quote(statement, hinted.text)
+            bound["source_paragraph"] = hinted.id
+            bound["source_quote"] = found[0] if found else hinted.text[: ct.QUOTE_MAX]
+            bound["source_basis"] = "hint"
+            return bound
+    bound["source_status"] = "quote_not_found"  # модель не привела дословную цитату и подходящую единицу
+    return bound
+
+
 def _decision_value(item: DecisionItem) -> dict:
     value: dict[str, Any] = {
         "text": item.text,
@@ -1350,6 +1440,8 @@ def _decision_value(item: DecisionItem) -> dict:
         value["messages"] = list(item.messages)
     if item.quote:
         value["quote"] = item.quote
+    if item.paragraphs:
+        value["paragraphs"] = list(item.paragraphs)
     return value
 
 
@@ -1535,10 +1627,13 @@ def persist_entities(
             chat_messages = export["messages"]
             chat_skip = owned_elsewhere(chat_path.parent, export)
     doc_text = ""
-    if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL and not chat_messages:
+    if getattr(artifact, "file_type", "") != "audio" and not chat_messages:  # документ (в т. ч. загруженный как «созвон»)
         from app.app.services.storage import artifact_knowledge_text
 
         doc_text = artifact_knowledge_text(settings, artifact) or ""
+    from app.app.services.doc_units import split_units
+
+    doc_units = split_units(doc_text) if doc_text else []
     drafts: list[tuple[str, str, float]] = []
 
     def draft(entity_type: str, value: Any, confidence: float = 0.6) -> None:
@@ -1556,13 +1651,11 @@ def persist_entities(
             item = dict(item)
             item.pop("turns", None)  # номера реплик нестабильны (после «Слить»); якорь — start_sec
             item.pop("messages", None)  # переписка: якорь — message_id
-            claimed = str(item.pop("quote", "") or "")
             if entity_type in HUMAN_TYPES and doc_text:
-                verified = verify_document_quote(claimed, doc_text)
-                if verified:
-                    item["source_quote"] = verified
-                else:
-                    item["source_status"] = "quote_not_found"  # модель не привела дословную цитату (или её нет в тексте)
+                item = bind_document_source(item, doc_units, doc_text)
+            else:
+                item.pop("quote", None)
+                item.pop("paragraphs", None)
             if not item.get("decided_by"):
                 item.pop("decided_by", None)
             if entity_type in HUMAN_TYPES:

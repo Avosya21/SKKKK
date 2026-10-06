@@ -36,7 +36,7 @@ class ReviewNeedsForce(ReviewError):
 
 HIDDEN_STATES = ("superseded", "duplicate")  # прячутся из «Ждут вас» на свои вкладки уже в тени (REQUIREMENTS-PLAN А3)
 SOURCE_KEYS = ("artifact_id", "material", "material_type", "speaker", "side", "speaker_basis", "said_at", "said_date", "date_basis",
-               "timecode", "agreed_by", "quote", "url", "start_sec", "message_id")
+               "timecode", "agreed_by", "quote", "url", "start_sec", "message_id", "paragraph")
 CONTEXT_TURNS = 2  # реплик до и после реплики-источника в карточке (всего до 5)
 
 
@@ -121,6 +121,30 @@ def _context_turns(db: Session, settings: Settings, entity_ids: list[int]) -> di
     return out
 
 
+def _context_units(db: Session, settings: Settings, entity_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    """Окно вокруг абзаца-источника документа: 3 единицы до, источник и 1 после (Э1). Только пункты, привязанные к абзацу."""
+    from app.app.services.doc_units import context_window, split_units
+    from app.app.services.storage import artifact_knowledge_text
+
+    out: dict[int, list[dict[str, Any]]] = {}
+    cache: dict[int, list] = {}
+    for ent in db.scalars(select(Entity).where(Entity.id.in_(entity_ids))).all():
+        try:
+            value = json.loads(ent.value_json or "{}")
+        except ValueError:
+            continue
+        unit_id = value.get("source_paragraph") if isinstance(value, dict) else None
+        if not isinstance(unit_id, int):
+            continue
+        if ent.artifact_id not in cache:
+            art = db.get(Artifact, ent.artifact_id)
+            cache[ent.artifact_id] = split_units(artifact_knowledge_text(settings, art) or "") if art else []
+        window = context_window(cache[ent.artifact_id], unit_id)
+        if window:
+            out[ent.id] = [{"speaker": None, "timecode": f"абзац {u.id}", "text": u.text[:300], "source": u.id == unit_id} for u in window]
+    return out
+
+
 def _row(r: dict[str, Any], topics: dict[int, str], by_entity: dict[int, dict[str, Any]]) -> dict[str, Any]:
     ev = r.get("evidence") or []
     first = ev[0] if ev else {}
@@ -201,7 +225,10 @@ def review_list(db: Session, settings: Settings, project_id: int, *, status: str
     rows.sort(key=lambda row: (row.get("topic") is None, (row.get("topic") or "").casefold()))
     total = len(rows)
     chunk = rows[offset: offset + page]
-    context = _context_turns(db, settings, [row["source_entity_id"] for row in chunk if row.get("source_entity_id")])
+    ids = [row["source_entity_id"] for row in chunk if row.get("source_entity_id")]
+    context = _context_turns(db, settings, ids)
+    for eid, window in _context_units(db, settings, [i for i in ids if i not in context]).items():
+        context[eid] = window  # документ: единицы вокруг абзаца
     for row in chunk:
         row["context"] = context.get(row.get("source_entity_id")) or []
     return {"total": total, "counts": counts, "items": chunk}

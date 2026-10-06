@@ -98,7 +98,7 @@ def test_board_record_history_and_old_header_migration(env):
     board = settings.data_dir / "eval" / "memory_scorecard.csv"
     board.write_text("дата;этап;проект;промпт;модель;M1_цитата;M2_итог;M3_грубо;M2_подробно\n2026-09-30 13:14;E0;18;p-old;m-old;0.99;0.88;0.42;S01 OK\n", encoding="utf-8-sig")
     old = sc.history(settings)  # старый файл переписывается с новыми столбцами, строки сохраняются
-    assert old[0]["M1"] == "0.99" and old[0]["M2"] == "0.88" and old[0]["M3"] == "0.42" and old[0]["M7"] == "" and old[0]["детали"] == "S01 OK"
+    assert old[0]["M1"] == "0.99" and old[0]["M2"] == "0.88" and old[0]["M3"] == "0.42" and old[0]["M7"] == "" and old[0]["M9"] == "" and old[0]["детали"] == "S01 OK"
     result = sc.run(db, settings, pid, stage="тест")
     rows = sc.history(settings, pid)
     assert len(rows) == 1 and rows[0]["этап"] == "тест" and rows[0]["проект"] == str(pid) and rows[0]["M1"] == "1.00"
@@ -181,7 +181,7 @@ def test_memory_api_live_run_history_and_auto_run(client, admin_token, panel_fil
     live = client.get(f"/admin/memory/live?project_id={on}", headers=h)
     assert live.status_code == 200
     body = live.json()
-    assert set(body["metrics"]) == {"M1", "M2", "M3", "M7", "M8"} and body["pending"] == ["M4", "M5", "M6"]
+    assert set(body["metrics"]) == {"M1", "M2", "M3", "M7", "M8", "M9"} and body["pending"] == ["M4", "M5", "M6"]
     assert {c["id"] for c in body["checklist"]} >= {"people", "platform", "m8", "voices", "times", "companies", "wizard", "tests", "scan", "docs"}
     assert len(client.get(f"/admin/memory/data?project_id={on}", headers=h).json()["history"]) == 2  # «live» ничего не записывает
     ran = client.post("/admin/memory/run", json={"project_id": on}, headers=h)

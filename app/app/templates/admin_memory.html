@@ -26,7 +26,7 @@
   <div class="card-header"><strong>История прогонов</strong></div>
   <div class="table-responsive">
     <table class="table table-sm align-middle mb-0">
-      <thead><tr><th>Когда</th><th>Этап</th><th>Промпт</th><th class="text-end">M1</th><th class="text-end">M2</th><th class="text-end">M3~</th><th class="text-end">M7</th><th class="text-end">M8</th></tr></thead>
+      <thead><tr><th>Когда</th><th>Этап</th><th>Промпт</th><th class="text-end">M1</th><th class="text-end">M2</th><th class="text-end">M3~</th><th class="text-end">M7</th><th class="text-end">M8</th><th class="text-end">M9</th></tr></thead>
       <tbody id="mm-history"></tbody>
     </table>
   </div>
@@ -54,6 +54,7 @@
     ['M3', 'События эталона с пунктом', 'Грубо: у скольких эталонных событий есть пункт на том же сообщении или реплике.'],
     ['M7', 'Люди эталона в реестре', 'Доля людей эталона, найденных в реестре проекта с известной стороной. Цель — 95% и выше.'],
     ['M8', 'Верная сторона источника', 'Совпадение стороны источника в контракте с листом людей. Цель — 100%.'],
+    ['M9', 'Пункты документов с абзацем', 'Доля действующих пунктов документов, у которых есть абзац-источник P<n>. Цель — 100%.'],
   ];
   let projectId = null;
 
@@ -61,7 +62,7 @@
     $('mm-model').textContent = `${d.prompt} · ${d.model}`;
     $('mm-metrics').innerHTML = CARDS.map(([k, title, hint]) => {
       const v = d.metrics[k];
-      const bad = v !== null && v !== undefined && ((k === 'M8' && v < 1) || (k === 'M1' && v < 1) || (k === 'M7' && v < 0.95));
+      const bad = v !== null && v !== undefined && ((k === 'M8' && v < 1) || (k === 'M9' && v < 0.8) || (k === 'M1' && v < 1) || (k === 'M7' && v < 0.95));
       return `<div class="col-6 col-md"><div class="card shadow-sm h-100" title="${esc(hint)}"><div class="card-body py-2">
         <div class="small text-muted">${k}</div><div class="h4 mb-0 ${bad ? 'text-danger' : ''}">${pct(v)}</div><div class="small text-muted">${esc(title)}</div></div></div></div>`;
     }).join('') + `<div class="col-6 col-md"><div class="card shadow-sm h-100"><div class="card-body py-2"><div class="small text-muted">M4–M6</div>
@@ -81,7 +82,7 @@
   }
   function renderHistory(rows) {
     $('mm-history').innerHTML = rows.map((r) => `<tr><td class="text-nowrap small">${esc(r['дата'])}</td><td class="small">${esc(r['этап'])}</td><td class="small">${esc(r['промпт'])}</td>
-      ${['M1', 'M2', 'M3', 'M7', 'M8'].map((k) => `<td class="text-end">${pct(r[k])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="8" class="text-muted small">Прогонов пока нет.</td></tr>';
+      ${['M1', 'M2', 'M3', 'M7', 'M8', 'M9'].map((k) => `<td class="text-end">${pct(r[k])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="9" class="text-muted small">Прогонов пока нет.</td></tr>';
   }
   async function load(id) {
     say('Считаю…');
