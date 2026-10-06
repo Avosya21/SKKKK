@@ -871,12 +871,19 @@ def _answer_chat_inner(
     memory = build_chat_user_memory(db, project_id=project_id, user_id=user_id)
     tz_excerpt = _project_tz_excerpt(settings, project_id)
 
-    if not context_lines and not memory and not tz_excerpt:
+    if not context_lines and not memory and not tz_excerpt and not decisions:
         answer = "В материалах проекта ответа нет."
         finalize_chat_message(
             db,
             pending,
             content=answer,
+    try:  # журнал решений (память решений, Э6): состояние предметов, даты, стороны, цитаты; чат его только читает
+        from app.app.services.memory_chat import decision_block
+
+        decisions = decision_block(db, project_id, q_vecs[0], question)
+    except Exception:  # noqa: BLE001 - память решений не должна ломать ответ чата
+        logger.warning("журнал решений для чата не собран", exc_info=True)
+        decisions = ""
             sources=[],
             waiting=False,
         )
@@ -943,6 +950,9 @@ def _answer_chat_inner(
     else:
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
+    if decisions:
+        user += ("\n\nЖурнал решений проекта (предметы обсуждения: состояние, кто и когда что сказал; для вопросов «что решили», "
+                 "«что отменили», «что было на дату» опирайся на него, называй даты и стороны):\n" + decisions)
         answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
     from app.app.services.plain_text import plainify_llm_markup
 

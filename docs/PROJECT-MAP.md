@@ -1030,6 +1030,11 @@ Enroll **не** требует нажимать «Подтвердить», чт
 ### 5.17. Список компаний — `/admin/companies` (актуально 2026-10-05)
 
 Общий справочник компаний портала (PLATFORM-FOUNDATION-PLAN, ПФ4): из него берутся компании в карточках сотрудников и стороны («заказчик / исполнитель» по умолчанию) в реестре людей (§5.14). **Источник истины — файл `Companies.txt`** (образец `Companies.example.txt`, путь `COMPANIES_PATH`; не в git): правка из портала сначала записывает файл, затем обновляет таблицу `companies`; каждый запрос сначала синхронизирует таблицу с файлом (`services/companies.sync_companies`). Код — `routers/companies_admin.py`, `services/companies.py`, шаблон `companies.html`.
+| `GET /projects/{project_id}/memory/subjects` | админ и менеджер проекта | память решений: предметы проекта с состоянием, числом реплик и последней датой; фильтры `state`, `q`, постранично (`routers/project_memory.py`) |
+| `GET /projects/{project_id}/memory/subjects/{subject_id}` | админ и менеджер проекта | история решения: лента реплик с цитатами и ссылками на источник, события журнала, свёртка; `as_of=ГГГГ-ММ-ДД` — состояние на дату |
+| `GET /projects/{project_id}/memory/state-at` | админ и менеджер проекта | состояние всех предметов проекта на дату `date=ГГГГ-ММ-ДД` |
+| `POST /projects/{project_id}/memory/subjects/{subject_id}/decide` `{kind, note}` | админ и менеджер проекта | решение человека событием журнала (`decided_by=human`): модель и правила после него состояние не меняют |
+| `POST /projects/{project_id}/memory/subjects/{subject_id}/release` | админ и менеджер проекта | «Вернуть модели»: события человека отключаются, состояние снова считается по журналу |
 
 | Элемент UI | API | Кто |
 |------------|-----|-----|
@@ -1309,6 +1314,9 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 
 ---
 
+| `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов (предложил, согласился, отказал, сделано…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
+| `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние и с какого момента, итог словами, центр-вектор, замена другим предметом |
+| `decision_events` | `decision_memory.py` | журнал событий предмета (append-only): вид, кто, когда, точность даты, цитата, кто решил (модель или человек) |
 ## 8. ASR-модули (`asr/`)
 
 ### 8.1. Оркестрация
@@ -1461,6 +1469,9 @@ run_pipeline
 | `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
+| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v2`) |
+| `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
+| `subject_judge.md` | subject_judge.py (итог предмета по ленте реплик) |
 | `rerun_cursor_merge.py` | Merge+view без ASR (Cursor tuning) |
 | `rerun_transcript_integrity.py` | Только integrity + plain + view |
 | `resume_knowledge.py` | Догнать knowledge phase |
@@ -1521,6 +1532,8 @@ run_pipeline
 | `app/app/tests/test_edge_runtime.py` | TLS → Caddy → LiveKit → voice; портал жив если LiveKit упал |
 | `app/app/tests/test_tls_cert.py` | проверка файла сертификата и перевыпуск при старте |
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
+| `extract_speech_acts.py` | речевые акты материалов проекта (Э2 памяти решений) |
+| `build_decision_memory.py` | память решений: акты → предметы → события → итоги, копия БД перед записью |
 | `tools/projectmap/tests/test_languages_and_grammars.py` | реестр языков (расширения, уровни, 12 языков Emerge) и грамматики tree-sitter: кэш проекта, докачка, разбор простого кода |
 | `tools/projectmap/tests/test_lang_python.py` | разбор Python через `ast`: символы, вызовы по принадлежности, импорты (в том числе внутри функций), базовые классы, ошибки синтаксиса |
 | `tools/projectmap/tests/test_lang_treesitter.py` | разбор 21 языка: образец кода на язык, шум вызовов, замыкания, отсутствие грамматики, сбой одного файла, `split_target` |
@@ -1704,6 +1717,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `chat_message.py` | Модель ChatMessage — сообщение чата проекта, в том числе ожидающее ответа. |
 | `company.py` | Модель Company — компания из файла Companies.txt: название и сторона (исполнитель / заказчик). |
 | `contract.py` | Модель ContractItem — элемент контракта обмена с внешним агентом. |
+| `decision_memory.py` | Память решений (docs/plans/DECISION-MEMORY-PLAN.md, Э3–Э5): предметы обсуждения и журнал событий по ним. |
 | `entity.py` | Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ. |
 | `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
@@ -1713,6 +1727,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `project_member.py` | Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал). |
 | `project_task.py` | Модель ProjectTask — фоновая задача проекта со статусом и ошибкой (таблица project_tasks). |
 | `speaker_profile.py` | Модели голосов: SpeakerProfile и связь ArtifactSpeakerLink со спикерами артефакта. |
+| `speech_act.py` | Речевые акты реплик (docs/plans/DECISION-MEMORY-PLAN.md, Э2): что делает каждая реплика переписки или созвона в обсуждении решений. |
 | `user.py` | Модель User — пользователь (имя, роль, Telegram). |
 | `user_activity_log.py` | Модель UserActivityLog — журнал действий пользователей. |
 | `user_profile.py` | Модель UserProfile — карточка человека (1:1 с users): ФИО, компания, должность, фото, согласие на голос. |
@@ -1735,6 +1750,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `project_background.py` | Фоновая работа по проекту: ход, перепроверка, переизвлечение, повтор ошибок, остановка (ПФ9 PLATFORM-FOUNDATION-PLAN). |
 | `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал. |
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
+| `project_memory.py` | Память решений проекта: предметы, их лента и состояние на дату, решение человека (docs/plans/DECISION-MEMORY-PLAN.md, Э6). |
 | `project_people.py` | Люди и стороны проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ3): реестр людей, «Кто это?», стороны компаний. |
 | `projects.py` | Проекты: список, создание, карточка, предпросмотр и полное удаление. |
 | `requirement_review.py` | Подтверждение требований контракта (карточка «Подтверждение требований» на странице проекта). |
@@ -1761,7 +1777,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `auto_review.py` | Автопроверка локальной моделью: режим (off / shadow / live), запись вердикта модели, отмена человеком, контрольная выборка. |
 | `avatars.py` | Фото пользователя: проверка, выпрямление, удаление метаданных, квадрат 512 и 96 px WebP в `data/people/<user_id>/`. |
 | `build_info.py` | Признак «код на диске новее запущенного сервера» (пункт плана 1.3). |
-| `chat.py` | Чат с ИИ по материалам проекта: история и указания пользователя, уточняющие вопросы, поиск фрагментов и сущностей, сборка контекста, ответ L |
+| `chat.py` | — |
 | `chat_export.py` | Выгрузка переписки Telegram Desktop (``messages.html``) → сообщения с номером, автором, временем и ответом |
 | `chunk_fts.py` | Полнотекстовый поиск по фрагментам проекта (SQLite FTS5) — пара к векторному поиску для точных слов и чисел. |
 | `chunking.py` | Нарезка текста на фрагменты для индексации: документы (проза + таблицы), реплики стенограммы, оценка токенов. |
@@ -1770,6 +1786,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `conflict_rules.py` | Правила разрешения противоречий без модели — docs/plans/CONFLICT-AUTONOMY-PLAN.md, решение Р1 (DECISIONS 2026-09-25). |
 | `contract.py` | Контракт обмена «база знаний ↔ агент анализа конфигурации» (v1.0). |
 | `contract_text.py` | Разбор текста для контракта обмена с агентом анализа: сообщения переписки, дословные цитаты, оценки часов, якоря кода. |
+| `decision_log.py` | Журнал событий и состояние предмета на дату (docs/plans/DECISION-MEMORY-PLAN.md, Э4). Чистый код, модель не вызывается. |
 | `doc_anchors.py` | Привязка уже извлечённых пунктов документов к абзацам ``P<n>`` без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
 | `doc_units.py` | Единицы документа с адресами ``P<n>`` (docs/plans/DECISION-MEMORY-PLAN.md, этап Э1). |
 | `docker_runtime.py` | Автозапуск Docker Desktop и ASR-контейнеров перед обработкой аудио. |
@@ -1798,6 +1815,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_tokens.py` | Публичные токены встреч: генерация, хеш и адрес гостевой ссылки. |
 | `meeting_track_repair.py` | Ремонт реплик дорожки встречи, когда основной распознаватель (Parakeet) ошибся во времени или в содержании. |
 | `meetings.py` | Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, идущие сейчас встречи, токены  |
+| `memory_chat.py` | Журнал решений в ответах чата (docs/plans/DECISION-MEMORY-PLAN.md, Э6): «что решили по X», «что отменили», «что было верно на дату». |
 | `memory_platform.py` | Флаг платформы памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ0). |
 | `memory_scorecard.py` | Табло памяти решений: метрики качества и чек-лист приёмки платформы (DECISION-MEMORY-PLAN §4.3, PLATFORM-FOUNDATION-PLAN ПФ10). |
 | `normalize.py` | Нормализация текста документов: разбиение на части, промпт LLM и лёгкая нормализация без LLM. |
@@ -1845,8 +1863,11 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `source_links.py` | Ссылка на место источника (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4): момент созвона, сообщение переписки, абзац документа. |
 | `speaker_auto.py` | Спикеры без лишних подтверждений (этап 3 docs/plans/AUTO-REVIEW-PLAN.md). |
 | `speaker_profiles.py` | Голоса и спикеры: профили и эмбеддинги голосов, сопоставление имён, подтверждение спикеров, слияние профилей и синхронизация подтверждённых  |
+| `speech_acts.py` | Речевые акты реплик переписки и созвонов (docs/plans/DECISION-MEMORY-PLAN.md, Э2). |
 | `status.py` | Смена статуса артефакта. |
 | `storage.py` | Каталоги проекта и артефактов на диске: имена, пути к оригиналу, аудио, воспроизведению и отчётам. |
+| `subject_judge.py` | Итог предмета: модель-судья по короткой ленте актов (docs/plans/DECISION-MEMORY-PLAN.md, Э5). |
+| `subjects.py` | Предметы обсуждения: каждому речевому акту — предмет, о котором идёт речь (docs/plans/DECISION-MEMORY-PLAN.md, Э3). |
 | `summarize_document.py` | Выжимка документа: пути, загрузка исходного текста, промпты, сборка итогового Markdown и запуск (`run_document_summary`). |
 | `table_md.py` | Таблицы документов в markdown: один формат для DOCX, Excel/CSV, PDF и разбор его обратно (нормализация, нарезка). |
 | `tesseract_tools.py` | Поиск Tesseract и каталога tessdata, настройка pytesseract. |
@@ -2012,6 +2033,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db |
 | `bind_document_units.py` | Привязать уже извлечённые пункты документов к абзацам P<n> без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
 | `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
+| `build_decision_memory.py` | Память решений проекта: акты -> предметы -> события -> итоги (docs/plans/DECISION-MEMORY-PLAN.md, Э2–Э5). |
 | `chat_exports.py` | Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1). |
 | `check_env.ps1` | — |
 | `check_map_commit_msg.py` | Проверка сообщения коммита: изменения интерфейса или данных требуют карты или явного отказа от неё. |
@@ -2027,6 +2049,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `eval_index.py` | Оценка индекса проекта на золотом наборе вопросов (docs/eval/index_questions.json). |
 | `eval_tz.py` | Оценка качества быстрой сводки ТЗ (пункт плана 2.3). |
 | `export_project_graph.py` | Сборка графа зависимостей проекта: полный граф, свод по модулям, атлас для человека, выгрузки для Gephi/yEd. |
+| `extract_speech_acts.py` | Речевые акты реплик переписки и созвонов проекта (docs/plans/DECISION-MEMORY-PLAN.md, Э2). |
 | `fast_summarize_tz.py` | Быстрый векторный свод: retrieval top-K из sqlite-vec (чанки+сущности) + заметки |
 | `fetch_meeting_dfn3.py` | Download DeepFilterNet3 browser assets. Live meeting only, not lab ASR. |
 | `fix_conflict_links.py` | Разовая чистка конфликтов после исправления ошибок графа (docs/plans/CONFLICT-AUTONOMY-PLAN.md, этап 1). |
@@ -2481,6 +2504,9 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/stages/STAGE-10-scale-out.md` | Этап 10. Масштабирование |
 | `docs/eval/index_questions.json` | [ |
 | `docs/eval/index_questions_holdout.json` | [ |
+| `docs/prompts/speech_acts.md` | Промпт: речевые акты в переписке и созвонах (Э2 памяти решений) |
+| `docs/prompts/subject_judge.md` | Промпт: чем закончилось обсуждение предмета (Э5 памяти решений) |
+| `docs/prompts/subject_match.md` | Промпт: тот же ли это предмет обсуждения (Э3 памяти решений) |
 | `docs/agent-exchange/CONTRACT.md` | Контракт обмена v1.0: что реализовано |
 | `docs/agent-exchange/POLICY.md` | Политика обмена с внешним агентом |
 | `docs/agent-exchange/README.md` | Обмен с внешним агентом (агент анализа конфигурации) |

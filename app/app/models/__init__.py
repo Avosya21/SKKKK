@@ -23,6 +23,8 @@ from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
 from app.app.models.project_mcp_token import ProjectMcpToken
 from app.app.models.project_task import ProjectTask
+from app.app.models.decision_memory import DecisionEvent, Subject
+from app.app.models.speech_act import SpeechAct
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
@@ -62,4 +64,7 @@ __all__ = [
     "ProjectParty",
     "UnknownActor",
     "PeopleLog",
+    "SpeechAct",
+    "Subject",
+    "DecisionEvent",
 ]

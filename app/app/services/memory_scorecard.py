@@ -10,6 +10,8 @@
 - M3~ — доля эталонных событий, у которых есть пункт на том же сообщении или реплике (грубо: вопросы и «сделал» пунктами не становятся);
 - M7 — доля людей из эталона, найденных в реестре проекта с известной стороной;
 - M8 — доля эталонных событий, у которых сторона источника в контракте совпала с листом людей (там, где человек известен);
+- A1 — речевые акты (Э2): доля эталонных событий, у реплики которых найден хоть какой-то акт (полнота; цель ≥ 80 %);
+- A2 — речевые акты: среди найденных доля с верным видом акта по эталону (ложный вид ≤ 10 % ⇒ A2 ≥ 90 %);
 - M9 — доля действующих пунктов документов, у которых есть абзац-источник P<n> (Э1; цель 100 %);
 - M4–M6 появятся вместе с речевыми актами, журналом событий и ответами чата.
 """
@@ -29,7 +31,7 @@ from app.app.config import Settings
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity
 
-HEADER = ["дата", "этап", "проект", "промпт", "модель", "M1", "M2", "M3", "M7", "M8", "M9", "детали"]
+HEADER = ["дата", "этап", "проект", "промпт", "модель", "M1", "M2", "M3", "M7", "M8", "M9", "A1", "A2", "детали"]
 PENDING_METRICS = ("M4", "M5", "M6")
 SIDE_TO_CONTRACT = {"customer": "customer", "executor": "vendor"}
 TURN_TOLERANCE = 0.02  # секунд: соседние реплики бывают в одну секунду, поэтому реплику узнаём по точному началу
@@ -172,6 +174,34 @@ def _m2(db: Session, settings: Settings, project_id: int) -> tuple[float | None,
     return passed / len(rules), details
 
 
+SUBJECT_TO_RULE_STATE = {"open": "current", "proposed": "current", "agreed": "current", "implemented": "done", "rejected": "rejected",
+                         "withdrawn": "rejected", "superseded": "superseded"}
+
+
+def _m2_subjects(db: Session, settings: Settings, project_id: int) -> tuple[float | None, list[dict[str, Any]]]:
+    """M2 по журналу: те же правила эталона, но состояние берётся у предметов памяти решений (текст — название, итог и цитаты актов)."""
+    from app.app.models.decision_memory import Subject
+    from app.app.models.speech_act import SpeechAct
+
+    rules = _rules(settings)
+    subjects = db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.is_active.is_(True))).all()
+    if not rules or not subjects:
+        return None, []
+    quotes: dict[int, list[str]] = {}
+    for sid, quote in db.execute(select(SpeechAct.subject_id, SpeechAct.quote).where(SpeechAct.project_id == project_id, SpeechAct.subject_id.isnot(None))).all():
+        quotes.setdefault(sid, []).append(quote or "")
+    texts = [(f"{s.title} {s.summary or ''} {' '.join(quotes.get(s.id, []))}", SUBJECT_TO_RULE_STATE.get(s.state, "current")) for s in subjects]
+    details, passed = [], 0
+    for rule in rules:
+        pat = re.compile(rule["pattern"], re.I)
+        states = [st for text, st in texts if pat.search(text)]
+        got = states or ["none"]
+        ok = any(st in rule["accept"] for st in got) if rule.get("positive") else all(st in rule["accept"] for st in got)
+        passed += ok
+        details.append({"subject": rule["subject"], "note": rule["note"], "ok": ok, "got": sorted(set(got))})
+    return passed / len(rules), details
+
+
 def _m3(db: Session, settings: Settings, project_id: int, gold: list[dict[str, str]]) -> tuple[float | None, int, int]:
     if not gold:
         return None, 0, 0
@@ -219,6 +249,68 @@ def _evidence_sides(db: Session, settings: Settings, project_id: int) -> list[tu
             if ev.get("start_sec") is not None:
                 out.append((ev["artifact_id"], "T", float(ev["start_sec"]), ev.get("side") or "unknown"))
     return out
+
+
+# Вид акта эталона (слова человека) -> допустимые виды акта системы
+GOLD_ACT_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("согласился с отказом", ("agreed",)),
+    ("отклонил и предложил", ("rejected", "proposed")),
+    ("отклонил/встречное", ("rejected", "proposed")),
+    ("предложила другое", ("proposed", "rejected")),
+    ("отклон", ("rejected",)),
+    ("согласил", ("agreed",)),
+    ("подтвердил", ("agreed", "info")),
+    ("отложил", ("deferred",)),
+    ("спросил", ("asked",)),
+    ("ответил", ("answered",)),
+    ("о выполненном", ("done",)),
+    ("о препятствии", ("blocked",)),
+    ("предложил", ("proposed",)),
+    ("просит", ("proposed",)),
+    ("поручил", ("proposed",)),
+    ("решил", ("proposed", "agreed")),
+    ("зафиксировал", ("proposed", "agreed")),
+    ("оговорка", ("info", "proposed")),
+    ("сообщил", ("info", "answered", "done")),
+)
+
+
+def gold_act_classes(label: str) -> tuple[str, ...]:
+    """Допустимые виды акта системы для эталонного вида; неизвестный — любой (не проверяется)."""
+    low = (label or "").lower()
+    for key, classes in GOLD_ACT_CLASSES:
+        if key in low:
+            return classes
+    return ()
+
+
+def _acts_metrics(db: Session, project_id: int, gold: list[dict[str, str]]) -> dict[str, Any]:
+    """A1 — у реплики эталонного события найден акт; A2 — среди найденных вид акта верный. Нет актов в проекте — значения None."""
+    from app.app.models.speech_act import SpeechAct
+
+    rows = db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id)).all()
+    if not rows or not gold:
+        return {"a1": None, "a2": None, "found": 0, "right": 0, "total": 0, "wrong": []}
+    by_unit: dict[tuple[int, str], list[str]] = {}
+    for r in rows:
+        by_unit.setdefault((r.artifact_id, r.unit_ref), []).append(r.act)
+    found = right = 0
+    wrong = []
+    for ev in gold:
+        parsed = _parse_anchor(ev["источник"])
+        if parsed is None:
+            continue
+        got = by_unit.get((parsed[0], f"{parsed[1]}{parsed[2]}"))
+        if not got:
+            continue
+        found += 1
+        accepted = gold_act_classes(ev.get("акт", ""))
+        if not accepted or any(a in accepted for a in got):
+            right += 1
+        elif len(wrong) < 12:
+            wrong.append({"source": ev["источник"], "gold": ev.get("акт", ""), "got": sorted(set(got))})
+    total = len(gold)
+    return {"a1": found / total, "a2": right / found if found else None, "found": found, "right": right, "total": total, "wrong": wrong}
 
 
 def _m9(db: Session, settings: Settings, project_id: int) -> tuple[float | None, int, int]:
@@ -343,16 +435,19 @@ def compute(db: Session, settings: Settings, project_id: int) -> dict[str, Any]:
     counts = rr.review_list(db, settings, project_id, limit=1)["counts"]
     gold = gold_events(settings)
     m2, m2_details = _m2(db, settings, project_id)
+    m2j, m2j_details = _m2_subjects(db, settings, project_id)
     m3, m3_found, m3_total = _m3(db, settings, project_id, gold)
     m7, m7_missing = _m7(db, project_id, gold)
     m8 = _m8(db, settings, project_id, gold)
     m9, m9_bound, m9_total = _m9(db, settings, project_id)
+    acts = _acts_metrics(db, project_id, gold)
     return {
         "project_id": project_id, "prompt": PROMPT_VERSION, "model": settings.lmstudio_model,
         "has_gold": bool(gold), "has_people_sheet": bool(people_sheet(settings)),
-        "metrics": {"M1": _m1(counts), "M2": m2, "M3": m3, "M7": m7, "M8": m8["value"], "M9": m9},
+        "metrics": {"M1": _m1(counts), "M2": m2, "M3": m3, "M7": m7, "M8": m8["value"], "M9": m9, "A1": acts["a1"], "A2": acts["a2"]},
+        "journal_m2": {"value": m2j, "details": m2j_details},
         "details": {"unsourced": counts["unsourced"], "total": counts["total"], "m2": m2_details, "m3": [m3_found, m3_total],
-                    "m7_missing": m7_missing, "m8_checked": m8["checked"], "m8_wrong": m8["wrong"], "m9": [m9_bound, m9_total]},
+                    "m7_missing": m7_missing, "m8_checked": m8["checked"], "m8_wrong": m8["wrong"], "m9": [m9_bound, m9_total], "acts": acts},
         "pending": list(PENDING_METRICS),
         "checklist": checklist(db, settings, project_id, m8=m8),
     }
@@ -403,7 +498,7 @@ def record(settings: Settings, result: dict[str, Any], stage: str) -> dict[str, 
     if wrong:
         detail += f" | M8 расхождений: {len(wrong)}"
     row = [datetime.now().strftime("%Y-%m-%d %H:%M"), stage, result["project_id"], result["prompt"], result["model"],
-           _fmt(m["M1"]), _fmt(m["M2"]), _fmt(m["M3"]), _fmt(m["M7"]), _fmt(m["M8"]), _fmt(m.get("M9")), detail]
+           _fmt(m["M1"]), _fmt(m["M2"]), _fmt(m["M3"]), _fmt(m["M7"]), _fmt(m["M8"]), _fmt(m.get("M9")), _fmt(m.get("A1")), _fmt(m.get("A2")), detail]
     new = not path.exists()
     with path.open("a", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f, delimiter=";")
