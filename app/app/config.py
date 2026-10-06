@@ -129,6 +129,11 @@ class Settings(BaseSettings):
     # Платформа памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md): реестр людей, стороны по проекту, голос -> человек.
     # false — прежняя логика сторон; проект включает своей настройкой ``memory_platform`` (главнее общей из .env).
     memory_platform: bool = False
+    # Память решений (docs/plans/DECISION-MEMORY-STAGES-6-8.md): off | shadow | live по умолчанию; проект включает своей настройкой
+    # ``decision_memory``. shadow — строится и видна админу, чат её не использует; live — видна менеджерам и используется чатом.
+    # auto_live: после построения проект сам переходит shadow -> live, когда автоматические проверки готовности пройдены.
+    decision_memory_mode: str = "off"
+    decision_memory_auto_live: bool = True
     auto_review_audit_every: int = 20  # каждое N-е авторешение дополнительно идёт человеку
     auto_review_batch: int = 5  # сущностей на один вызов LLM
     voice_auto_accept_min: float = 0.85

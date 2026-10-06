@@ -62,9 +62,10 @@ def test_assign_groups_acts_by_model_labels(world):
     ids = [a.id for a in acts]
     answers = iter([json.dumps({"items": [{"act": f"A{ids[0]}", "subject": "N1"}, {"act": f"A{ids[1]}", "subject": "N1"}, {"act": f"A{ids[2]}", "subject": "N1"},
                                           {"act": f"A{ids[3]}", "subject": "N2"}],  # пятый акт не размечен
-                                "titles": {"N1": "Разбивка каталога по толщине", "N2": "Оплата подписки"}})])
+                                "titles": {"N1": "Разбивка каталога по толщине", "N2": "Оплата подписки"}}),
+                    "не json"])  # на вопрос про оставшийся акт модель не ответила
     result = sw.assign(db, settings, project.id, embed=lambda texts: [[1.0, 0.0]] * len(texts), ask=lambda s, u: next(answers))
-    assert result["windows"] == 1 and result["created"] == 3 and result["unmarked"] == 1 and result["errors"] == 0
+    assert result["windows"] == 1 and result["created"] == 3 and result["unmarked"] == 1 and result["errors"] == 1
     titles = {s.id: s.title for s in db.scalars(select(Subject).where(Subject.project_id == project.id)).all()}
     first, fourth = (db.get(type(acts[0]), i) for i in (ids[0], ids[3]))
     assert titles[first.subject_id] == "Разбивка каталога по толщине" and titles[fourth.subject_id] == "Оплата подписки"
@@ -145,3 +146,23 @@ def test_merge_keeps_subjects_when_model_says_different_or_fails(world):
     assert sw.merge_similar(db, settings, project.id, ask=lambda s, u: '{"same": false}')["merged"] == 0
     assert sw.merge_similar(db, settings, project.id, ask=lambda s, u: "не json")["errors"] == 1
     assert db.query(Subject).filter(Subject.project_id == project.id).count() == 2
+
+
+def test_unmarked_acts_get_one_followup_question(world):
+    from app.app.models.decision_memory import Subject
+
+    db, settings, project, acts = world
+    ids = [a.id for a in acts]
+    prompts: list[str] = []
+
+    def ask(system, user):
+        prompts.append(user)
+        if len(prompts) == 1:  # модель разметила только первые три акта
+            return json.dumps({"items": [{"act": f"A{i}", "subject": "N1"} for i in ids[:3]], "titles": {"N1": "Разбивка каталога"}}, ensure_ascii=False)
+        return json.dumps({"items": [{"act": f"A{i}", "subject": "N2"} for i in ids[3:]], "titles": {"N2": "Оплата"}}, ensure_ascii=False)
+
+    result = sw.assign(db, settings, project.id, embed=lambda texts: [[1.0, 0.0]] * len(texts), ask=ask)
+    assert len(prompts) == 2 and result["followups"] == 1 and result["unmarked"] == 0 and result["created"] == 2
+    assert "Разметь ТОЛЬКО акты ниже; новые метки начинай с N2." in prompts[1] and "N1 Разбивка каталога" in prompts[1]
+    assert f"A{ids[0]}" not in prompts[1].split("Акты окна:")[1]  # во втором вопросе только оставшиеся акты
+    assert {s.title for s in db.query(Subject).filter(Subject.project_id == project.id).all()} == {"Разбивка каталога", "Оплата"}

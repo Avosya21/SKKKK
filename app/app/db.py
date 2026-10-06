@@ -97,6 +97,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 # не поддерживается в SQLite до 3.37, поэтому проверяем PRAGMA table_info.
 _MIGRATIONS: list[tuple[str, str, str]] = [
     ("artifacts", "transcript_html_url", "VARCHAR(1024)"),
+    ("subjects", "judged_sig", "VARCHAR(64)"),
     ("chat_messages", "waiting", "BOOLEAN NOT NULL DEFAULT 0"),
     ("chat_messages", "meta_json", "TEXT"),
     ("meeting_participants", "last_seen_at", "DATETIME"),

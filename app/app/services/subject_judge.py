@@ -161,6 +161,7 @@ def judge_subject(db: Session, settings: Settings, subject: Subject, *, days: di
     subject.state, subject.state_source = verdict["state"], "judge"
     subject.state_since = last_basis.said_at or days.get(last_basis.artifact_id)
     subject.summary, subject.basis_json = verdict["summary"] or None, json.dumps(verdict["basis"])
+    subject.judged_sig = act_signature(db, subject.id)
     for old_pos in db.scalars(select(SubjectPosition).where(SubjectPosition.subject_id == subject.id)).all():
         db.delete(old_pos)
     for pos in verdict["positions"]:
@@ -168,15 +169,48 @@ def judge_subject(db: Session, settings: Settings, subject: Subject, *, days: di
     return {"status": "applied", "state": verdict["state"], "was": before, "changed": before != verdict["state"], "basis": verdict["basis"]}
 
 
+def act_signature(db: Session, subject_id: int) -> str:
+    """Отпечаток ленты предмета: «число актов:наибольший номер». Меняется, когда в предмет добавили или убрали акты."""
+    from sqlalchemy import func
+
+    count, top = db.execute(select(func.count(), func.max(SpeechAct.id)).where(SpeechAct.subject_id == subject_id)).one()
+    return f"{count}:{top or 0}"
+
+
+def snapshot_judged(db: Session, project_id: int) -> dict[int, dict[str, Any]]:
+    """Итоги судьи, которые надо сохранить на время пересборки событий (она сбрасывает состояние предметов к свёртке)."""
+    out: dict[int, dict[str, Any]] = {}
+    for s in db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.state_source == "judge", Subject.judged_sig.is_not(None))).all():
+        out[s.id] = {"state": s.state, "since": s.state_since, "source": s.state_source, "summary": s.summary, "basis": s.basis_json, "sig": s.judged_sig}
+    return out
+
+
+def restore_unchanged(db: Session, snapshot: dict[int, dict[str, Any]]) -> int:
+    """Вернуть итоги судьи предметам, у которых лента не изменилась (отпечаток тот же); остальные будут оценены заново."""
+    restored = 0
+    for sid, snap in snapshot.items():
+        s = db.get(Subject, sid)
+        if s is None or not s.is_active or act_signature(db, sid) != snap["sig"]:
+            continue
+        s.state, s.state_since, s.state_source, s.summary, s.basis_json, s.judged_sig = (snap["state"], snap["since"], snap["source"], snap["summary"],
+                                                                                        snap["basis"], snap["sig"])
+        restored += 1
+    db.commit()
+    return restored
+
+
 def judge_project(db: Session, settings: Settings, project_id: int, *, ask: Callable[[str, str], str] | None = None,
-                  progress: Callable[[str], None] | None = None) -> dict[str, int]:
-    """Итоги всех предметов проекта. Сначала состояние предметов пересчитывается по журналу (свёртка), затем судья."""
+                  progress: Callable[[str], None] | None = None, only_pending: bool = False) -> dict[str, int]:
+    """Итоги всех предметов проекта. Сначала состояние предметов пересчитывается по журналу (свёртка), затем судья.
+    ``only_pending`` — только предметы без итога судьи (инкремент: остальным итоги вернул ``restore_unchanged``)."""
     from app.app.models.artifact import Artifact
     from app.app.services import decision_log as dl
     from app.app.services.subjects import _day_of
 
     days = {a.id: _day_of(a) for a in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all()}
     subjects = list(db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.is_active.is_(True)).order_by(Subject.id)).all())
+    if only_pending:
+        subjects = [s for s in subjects if s.state_source != "judge"]
     for s in subjects:
         dl.refresh_subject(db, s)
     db.commit()

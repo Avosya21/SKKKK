@@ -3388,6 +3388,48 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_memory_compare
+    kind: service
+    path: app/app/services/memory_compare.py
+    title: "Сравнение памяти решений с прежним контуром актуальности пунктов (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_memory_mode
+    kind: service
+    path: app/app/services/memory_mode.py
+    title: "Режим памяти решений по проекту и автоматическая готовность (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_memory_pipeline
+    kind: service
+    path: app/app/services/memory_pipeline.py
+    title: "Память решений в очереди воркера: новый материал дописывается в память сам (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э8)."
+    tags: [auto]
+    auto: true
+
+  - id: static_memory
+    kind: file
+    path: app/app/static/memory.js
+    title: "Память решений проекта: список предметов, история решения, состояние на дату, поправка итога человеком."
+    tags: [auto]
+    auto: true
+
+  - id: ui_memory_card
+    kind: file
+    path: app/app/templates/partials/memory_card.html
+    title: "Память решений проекта (docs/plans/DECISION-MEMORY-STAGES-6-8.md): о чём решали, чем закончилось, кто и когда сказал. Логика: static/memory."
+    tags: [auto]
+    auto: true
+
+  - id: script_compare_memory_vs_review
+    kind: file
+    path: scripts/compare_memory_vs_review.py
+    title: "Сравнение памяти решений с прежним контуром актуальности пунктов (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

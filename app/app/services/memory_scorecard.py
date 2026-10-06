@@ -195,21 +195,26 @@ def _m2_subjects(db: Session, settings: Settings, project_id: int) -> tuple[floa
     positions: dict[int, list[Any]] = {}
     for pos in db.scalars(select(SubjectPosition).where(SubjectPosition.subject_id.in_([s.id for s in subjects]))).all():
         positions.setdefault(pos.subject_id, []).append(pos)
-    texts: list[tuple[str, str]] = []
+    # единицы проверки: (название-текст, цитаты, состояние). У предмета с позициями каждая позиция — отдельная единица (текст — её название)
+    units: list[tuple[str, list[str], str]] = []
     for s in subjects:
-        if positions.get(s.id):  # у предмета есть позиции: состояние берётся у позиции (вариант/значение), а не у предмета целиком
+        if positions.get(s.id):  # состояние берётся у позиции (вариант/значение), а не у предмета целиком
             for pos in positions[s.id]:
-                texts.append((pos.label, "current" if pos.state == "open" else pos.state))  # позиция определяется своим названием, не цитатами-основаниями
+                units.append((pos.label, [], "current" if pos.state == "open" else pos.state))
             continue
-        texts.append((f"{s.title} {s.summary or ''} {' '.join(quotes.get(s.id, []))}", SUBJECT_TO_RULE_STATE.get(s.state, "current")))
+        units.append((f"{s.title} {s.summary or ''}", quotes.get(s.id, []), SUBJECT_TO_RULE_STATE.get(s.state, "current")))
     details, passed = [], 0
     for rule in rules:
         pat = re.compile(rule["pattern"], re.I)
-        states = [st for text, st in texts if pat.search(text)]
-        got = states or ["none"]
+        scored = [(3 * bool(pat.search(head)) + sum(bool(pat.search(q)) for q in qs), st) for head, qs, st in units]
+        scored = [(score, st) for score, st in scored if score]
+        if not rule.get("positive") and scored:  # «не должно висеть»: проверяется предмет, который о ней (главный по числу совпадений), а не любое упоминание слова
+            top = max(score for score, _ in scored)
+            scored = [(score, st) for score, st in scored if score * 2 >= top]
+        got = sorted({st for _score, st in scored}) or ["none"]
         ok = any(st in rule["accept"] for st in got) if rule.get("positive") else all(st in rule["accept"] for st in got)
         passed += ok
-        details.append({"subject": rule["subject"], "note": rule["note"], "ok": ok, "got": sorted(set(got))})
+        details.append({"subject": rule["subject"], "note": rule["note"], "ok": ok, "got": got})
     return passed / len(rules), details
 
 

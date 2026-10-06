@@ -48,6 +48,7 @@ class Subject(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # итог словами (от судьи Э5), пока пусто
     basis_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # номера актов, на которые опёрся судья (Э5)
     superseded_by: Mapped[int | None] = mapped_column(ForeignKey("subjects.id"), nullable=True)
+    judged_sig: Mapped[str | None] = mapped_column(String(64), nullable=True)  # «число актов:наибольший номер» на момент итога судьи (инкремент Э8)
     embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # центр по актам предмета (Э3); пусто — не считался
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -90,4 +91,22 @@ class SubjectPosition(Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
     basis_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # номера актов-оснований
     replaced_by: Mapped[str | None] = mapped_column(String(160), nullable=True)  # название позиции, которая заменила эту
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MemoryShadowReview(Base):
+    """Расхождение «память решений против прежнего контура» по пункту проекта и вердикт арбитра (модель; человек может переоценить).
+    Строится ``services/memory_compare``; по доле «права память» решается готовность проекта к режиму live."""
+    __tablename__ = "memory_shadow_review"
+    __table_args__ = (Index("ix_memory_shadow_project", "project_id", "entity_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)  # пункт прежнего контура (без внешнего ключа: пункты пересобираются)
+    subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id"), nullable=True)
+    old_state: Mapped[str] = mapped_column(String(16), nullable=False)  # current | done | superseded | duplicate | rejected
+    new_state: Mapped[str] = mapped_column(String(16), nullable=False)  # то же, по памяти решений
+    verdict: Mapped[str] = mapped_column(String(10), nullable=False)  # old | new | neither | unclear
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    by: Mapped[str] = mapped_column(String(10), nullable=False, default="model")  # model | human
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
