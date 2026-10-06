@@ -3311,6 +3311,76 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_decision_memory
+    kind: model
+    path: app/app/models/decision_memory.py
+    title: "Память решений (docs/plans/DECISION-MEMORY-PLAN.md, Э3–Э5): предметы обсуждения и журнал событий по ним."
+    tags: [auto]
+    auto: true
+
+  - id: model_speech_act
+    kind: model
+    path: app/app/models/speech_act.py
+    title: "Речевые акты реплик (docs/plans/DECISION-MEMORY-PLAN.md, Э2): что делает каждая реплика переписки или созвона в обсуждении решений."
+    tags: [auto]
+    auto: true
+
+  - id: router_project_memory
+    kind: router
+    path: app/app/routers/project_memory.py
+    title: "Память решений проекта: предметы, их лента и состояние на дату, решение человека (docs/plans/DECISION-MEMORY-PLAN.md, Э6)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_decision_log
+    kind: service
+    path: app/app/services/decision_log.py
+    title: "Журнал событий и состояние предмета на дату (docs/plans/DECISION-MEMORY-PLAN.md, Э4). Чистый код, модель не вызывается."
+    tags: [auto]
+    auto: true
+
+  - id: svc_memory_chat
+    kind: service
+    path: app/app/services/memory_chat.py
+    title: "Журнал решений в ответах чата (docs/plans/DECISION-MEMORY-PLAN.md, Э6): «что решили по X», «что отменили», «что было верно на дату»."
+    tags: [auto]
+    auto: true
+
+  - id: svc_speech_acts
+    kind: service
+    path: app/app/services/speech_acts.py
+    title: "Речевые акты реплик переписки и созвонов (docs/plans/DECISION-MEMORY-PLAN.md, Э2)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_subject_judge
+    kind: service
+    path: app/app/services/subject_judge.py
+    title: "Итог предмета: модель-судья по короткой ленте актов (docs/plans/DECISION-MEMORY-PLAN.md, Э5)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_subjects
+    kind: service
+    path: app/app/services/subjects.py
+    title: "Предметы обсуждения: каждому речевому акту — предмет, о котором идёт речь (docs/plans/DECISION-MEMORY-PLAN.md, Э3)."
+    tags: [auto]
+    auto: true
+
+  - id: script_build_decision_memory
+    kind: file
+    path: scripts/build_decision_memory.py
+    title: "Память решений проекта: акты -> предметы -> события -> итоги (docs/plans/DECISION-MEMORY-PLAN.md, Э2–Э5)."
+    tags: [auto]
+    auto: true
+
+  - id: script_extract_speech_acts
+    kind: file
+    path: scripts/extract_speech_acts.py
+    title: "Речевые акты реплик переписки и созвонов проекта (docs/plans/DECISION-MEMORY-PLAN.md, Э2)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

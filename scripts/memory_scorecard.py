@@ -54,6 +54,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"M7 людей из эталона с известной стороной в реестре: {_pct(m['M7'])}" + (f"; не найдены: {', '.join(d['m7_missing'])}" if d["m7_missing"] else ""))
     print(f"M8 верная сторона источника в контракте: {_pct(m['M8'])} (проверено событий {d['m8_checked']})")
     print(f"M9 пунктов документов с абзацем-источником: {_pct(m['M9'])} ({d['m9'][0]} из {d['m9'][1]})")
+    a = d["acts"]
+    print(f"A1 полнота речевых актов: {_pct(m['A1'])} ({a['found']} из {a['total']}); A2 верный вид акта: {_pct(m['A2'])} ({a['right']} из {a['found']})")
+    j = result["journal_m2"]
+    if j["value"] is not None:
+        print(f"M2 по журналу решений (предметы): {_pct(j['value'])}")
+        for x in j["details"]:
+            print(f"    {x['subject']} {'OK ' if x['ok'] else 'НЕТ'} {x['note']}: {x['got']}")
+    for w in a["wrong"]:
+        print(f"    вид не совпал {w['source']}: эталон «{w['gold']}», система {w['got']}")
     for w in d["m8_wrong"]:
         print(f"    расхождение {w['source']} {w['author']}: ждали {w['expected']}, в контракте {w['got']}")
     print("M4–M6: появятся вместе с речевыми актами, журналом событий и ответами чата.")
