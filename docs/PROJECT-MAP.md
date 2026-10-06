@@ -2475,6 +2475,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/plans/AUTO-REVIEW-PLAN.md` | SKKKK — Автопроверка локальной моделью: меньше ручных подтверждений |
 | `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | SKKKK — Автономное разрешение противоречий: созвоны и документы без ручного разбора |
 | `docs/plans/DECISION-MEMORY-PLAN.md` | SKKKK — Память решений: что решено, что отклонено, что заменено |
+| `docs/plans/DECISION-MEMORY-STAGES-6-8.md` | Память решений: оставшиеся этапы Э6 (экран), Э7 (тень и включение), Э8 (инкремент) — подготовка |
 | `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
 | `docs/plans/final-plan.md` | SKKKK: идеальная расшифровка созвона — итоговый план |
 | `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |
