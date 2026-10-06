@@ -1013,6 +1013,14 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | `POST /projects/{id}/background/reextract` `{artifact_ids}` | только admin | «Переизвлечь требования»: все или выбранные материалы; у выбранных общие темы проекта не стираются (`project_jobs.queue_reextract`) |
 | `POST /projects/{id}/background/retry` | только admin | вернуть упавшие задачи проекта в очередь, попытки обнуляются (`project_jobs.retry_errors`) |
 | `POST /projects/{id}/background/cancel` | только admin | убрать из очереди ждущие задачи проекта; идущая сейчас доработает (`project_jobs.cancel_pending`) |
+| `GET /projects/{project_id}/memory/subjects` | админ и менеджер проекта | память решений: предметы проекта с состоянием, числом реплик и последней датой; фильтры `state`, `q`, постранично (`routers/project_memory.py`) |
+| `GET /projects/{project_id}/memory/subjects/{subject_id}` | админ и менеджер проекта | история решения: лента реплик с цитатами и ссылками на источник, события журнала, свёртка, позиции предмета (варианты и значения с состоянием); `as_of=ГГГГ-ММ-ДД` — состояние на дату |
+| `GET /projects/{project_id}/memory/state-at` | админ и менеджер проекта | состояние всех предметов проекта на дату `date=ГГГГ-ММ-ДД` |
+| `GET /projects/{project_id}/memory/summary` | админ и менеджер проекта (менеджеру — в режиме live) | сводка карточки «Память решений»: режим, счётчики по состояниям, «зависшие», готовность к включению (`services/memory_mode.readiness`) |
+| `PUT /projects/{project_id}/memory/mode` `{mode}` | только admin | режим памяти проекта: `off` / `shadow` / `live` (`services/memory_mode`) |
+| `POST /projects/{project_id}/memory/build` | только admin | поставить в очередь построение памяти по всем материалам проекта (`memory_pipeline.queue_project`); дальше память дописывается сама |
+| `POST /projects/{project_id}/memory/subjects/{subject_id}/decide` `{kind, note}` | админ и менеджер проекта | решение человека событием журнала (`decided_by=human`): модель и правила после него состояние не меняют |
+| `POST /projects/{project_id}/memory/subjects/{subject_id}/release` | админ и менеджер проекта | «Вернуть модели»: события человека отключаются, состояние снова считается по журналу |
 | `GET /artifacts/{id}/download/summary.doc` | как у отчёта | старый URL выжимки: отдаёт тот же `.docx`, что `…/download/summary.docx` (`artifact_summary_doc_legacy`) |
 
 ### 5.16. Загрузка файла частями и дата записи материала (актуально 2026-10-05)
@@ -1043,6 +1051,22 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | **Добавить** (название + сторона), смена стороны, **Скрыть** / **Показать** | `PUT /companies` `{name, side, active}` | только admin; возвращает обновлённый список; ошибка правки — 400 с текстом |
 
 Переименования нет: новое название — новая компания; название сравнивается без учёта регистра и лишних пробелов (`canonical_company`), поэтому «Компания» и «КОМПАНИЯ» — одна компания. Скрытая компания остаётся в справочнике, но не предлагается в выборе.
+
+### 5.18. Карточка «Память решений» на странице проекта (актуально 2026-10-06)
+
+Сворачиваемая карточка после «Фоновой работы» (`partials/memory_card.html`, логика `static/memory.js`); видна админу и менеджеру проекта (менеджеру — только в режиме `live`, иначе API отвечает 404 и карточка скрыта).
+
+| Элемент | Что делает | Откуда данные |
+|---|---|---|
+| Строка режима и ссылки «В наблюдение» / «Включить сейчас» / «Выключить» (admin) | показывает, кому видна память и использует ли её чат | `GET …/memory/summary`, `PUT …/memory/mode` |
+| Счётчики состояний, бейдж «Зависло» | предметы по состояниям; «предложено/обсуждается» дольше 14 дней | `summary` (`memory_mode.stale_count`) |
+| Поиск, фильтр состояния, поле «Состояние на дату» | список предметов постранично или срез на дату | `GET …/memory/subjects`, `GET …/memory/state-at` |
+| Предмет → «История решения» | варианты и значения с состоянием, лента реплик с цитатами и ссылками «открыть в материале», «Как менялось» (события журнала) | `GET …/memory/subjects/{id}` |
+| «Поправить итог» (Согласовано / Отклонено / Выполнено / Снято / Заменено / Возобновить), «Вернуть модели» | единственное, что нужно человеку: поправить неверный итог; решение человека главнее модели | `POST …/subjects/{id}/decide`, `…/release` |
+| «Построить сейчас» (пусто, admin) | ставит построение памяти в очередь по всем материалам проекта | `POST …/memory/build` |
+| «Готовность к показу менеджерам и чату» (admin) | автоматические проверки: построена, цитаты на месте, итоги судьи, сравнение с прежним контуром, согласие арбитра | `summary.readiness` |
+
+Построение идёт само: новый материал ставит в очередь области `memory` (акты) и `memory_judge` (итог проекта) — `pipeline_knowledge._enqueue_auto_review` → `memory_pipeline.enqueue_for_artifact`; воркер `workers/review.py`. После итога — сравнение с прежним контуром (`memory_compare`) и, если пройдены проверки готовности и включён `DECISION_MEMORY_AUTO_LIVE`, автопереход `shadow` → `live` (`memory_mode.maybe_promote`).
 
 ---
 
@@ -1295,6 +1319,11 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `contract_items` | `contract.py` | реестр стабильных id контракта обмена с агентом (`req-` / `dec-` / `cft-`): id не меняется при переизвлечении; `content_hash` нужен дельте `get_changes`; пишет `contract._insert_item` / `_assign_ids` |
 | `agent_exchange_log` | `agent_exchange.py` | журнал обмена с внешним агентом: каждый запрос и ответ проходят через шлюз и оставляют след (решение, риск, причины, контрольная сумма) |
 | `agent_questions` | `agent_question.py` | ящик вопросов внешнего агента: `pending` → `drafted` (черновик локальной модели, наружу не виден) → `answered`; текст вопроса — недоверенные данные; пишет `agent_inbox.create_question`, читают `list_questions` / `get_question`, на экране — `GET /projects/{id}/agent-inbox` |
+| `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов (предложил, согласился, отказал, сделано…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
+| `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние и с какого момента, итог словами, центр-вектор, замена другим предметом |
+| `decision_events` | `decision_memory.py` | журнал событий предмета (append-only): вид, кто, когда, точность даты, цитата, кто решил (модель или человек) |
+| `subject_positions` | `decision_memory.py` | позиции внутри предмета (вариант или значение: «цена 144 000», «пометка “!”») со своим состоянием и «чем заменено»; пишет судья итога |
+| `memory_shadow_review` | `decision_memory.py` | сравнение «память против прежнего контура» по пунктам: совпало (`agree`) или спор с вердиктом арбитра (`old` / `new` / `neither` / `unclear`); по доле «права память» считается готовность проекта к live |
 
 ### Точка входа (`app/app/`)
 
@@ -1450,6 +1479,11 @@ run_pipeline
 | `review_conflict_v3.md` | review_conflicts.py (автопроверка конфликтов, `review_conflict-v3`) |
 | `review_relevance_v2.md` | review_relevance.py (актуальность пунктов по темам, `review_relevance-v2.1`) |
 | `suggest_speaker_names.md` | speaker_auto.py (подсказка имён неназванным голосам) |
+| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v4`) |
+| `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
+| `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |
+| `subject_judge.md` | subject_judge.py (итог предмета и его позиции по ленте реплик, `subject_judge-v2`) |
+| `subject_merge.md` | subject_windows.py (склейка дублей: один ли вопрос у двух предметов, `subject_merge-v1`) |
 
 Предыдущие версии промптов лежат рядом и кодом не читаются: `extract_entities.md`, `extract_entities_v2.md`, `extract_entities_v3.md` (текущая — v4), `review_conflict.md` (текущая — v3), `review_relevance.md` (текущая — v2).
 
@@ -1470,11 +1504,6 @@ run_pipeline
 | `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
-| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v4`) |
-| `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
-| `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |
-| `subject_judge.md` | subject_judge.py (итог предмета и его позиции по ленте реплик, `subject_judge-v2`) |
-| `subject_merge.md` | subject_windows.py (склейка дублей: один ли вопрос у двух предметов, `subject_merge-v1`) |
 | `rerun_cursor_merge.py` | Merge+view без ASR (Cursor tuning) |
 | `rerun_transcript_integrity.py` | Только integrity + plain + view |
 | `resume_knowledge.py` | Догнать knowledge phase |
@@ -1623,6 +1652,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Обработка | `SIMILARITY_THRESHOLD` | `0.82` | порог склейки сущностей в графе (почти дословные повторы) |
 | Обработка | `SEARCH_MIN_SCORE` | `0.35` | порог выдачи поиска и RAG-чата (косинусная близость bge-m3) |
 | Обработка | `AUTO_REVIEW_AUDIT_EVERY` | `20` | каждое N-е авторешение модели дополнительно уходит человеку |
+| Обработка | `DECISION_MEMORY_MODE` | `off` | память решений по умолчанию: `off` / `shadow` / `live`; проект включает своей настройкой `decision_memory` (режим `shadow` строит и показывает память админу, `live` — менеджерам и чату) |
+| Обработка | `DECISION_MEMORY_AUTO_LIVE` | `true` | после построения проект сам переходит `shadow` → `live`, когда пройдены автоматические проверки готовности (без ручной разметки) |
 | Модель | `LMSTUDIO_BASE_URL`, `LMSTUDIO_API_KEY` | `http://127.0.0.1:1234/v1`, `lm-studio` | локальная модель (LM Studio) |
 | Модель | `CURSOR_API_KEY`, `CURSOR_RUNTIME`, `CURSOR_CLOUD_REPO` | пусто, `local`, пусто | провайдер Cursor: ключ, где работает (`local` / `cloud`), репозиторий для облака |
 | Модель | `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL` | `http://127.0.0.1:11434`, `bge-m3` | эмбеддинги для индекса и поиска |
@@ -1819,6 +1850,9 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_track_repair.py` | Ремонт реплик дорожки встречи, когда основной распознаватель (Parakeet) ошибся во времени или в содержании. |
 | `meetings.py` | Встречи проекта: создание, старт и завершение, идентичность гостей и сотрудников, участники и их присутствие, идущие сейчас встречи, токены  |
 | `memory_chat.py` | Журнал решений в ответах чата (docs/plans/DECISION-MEMORY-PLAN.md, Э6): «что решили по X», «что отменили», «что было верно на дату». |
+| `memory_compare.py` | Сравнение памяти решений с прежним контуром актуальности пунктов (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7). |
+| `memory_mode.py` | Режим памяти решений по проекту и автоматическая готовность (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7). |
+| `memory_pipeline.py` | Память решений в очереди воркера: новый материал дописывается в память сам (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э8). |
 | `memory_platform.py` | Флаг платформы памяти решений (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ0). |
 | `memory_scorecard.py` | Табло памяти решений: метрики качества и чек-лист приёмки платформы (DECISION-MEMORY-PLAN §4.3, PLATFORM-FOUNDATION-PLAN ПФ10). |
 | `normalize.py` | Нормализация текста документов: разбиение на части, промпт LLM и лёгкая нормализация без LLM. |
@@ -1915,6 +1949,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting_layout.js` | Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
 | `meeting_layout.selfcheck.js` | Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка. |
 | `meeting_room.js` | Клиент встречи LiveKit: вход, микрофон/камера/экран, смена устройств на ходу, плитки, список участников. |
+| `memory.js` | Память решений проекта: список предметов, история решения, состояние на дату, поправка итога человеком. |
 | `people.js` | Люди и стороны проекта (PLATFORM-FOUNDATION-PLAN, ПФ3): реестр людей, «Кто это?», стороны компаний. |
 | `px_agent.css` | Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. |
 | `px_agent.js` | Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. |
@@ -1949,6 +1984,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Файл | Назначение |
 |---|---|
 | `background_card.html` | Фоновая работа по проекту (ПФ9 PLATFORM-FOUNDATION-PLAN): ход разбора, перепроверка, переизвлечение, повтор ошибок. Логика: static/backgroun |
+| `memory_card.html` | Память решений проекта (docs/plans/DECISION-MEMORY-STAGES-6-8.md): о чём решали, чем закончилось, кто и когда сказал. Логика: static/memory. |
 | `people_card.html` | Люди и стороны проекта (ПФ3 PLATFORM-FOUNDATION-PLAN): реестр людей, «Кто это?», стороны компаний. Логика: static/people.js |
 | `px_agent_cards.html` | Карточки обмена с агентами: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. Логика: static/px_agent.js |
 
@@ -2046,6 +2082,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `check_stand_inventory.py` | Проверка полноты карты: всё, что лежит на стенде, должно быть в инвентаре `docs/project-map/stand.yaml`. |
 | `check_systems.ps1` | SKKKK — только проверка всех систем, без запуска |
 | `collect_ui_copy.py` | Реестр текстов интерфейса (пункт плана 3.9): собирает русские подписи, подсказки, aria-label и строки JS. |
+| `compare_memory_vs_review.py` | Сравнение памяти решений с прежним контуром актуальности пунктов (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7). |
 | `dedupe_speaker_profiles.py` | Удалить дубликаты speaker_profiles (имена и похожие голоса). |
 | `dev_changelog.py` | Журнал разработки из git: docs/CHANGELOG-DEV.md (генерируется, руками не править). |
 | `eval_auto_review.py` | Замер автопроверки требований (план docs/plans/AUTO-REVIEW-PLAN.md, §9). |
@@ -2459,6 +2496,8 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/prompts/extract_image_vision.md` | Промпт: извлечение текста/содержания с изображения (vision) |
 | `docs/prompts/lab_proof_text.md` | Ты вычитываешь стенограмму делового звонка на русском (внедрение 1С и Битрикс 24). |
 | `docs/prompts/lab_sense_speakers.md` | Смысловая разноска спорных слов лаборатории |
+| `docs/prompts/memory_arbiter.md` | Промпт: арбитр спорных пунктов (Э7 памяти решений, сравнение с прежним контуром) |
+| `docs/prompts/memory_view.md` | Промпт: что память решений говорит об одном пункте (Э7, сравнение с прежним контуром) |
 | `docs/prompts/merge_topics.md` | Промпт: склейка тем, которые описывают одну потребность разными способами |
 | `docs/prompts/merge_transcript.md` | Промпт: сборка финальной стенограммы из трёх ASR |
 | `docs/prompts/normalize_document.md` | Промпт: нормализация текста документа |
@@ -2471,6 +2510,12 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/prompts/review_relevance_v2.md` | Промпт: актуальность пунктов одной темы (дубли, заменённое, выполненное) — v2 с похожими пунктами из других те |
 | `docs/prompts/review_requirement.md` | Промпт: проверка требований локальной моделью (автопроверка, этап 2) |
 | `docs/prompts/screen_frame.md` | Промпт: кадр шаринга экрана на созвоне |
+| `docs/prompts/speech_acts.md` | Промпт: речевые акты в переписке и созвонах (Э2 памяти решений) |
+| `docs/prompts/speech_acts_review.md` | Промпт: проверка разметки речевых актов (Э2, второй проход) |
+| `docs/prompts/subject_judge.md` | Промпт: чем закончилось обсуждение предмета (Э5 памяти решений) |
+| `docs/prompts/subject_match.md` | Промпт: тот же ли это предмет обсуждения (Э3 памяти решений) |
+| `docs/prompts/subject_merge.md` | Промпт: один ли это вопрос у двух предметов (Э3, склейка дублей) |
+| `docs/prompts/subject_window.md` | Промпт: раскладка окна реплик по предметам (Э3, вариант «один проход по окну») |
 | `docs/prompts/suggest_speaker_names.md` | Промпт: подсказка имени неизвестного голоса (автопроверка, этап 3) |
 | `docs/plans/AUTO-REVIEW-PLAN.md` | SKKKK — Автопроверка локальной моделью: меньше ручных подтверждений |
 | `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | SKKKK — Автономное разрешение противоречий: созвоны и документы без ручного разбора |

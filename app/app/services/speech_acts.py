@@ -29,7 +29,7 @@ logger = logging.getLogger("skkkk.speech_acts")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "speech_acts.md"
-PROMPT_VERSION = "speech_acts-v4"
+PROMPT_VERSION = "speech_acts-v5"  # v5: второй проход — проверка видов актов по контексту (speech_acts_review.md)
 TARGETS_PER_WINDOW = 8  # целевых реплик в одном вопросе к модели
 CONTEXT_UNITS = 3  # реплик до окна — только контекст
 WINDOW_CHARS = 4500  # предел знаков целевых реплик в окне
@@ -169,6 +169,22 @@ def parse_acts(raw: str, targets: list[DUnit]) -> tuple[list[dict[str, str]], di
     return out, dropped
 
 
+REVIEW_PATH = ROOT / "docs" / "prompts" / "speech_acts_review.md"
+REVIEW_CONTEXT_UNITS = 5  # реплик контекста у проверяющего прохода
+
+
+def _review_system() -> str:
+    from app.app.services.prompts import load_prompt_block
+
+    return load_prompt_block(REVIEW_PATH)
+
+
+def build_review_user(context: list[DUnit], targets: list[DUnit], draft: list[dict[str, str]]) -> str:
+    lines = build_user(context, targets)
+    draft_json = json.dumps({"acts": draft}, ensure_ascii=False)
+    return f"{lines}\n\nЧерновая разметка:\n{draft_json}"
+
+
 def _ask_default(settings: Settings) -> Callable[[str, str], str]:
     from app.app.services.llm import chat_completion_no_think
 
@@ -190,15 +206,17 @@ def _author_card(db: Session, project_id: int, author: str, cache: dict[str, tup
 
 
 def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask: Callable[[str, str], str] | None = None,
-                     only_refs: set[str] | None = None) -> dict[str, Any]:
+                     only_refs: set[str] | None = None, review: bool = True) -> dict[str, Any]:
     """Разобрать материал: окна -> модель -> проверка -> замена строк ``speech_acts`` материала. ``only_refs`` — только эти реплики
     (для проверок); тогда прежние строки этих реплик заменяются, остальные не трогаются."""
     units = dialog_units(settings, artifact)
     stats: dict[str, Any] = {"artifact_id": artifact.id, "units": len(units), "windows": 0, "acts": 0, "errors": 0,
-                             "dropped": {"unit": 0, "act": 0, "quote": 0, "limit": 0, "duplicate": 0}}
+                             "dropped": {"unit": 0, "act": 0, "quote": 0, "limit": 0, "duplicate": 0},
+                             "reviewed": 0, "changed": 0, "review_errors": 0}
     if not units:
         return stats
     system = _system()
+    review_system = _review_system() if review else ""
     ask = ask or _ask_default(settings)
     rows: list[SpeechAct] = []
     cache: dict[str, tuple[int | None, str | None]] = {}
@@ -223,6 +241,17 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
                 else:
                     stats["errors"] += 1
                     log_event(logger, "speech_acts.window_failed", artifact=artifact.artifact_id, unit=targets[0].ref, error=str(exc)[:200])
+        if review and acts is not None:
+            stats["reviewed"] += 1
+            wide = units[max(0, units.index(targets[0]) - REVIEW_CONTEXT_UNITS): units.index(targets[0])]
+            try:
+                fixed, dropped = parse_acts(ask(review_system, build_review_user(wide, targets, acts)), targets)
+                if fixed or not acts:
+                    stats["changed"] += int([(a["unit"], a["act"]) for a in fixed] != [(a["unit"], a["act"]) for a in acts])
+                    acts = fixed
+            except (ValueError, json.JSONDecodeError, RuntimeError) as exc:
+                stats["review_errors"] += 1
+                log_event(logger, "speech_acts.review_failed", artifact=artifact.artifact_id, unit=targets[0].ref, error=str(exc)[:200])
         by_ref = {u.ref: u for u in targets}
         for a in acts:
             unit = by_ref[a["unit"]]

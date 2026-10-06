@@ -110,7 +110,7 @@ def test_extract_artifact_stores_verified_acts_with_registry_side(chat):
 
     db, settings, art = chat
     calls: list[str] = []
-    stats = sa.extract_artifact(db, settings, art, ask=_fake_ask(calls))
+    stats = sa.extract_artifact(db, settings, art, ask=_fake_ask(calls), review=False)
     assert stats["units"] == 3 and stats["windows"] == 1 and stats["acts"] == 3 and stats["errors"] == 0 and len(calls) == 1
     rows = {(r.unit_ref, r.act): r for r in db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).all()}
     assert set(rows) == {("M1", "proposed"), ("M2", "agreed"), ("M2", "proposed")}
@@ -124,15 +124,15 @@ def test_rerun_replaces_acts_and_only_refs_touches_selected(chat):
     from app.app.models.speech_act import SpeechAct
 
     db, settings, art = chat
-    sa.extract_artifact(db, settings, art, ask=_fake_ask([]))
-    sa.extract_artifact(db, settings, art, ask=_fake_ask([]))
+    sa.extract_artifact(db, settings, art, ask=_fake_ask([]), review=False)
+    sa.extract_artifact(db, settings, art, ask=_fake_ask([]), review=False)
     assert db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).count() == 3  # не копится
 
     def only_m2(system, user):
         assert "> M2" in user and "> M1" not in user  # целевой только M2
         return json.dumps({"acts": [{"unit": "M2", "act": "done", "quote": "стартуем", "about": "старт"}]}, ensure_ascii=False)
 
-    sa.extract_artifact(db, settings, art, ask=only_m2, only_refs={"M2"})
+    sa.extract_artifact(db, settings, art, ask=only_m2, only_refs={"M2"}, review=False)
     acts = sorted((r.unit_ref, r.act) for r in db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).all())
     assert acts == [("M1", "proposed"), ("M2", "done")]  # M1 остался, M2 заменён
 
@@ -140,10 +140,10 @@ def test_rerun_replaces_acts_and_only_refs_touches_selected(chat):
 def test_invalid_answer_is_retried_then_counted_as_error(chat):
     db, settings, art = chat
     answers = iter(["не json", "опять не json"])
-    stats = sa.extract_artifact(db, settings, art, ask=lambda s, u: next(answers))
+    stats = sa.extract_artifact(db, settings, art, ask=lambda s, u: next(answers), review=False)
     assert stats["errors"] == 1 and stats["acts"] == 0
     flaky = iter(["не json", json.dumps({"acts": [{"unit": "M1", "act": "info", "quote": "отдельное приложение"}]}, ensure_ascii=False)])
-    again = sa.extract_artifact(db, settings, art, ask=lambda s, u: next(flaky))
+    again = sa.extract_artifact(db, settings, art, ask=lambda s, u: next(flaky), review=False)
     assert again["errors"] == 0 and again["acts"] == 1  # со второй попытки ответ принят
 
 
@@ -162,7 +162,7 @@ def test_rerun_with_journal_events_does_not_break_on_foreign_keys(chat):
     from app.app.services import decision_log as dl
 
     db, settings, art = chat
-    sa.extract_artifact(db, settings, art, ask=_fake_ask([]))
+    sa.extract_artifact(db, settings, art, ask=_fake_ask([]), review=False)
     subject = Subject(project_id=art.project_id, title="Приложение для менеджеров")
     db.add(subject)
     db.commit()
@@ -171,6 +171,34 @@ def test_rerun_with_journal_events_does_not_break_on_foreign_keys(chat):
     first = db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).first()
     dl.add_event(db, subject, "agreed", "2026-02-02", precision="day", speech_act_id=first.id, decided_by="human")
     db.commit()
-    sa.extract_artifact(db, settings, art, ask=_fake_ask([]))  # прежде падало: FOREIGN KEY constraint failed
+    sa.extract_artifact(db, settings, art, ask=_fake_ask([]), review=False)  # прежде падало: FOREIGN KEY constraint failed
     events = db.query(DecisionEvent).filter(DecisionEvent.subject_id == subject.id).all()
     assert [(e.decided_by, e.speech_act_id) for e in events] == [("human", None)]  # события правил ушли, решение человека осталось
+
+
+def test_review_pass_fixes_kinds_and_keeps_draft_when_it_fails(chat):
+    from app.app.models.speech_act import SpeechAct
+
+    db, settings, art = chat
+    prompts: list[str] = []
+
+    def ask(system, user):
+        prompts.append(user)
+        if "Черновая разметка:" not in user:
+            return json.dumps({"acts": [{"unit": "M2", "act": "proposed", "quote": "стартуем в понедельник", "about": "старт"}]}, ensure_ascii=False)
+        return json.dumps({"acts": [{"unit": "M2", "act": "agreed", "quote": "Согласен", "about": "приложение"},
+                                    {"unit": "M2", "act": "proposed", "quote": "не из текста", "about": "x"}]}, ensure_ascii=False)
+
+    stats = sa.extract_artifact(db, settings, art, ask=ask)
+    assert stats["reviewed"] == 1 and stats["changed"] == 1 and len(prompts) == 2 and "Черновая разметка:" in prompts[1]
+    assert "stартуем" not in prompts[1] and '"act": "proposed"' in prompts[1]  # проверяющий видит черновик
+    rows = sorted((r.unit_ref, r.act) for r in db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).all())
+    assert rows == [("M2", "agreed")]  # цитата не из текста отброшена кодом
+
+    def flaky(system, user):
+        if "Черновая разметка:" in user:
+            raise RuntimeError("модель недоступна")
+        return json.dumps({"acts": [{"unit": "M2", "act": "proposed", "quote": "стартуем в понедельник", "about": "старт"}]}, ensure_ascii=False)
+
+    stats = sa.extract_artifact(db, settings, art, ask=flaky)
+    assert stats["review_errors"] == 1 and [r.act for r in db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).all()] == ["proposed"]

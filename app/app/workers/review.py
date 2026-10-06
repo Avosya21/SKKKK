@@ -26,7 +26,7 @@ logger = logging.getLogger("skkkk.review")
 
 Reviewer = Callable[[Session, Settings, Artifact, str], dict[str, Any]]
 REVIEWERS: dict[str, list[Reviewer]] = {"reextract": [], "artifact": [], "topics": [], "relevance": [], "conflicts": [],
-                                        "summary": []}
+                                        "summary": [], "memory": [], "memory_judge": []}
 
 
 def register_reviewer(scope: str, fn: Reviewer) -> Reviewer:
@@ -53,6 +53,11 @@ def _register_defaults() -> None:
 
     register_reviewer("reextract", reextract_for_review)  # переизвлечение по новой схеме (REQUIREMENTS-PLAN этап 9)
     register_reviewer("summary", summary_for_review)  # выжимка проекта: за проверками нового материала и переизвлечения
+    # память решений (DECISION-MEMORY-STAGES-6-8, Э8): акты материала, затем итог проекта; независимы от выжимки
+    from app.app.services.memory_pipeline import memory_for_review, memory_judge_for_review
+
+    register_reviewer("memory", memory_for_review)
+    register_reviewer("memory_judge", memory_judge_for_review)
 
 
 _register_defaults()

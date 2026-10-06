@@ -28,11 +28,13 @@ STAGES: tuple[tuple[str, str], ...] = (
     ("relevance", "Устаревшее и дубли"),
     ("conflicts", "Конфликты"),
     ("summary", "Итоговая выжимка"),
+    ("memory", "Память решений: реплики"),
+    ("memory_judge", "Память решений: итоги"),
 )
 STAGE_LABEL = dict(STAGES)
 RECENT_HOURS = 24
 ERRORS_SHOWN = 10
-DEFAULT_SECONDS = {"reextract": 150, "artifact": 90, "topics": 40, "relevance": 120, "conflicts": 60, "summary": 90}  # пока нет истории
+DEFAULT_SECONDS = {"reextract": 150, "artifact": 90, "topics": 40, "relevance": 120, "conflicts": 60, "summary": 90, "memory": 200, "memory_judge": 240}  # пока нет истории
 FOLLOW_UP_SCOPES = ("artifact", "topics", "relevance", "conflicts")
 
 

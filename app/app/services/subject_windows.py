@@ -146,6 +146,21 @@ def assign(db: Session, settings: Settings, project_id: int, *, rebuild: bool = 
                     question += f'\n\nПредыдущий ответ невалиден: {exc}. Верни только JSON вида {{"items": [...], "titles": {{...}}}}.'
                 else:
                     stats["errors"] += 1
+        missing = [a for a in window if a.id not in marks]
+        if missing and len(missing) < len(window):  # модель разметила не все акты окна: один раз спрашиваем про оставшиеся
+            top = max([int(m[1:]) for m in marks.values() if m.startswith("N")] + [0])
+            named = "\n".join(f"{label} {title}" for label, title in sorted(titles.items()) if label in set(marks.values()))
+            only = f"Разметь ТОЛЬКО акты ниже; новые метки начинай с N{top + 1}."
+            extra = f"\n\nВ этом окне уже названы новые предметы:\n{named}\n{only}" if named else f"\n\n{only}"
+            follow = build_question(missing, shown) + extra
+            db.commit()
+            try:
+                more, more_titles = parse_window(ask(system, follow), {a.id for a in missing}, shown_ids | {int(m[1:]) for m in marks.values() if m.startswith("S")})
+                marks.update(more)
+                titles.update({k: v for k, v in more_titles.items() if k not in titles})
+                stats["followups"] = stats.get("followups", 0) + 1
+            except (ValueError, RuntimeError):
+                stats["errors"] += 1
         stats["windows"] += 1
         new_rows: dict[str, _Subj] = {}
         for act in window:

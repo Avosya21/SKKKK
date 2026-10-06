@@ -46,6 +46,10 @@ def _enqueue_auto_review(db: Session, settings: Settings, artifact: Artifact) ->
             job = enqueue_auto_review(db, artifact.id, scope=scope, mode=mode)
             if job is not None:
                 log_event(logger, "review.queued", artifact=artifact.artifact_id, job_id=job.id, scope=scope, mode=mode)
+        from app.app.services.memory_pipeline import enqueue_for_artifact
+
+        for scope in enqueue_for_artifact(db, settings, artifact, mode):  # память решений: акты материала и итог проекта (если включена)
+            log_event(logger, "review.queued", artifact=artifact.artifact_id, scope=scope, mode=mode)
     except Exception:  # noqa: BLE001
         db.rollback()
         logger.exception("auto review enqueue failed for %s", artifact.artifact_id)

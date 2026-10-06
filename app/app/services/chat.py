@@ -870,6 +870,16 @@ def _answer_chat_inner(
 
     memory = build_chat_user_memory(db, project_id=project_id, user_id=user_id)
     tz_excerpt = _project_tz_excerpt(settings, project_id)
+    try:  # журнал решений (память решений, Э6): состояние предметов, даты, стороны, цитаты; чат его только читает
+        from app.app.models.project import Project
+        from app.app.services import memory_mode
+        from app.app.services.memory_chat import decision_block
+
+        decisions = (decision_block(db, project_id, q_vecs[0], question)
+                     if memory_mode.uses_in_chat(settings, db.get(Project, project_id)) else "")  # только в режиме live
+    except Exception:  # noqa: BLE001 - память решений не должна ломать ответ чата
+        logger.warning("журнал решений для чата не собран", exc_info=True)
+        decisions = ""
 
     if not context_lines and not memory and not tz_excerpt and not decisions:
         answer = "В материалах проекта ответа нет."

@@ -46,6 +46,7 @@ def main() -> int:
     ap.add_argument("--project", type=int, required=True)
     ap.add_argument("--questions", type=Path, required=True)
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "eval")
+    ap.add_argument("--memory-live", action="store_true", help="в копии БД включить память решений проекта (режим live): замер M6 по журналу решений")
     args = ap.parse_args()
 
     real_db = ROOT / "data" / "app.db"
@@ -63,6 +64,11 @@ def main() -> int:
     assert str(copy.as_posix()) in settings.database_url, "eval должен работать на копии БД"
     spec = json.loads(args.questions.read_text(encoding="utf-8"))
     db = SessionLocal()
+    if args.memory_live:
+        from app.app.models.project import Project
+        from app.app.services import memory_mode
+
+        memory_mode.set_mode(db, db.get(Project, args.project), "live")  # только в копии БД
     user = db.query(User).order_by(User.id).first()
     rows: list[dict] = []
     for item in spec["questions"]:

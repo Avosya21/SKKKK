@@ -102,3 +102,13 @@ def test_decision_block_by_words_and_date(client, world):
         assert mc.decision_block(db, pid, None, "какая погода сегодня", today=date(2026, 10, 6)) == ""
     finally:
         db.close()
+
+
+def test_same_reply_from_two_exports_is_shown_once_with_both_links():
+    from app.app.routers.project_memory import _dedupe_acts
+
+    a = {"at": "2026-09-11T12:30:00", "author": "Заказчик", "act": "proposed", "quote": "Можем  поставить !", "url": "/artifacts/a/report?m=1"}
+    b = {**a, "quote": "Можем поставить !", "url": "/artifacts/b/report?m=1"}
+    other = {**a, "act": "agreed", "url": "/artifacts/a/report?m=2"}
+    out = _dedupe_acts([dict(a), dict(b), dict(other)])
+    assert len(out) == 2 and out[0]["urls"] == ["/artifacts/a/report?m=1", "/artifacts/b/report?m=1"] and out[1]["urls"] == ["/artifacts/a/report?m=2"]
