@@ -394,6 +394,7 @@ def _quoted_document_evidence(value: dict, ctx: ArtifactCtx) -> dict | None:
         "speaker_basis": None,
         "timecode": None,
         "start_sec": None,
+        "paragraph": value.get("source_paragraph"),  # номер P<n> единицы документа (Э1): «абзац N» в карточке
         "url": source_url(ctx.art.artifact_id, quote=quote[: ct.QUOTE_MAX]),
     }
 

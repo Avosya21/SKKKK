@@ -3290,6 +3290,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_doc_anchors
+    kind: service
+    path: app/app/services/doc_anchors.py
+    title: "Привязка уже извлечённых пунктов документов к абзацам ``P<n>`` без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_doc_units
+    kind: service
+    path: app/app/services/doc_units.py
+    title: "Единицы документа с адресами ``P<n>`` (docs/plans/DECISION-MEMORY-PLAN.md, этап Э1)."
+    tags: [auto]
+    auto: true
+
+  - id: script_bind_document_units
+    kind: file
+    path: scripts/bind_document_units.py
+    title: "Привязать уже извлечённые пункты документов к абзацам P<n> без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

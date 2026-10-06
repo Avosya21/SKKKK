@@ -91,7 +91,7 @@
     const basis = s.speaker_basis === 'voice' ? ' <span class="badge text-bg-light border" title="Имя определено по голосу, а не по дорожке микрофона">по голосу</span>'
       : s.speaker_basis === 'words' ? ' <span class="badge text-bg-warning" title="Пункт не привязан к реплике: говорящий найден по совпадению слов и может быть неточен">по совпадению слов</span>' : '';
     const agreed = (s.agreed_by || []).length ? ` · утвердил: ${s.agreed_by.map((a) => esc(a.name) + sideOf(a.side)).join(', ')}` : '';
-    const where = s.material ? ` · ${esc(s.material)}` : '';
+    const where = s.material ? ` · ${esc(s.material)}${s.paragraph ? ', абзац ' + esc(s.paragraph) : ''}` : '';
     let when;
     if (s.date_basis === 'message' && s.said_at) when = esc(fmt(s.said_at));
     else if (s.said_date && s.date_basis === 'upload') when = esc(dayRu(s.said_date)) + ' <span class="badge text-bg-warning" title="Дата записи неизвестна — взята дата загрузки; поставьте дату на странице проекта">по дате загрузки</span>' + (s.timecode ? `, ${esc(s.timecode)}` : '');
@@ -107,8 +107,8 @@
   const ITEM_KIND = { requirement: 'требование к системе', project: 'решение по проекту', work: 'работа по системе' };
   function contextHtml(r) {
     if (!r.context || !r.context.length) return '';
-    const lines = r.context.map((c) => `<li${c.source ? ' class="fw-semibold"' : ''}>${esc(c.timecode || '')} ${esc(c.speaker || 'говорящий не опознан')}: ${esc(c.text)}</li>`).join('');
-    return `<details class="small mt-1"><summary>Ход обсуждения</summary><ul class="mb-0 list-unstyled">${lines}</ul></details>`;
+    const lines = r.context.map((c) => `<li${c.source ? ' class="fw-semibold"' : ''}>${esc(c.timecode || '')} ${c.speaker === null && /^абзац/.test(c.timecode || '') ? '' : esc(c.speaker || 'говорящий не опознан') + ':'} ${esc(c.text)}</li>`).join('');
+    return `<details class="small mt-1"><summary>${(r.context || []).some((c) => /^абзац/.test(c.timecode || '')) ? 'Текст вокруг' : 'Ход обсуждения'}</summary><ul class="mb-0 list-unstyled">${lines}</ul></details>`;
   }
   function replacedHtml(r) {
     if (r.hidden_state === 'superseded') {
@@ -487,15 +487,14 @@
     loadCard();
   }));
   $('px-card-rebuild').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
-    say('card', 'Модель собирает черновик… (до минуты)');
+    say('card', 'Ставлю в очередь…');
     let r = await post('/card/rebuild', {});
-    if (r.status === 409) {
+    if (r.status === 409 && /правил человек/.test(await r.clone().text())) {
       if (!confirm('Карточку правил человек. Заменить правку новым черновиком модели?')) { say('card', ''); return; }
       r = await post('/card/rebuild', { discard_human: true });
     }
     if (!r.ok) { say('card', await errText(r), true); return; }
-    say('card', 'Черновик обновлён.');
-    loadCard();
+    say('card', 'Поставлено в очередь обработки: черновик появится, когда воркер дойдёт до задачи.');
   }));
 
   const LOADERS = { review: () => loadReview(false), exchange: loadQuestions, settings: loadSettings, oq: loadOpenQuestions, card: loadCard };
