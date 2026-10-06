@@ -16,19 +16,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
+from app.app.models.decision_memory import DecisionEvent
 from app.app.models.speech_act import ACTS, SpeechAct
 
 logger = logging.getLogger("skkkk.speech_acts")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "speech_acts.md"
-PROMPT_VERSION = "speech_acts-v2"
+PROMPT_VERSION = "speech_acts-v3"
 TARGETS_PER_WINDOW = 8  # целевых реплик в одном вопросе к модели
 CONTEXT_UNITS = 3  # реплик до окна — только контекст
 WINDOW_CHARS = 4500  # предел знаков целевых реплик в окне
@@ -231,6 +232,12 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
                                   act=a["act"], quote=a["quote"], about=a["about"] or None, prompt_version=PROMPT_VERSION,
                                   model=settings.lmstudio_model))
         db.rollback()  # чтение карточек автора открыло транзакцию: перед следующим ответом модели её закрываем
+    old_acts = select(SpeechAct.id).where(SpeechAct.artifact_id == artifact.id)
+    if only_refs is not None:
+        old_acts = old_acts.where(SpeechAct.unit_ref.in_(only_refs))
+    # события журнала ссылаются на акты: события от актов (правило, модель) пересоберёт журнал, у решений человека ссылка снимается
+    db.execute(delete(DecisionEvent).where(DecisionEvent.speech_act_id.in_(old_acts), DecisionEvent.decided_by != "human"))
+    db.execute(update(DecisionEvent).where(DecisionEvent.speech_act_id.in_(old_acts)).values(speech_act_id=None))
     if only_refs is None:
         db.execute(delete(SpeechAct).where(SpeechAct.artifact_id == artifact.id))
     else:

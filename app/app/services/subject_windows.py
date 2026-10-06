@@ -1,0 +1,180 @@
+"""Предметы одним проходом модели по окну актов (docs/plans/DECISION-MEMORY-PLAN.md, §13, вариант 2).
+
+Жадная раскладка по близости векторов (``subjects.assign``) то дробит решение на предметы из одной реплики, то склеивает разные. Здесь
+модель видит окно из ``WINDOW_ACTS`` актов и список уже известных предметов (ближайшие по вектору и последние тронутые) и для каждого
+акта выбирает предмет или объявляет новый: общая метка N<k> на несколько актов окна, название — отдельно. Код проверяет метки: акт — из
+окна, предмет — из показанных. Акт, который модель не разметила, получает отдельный предмет (безопаснее, чем склейка разных решений).
+Центр предмета (среднее векторов актов) пишется в ``subjects.embedding`` — по нему чат подбирает предметы к вопросу.
+Промпт — ``docs/prompts/subject_window.md``.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import Any, Callable
+
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.orm import Session
+
+from app.app.config import Settings
+from app.app.logging_setup import log_event
+from app.app.models.artifact import Artifact
+from app.app.models.decision_memory import DecisionEvent, Subject
+from app.app.models.speech_act import ACT_LABELS, SpeechAct
+from app.app.services.subjects import TITLE_MAX, _day_of, _sort_key, _Subj, act_text, cosine, pack, unpack
+
+logger = logging.getLogger("skkkk.subject_windows")
+
+PROMPT_VERSION = "subject_window-v1"
+WINDOW_ACTS = 25  # актов в одном вопросе модели
+KNOWN_SIMILAR = 12  # известных предметов, ближайших по вектору к окну
+KNOWN_RECENT = 5  # и последних тронутых
+MAX_ANSWER_TOKENS = 2000  # метка на каждый акт окна и названия новых предметов
+
+
+def _ask_default(settings: Settings) -> Callable[[str, str], str]:
+    from app.app.services.llm import chat_completion_no_think
+
+    def ask(system: str, user: str) -> str:
+        return chat_completion_no_think(settings, system=system, user=user, max_tokens=MAX_ANSWER_TOKENS)
+
+    return ask
+
+
+def _system() -> str:
+    from app.app.services.prompts import load_prompt_block
+    from app.app.services.speech_acts import ROOT
+
+    return load_prompt_block(ROOT / "docs" / "prompts" / "subject_window.md")
+
+
+def build_question(acts: list[SpeechAct], known: list[_Subj]) -> str:
+    lines = ["Известные предметы:"]
+    if not known:
+        lines.append("(пока нет)")
+    for k in known:
+        lines.append(f"S{k.row.id} {k.row.title}")
+        lines.extend(f"   · {r}" for r in k.recent)
+    lines += ["", "Акты окна:"]
+    for a in acts:
+        about = f" (о чём: {a.about})" if a.about else ""
+        lines.append(f"A{a.id} [{a.author or '?'}] {ACT_LABELS.get(a.act, a.act)}: «{a.quote[:260]}»{about}")
+    return "\n".join(lines)
+
+
+def parse_window(raw: str, act_ids: set[int], subject_ids: set[int]) -> tuple[dict[int, str], dict[str, str]]:
+    """Ответ модели -> ({id акта: «S<id>» или «N<k>»}, {«N<k>»: название}). Неизвестные акты и метки отбрасываются; ни одного
+    размеченного акта или не JSON — ошибка."""
+    from app.app.services.llm import strip_json_fence
+
+    data = json.loads(strip_json_fence(raw))
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        raise ValueError("нет списка items")
+    out: dict[int, str] = {}
+    for it in data["items"]:
+        if not isinstance(it, dict):
+            continue
+        m = re.fullmatch(r"A?(\d+)", str(it.get("act") or "").strip())
+        label = str(it.get("subject") or "").strip().upper()
+        if not m or int(m.group(1)) not in act_ids:
+            continue
+        ms = re.fullmatch(r"S(\d+)", label)
+        if (ms and int(ms.group(1)) in subject_ids) or re.fullmatch(r"N\d+", label):
+            out[int(m.group(1))] = label
+    raw_titles = data.get("titles")
+    titles = {str(k).strip().upper(): v.strip()[:TITLE_MAX] for k, v in raw_titles.items() if isinstance(v, str)} if isinstance(raw_titles, dict) else {}
+    if not out:
+        raise ValueError("ни один акт окна не размечен")
+    return out, titles
+
+
+def assign(db: Session, settings: Settings, project_id: int, *, rebuild: bool = False,
+           embed: Callable[[list[str]], list[list[float]]] | None = None, ask: Callable[[str, str], str] | None = None) -> dict[str, Any]:
+    """Назначить предметы актам проекта без предмета (``rebuild`` — все заново, кроме предметов с решением человека)."""
+    from app.app.services.ollama_client import embed_texts
+
+    embed = embed or (lambda texts: embed_texts(settings, texts))
+    ask = ask or _ask_default(settings)
+    if rebuild:
+        keep = set(db.scalars(select(DecisionEvent.subject_id).where(DecisionEvent.project_id == project_id, DecisionEvent.decided_by == "human")).all())
+        drop = [x for x in db.scalars(select(Subject.id).where(Subject.project_id == project_id)).all() if x not in keep]
+        if drop:
+            db.execute(update(SpeechAct).where(SpeechAct.subject_id.in_(drop)).values(subject_id=None))
+            db.execute(delete(DecisionEvent).where(DecisionEvent.subject_id.in_(drop)))
+            db.execute(delete(Subject).where(Subject.id.in_(drop)))
+        db.flush()
+    known: dict[int, _Subj] = {}
+    for row in db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.is_active.is_(True))).all():
+        count = int(db.scalar(select(func.count()).select_from(SpeechAct).where(SpeechAct.subject_id == row.id)) or 0)
+        known[row.id] = _Subj(row, unpack(row.embedding), count)
+    pending = list(db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id, SpeechAct.subject_id.is_(None))).all())
+    stats: dict[str, Any] = {"acts": len(pending), "windows": 0, "attached": 0, "created": 0, "unmarked": 0, "errors": 0, "subjects": len(known)}
+    if not pending:
+        return stats
+    days = {a.id: _day_of(a) for a in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all()}
+    pending.sort(key=lambda a: _sort_key(a, days))
+    system = _system()
+    db.commit()  # соединение БД не держим на время ответов модели
+    vectors = embed([act_text(a) for a in pending])
+    if len(vectors) != len(pending):
+        raise RuntimeError(f"векторов {len(vectors)} на {len(pending)} актов")
+    vec_of = {a.id: v for a, v in zip(pending, vectors)}
+    touched: list[int] = []  # недавно тронутые предметы, последний — в конце
+    for i in range(0, len(pending), WINDOW_ACTS):
+        window = pending[i:i + WINDOW_ACTS]
+        ranked = sorted(known.values(), key=lambda k: -max(cosine(vec_of[a.id], k.centroid) for a in window))
+        shown = ranked[:KNOWN_SIMILAR]
+        for sid in reversed(touched):
+            if len(shown) >= KNOWN_SIMILAR + KNOWN_RECENT:
+                break
+            if known[sid] not in shown:
+                shown.append(known[sid])
+        question = build_question(window, shown)
+        shown_ids = {k.row.id for k in shown}
+        act_ids = {a.id for a in window}
+        marks: dict[int, str] = {}
+        titles: dict[str, str] = {}
+        db.commit()
+        for attempt in range(2):
+            try:
+                marks, titles = parse_window(ask(system, question), act_ids, shown_ids)
+                break
+            except (ValueError, RuntimeError) as exc:
+                if attempt == 0:
+                    question += f'\n\nПредыдущий ответ невалиден: {exc}. Верни только JSON вида {{"items": [...], "titles": {{...}}}}.'
+                else:
+                    stats["errors"] += 1
+        stats["windows"] += 1
+        new_rows: dict[str, _Subj] = {}
+        for act in window:
+            label, vec = marks.get(act.id), vec_of[act.id]
+            target: _Subj | None = None
+            if label and label.startswith("S"):
+                target = known[int(label[1:])]
+                stats["attached"] += 1
+            elif label:
+                target = new_rows.get(label)
+                if target is None:
+                    row = Subject(project_id=project_id, title=titles.get(label) or (act.about or act.quote)[:TITLE_MAX], embedding=pack(vec))
+                    db.add(row)
+                    db.flush()
+                    target = new_rows[label] = known[row.id] = _Subj(row, [], 0)
+                    stats["created"] += 1
+            if target is None:
+                stats["unmarked"] += 1
+                row = Subject(project_id=project_id, title=(act.about or act.quote)[:TITLE_MAX], embedding=pack(vec))
+                db.add(row)
+                db.flush()
+                target = known[row.id] = _Subj(row, [], 0)
+                stats["created"] += 1
+            target.add(vec, act)
+            target.row.embedding = pack(target.centroid)
+            act.subject_id = target.row.id
+            if target.row.id in touched:
+                touched.remove(target.row.id)
+            touched.append(target.row.id)
+        db.commit()
+    stats["subjects"] = len(known)
+    log_event(logger, "subjects.assigned_windows", project=project_id, **stats)
+    return stats

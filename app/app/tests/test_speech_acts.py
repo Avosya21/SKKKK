@@ -154,3 +154,23 @@ def test_document_without_speakers_has_no_units(chat, monkeypatch):
     monkeypatch.setattr(chat_export, "load_export", lambda _p: None)
     assert sa.dialog_units(settings, art) == []
     assert sa.extract_artifact(db, settings, art, ask=lambda s, u: "{}")["units"] == 0
+
+
+def test_rerun_with_journal_events_does_not_break_on_foreign_keys(chat):
+    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.speech_act import SpeechAct
+    from app.app.services import decision_log as dl
+
+    db, settings, art = chat
+    sa.extract_artifact(db, settings, art, ask=_fake_ask([]))
+    subject = Subject(project_id=art.project_id, title="Приложение для менеджеров")
+    db.add(subject)
+    db.commit()
+    for act in db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).all():
+        dl.add_event(db, subject, "proposed", "2026-02-01T10:00:00", speech_act_id=act.id, decided_by="rule")
+    first = db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).first()
+    dl.add_event(db, subject, "agreed", "2026-02-02", precision="day", speech_act_id=first.id, decided_by="human")
+    db.commit()
+    sa.extract_artifact(db, settings, art, ask=_fake_ask([]))  # прежде падало: FOREIGN KEY constraint failed
+    events = db.query(DecisionEvent).filter(DecisionEvent.subject_id == subject.id).all()
+    assert [(e.decided_by, e.speech_act_id) for e in events] == [("human", None)]  # события правил ушли, решение человека осталось
