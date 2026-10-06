@@ -29,7 +29,7 @@ logger = logging.getLogger("skkkk.speech_acts")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "speech_acts.md"
-PROMPT_VERSION = "speech_acts-v3"
+PROMPT_VERSION = "speech_acts-v4"
 TARGETS_PER_WINDOW = 8  # целевых реплик в одном вопросе к модели
 CONTEXT_UNITS = 3  # реплик до окна — только контекст
 WINDOW_CHARS = 4500  # предел знаков целевых реплик в окне

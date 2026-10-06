@@ -66,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
             assign = subjects.assign if args.legacy_subjects else subject_windows.assign
             r = assign(db, settings, args.project, rebuild=args.rebuild_subjects)
             print(f"[subjects] {r}")
+            if not args.legacy_subjects:
+                print(f"[merge] {subject_windows.merge_similar(db, settings, args.project)}")
         if "events" in args.steps:
             r = subjects.build_events(db, args.project)
             print(f"[events] {r}")

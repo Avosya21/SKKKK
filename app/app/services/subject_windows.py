@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.models.decision_memory import DecisionEvent, Subject
+from app.app.models.decision_memory import DecisionEvent, Subject, SubjectPosition
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 from app.app.services.subjects import TITLE_MAX, _day_of, _sort_key, _Subj, act_text, cosine, pack, unpack
 
@@ -102,6 +102,7 @@ def assign(db: Session, settings: Settings, project_id: int, *, rebuild: bool = 
         if drop:
             db.execute(update(SpeechAct).where(SpeechAct.subject_id.in_(drop)).values(subject_id=None))
             db.execute(delete(DecisionEvent).where(DecisionEvent.subject_id.in_(drop)))
+            db.execute(delete(SubjectPosition).where(SubjectPosition.subject_id.in_(drop)))
             db.execute(delete(Subject).where(Subject.id.in_(drop)))
         db.flush()
     known: dict[int, _Subj] = {}
@@ -177,4 +178,76 @@ def assign(db: Session, settings: Settings, project_id: int, *, rebuild: bool = 
         db.commit()
     stats["subjects"] = len(known)
     log_event(logger, "subjects.assigned_windows", project=project_id, **stats)
+    return stats
+
+
+MERGE_MIN_SIMILARITY = 0.70  # центры предметов ближе — пара идёт на вопрос «один ли это вопрос»
+MERGE_MAX_PAIRS = 80
+MERGE_QUOTES = 4
+MERGE_PROMPT_VERSION = "subject_merge-v1"
+
+
+def _merge_system() -> str:
+    from app.app.services.prompts import load_prompt_block
+    from app.app.services.speech_acts import ROOT
+
+    return load_prompt_block(ROOT / "docs" / "prompts" / "subject_merge.md")
+
+
+def _merge_question(db: Session, a: Subject, b: Subject) -> str:
+    parts = []
+    for s in (a, b):
+        acts = db.scalars(select(SpeechAct).where(SpeechAct.subject_id == s.id).order_by(SpeechAct.said_at, SpeechAct.unit_key)).all()
+        parts.append(f"Предмет «{s.title}»\n" + "\n".join(f"   · {(x.said_at or '')[:10]} {x.author or '?'}: {x.quote[:200]}" for x in acts[:MERGE_QUOTES]))
+    return "\n\n".join(parts)
+
+
+def parse_same(raw: str) -> bool:
+    from app.app.services.llm import strip_json_fence
+
+    data = json.loads(strip_json_fence(raw))
+    if not isinstance(data, dict) or not isinstance(data.get("same"), bool):
+        raise ValueError("нет булевого same")
+    return data["same"]
+
+
+def merge_similar(db: Session, settings: Settings, project_id: int, *, ask: Callable[[str, str], str] | None = None) -> dict[str, int]:
+    """Склеить дубли: пары предметов с близкими центрами идут моделью на вопрос «один ли это вопрос». Акты меньшего предмета переходят в
+    больший, меньший удаляется, центр пересчитывается. Предметы с решением человека не трогаются. Запускать до построения событий."""
+    ask = ask or _ask_default(settings)
+    subs = [s for s in db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.is_active.is_(True))).all() if s.embedding]
+    human = set(db.scalars(select(DecisionEvent.subject_id).where(DecisionEvent.project_id == project_id, DecisionEvent.decided_by == "human")).all())
+    counts = {s.id: int(db.scalar(select(func.count()).select_from(SpeechAct).where(SpeechAct.subject_id == s.id)) or 0) for s in subs}
+    vecs = {s.id: unpack(s.embedding) for s in subs}
+    pairs = sorted(((cosine(vecs[a.id], vecs[b.id]), a, b) for i, a in enumerate(subs) for b in subs[i + 1:]), key=lambda t: -t[0])
+    pairs = [p for p in pairs if p[0] >= MERGE_MIN_SIMILARITY][:MERGE_MAX_PAIRS]
+    stats = {"pairs": len(pairs), "merged": 0, "errors": 0}
+    gone: set[int] = set()
+    system = _merge_system()
+    for _sim, a, b in pairs:
+        if a.id in gone or b.id in gone or a.id in human or b.id in human:
+            continue
+        question = _merge_question(db, a, b)
+        db.commit()
+        try:
+            same = parse_same(ask(system, question))
+        except (ValueError, RuntimeError):
+            stats["errors"] += 1
+            continue
+        if not same:
+            continue
+        big, small = (a, b) if counts[a.id] >= counts[b.id] else (b, a)
+        db.execute(update(SpeechAct).where(SpeechAct.subject_id == small.id).values(subject_id=big.id))
+        n_big, n_small = counts[big.id], counts[small.id]
+        merged = [(x * n_big + y * n_small) / max(1, n_big + n_small) for x, y in zip(vecs[big.id], vecs[small.id])]
+        vecs[big.id], counts[big.id] = merged, n_big + n_small
+        big.embedding = pack(merged)
+        db.execute(delete(DecisionEvent).where(DecisionEvent.subject_id == small.id))
+        db.execute(delete(SubjectPosition).where(SubjectPosition.subject_id == small.id))
+        db.delete(small)
+        gone.add(small.id)
+        stats["merged"] += 1
+        db.flush()
+    db.commit()
+    log_event(logger, "subjects.merged", project=project_id, **stats)
     return stats

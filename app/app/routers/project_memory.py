@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.app.db import get_db
 from app.app.dependencies import get_current_user
 from app.app.models.artifact import Artifact
-from app.app.models.decision_memory import EVENT_KINDS, EVENT_LABELS, STATE_LABELS, DecisionEvent, Subject
+from app.app.models.decision_memory import EVENT_KINDS, EVENT_LABELS, POSITION_LABELS, STATE_LABELS, DecisionEvent, Subject, SubjectPosition
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 from app.app.models.user import User
 from app.app.services import decision_log as dl
@@ -99,6 +99,8 @@ def get_subject(
         "acts": [_act_out(db, a, names) for a in acts],
         "events": [{"id": e.id, "kind": e.kind, "kind_label": EVENT_LABELS.get(e.kind, e.kind), "at": e.occurred_at, "precision": e.precision, "actor": e.actor_label,
                     "side": e.actor_side, "anchor": e.anchor, "quote": e.quote, "decided_by": e.decided_by, "note": e.note} for e in events],
+        "positions": [{"label": p.label, "state": p.state, "state_label": POSITION_LABELS.get(p.state, p.state), "replaced_by": p.replaced_by}
+                      for p in db.scalars(select(SubjectPosition).where(SubjectPosition.subject_id == s.id).order_by(SubjectPosition.id)).all()],
         "fold": {**fold.as_dict(), "state_label": STATE_LABELS.get(fold.state, fold.state)},
         "as_of": as_of,
     }

@@ -190,7 +190,18 @@ def _m2_subjects(db: Session, settings: Settings, project_id: int) -> tuple[floa
     quotes: dict[int, list[str]] = {}
     for sid, quote in db.execute(select(SpeechAct.subject_id, SpeechAct.quote).where(SpeechAct.project_id == project_id, SpeechAct.subject_id.isnot(None))).all():
         quotes.setdefault(sid, []).append(quote or "")
-    texts = [(f"{s.title} {s.summary or ''} {' '.join(quotes.get(s.id, []))}", SUBJECT_TO_RULE_STATE.get(s.state, "current")) for s in subjects]
+    from app.app.models.decision_memory import SubjectPosition
+
+    positions: dict[int, list[Any]] = {}
+    for pos in db.scalars(select(SubjectPosition).where(SubjectPosition.subject_id.in_([s.id for s in subjects]))).all():
+        positions.setdefault(pos.subject_id, []).append(pos)
+    texts: list[tuple[str, str]] = []
+    for s in subjects:
+        if positions.get(s.id):  # у предмета есть позиции: состояние берётся у позиции (вариант/значение), а не у предмета целиком
+            for pos in positions[s.id]:
+                texts.append((pos.label, "current" if pos.state == "open" else pos.state))  # позиция определяется своим названием, не цитатами-основаниями
+            continue
+        texts.append((f"{s.title} {s.summary or ''} {' '.join(quotes.get(s.id, []))}", SUBJECT_TO_RULE_STATE.get(s.state, "current")))
     details, passed = [], 0
     for rule in rules:
         pat = re.compile(rule["pattern"], re.I)
