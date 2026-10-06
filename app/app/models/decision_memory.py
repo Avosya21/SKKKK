@@ -29,6 +29,9 @@ STATE_LABELS = {
     "implemented": "выполнено", "withdrawn": "снято",
 }
 DECIDED_BY = ("model", "rule", "human")
+# Состояния позиции внутри предмета (вариант или значение): действует / отклонена / заменена / открыта
+POSITION_STATES = ("current", "rejected", "superseded", "open")
+POSITION_LABELS = {"current": "действует", "rejected": "отклонено", "superseded": "заменено", "open": "обсуждается"}
 
 
 class Subject(Base):
@@ -74,3 +77,17 @@ class DecisionEvent(Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     note: Mapped[str | None] = mapped_column(String(300), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class SubjectPosition(Base):
+    """Позиция внутри предмета: вариант решения или значение («пометка “!”», «цена 126 000»), у которой своё состояние.
+    Предмет «цена работ» целиком согласован, но позиция «144 000» в нём заменена позицией «126 000» — это пишет судья (Э5)."""
+    __tablename__ = "subject_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    basis_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # номера актов-оснований
+    replaced_by: Mapped[str | None] = mapped_column(String(160), nullable=True)  # название позиции, которая заменила эту
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

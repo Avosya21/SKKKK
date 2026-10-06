@@ -1031,7 +1031,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 
 Общий справочник компаний портала (PLATFORM-FOUNDATION-PLAN, ПФ4): из него берутся компании в карточках сотрудников и стороны («заказчик / исполнитель» по умолчанию) в реестре людей (§5.14). **Источник истины — файл `Companies.txt`** (образец `Companies.example.txt`, путь `COMPANIES_PATH`; не в git): правка из портала сначала записывает файл, затем обновляет таблицу `companies`; каждый запрос сначала синхронизирует таблицу с файлом (`services/companies.sync_companies`). Код — `routers/companies_admin.py`, `services/companies.py`, шаблон `companies.html`.
 | `GET /projects/{project_id}/memory/subjects` | админ и менеджер проекта | память решений: предметы проекта с состоянием, числом реплик и последней датой; фильтры `state`, `q`, постранично (`routers/project_memory.py`) |
-| `GET /projects/{project_id}/memory/subjects/{subject_id}` | админ и менеджер проекта | история решения: лента реплик с цитатами и ссылками на источник, события журнала, свёртка; `as_of=ГГГГ-ММ-ДД` — состояние на дату |
+| `GET /projects/{project_id}/memory/subjects/{subject_id}` | админ и менеджер проекта | история решения: лента реплик с цитатами и ссылками на источник, события журнала, свёртка, позиции предмета (варианты и значения с состоянием); `as_of=ГГГГ-ММ-ДД` — состояние на дату |
 | `GET /projects/{project_id}/memory/state-at` | админ и менеджер проекта | состояние всех предметов проекта на дату `date=ГГГГ-ММ-ДД` |
 | `POST /projects/{project_id}/memory/subjects/{subject_id}/decide` `{kind, note}` | админ и менеджер проекта | решение человека событием журнала (`decided_by=human`): модель и правила после него состояние не меняют |
 | `POST /projects/{project_id}/memory/subjects/{subject_id}/release` | админ и менеджер проекта | «Вернуть модели»: события человека отключаются, состояние снова считается по журналу |
@@ -1317,6 +1317,7 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов (предложил, согласился, отказал, сделано…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
 | `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние и с какого момента, итог словами, центр-вектор, замена другим предметом |
 | `decision_events` | `decision_memory.py` | журнал событий предмета (append-only): вид, кто, когда, точность даты, цитата, кто решил (модель или человек) |
+| `subject_positions` | `decision_memory.py` | позиции внутри предмета (вариант или значение: «цена 144 000», «пометка “!”») со своим состоянием и «чем заменено»; пишет судья итога |
 ## 8. ASR-модули (`asr/`)
 
 ### 8.1. Оркестрация
@@ -1469,10 +1470,11 @@ run_pipeline
 | `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
-| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v3`) |
+| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v4`) |
 | `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
 | `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |
-| `subject_judge.md` | subject_judge.py (итог предмета по ленте реплик) |
+| `subject_judge.md` | subject_judge.py (итог предмета и его позиции по ленте реплик, `subject_judge-v2`) |
+| `subject_merge.md` | subject_windows.py (склейка дублей: один ли вопрос у двух предметов, `subject_merge-v1`) |
 | `rerun_cursor_merge.py` | Merge+view без ASR (Cursor tuning) |
 | `rerun_transcript_integrity.py` | Только integrity + plain + view |
 | `resume_knowledge.py` | Догнать knowledge phase |
@@ -2509,6 +2511,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/prompts/speech_acts.md` | Промпт: речевые акты в переписке и созвонах (Э2 памяти решений) |
 | `docs/prompts/subject_judge.md` | Промпт: чем закончилось обсуждение предмета (Э5 памяти решений) |
 | `docs/prompts/subject_match.md` | Промпт: тот же ли это предмет обсуждения (Э3 памяти решений) |
+| `docs/prompts/subject_merge.md` | Промпт: один ли это вопрос у двух предметов (Э3, склейка дублей) |
 | `docs/prompts/subject_window.md` | Промпт: раскладка окна реплик по предметам (Э3, вариант «один проход по окну») |
 | `docs/agent-exchange/CONTRACT.md` | Контракт обмена v1.0: что реализовано |
 | `docs/agent-exchange/POLICY.md` | Политика обмена с внешним агентом |

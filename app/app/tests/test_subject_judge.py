@@ -10,7 +10,7 @@ from app.app.services import subject_judge as sjg
 
 def test_parse_verdict_validates_state_and_basis():
     ok = sjg.parse_verdict('{"state": "Rejected", "basis": ["A12", 15, "A12", "A99"], "summary": "  Отказались.  "}', {12, 15})
-    assert ok == {"state": "rejected", "basis": [12, 15], "summary": "Отказались."}  # номера только из ленты, без повторов
+    assert ok == {"state": "rejected", "basis": [12, 15], "summary": "Отказались.", "positions": []}  # номера только из ленты, без повторов
     with pytest.raises(ValueError, match="не из списка"):
         sjg.parse_verdict('{"state": "победа", "basis": ["A1"]}', {1})
     with pytest.raises(ValueError, match="основани"):
@@ -93,7 +93,8 @@ def test_judge_applies_valid_verdict_and_can_override_fold(world):
     def ask(system, user):
         asked.append(user)
         return json.dumps({"state": "rejected", "basis": [f"A{acts[2].id}", f"A{acts[3].id}"],
-                           "summary": "Заказчик согласился с отказом: папки по толщине не делаем."}, ensure_ascii=False)
+                           "summary": "Заказчик согласился с отказом: папки по толщине не делаем.",
+                           "positions": [{"label": "папки по толщине", "state": "rejected", "basis": [acts[2].id]}]}, ensure_ascii=False)
 
     result = sjg.judge_subject(db, settings, subject, ask=ask)
     db.commit()
@@ -110,7 +111,7 @@ def test_invalid_answer_is_retried_then_state_is_kept(world):
     answers = iter(["не json", '{"state": "победа", "basis": ["A1"]}'])
     result = sjg.judge_subject(db, settings, subject, ask=lambda s, u: next(answers))
     assert result["status"] == "error" and subject.state == "agreed" and subject.state_source == "fold"
-    flaky = iter(["не json", json.dumps({"state": "rejected", "basis": [acts[2].id]})])
+    flaky = iter(["не json", json.dumps({"state": "rejected", "basis": [acts[2].id], "positions": [{"label": "папки", "state": "rejected"}]})])
     assert sjg.judge_subject(db, settings, subject, ask=lambda s, u: next(flaky))["status"] == "applied"  # со второй попытки принят
 
 
@@ -146,3 +147,42 @@ def test_judge_project_counts_and_refolds_first(world):
     counts = sjg.judge_project(db, settings, project.id, ask=lambda s, u: json.dumps({"state": "rejected", "basis": [acts[2].id], "summary": "итог"}), progress=progress.append)
     assert counts == {"subjects": 2, "applied": 1, "changed": 1, "skipped": 1, "errors": 0}
     assert progress == [f"предмет #{subject.id} «Подпапки каталога по толщине»: proposed -> rejected"]  # до судьи состояние пересчитано свёрткой
+
+
+def test_positions_are_validated_and_stored(world):
+    from app.app.models.decision_memory import SubjectPosition
+
+    db, settings, project, subject, acts = world
+    raw = json.dumps({"state": "agreed", "basis": [acts[3].id], "summary": "итог", "positions": [
+        {"label": "цена 144 000", "state": "superseded", "replaced_by": "цена 126 000", "basis": [f"A{acts[0].id}", "A9999"]},
+        {"label": "цена 126 000", "state": "Current", "replaced_by": "лишнее", "basis": [acts[3].id]},
+        {"label": "цена 126 000", "state": "current"},  # повтор названия
+        {"label": "", "state": "current"}, {"label": "без состояния", "state": "победа"}, "мусор"]})
+    result = sjg.judge_subject(db, settings, subject, ask=lambda s, u: raw)
+    db.commit()
+    assert result["status"] == "applied"
+    rows = {p.label: p for p in db.query(SubjectPosition).filter(SubjectPosition.subject_id == subject.id).all()}
+    assert set(rows) == {"цена 144 000", "цена 126 000"}
+    assert rows["цена 144 000"].state == "superseded" and rows["цена 144 000"].replaced_by == "цена 126 000" and json.loads(rows["цена 144 000"].basis_json) == [acts[0].id]
+    assert rows["цена 126 000"].state == "current" and rows["цена 126 000"].replaced_by is None  # замена только у «заменённой»
+    sjg.judge_subject(db, settings, subject, ask=lambda s, u: json.dumps({"state": "agreed", "basis": [acts[3].id]}))
+    db.commit()
+    assert db.query(SubjectPosition).filter(SubjectPosition.subject_id == subject.id).count() == 0  # новый вердикт заменяет позиции
+
+
+def test_positions_requested_once_when_feed_has_rejection_or_several_proposals(world):
+    from app.app.models.decision_memory import SubjectPosition
+
+    db, settings, project, subject, acts = world  # в ленте есть отказ (acts[2])
+    answers = iter([json.dumps({"state": "rejected", "basis": [acts[2].id], "summary": "итог"}),
+                    json.dumps({"state": "rejected", "basis": [acts[2].id], "summary": "итог", "positions": [{"label": "папки по толщине", "state": "rejected", "basis": [acts[2].id]}]})])
+    asked: list[str] = []
+
+    def ask(s, u):
+        asked.append(u)
+        return next(answers)
+
+    assert sjg.judge_subject(db, settings, subject, ask=ask)["status"] == "applied"
+    db.commit()
+    assert len(asked) == 2 and "Перечисли позиции" in asked[1]
+    assert [p.label for p in db.query(SubjectPosition).filter(SubjectPosition.subject_id == subject.id).all()] == ["папки по толщине"]

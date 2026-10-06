@@ -19,12 +19,14 @@ from sqlalchemy.orm import Session
 
 from app.app.config import Settings
 from app.app.logging_setup import log_event
-from app.app.models.decision_memory import STATES, DecisionEvent, Subject
+from app.app.models.decision_memory import POSITION_STATES, STATES, DecisionEvent, Subject, SubjectPosition
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 
 logger = logging.getLogger("skkkk.subject_judge")
 
-PROMPT_VERSION = "subject_judge-v1"
+PROMPT_VERSION = "subject_judge-v2"
+MAX_POSITIONS = 8
+LABEL_MAX = 160
 MAX_LINES = 15  # актов в ленте; длиннее — первые два и последние
 SIDE_RU = {"customer": "заказчик", "executor": "исполнитель"}
 EVENT_ACTS = ("proposed", "agreed", "rejected", "done", "cancelled")  # субъект без таких актов судье не нужен
@@ -41,7 +43,7 @@ def _ask_default(settings: Settings) -> Callable[[str, str], str]:
     from app.app.services.llm import chat_completion_no_think
 
     def ask(system: str, user: str) -> str:
-        return chat_completion_no_think(settings, system=system, user=user, max_tokens=400)
+        return chat_completion_no_think(settings, system=system, user=user, max_tokens=900)
 
     return ask
 
@@ -84,7 +86,31 @@ def parse_verdict(raw: str, shown_ids: set[int]) -> dict[str, Any]:
             basis.append(int(m.group(0)))
     if not basis:
         raise ValueError("не названы реплики-основания из ленты")
-    return {"state": state, "basis": basis, "summary": str(data.get("summary") or "").strip()[:500]}
+    return {"state": state, "basis": basis, "summary": str(data.get("summary") or "").strip()[:500], "positions": _parse_positions(data.get("positions"), shown_ids)}
+
+
+def _parse_positions(raw: Any, shown_ids: set[int]) -> list[dict[str, Any]]:
+    """Позиции (варианты и значения внутри предмета): неверное состояние или пустое название отбрасывают позицию, лишнее — обрезается."""
+    out: list[dict[str, Any]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()[:LABEL_MAX]
+        state = str(item.get("state") or "").strip().lower()
+        if not label or state not in POSITION_STATES or any(p["label"] == label for p in out):
+            continue
+        basis = []
+        for b in item.get("basis") or []:
+            m = re.search(r"\d+", str(b))
+            if m and int(m.group(0)) in shown_ids and int(m.group(0)) not in basis:
+                basis.append(int(m.group(0)))
+        replaced = str(item.get("replaced_by") or "").strip()[:LABEL_MAX] or None
+        out.append({"label": label, "state": state, "basis": basis, "replaced_by": replaced if state == "superseded" else None})
+        if len(out) >= MAX_POSITIONS:
+            break
+    return out
 
 
 def has_human_decision(db: Session, subject_id: int) -> bool:
@@ -118,12 +144,27 @@ def judge_subject(db: Session, settings: Settings, subject: Subject, *, days: di
                 user += f"\n\nПредыдущий ответ невалиден: {last_error}. Верни только JSON вида {{\"state\": ..., \"basis\": [...], \"summary\": ...}}."
     if verdict is None:
         return {"status": "error", "error": last_error}
+    if not verdict["positions"] and (any(a.act in ("rejected", "cancelled") for a in shown) or sum(a.act == "proposed" for a in shown) >= 2):
+        # в ленте есть отказ от варианта или несколько предложений, а позиции не названы: один раз просим перечислить позиции (отклонённый и принятый вариант)
+        hint = user + ("\n\nВ ленте несколько вариантов или есть отказ от варианта. Перечисли позиции: какой вариант отклонён или заменён, какой действует. "
+                       "Верни тот же JSON, но с заполненным списком positions.")
+        db.commit()
+        try:
+            again = parse_verdict(ask(system, hint), {a.id for a in shown})
+            if again["positions"]:
+                verdict = again
+        except (ValueError, json.JSONDecodeError, RuntimeError):
+            pass  # первый вердикт остаётся
     by_id = {a.id: a for a in shown}
     last_basis = max((by_id[i] for i in verdict["basis"]), key=lambda a: (a.said_at or days.get(a.artifact_id, ""), a.id))
     before = subject.state
     subject.state, subject.state_source = verdict["state"], "judge"
     subject.state_since = last_basis.said_at or days.get(last_basis.artifact_id)
     subject.summary, subject.basis_json = verdict["summary"] or None, json.dumps(verdict["basis"])
+    for old_pos in db.scalars(select(SubjectPosition).where(SubjectPosition.subject_id == subject.id)).all():
+        db.delete(old_pos)
+    for pos in verdict["positions"]:
+        db.add(SubjectPosition(subject_id=subject.id, label=pos["label"], state=pos["state"], basis_json=json.dumps(pos["basis"]), replaced_by=pos["replaced_by"]))
     return {"status": "applied", "state": verdict["state"], "was": before, "changed": before != verdict["state"], "basis": verdict["basis"]}
 
 

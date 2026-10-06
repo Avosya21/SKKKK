@@ -101,3 +101,47 @@ def test_invalid_answer_retried_then_acts_become_own_subjects(world):
 
     result = sw.assign(db, settings, project.id, embed=lambda texts: [[1.0, 0.0]] * len(texts), ask=ask)
     assert len(calls) == 2 and result["errors"] == 1 and result["unmarked"] == 5 and result["created"] == 5
+
+
+def test_parse_same():
+    assert sw.parse_same('{"same": true}') is True and sw.parse_same('```json\n{"same": false}\n```') is False
+    with pytest.raises(ValueError):
+        sw.parse_same('{"same": "да"}')
+
+
+def test_merge_similar_moves_acts_and_deletes_smaller(world):
+    from app.app.models.decision_memory import Subject
+    from app.app.models.speech_act import SpeechAct
+
+    db, settings, project, acts = world
+    big = Subject(project_id=project.id, title="Цена работ", embedding=sw.pack([1.0, 0.0]))
+    small = Subject(project_id=project.id, title="Стоимость", embedding=sw.pack([0.99, 0.1]))
+    other = Subject(project_id=project.id, title="Оплата", embedding=sw.pack([0.0, 1.0]))
+    db.add_all([big, small, other])
+    db.commit()
+    for a, s in zip(acts, [big, big, small, other, other]):
+        a.subject_id = s.id
+    db.commit()
+    questions: list[str] = []
+
+    def ask(system, user):
+        questions.append(user)
+        return '{"same": true}'
+
+    result = sw.merge_similar(db, settings, project.id, ask=ask)
+    assert result == {"pairs": 1, "merged": 1, "errors": 0} and len(questions) == 1  # «Оплата» далеко — не спрашиваем
+    assert db.get(Subject, small.id) is None
+    assert {a.subject_id for a in db.query(SpeechAct).filter(SpeechAct.id.in_([x.id for x in acts[:3]])).all()} == {big.id}
+
+
+def test_merge_keeps_subjects_when_model_says_different_or_fails(world):
+    from app.app.models.decision_memory import Subject
+
+    db, settings, project, acts = world
+    a = Subject(project_id=project.id, title="Цена", embedding=sw.pack([1.0, 0.0]))
+    b = Subject(project_id=project.id, title="Цена 2", embedding=sw.pack([1.0, 0.05]))
+    db.add_all([a, b])
+    db.commit()
+    assert sw.merge_similar(db, settings, project.id, ask=lambda s, u: '{"same": false}')["merged"] == 0
+    assert sw.merge_similar(db, settings, project.id, ask=lambda s, u: "не json")["errors"] == 1
+    assert db.query(Subject).filter(Subject.project_id == project.id).count() == 2

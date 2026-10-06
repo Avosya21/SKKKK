@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.models.decision_memory import DecisionEvent, Subject
+from app.app.models.decision_memory import DecisionEvent, Subject, SubjectPosition
 from app.app.models.speech_act import SpeechAct
 
 logger = logging.getLogger("skkkk.subjects")
@@ -139,6 +139,7 @@ def assign(db: Session, settings: Settings, project_id: int, *, rebuild: bool = 
         if drop:
             db.execute(update(SpeechAct).where(SpeechAct.subject_id.in_(drop)).values(subject_id=None))
             db.execute(delete(DecisionEvent).where(DecisionEvent.subject_id.in_(drop)))
+            db.execute(delete(SubjectPosition).where(SubjectPosition.subject_id.in_(drop)))
             db.execute(delete(Subject).where(Subject.id.in_(drop)))
         db.flush()
     subjects: list[_Subj] = []
