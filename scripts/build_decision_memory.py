@@ -41,12 +41,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--steps", nargs="*", choices=STEPS, default=list(STEPS))
     ap.add_argument("--artifact", type=int, nargs="*", default=[], help="для шага acts: только эти материалы")
     ap.add_argument("--rebuild-subjects", action="store_true")
+    ap.add_argument("--legacy-subjects", action="store_true", help="старая жадная раскладка по векторам вместо прохода модели по окну")
     args = ap.parse_args(argv)
 
     from app.app.config import get_settings
     from app.app.db import Base, SessionLocal, apply_schema_migrations, get_engine
     import app.app.models  # noqa: F401
-    from app.app.services import decision_log, speech_acts, subject_judge, subjects
+    from app.app.services import decision_log, speech_acts, subject_judge, subject_windows, subjects
 
     settings = get_settings()
     if settings.database_url.startswith("sqlite:///"):
@@ -62,7 +63,8 @@ def main(argv: list[str] | None = None) -> int:
             r = speech_acts.extract_project(db, settings, args.project, artifact_ids=args.artifact or None, progress=print)
             print(f"[acts] актов {r['acts']}, ошибок окон {r['errors']}")
         if "subjects" in args.steps:
-            r = subjects.assign(db, settings, args.project, rebuild=args.rebuild_subjects)
+            assign = subjects.assign if args.legacy_subjects else subject_windows.assign
+            r = assign(db, settings, args.project, rebuild=args.rebuild_subjects)
             print(f"[subjects] {r}")
         if "events" in args.steps:
             r = subjects.build_events(db, args.project)

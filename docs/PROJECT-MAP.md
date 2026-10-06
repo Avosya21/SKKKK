@@ -1469,8 +1469,9 @@ run_pipeline
 | `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
-| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v2`) |
+| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v3`) |
 | `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
+| `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |
 | `subject_judge.md` | subject_judge.py (итог предмета по ленте реплик) |
 | `rerun_cursor_merge.py` | Merge+view без ASR (Cursor tuning) |
 | `rerun_transcript_integrity.py` | Только integrity + plain + view |
@@ -1867,6 +1868,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `status.py` | Смена статуса артефакта. |
 | `storage.py` | Каталоги проекта и артефактов на диске: имена, пути к оригиналу, аудио, воспроизведению и отчётам. |
 | `subject_judge.py` | Итог предмета: модель-судья по короткой ленте актов (docs/plans/DECISION-MEMORY-PLAN.md, Э5). |
+| `subject_windows.py` | Предметы одним проходом модели по окну актов (docs/plans/DECISION-MEMORY-PLAN.md, §13, вариант 2). |
 | `subjects.py` | Предметы обсуждения: каждому речевому акту — предмет, о котором идёт речь (docs/plans/DECISION-MEMORY-PLAN.md, Э3). |
 | `summarize_document.py` | Выжимка документа: пути, загрузка исходного текста, промпты, сборка итогового Markdown и запуск (`run_document_summary`). |
 | `table_md.py` | Таблицы документов в markdown: один формат для DOCX, Excel/CSV, PDF и разбор его обратно (нормализация, нарезка). |
@@ -2507,6 +2509,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/prompts/speech_acts.md` | Промпт: речевые акты в переписке и созвонах (Э2 памяти решений) |
 | `docs/prompts/subject_judge.md` | Промпт: чем закончилось обсуждение предмета (Э5 памяти решений) |
 | `docs/prompts/subject_match.md` | Промпт: тот же ли это предмет обсуждения (Э3 памяти решений) |
+| `docs/prompts/subject_window.md` | Промпт: раскладка окна реплик по предметам (Э3, вариант «один проход по окну») |
 | `docs/agent-exchange/CONTRACT.md` | Контракт обмена v1.0: что реализовано |
 | `docs/agent-exchange/POLICY.md` | Политика обмена с внешним агентом |
 | `docs/agent-exchange/README.md` | Обмен с внешним агентом (агент анализа конфигурации) |
