@@ -50,14 +50,22 @@ def test_paths_and_manifest_are_checked():
         xf._normalize_manifest([{"path": "a", "size": 1, "sha256": sha}, {"path": "a/b", "size": 1, "sha256": sha}])
 
 
-def test_key_without_files_right_is_refused(env):
-    client, _, _, db, pid, art = env
+def test_default_key_reads_but_cannot_send_blocked_key_sees_nothing(env):
+    client, manager_token, _, db, pid, art = env
     row, h = _key(db, pid, art, None)
-    assert list_project_mcp_tokens(db, project_id=pid)[0]["files_access"] == "none"
+    assert list_project_mcp_tokens(db, project_id=pid)[0]["files_access"] == "read"  # файлы проекта видит любой ключ
     r = client.post(f"/mcp/projects/{pid}/files/bundles", headers=h, json={"name": "m", "files": [{"path": "a", "size": 1, "sha256": "0" * 64}]})
     assert r.status_code == 403 and r.json()["detail"] == "files_not_allowed"
     err, body = _call(db, pid, row, "files_list_bundles")
-    assert err and body["detail"] == "files_not_allowed"
+    assert not err and body["items"] == []
+    mh = {"Authorization": f"Bearer {manager_token}"}
+    # «none» — прежнее имя закрытого доступа
+    assert client.post(f"/projects/{pid}/mcp/tokens/{row.id}/files", headers=mh, json={"files_access": "none"}).json()["files_access"] == "blocked"
+    db.refresh(row)
+    for tool in ("files_list_bundles", "files_catalog"):
+        err, body = _call(db, pid, row, tool)
+        assert err and body["detail"] == "files_not_allowed"
+    assert client.get(f"/mcp/projects/{pid}/files/catalog", headers=h).status_code == 403
 
 
 def test_http_upload_resume_hash_and_download(env):
@@ -156,7 +164,7 @@ def test_mcp_tools_round_trip_and_read_only_key(env):
     assert client.get(f"/mcp/projects/{pid}/files/bundles/{bid}/data/order.zip", headers=hr).content == data
     # право на файлы меняет владелец; удаляет посылку тоже он
     mh = {"Authorization": f"Bearer {manager_token}"}
-    assert client.post(f"/projects/{pid}/mcp/tokens/{reader.id}/files", headers=mh, json={"files_access": "none"}).json()["files_access"] == "none"
+    assert client.post(f"/projects/{pid}/mcp/tokens/{reader.id}/files", headers=mh, json={"files_access": "blocked"}).json()["files_access"] == "blocked"
     assert client.post(f"/projects/{pid}/mcp/tokens/{reader.id}/files", headers=mh, json={"files_access": "admin"}).status_code == 422
     assert client.get(f"/projects/{pid}/exchange-files", headers=mh).json()["items"][0]["status"] == "complete"
     assert client.delete(f"/projects/{pid}/exchange-files/{bid}", headers=mh).json()["status"] == "deleted"
@@ -203,7 +211,12 @@ def test_unpack_lays_out_map_and_deepmaps(env):
     out = unpack_bundle(db, settings, pid, b2)
     root = project_config_dir(settings, pid)
     assert (root / "map" / "config_nav.sqlite").read_bytes() == nav and (root / "map" / "stamps" / "xml.ok").read_bytes() == b"ok"
-    assert (root / "map" / "MANIFEST.json").exists() and (root / "README.md").exists()
+    assert (root / "map" / "MANIFEST.json").exists() and (root / "deepmaps" / "README.md").read_text(encoding="utf-8") == "# Инструкция"
+    # описание карты досылается отдельной посылкой и ложится в map/, не затирая описание дипмапов и саму карту
+    b_readme = _upload(client, h, pid, "map_readme", {"map/README.md": "# О карте".encode()}, "config_map")
+    unpack_bundle(db, settings, pid, b_readme)
+    assert (root / "map" / "README.md").read_text(encoding="utf-8") == "# О карте" and (root / "map" / "config_nav.sqlite").read_bytes() == nav
+    assert (root / "deepmaps" / "README.md").read_text(encoding="utf-8") == "# Инструкция" and not (root / "README.md").exists()
     assert (root / "deepmaps" / "Документ Заказ" / "index.html").read_bytes() == b"<html>" and out["deepmaps"] == ["Документ Заказ"]
     layout = json.loads((root / "layout.json").read_text(encoding="utf-8"))
     assert layout["map"]["bundle_id"] == b1 and layout["deepmaps"]["Документ Заказ"]["bundle_id"] == b2
@@ -259,3 +272,30 @@ def test_unpack_nested_same_name_zips_and_long_paths(env):
         d = root / (f"scenario_etalon_Обработка_Кнопка{i}_" + "К" * 60) / "Обработка Тест"
         assert (d / step).read_bytes() == f"кнопка {i}".encode()
         assert len(str(d / step)) > 260
+
+
+def test_new_agent_discovers_files_on_connect(env):
+    from app.app.mcp.project_protocol import handle_jsonrpc
+
+    client, _, _, db, pid, art = env
+    _, hw = _key(db, pid, art, "write")
+    reader, hr = _key(db, pid, art, None)  # новый ключ без особых прав
+    err, body = _call(db, pid, reader, "files_catalog")
+    assert not err and body["bundles"] == []
+    init = handle_jsonrpc(db, get_settings(), pid, {"jsonrpc": "2.0", "id": 1, "method": "initialize"}, token=reader)
+    assert "ФАЙЛЫ ПРОЕКТА" not in init["result"]["instructions"]
+    readme = "# Карта\nКак подключить".encode()
+    nav = b"x" * 300
+    bid = _upload(client, hw, pid, "map_v1", {"map/README.md": readme, "map/config_nav.sqlite.gz": nav}, "config_map")
+    # незавершённая посылка в каталог не попадает
+    client.post(f"/mcp/projects/{pid}/files/bundles", headers=hw, json={"name": "open1", "files": [{"path": "z", "size": 5, "sha256": _sha(b"zzzzz")}]})
+    init = handle_jsonrpc(db, get_settings(), pid, {"jsonrpc": "2.0", "id": 2, "method": "initialize"}, token=reader)
+    assert "ФАЙЛЫ ПРОЕКТА: 1 посылок" in init["result"]["instructions"] and "files_catalog" in init["result"]["instructions"]
+    err, over = _call(db, pid, reader, "project_overview")
+    assert not err and over["files"]["bundles"] == 1 and over["files"]["items"][0]["name"] == "map_v1"
+    cat = client.get(f"/mcp/projects/{pid}/files/catalog", headers=hr).json()
+    assert [b["name"] for b in cat["bundles"]] == ["map_v1"]
+    assert {f["path"]: f["bundle"] for f in cat["current_files"]} == {"map/README.md": "map_v1", "map/config_nav.sqlite.gz": "map_v1"}
+    b = cat["bundles"][0]
+    assert b["readme"]["text"].startswith("# Карта") and {f["path"] for f in b["files"]} == {"map/README.md", "map/config_nav.sqlite.gz"}
+    assert client.get(f"/mcp/projects/{pid}/files/bundles/{bid}/data/map/config_nav.sqlite.gz", headers=hr).content == nav

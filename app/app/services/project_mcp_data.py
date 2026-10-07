@@ -63,7 +63,10 @@ def mcp_project_overview(db: Session, settings: Settings, project_id: int) -> di
 
     chunks = db.scalar(select(func.count()).select_from(Chunk).where(Chunk.project_id == project_id)) or 0
     tz_path, _ = tz_paths(settings, project_id)
+    from app.app.services.exchange_files import catalog_brief
+
     return {
+        "files": catalog_brief(db, project_id),  # посылки файлов проекта (карты, дипмапы); подробно — files_catalog
         "project_id": project_id,
         "name": project.name,
         "description": project.description,

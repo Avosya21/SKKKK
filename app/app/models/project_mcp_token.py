@@ -25,8 +25,9 @@ class ProjectMcpToken(Base):
     scope: Mapped[str] = mapped_column(String(24), nullable=False, default="read", server_default="read")
     agent_name: Mapped[str | None] = mapped_column(String(64), nullable=True)  # кто этим ключом пользуется; показывается в журнале
     rate_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # обращений за 10 минут; пусто — общий лимит
-    # право на посылки файлов (services/exchange_files.py): none | read | write; не зависит от scope, по умолчанию нет
-    files_access: Mapped[str] = mapped_column(String(8), nullable=False, default="none", server_default="none")
+    # право на посылки файлов (services/exchange_files.py): blocked | read | write; не зависит от scope.
+    # По умолчанию read: принятые посылки — данные проекта; прежнее значение none в старых строках тоже читается как read.
+    files_access: Mapped[str] = mapped_column(String(8), nullable=False, default="read", server_default="read")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

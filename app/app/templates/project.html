@@ -2342,7 +2342,7 @@ async function loadMcpTokens() {
       <tr>
         <td>${escapeHtml(t.label)}${t.agent_name ? `<div class="small text-muted">агент: ${escapeHtml(t.agent_name)}</div>` : ''}</td>
         <td><code>${escapeHtml(t.token_prefix)}</code></td>
-        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}${t.is_active ? `<div><select class="form-select form-select-sm w-auto mcp-files mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.files_access || 'none')}" aria-label="Право ключа на файлы"><option value="none"${(t.files_access || 'none') === 'none' ? ' selected' : ''}>Файлы: нет</option><option value="read"${t.files_access === 'read' ? ' selected' : ''}>Файлы: чтение</option><option value="write"${t.files_access === 'write' ? ' selected' : ''}>Файлы: приём и чтение</option></select></div>` : ''}</td>
+        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}${t.is_active ? `<div><select class="form-select form-select-sm w-auto mcp-files mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.files_access || 'read')}" aria-label="Право ключа на файлы"><option value="read"${(t.files_access || 'read') === 'read' ? ' selected' : ''}>Файлы: чтение</option><option value="write"${t.files_access === 'write' ? ' selected' : ''}>Файлы: приём и чтение</option><option value="blocked"${t.files_access === 'blocked' ? ' selected' : ''}>Файлы: закрыты</option></select></div>` : ''}</td>
         <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}${t.is_active ? `<div class="mt-1"><button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button></div>` : ''}</td>
       </tr>`).join('');
     mcpTokensBody.querySelectorAll('.mcp-scope').forEach((sel) => {
@@ -2382,8 +2382,8 @@ async function changeMcpScope(tokenId, scope, selectEl) {
   await loadMcpTokens();
 }
 const MCP_FILES_TEXT = {
-  none: 'Запретить ключу посылки файлов?',
-  read: 'Разрешить ключу скачивать принятые посылки файлов (карты конфигурации)?',
+  blocked: 'Закрыть этому ключу файлы проекта (карты конфигурации, дипмапы)? Он перестанет их видеть и скачивать.',
+  read: 'Оставить ключу только чтение файлов проекта (по умолчанию)?',
   write: 'Разрешить ключу присылать посылки файлов на сервер (до 64 ГБ, только добавление) и скачивать их?',
 };
 async function changeMcpFiles(tokenId, filesAccess, selectEl) {
