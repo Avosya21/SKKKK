@@ -3430,6 +3430,34 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_exchange_file
+    kind: model
+    path: app/app/models/exchange_file.py
+    title: "Модели ExchangeBundle и ExchangeFile — посылки файлов от внешнего агента (карты конфигурации, дипмапы сущностей)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_exchange_files
+    kind: service
+    path: app/app/services/exchange_files.py
+    title: "Посылки файлов от внешнего агента: манифест, приём частями с докачкой и проверкой sha256, выдача частями."
+    tags: [auto]
+    auto: true
+
+  - id: svc_exchange_unpack
+    kind: service
+    path: app/app/services/exchange_unpack.py
+    title: "Раскладка принятой посылки файлов в рабочую копию проекта: распаковка gzip и zip с проверкой, без исполнения содержимого."
+    tags: [auto]
+    auto: true
+
+  - id: script_unpack_exchange_bundle
+    kind: file
+    path: scripts/unpack_exchange_bundle.py
+    title: "Разложить принятую посылку файлов агента в рабочую копию проекта (data/projects/<id>/config): карта, дипмапы, README."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

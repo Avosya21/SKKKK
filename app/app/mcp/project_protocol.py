@@ -172,6 +172,60 @@ MCP_TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "files_open_bundle",
+        "description": "ФАЙЛЫ (нужно право ключа «приём и чтение файлов»): открыть посылку по манифесту — относительные пути, размер, sha256 каждого файла. Повтор того же манифеста с тем же именем вернёт состояние для докачки. Крупные части удобнее слать по HTTP: PUT <адрес MCP>/files/bundles/<bundle_id>/data/<path>?offset=N, бинарное тело до 64 МБ, тот же Bearer-ключ, заголовок X-Chunk-Sha256.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "maxLength": 64, "description": "Латиница, цифры, . _ -; новая версия — новое имя"},
+                "kind": {"type": "string", "enum": ["config_map", "entity_deepmap", "other"]},
+                "note": {"type": "string", "maxLength": 2000},
+                "files": {"type": "array", "maxItems": 10000, "items": {"type": "object", "properties": {"path": {"type": "string"}, "size": {"type": "integer"}, "sha256": {"type": "string"}}, "required": ["path", "size", "sha256"]}},
+            },
+            "required": ["name", "files"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "files_put_chunk",
+        "description": "ФАЙЛЫ: часть файла посылки в base64 (до 1 МБ после декодирования) с позиции offset. offset должен равняться уже принятому (received); после обрыва бери received из files_bundle_status. Файл принят, когда sha256 целиком совпал с манифестом.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bundle_id": {"type": "integer"}, "path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0},
+                "data_base64": {"type": "string"}, "chunk_sha256": {"type": "string", "description": "Необязательно: sha256 части"},
+            },
+            "required": ["bundle_id", "path", "offset", "data_base64"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "files_bundle_status",
+        "description": "ФАЙЛЫ (право чтения файлов): манифест и состояние посылки; files=missing — только непринятые, с received (откуда продолжать).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"bundle_id": {"type": "integer"}, "files": {"type": "string", "enum": ["all", "missing", "none"], "default": "missing"}},
+            "required": ["bundle_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "files_list_bundles",
+        "description": "ФАЙЛЫ (право чтения файлов): посылки проекта. Ключу только на чтение видны посылки, принятые целиком.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "files_get_chunk",
+        "description": "ФАЙЛЫ (право чтения файлов): часть принятого файла в base64, до 1 МБ, с позиции offset. Целиком файлы удобнее скачивать по HTTP: GET <адрес MCP>/files/bundles/<bundle_id>/data/<path> (поддерживает Range, заголовок X-Sha256).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"bundle_id": {"type": "integer"}, "path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0, "default": 0},
+                           "length": {"type": "integer", "minimum": 1, "maximum": 1048576}},
+            "required": ["bundle_id", "path"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "exchange_status",
         "description": "Состояние обмена: сколько вопросов ждут ответа, когда был последний ответ, сколько вердиктов ждёт подтверждения человеком.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -342,6 +396,8 @@ def call_tool(
             if not rid:
                 return _tool_error("request_id обязателен", tool=name)
             return _tool_result(gw.wait_reply(db, project_id, rid, float(args.get("wait_s") or 30)), compact=True)
+        if name.startswith("files_"):
+            return _files_tool(db, settings, project_id, name, args, token)
         if name == "exchange_status":
             from app.app.services import agent_gateway as gw
 
@@ -368,6 +424,47 @@ def call_tool(
         return _tool_error(str(exc), tool=name)
     except Exception as exc:
         return _tool_error("internal error", tool=name, detail=f"{type(exc).__name__}: {exc}")
+
+
+def _files_tool(db: Session, settings: Settings, project_id: int, name: str, args: dict[str, Any], token: Any) -> dict[str, Any]:
+    """Посылки файлов через инструменты MCP (мелкими частями); тот же сервис, что и HTTP-путь."""
+    import base64
+    import binascii
+    import hashlib
+
+    from app.app.services import exchange_files as xf
+
+    try:
+        if name == "files_open_bundle":
+            return _tool_result(xf.open_bundle(db, settings, project_id, token, name=args.get("name"), files=args.get("files"),
+                                               kind=args.get("kind"), note=args.get("note")), compact=True)
+        if name == "files_put_chunk":
+            try:
+                data = base64.b64decode(str(args.get("data_base64") or ""), validate=True)
+            except (binascii.Error, ValueError):
+                return _tool_error("data_base64: не base64", tool=name, detail="bad_request")
+            return _tool_result(xf.put_chunk(db, settings, project_id, token, args.get("bundle_id"), args.get("path"), args.get("offset"),
+                                             data, chunk_sha256=args.get("chunk_sha256"), max_chunk=xf.MCP_CHUNK_MAX), compact=True)
+        if name == "files_bundle_status":
+            xf.require_files(token, "read")
+            files = args.get("files") or "missing"
+            return _tool_result(xf.bundle_dict(db, xf.get_bundle(db, project_id, args.get("bundle_id")),
+                                               files=files if files in ("all", "missing", "none") else "missing"), compact=True)
+        if name == "files_list_bundles":
+            xf.require_files(token, "read")
+            return _tool_result({"items": xf.list_bundles(db, project_id, token)}, compact=True)
+        if name == "files_get_chunk":
+            f, data = xf.read_chunk(db, settings, project_id, token, args.get("bundle_id"), args.get("path"), args.get("offset") or 0,
+                                    args.get("length") or xf.MCP_CHUNK_MAX)
+            offset = int(args.get("offset") or 0)
+            return _tool_result({"path": f.path, "size": f.size, "sha256": f.sha256, "offset": offset, "length": len(data),
+                                 "eof": offset + len(data) >= f.size, "chunk_sha256": hashlib.sha256(data).hexdigest(),
+                                 "data_base64": base64.b64encode(data).decode("ascii")}, compact=True)
+    except PermissionError as exc:
+        return _tool_error(str(exc), tool=name, detail=getattr(exc, "code", "files_not_allowed"))
+    except xf.FilesError as exc:
+        return _tool_error(str(exc), tool=name, detail=exc.code)
+    return _tool_error(f"Unknown tool: {name}", tool=name)
 
 
 def _instructions(db: Session, project_id: int) -> str:

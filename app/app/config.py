@@ -24,6 +24,11 @@ class Settings(BaseSettings):
 
     database_url: str = f"sqlite:///{ROOT / 'data' / 'app.db'}"
     data_dir: Path = ROOT / "data"
+    # Посылки файлов от внешнего агента (services/exchange_files.py): пусто — data_dir/exchange_files.
+    exchange_files_dir: Path | None = None
+    exchange_files_reserve_gb: int = 20  # приём отклоняется, если после него на диске останется меньше
+    exchange_bundle_max_gb: int = 64  # предел одной посылки
+    exchange_auto_unpack: bool = True  # принятая посылка сама раскладывается в data/projects/<id>/config (фоном)
 
     web_host: str = "127.0.0.1"
     web_port: int = 1111
@@ -155,7 +160,7 @@ class Settings(BaseSettings):
     def _path(cls, v: str | Path) -> Path:
         return Path(v)
 
-    @field_validator("credentials_db_path", mode="before")
+    @field_validator("credentials_db_path", "exchange_files_dir", mode="before")
     @classmethod
     def _optional_path(cls, v: str | Path | None) -> Path | None:
         return Path(v) if v else None
