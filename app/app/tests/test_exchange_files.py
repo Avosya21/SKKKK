@@ -241,3 +241,21 @@ def test_complete_bundle_unpacks_itself(env, monkeypatch):
     unpacks = [i for i in journal if i.get("kind") == "files_unpack"]
     assert any(i.get("decision") == "accepted" for i in unpacks) and any(i.get("decision") == "rejected" for i in unpacks), unpacks
     assert bad
+
+
+def test_unpack_nested_same_name_zips_and_long_paths(env):
+    from app.app.services.exchange_unpack import project_config_dir, unpack_bundle
+
+    client, _, _, db, pid, art = env
+    _, h = _key(db, pid, art, "write")
+    step = "etalon_УправлениеПоступлением_A1_" + "Ш" * 100 + ".html"  # часть пути 130+ знаков, полный путь за 260
+    blobs = {f"depmap/scenario_etalon_Обработка_Кнопка{i}_" + "К" * 60 + "/Обработка Тест.zip":
+             _zip({"Обработка Тест/" + step: f"кнопка {i}".encode(), "Обработка Тест/index.html": b"<html>"}) for i in (1, 2)}
+    bid = _upload(client, h, pid, "scenarios", blobs, "entity_deepmap")
+    out = unpack_bundle(db, get_settings(), pid, bid)
+    assert len(out["deepmaps"]) == 2
+    root = xf.long_path(project_config_dir(get_settings(), pid) / "deepmaps")
+    for i in (1, 2):
+        d = root / (f"scenario_etalon_Обработка_Кнопка{i}_" + "К" * 60) / "Обработка Тест"
+        assert (d / step).read_bytes() == f"кнопка {i}".encode()
+        assert len(str(d / step)) > 260
