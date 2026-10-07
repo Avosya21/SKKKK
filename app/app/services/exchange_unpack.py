@@ -2,7 +2,8 @@
 
 Куда (data/projects/<id>/config/):
 - `map/` — карта конфигурации: каждый `*.gz` посылки распакован в файл без суффикса; sha256 и размер сверяются с MANIFEST.json посылки, если он есть;
-- `deepmaps/<сущность>/` — дипмап сущности (содержимое zip; открывать index.html), новая версия сущности заменяет прежнюю;
+- `deepmaps/<путь zip в посылке без первой папки и .zip>/` — дипмап сущности или сценария кнопки (содержимое zip; открывать index.html),
+  новая версия заменяет прежнюю; пути на Windows — с префиксом длинных путей (имена шагов длинные);
 - `README.md` — последняя инструкция агента; `layout.json` — какие посылки и когда разложены.
 Посылка в data/exchange_files остаётся нетронутой: это архив принятых версий, рабочая копия собирается из неё заново.
 Запуск: сам после приёма посылки целиком (schedule_unpack, фоновый поток, по одной раскладке за раз; EXCHANGE_AUTO_UNPACK)
@@ -31,6 +32,7 @@ from app.app.services import exchange_files as xf
 
 MAX_RATIO = 200  # распакованное / сжатое для одного файла zip; больше — похоже на zip-бомбу
 MAX_UNPACKED = 64 * 1024 ** 3
+ZIP_MAX_PATH, ZIP_MAX_PART = 400, 255  # пути внутри zip длиннее, чем у файлов посылки: имена шагов дипмапа доходят до 130 знаков
 
 _unpack_lock = threading.Lock()  # одна раскладка за раз: посылки раскладываются в порядке приёма
 
@@ -58,7 +60,7 @@ def _zip_member_path(name: str) -> str | None:
         return None
     if "\\" in name or ":" in name or name.startswith("/"):
         raise xf.FilesError(f"zip: недопустимый путь {name[:80]}", "bad_zip")
-    return xf.normalize_path(name)
+    return xf.normalize_path(name, max_path=ZIP_MAX_PATH, max_part=ZIP_MAX_PART)
 
 
 def _plan(root: Path, files: list) -> tuple[dict[str, dict], int]:
@@ -93,7 +95,7 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
     if bundle.status != "complete":
         raise xf.FilesError(f"Посылка {bundle.id} ещё не принята целиком", "not_ready")
     files = xf._files(db, bundle.id)
-    src_root = xf._bundle_dir(settings, project_id, bundle.id) / "files"
+    src_root = xf.long_path(xf._bundle_dir(settings, project_id, bundle.id) / "files")
     for f in files:  # файлы посылки не должны были измениться с момента приёма
         if xf._hash_file(src_root / f.path) != f.sha256:
             raise xf.FilesError(f"{f.path}: sha256 на диске не совпал с принятым", "hash_mismatch")
@@ -101,6 +103,8 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
     if total > MAX_UNPACKED:
         raise xf.FilesError(f"распакованный объём {total} больше предела", "unpack_too_large")
     dest = project_config_dir(settings, project_id)
+    dest.mkdir(parents=True, exist_ok=True)
+    dest = xf.long_path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(dest).free - total < settings.exchange_files_reserve_gb * 1024 ** 3:
         raise xf.FilesError(f"мало места на диске для распаковки {total / 1024 ** 3:.1f} ГБ", "disk_full")
@@ -126,7 +130,10 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
                     report["checked_sources"] += 1
                 report["map"].append({"path": "map/" + rel[:-3], "bytes": n, "sha256": sha})
             elif name.endswith(".zip"):
-                entity = name[:-4]
+                # дипмап кладётся по пути zip внутри посылки без первой папки: depmap/Документ X.zip → «Документ X»,
+                # depmap/scenario_<кнопка>/Обработка X.zip → «scenario_<кнопка>/Обработка X» (одинаковые имена zip в разных папках не затирают друг друга)
+                entity = f.path.split("/", 1)[1][:-4] if "/" in f.path else name[:-4]
+                leaf = entity.rsplit("/", 1)[-1]
                 with zipfile.ZipFile(src) as z:
                     for info in z.infolist():
                         rel = _zip_member_path(info.filename)
@@ -135,10 +142,10 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
                         if info.compress_size and info.file_size / info.compress_size > MAX_RATIO:
                             raise xf.FilesError(f"{name}: {rel} сжат подозрительно сильно", "bad_zip")
                         parts = rel.split("/")
-                        if len(parts) > 1 and parts[0] == entity:  # zip уже содержит папку сущности
+                        if len(parts) > 1 and parts[0] == leaf:  # zip уже содержит папку сущности
                             parts = parts[1:]
                         with z.open(info) as m:  # zipfile сам сверяет CRC при чтении до конца
-                            _copy_hash(m, stage / "deepmaps" / entity / Path(*parts), info.file_size)
+                            _copy_hash(m, stage / "deepmaps" / Path(*entity.split("/")) / Path(*parts), info.file_size)
                 report["deepmaps"].append(entity)
             elif name == "README.md":
                 shutil.copyfile(src, stage / "README.md")
@@ -154,10 +161,10 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
             shutil.rmtree(dest / "map", ignore_errors=True)
             (stage / "map").replace(dest / "map")
         for entity in report["deepmaps"]:
-            target = dest / "deepmaps" / entity
+            target = dest / "deepmaps" / Path(*entity.split("/"))
             shutil.rmtree(target, ignore_errors=True)
             target.parent.mkdir(parents=True, exist_ok=True)
-            (stage / "deepmaps" / entity).replace(target)
+            (stage / "deepmaps" / Path(*entity.split("/"))).replace(target)
         if (stage / "README.md").exists():
             (stage / "README.md").replace(dest / "README.md")
         if (stage / "other").exists():

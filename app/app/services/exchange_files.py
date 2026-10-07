@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import threading
@@ -60,6 +61,14 @@ def _now() -> datetime:
 def _lock(file_id: int) -> threading.Lock:
     with _locks_guard:
         return _locks.setdefault(file_id, threading.Lock())
+
+
+def long_path(path: Path) -> Path:
+    """Абсолютный путь с префиксом \\\\?\\ на Windows: снимает предел 260 знаков (длинные имена в дипмапах агента)."""
+    full = str(Path(path).resolve())
+    if os.name != "nt" or full.startswith("\\\\?\\"):
+        return Path(full)
+    return Path("\\\\?\\UNC\\" + full[2:]) if full.startswith("\\\\") else Path("\\\\?\\" + full)
 
 
 def base_dir(settings: Settings) -> Path:
@@ -110,15 +119,15 @@ def _log(db: Session, project_id: int, source: str, kind: str, decision: str, *,
     db.commit()
 
 
-def normalize_path(raw: Any) -> str:
+def normalize_path(raw: Any, *, max_path: int = MAX_PATH, max_part: int = MAX_PART) -> str:
     """Относительный путь внутри посылки: части через «/», без «..», диска, обратной косой, служебных имён Windows."""
     if not isinstance(raw, str) or not raw:
         raise FilesError("path: пустой или не строка", "bad_path")
-    if "\\" in raw or ":" in raw or raw.startswith("/") or len(raw) > MAX_PATH:
-        raise FilesError(f"path: только относительный путь через «/», без диска и обратной косой, до {MAX_PATH} знаков: {raw[:80]}", "bad_path")
+    if "\\" in raw or ":" in raw or raw.startswith("/") or len(raw) > max_path:
+        raise FilesError(f"path: только относительный путь через «/», без диска и обратной косой, до {max_path} знаков: {raw[:80]}", "bad_path")
     parts = raw.split("/")
     for part in parts:
-        if part in ("", ".", "..") or len(part) > MAX_PART or not PART_RE.match(part) or part != part.strip() or part.endswith("."):
+        if part in ("", ".", "..") or len(part) > max_part or not PART_RE.match(part) or part != part.strip() or part.endswith("."):
             raise FilesError(f"path: недопустимая часть «{part[:40]}» в {raw[:80]}", "bad_path")
         if part.split(".")[0].lower() in WIN_RESERVED:
             raise FilesError(f"path: служебное имя Windows «{part}»", "bad_path")
