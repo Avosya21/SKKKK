@@ -4,7 +4,9 @@
 - `map/` — карта конфигурации: каждый `*.gz` посылки распакован в файл без суффикса; sha256 и размер сверяются с MANIFEST.json посылки, если он есть;
 - `deepmaps/<путь zip в посылке без первой папки и .zip>/` — дипмап сущности или сценария кнопки (содержимое zip; открывать index.html),
   новая версия заменяет прежнюю; пути на Windows — с префиксом длинных путей (имена шагов длинные);
-- `README.md` — последняя инструкция агента; `layout.json` — какие посылки и когда разложены.
+- README из посылки — рядом с тем, что описывает: `map/README.md`, `deepmaps/README.md` (из `depmap/`), иначе `README.md`;
+- `layout.json` — какие посылки и когда разложены. Посылки накопительные (агент досылает части и описания отдельно): каждая
+  раскладка добавляет или заменяет только свои части, остальное остаётся.
 Посылка в data/exchange_files остаётся нетронутой: это архив принятых версий, рабочая копия собирается из неё заново.
 Запуск: сам после приёма посылки целиком (schedule_unpack, фоновый поток, по одной раскладке за раз; EXCHANGE_AUTO_UNPACK)
 или вручную — scripts/unpack_exchange_bundle.py. Ошибка раскладки пишется в журнал обмена (files_unpack, rejected).
@@ -112,7 +114,7 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
     stage = dest / f".stage_b{bundle.id}"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
-    report: dict[str, Any] = {"map": [], "deepmaps": [], "other": [], "checked_sources": 0}
+    report: dict[str, Any] = {"map": [], "deepmaps": [], "other": [], "readme": [], "checked_sources": 0}
     try:
         for f in files:
             src = src_root / f.path
@@ -147,8 +149,14 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
                         with z.open(info) as m:  # zipfile сам сверяет CRC при чтении до конца
                             _copy_hash(m, stage / "deepmaps" / Path(*entity.split("/")) / Path(*parts), info.file_size)
                 report["deepmaps"].append(entity)
-            elif name == "README.md":
-                shutil.copyfile(src, stage / "README.md")
+            elif name.lower() == "readme.md":
+                # описание кладётся к тому, что описывает: map/README.md → map/, depmap/README.md → deepmaps/, иначе — в корень
+                top = f.path.split("/", 1)[0] if "/" in f.path else ""
+                rel = {"map": "map/README.md", "depmap": "deepmaps/README.md"}.get(top, "README.md")
+                out = stage / "readme" / Path(*rel.split("/"))
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, out)
+                report["readme"].append(rel)
                 report["other"].append(f.path)
             else:
                 out = stage / ("map" if f.path.startswith("map/") else "other") / f.path.split("/", 1)[-1]
@@ -165,8 +173,10 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
             shutil.rmtree(target, ignore_errors=True)
             target.parent.mkdir(parents=True, exist_ok=True)
             (stage / "deepmaps" / Path(*entity.split("/"))).replace(target)
-        if (stage / "README.md").exists():
-            (stage / "README.md").replace(dest / "README.md")
+        for rel in report["readme"]:  # после замены map/: описание карты не должно пропасть вместе со старой папкой
+            target = dest / Path(*rel.split("/"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (stage / "readme" / Path(*rel.split("/"))).replace(target)
         if (stage / "other").exists():
             shutil.rmtree(dest / "other", ignore_errors=True)
             (stage / "other").replace(dest / "other")

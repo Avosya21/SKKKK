@@ -172,6 +172,11 @@ MCP_TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "files_catalog",
+        "description": "ФАЙЛЫ ПРОЕКТА (читает любой ключ проекта): карты конфигурации, дипмапы и другие посылки, принятые целиком — состав, размеры, sha256, README каждой посылки и текущий набор файлов (свежая версия каждого пути: посылки досылаются частями). Начни с него, если нужны файлы; скачивание — HTTP GET <адрес MCP>/files/bundles/<bundle_id>/data/<path> или files_get_chunk.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
         "name": "files_open_bundle",
         "description": "ФАЙЛЫ (нужно право ключа «приём и чтение файлов»): открыть посылку по манифесту — относительные пути, размер, sha256 каждого файла. Повтор того же манифеста с тем же именем вернёт состояние для докачки. Крупные части удобнее слать по HTTP: PUT <адрес MCP>/files/bundles/<bundle_id>/data/<path>?offset=N, бинарное тело до 64 МБ, тот же Bearer-ключ, заголовок X-Chunk-Sha256.",
         "inputSchema": {
@@ -450,6 +455,8 @@ def _files_tool(db: Session, settings: Settings, project_id: int, name: str, arg
             files = args.get("files") or "missing"
             return _tool_result(xf.bundle_dict(db, xf.get_bundle(db, project_id, args.get("bundle_id")),
                                                files=files if files in ("all", "missing", "none") else "missing"), compact=True)
+        if name == "files_catalog":
+            return _tool_result(xf.catalog(db, settings, project_id, token), compact=True)
         if name == "files_list_bundles":
             xf.require_files(token, "read")
             return _tool_result({"items": xf.list_bundles(db, project_id, token)}, compact=True)
@@ -470,7 +477,15 @@ def _files_tool(db: Session, settings: Settings, project_id: int, name: str, arg
 def _instructions(db: Session, project_id: int) -> str:
     from app.app.services import agent_guide
 
-    return agent_guide.short_instructions(project_id, agent_guide.project_name(db, project_id))
+    text = agent_guide.short_instructions(project_id, agent_guide.project_name(db, project_id))
+    from app.app.services import exchange_files as xf
+
+    brief = xf.catalog_brief(db, project_id) if db is not None else None
+    if brief:  # агент узнаёт о файлах проекта при подключении, не зная о них заранее
+        kinds = ", ".join(sorted({i["kind"] for i in brief["items"]}))
+        text += (f" ФАЙЛЫ ПРОЕКТА: {brief['bundles']} посылок, {brief['files']} файлов, {brief['total_bytes'] / 1024 ** 2:.0f} МБ "
+                 f"(виды: {kinds}) — состав, хеши и README в инструменте files_catalog; скачивание — по HTTP или files_get_chunk.")
+    return text
 
 
 def handle_jsonrpc(

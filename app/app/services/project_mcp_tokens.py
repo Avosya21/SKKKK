@@ -26,8 +26,10 @@ def _utcnow() -> datetime:
 SCOPES = ("read", "questions", "questions_verdicts")
 SCOPE_TITLES = {"read": "только чтение", "questions": "чтение + вопросы", "questions_verdicts": "чтение + вопросы и вердикты"}
 MAX_RATE_LIMIT = 1000
-FILES_ACCESS = ("none", "read", "write")
-FILES_ACCESS_TITLES = {"none": "нет", "read": "чтение файлов", "write": "приём и чтение файлов"}
+# Посылки файлов проекта (карты конфигурации, дипмапы) — данные проекта: принятые целиком читает любой ключ проекта.
+# blocked — ключу файлы закрыты явно; write — ещё и приём посылок. Старое значение none (по умолчанию до 08.10.2026) = read.
+FILES_ACCESS = ("blocked", "read", "write")
+FILES_ACCESS_TITLES = {"blocked": "файлы закрыты", "read": "чтение файлов", "write": "приём и чтение файлов"}
 
 
 def normalize_scope(scope: str | None, can_submit: bool = False) -> str:
@@ -48,9 +50,11 @@ def normalize_rate_limit(value: int | None) -> int | None:
 
 
 def normalize_files_access(value: str | None) -> str:
-    """Право на посылки файлов: none | read | write (write включает чтение)."""
+    """Право на посылки файлов: blocked | read | write (write включает чтение); none — прежнее имя для blocked."""
     if value is None or value == "":
-        return "none"
+        return "read"
+    if value == "none":
+        return "blocked"
     if value not in FILES_ACCESS:
         raise ValueError(f"Неизвестное право на файлы: {value}. Допустимо: {', '.join(FILES_ACCESS)}")
     return value
@@ -58,7 +62,7 @@ def normalize_files_access(value: str | None) -> str:
 
 def token_files_access(row) -> str:
     value = getattr(row, "files_access", None)
-    return value if value in FILES_ACCESS else "none"
+    return value if value in FILES_ACCESS else "read"
 
 
 def token_scope(row) -> str:

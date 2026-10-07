@@ -33,11 +33,11 @@ class McpTokenCreate(BaseModel):
     scope: str | None = Field(default=None, max_length=24)  # read | questions | questions_verdicts
     agent_name: str | None = Field(default=None, max_length=64)
     rate_limit: int | None = Field(default=None, ge=1, le=1000)  # обращений за 10 минут; пусто — общий лимит
-    files_access: str | None = Field(default=None, max_length=8)  # none | read | write — посылки файлов
+    files_access: str | None = Field(default=None, max_length=8)  # blocked | read (по умолчанию) | write — посылки файлов
 
 
 class McpFilesAccessUpdate(BaseModel):
-    files_access: str = Field(max_length=8)  # none | read | write
+    files_access: str = Field(max_length=8)  # blocked | read | write (none — прежнее имя blocked)
 
 
 class McpScopeUpdate(BaseModel):
@@ -307,7 +307,7 @@ def set_token_files(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
-    """Право ключа на посылки файлов: none | read (список и скачивание принятых) | write (приём частями и чтение)."""
+    """Право ключа на посылки файлов: read (по умолчанию: каталог и скачивание принятых) | write (ещё приём частями) | blocked."""
     from app.app.models.project_mcp_token import ProjectMcpToken
     from app.app.services.project_mcp_tokens import normalize_files_access
 
@@ -522,6 +522,19 @@ async def files_list_bundles(project_id: int, request: Request, db: Annotated[Se
     except PermissionError as exc:
         return _files_error(exc)
     return {"items": await run_in_threadpool(xf.list_bundles, db, project_id, token)}
+
+
+@router.get("/mcp/projects/{project_id}/files/catalog")
+async def files_catalog(project_id: int, request: Request, db: Annotated[Session, Depends(get_db)],
+                        settings: Annotated[Settings, Depends(get_settings)]):
+    """Каталог файлов проекта (любой ключ проекта): принятые посылки, файлы с sha256, README, текущие версии по видам."""
+    from app.app.services import exchange_files as xf
+
+    token = await run_in_threadpool(_require_mcp_auth, db, project_id, request)
+    try:
+        return await run_in_threadpool(xf.catalog, db, settings, project_id, token)
+    except (xf.FilesError, PermissionError) as exc:
+        return _files_error(exc)
 
 
 @router.get("/mcp/projects/{project_id}/files/bundles/{bundle_id}")
