@@ -1,4 +1,4 @@
-"""Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал."""
+"""Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал, посылки файлов."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,11 @@ class McpTokenCreate(BaseModel):
     scope: str | None = Field(default=None, max_length=24)  # read | questions | questions_verdicts
     agent_name: str | None = Field(default=None, max_length=64)
     rate_limit: int | None = Field(default=None, ge=1, le=1000)  # обращений за 10 минут; пусто — общий лимит
+    files_access: str | None = Field(default=None, max_length=8)  # none | read | write — посылки файлов
+
+
+class McpFilesAccessUpdate(BaseModel):
+    files_access: str = Field(max_length=8)  # none | read | write
 
 
 class McpScopeUpdate(BaseModel):
@@ -296,6 +301,59 @@ def set_token_scope(
     return {"ok": True, "scope": body.scope}
 
 
+@router.post("/projects/{project_id}/mcp/tokens/{token_id}/files")
+def set_token_files(
+    project_id: int, token_id: int, body: McpFilesAccessUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
+):
+    """Право ключа на посылки файлов: none | read (список и скачивание принятых) | write (приём частями и чтение)."""
+    from app.app.models.project_mcp_token import ProjectMcpToken
+    from app.app.services.project_mcp_tokens import normalize_files_access
+
+    _owned_project(db, user, project_id)
+    try:
+        value = normalize_files_access(body.files_access)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = db.get(ProjectMcpToken, token_id)
+    if not row or row.project_id != project_id or not row.is_active:
+        raise HTTPException(status_code=404, detail="Token not found")
+    row.files_access = value
+    db.commit()
+    return {"ok": True, "files_access": value}
+
+
+@router.get("/projects/{project_id}/exchange-files")
+def exchange_files_list(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
+):
+    """Посылки файлов от агентов (владелец/админ проекта): имя, вид, статус, сколько принято."""
+    from app.app.services import exchange_files as xf
+
+    _owned_project(db, user, project_id)
+    return {"items": xf.list_bundles(db, project_id)}
+
+
+@router.delete("/projects/{project_id}/exchange-files/{bundle_id}")
+def exchange_files_delete(
+    project_id: int, bundle_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
+):
+    """Удалить посылку с диска (решение человека; агент удалять не может)."""
+    from app.app.services import exchange_files as xf
+
+    _owned_project(db, user, project_id)
+    try:
+        return xf.delete_bundle(db, settings, project_id, bundle_id, by=f"user:{user.id}")
+    except xf.FilesError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/projects/{project_id}/mcp/tokens")
 def list_tokens(
     project_id: int,
@@ -316,13 +374,15 @@ def create_token(
     _owned_project(db, user, project_id)
     try:
         row, plain = create_project_mcp_token(db, project_id=project_id, label=body.label, user_id=user.id, can_submit=body.can_submit,
-                                              scope=body.scope, agent_name=body.agent_name, rate_limit=body.rate_limit)
+                                              scope=body.scope, agent_name=body.agent_name, rate_limit=body.rate_limit,
+                                              files_access=body.files_access)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    from app.app.services.project_mcp_tokens import token_scope
+    from app.app.services.project_mcp_tokens import token_files_access, token_scope
 
     return {
         "can_submit": token_scope(row) != "read",
+        "files_access": token_files_access(row),
         "scope": token_scope(row),
         "agent_name": row.agent_name,
         "rate_limit": row.rate_limit,
@@ -412,3 +472,108 @@ async def mcp_project_endpoint(
     if len(responses) == 1:
         return JSONResponse(responses[0])
     return JSONResponse(responses)
+
+
+# ── Посылки файлов по HTTP (тот же Bearer-ключ MCP; право files_access) ──────────────────────────────
+
+_FILES_STATUS = {"not_found": 404, "not_in_manifest": 404, "offset_mismatch": 409, "bundle_closed": 409, "name_taken": 409,
+                 "chunk_too_large": 413, "too_large": 413, "disk_full": 507, "not_ready": 409, "missing_on_disk": 410}
+
+
+def _files_error(exc: Exception) -> JSONResponse:
+    from app.app.services.exchange_files import FilesError
+
+    if isinstance(exc, PermissionError):
+        return JSONResponse(status_code=403, content={"error": str(exc), "detail": getattr(exc, "code", "files_not_allowed")})
+    if isinstance(exc, FilesError):
+        return JSONResponse(status_code=_FILES_STATUS.get(exc.code, 400), content={"error": str(exc), "detail": exc.code, **exc.extra})
+    raise exc
+
+
+@router.post("/mcp/projects/{project_id}/files/bundles")
+async def files_open_bundle(project_id: int, request: Request, db: Annotated[Session, Depends(get_db)],
+                            settings: Annotated[Settings, Depends(get_settings)]):
+    """Открыть посылку: {name, kind, note, files: [{path, size, sha256}]}. Повтор того же манифеста — состояние для докачки."""
+    from app.app.services import exchange_files as xf
+
+    token = await run_in_threadpool(_require_mcp_auth, db, project_id, request)
+    if int(request.headers.get("content-length") or 0) > 8 * 1024 * 1024:
+        return JSONResponse(status_code=413, content={"error": "манифест больше 8 МБ", "detail": "too_large"})
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "тело — JSON-объект", "detail": "bad_request"})
+    try:
+        return await run_in_threadpool(lambda: xf.open_bundle(db, settings, project_id, token, name=body.get("name"),
+                                                              files=body.get("files"), kind=body.get("kind"), note=body.get("note")))
+    except (xf.FilesError, PermissionError) as exc:
+        return _files_error(exc)
+
+
+@router.get("/mcp/projects/{project_id}/files/bundles")
+async def files_list_bundles(project_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.app.services import exchange_files as xf
+
+    token = await run_in_threadpool(_require_mcp_auth, db, project_id, request)
+    try:
+        xf.require_files(token, "read")
+    except PermissionError as exc:
+        return _files_error(exc)
+    return {"items": await run_in_threadpool(xf.list_bundles, db, project_id, token)}
+
+
+@router.get("/mcp/projects/{project_id}/files/bundles/{bundle_id}")
+async def files_bundle_status(project_id: int, bundle_id: int, request: Request, db: Annotated[Session, Depends(get_db)],
+                              files: str = "all"):
+    """Манифест и состояние посылки; files=missing — только непринятые файлы (received — откуда продолжать)."""
+    from app.app.services import exchange_files as xf
+
+    token = await run_in_threadpool(_require_mcp_auth, db, project_id, request)
+    try:
+        xf.require_files(token, "read")
+        bundle = xf.get_bundle(db, project_id, bundle_id)
+        return xf.bundle_dict(db, bundle, files=files if files in ("all", "missing", "none") else "all")
+    except (xf.FilesError, PermissionError) as exc:
+        return _files_error(exc)
+
+
+@router.put("/mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}")
+async def files_put_chunk(project_id: int, bundle_id: int, path: str, request: Request, db: Annotated[Session, Depends(get_db)],
+                          settings: Annotated[Settings, Depends(get_settings)], offset: int = 0):
+    """Часть файла бинарным телом (до 64 МБ) с позиции ?offset=; заголовок X-Chunk-Sha256 — проверка части."""
+    from app.app.services import exchange_files as xf
+
+    token = await run_in_threadpool(_require_mcp_auth, db, project_id, request)
+    try:
+        xf.require_files(token, "write")
+    except PermissionError as exc:
+        return _files_error(exc)
+    too_big = JSONResponse(status_code=413, content={"error": f"часть больше {xf.HTTP_CHUNK_MAX} байт", "detail": "chunk_too_large"})
+    if int(request.headers.get("content-length") or 0) > xf.HTTP_CHUNK_MAX:
+        return too_big
+    buf = bytearray()
+    async for piece in request.stream():
+        buf.extend(piece)
+        if len(buf) > xf.HTTP_CHUNK_MAX:
+            return too_big
+    try:
+        return await run_in_threadpool(lambda: xf.put_chunk(db, settings, project_id, token, bundle_id, path, offset, bytes(buf),
+                                                            chunk_sha256=request.headers.get("x-chunk-sha256")))
+    except (xf.FilesError, PermissionError) as exc:
+        return _files_error(exc)
+
+
+@router.get("/mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}")
+async def files_download(project_id: int, bundle_id: int, path: str, request: Request, db: Annotated[Session, Depends(get_db)],
+                         settings: Annotated[Settings, Depends(get_settings)]):
+    """Скачать принятый файл; поддерживается Range (докачка). Заголовок X-Sha256 — хеш файла целиком."""
+    from app.app.services import exchange_files as xf
+
+    token = await run_in_threadpool(_require_mcp_auth, db, project_id, request)
+    try:
+        f, target = await run_in_threadpool(xf.readable_file, db, settings, project_id, token, bundle_id, path)
+    except (xf.FilesError, PermissionError) as exc:
+        return _files_error(exc)
+    return FileResponse(target, media_type="application/octet-stream", filename=target.name, headers={"X-Sha256": f.sha256})

@@ -5,6 +5,7 @@ from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.company import Company
 from app.app.models.contract import ContractItem
+from app.app.models.exchange_file import ExchangeBundle, ExchangeFile
 from app.app.models.entity import (
     AsrRun,
     Changelog,
@@ -34,6 +35,8 @@ __all__ = [
     "AgentQuestion",
     "AgentExchangeLog",
     "ContractItem",
+    "ExchangeBundle",
+    "ExchangeFile",
     "ChatGuidance",
     "ChatMessage",
     "User",

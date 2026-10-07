@@ -18,7 +18,8 @@ def test_mcp_tools_list_has_base_and_contract_tools():
     assert "project_overview" in names
     assert "search_project" in names
     base = {"project_overview", "list_artifacts", "get_project_summary", "search_project", "list_entities",
-            "get_knowledge_graph", "list_notes", "list_conflicts", "get_artifact_content", "get_guide", "wait_reply", "exchange_status", "submit_question", "submit_verdicts"}
+            "get_knowledge_graph", "list_notes", "list_conflicts", "get_artifact_content", "get_guide", "wait_reply", "exchange_status", "submit_question", "submit_verdicts",
+            "files_open_bundle", "files_put_chunk", "files_bundle_status", "files_list_bundles", "files_get_chunk"}
     contract = {"get_requirements", "get_changes", "get_code_anchors", "get_conflicts", "get_quote", "get_artifact_meta", "get_tz"}
     assert base | contract == names
 
@@ -49,7 +50,7 @@ def test_create_and_auth_mcp_token(db_engine, client, admin_token, manager_token
         json={"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}},
     )
     assert mcp_r.status_code == 200
-    assert len(mcp_r.json()["result"]["tools"]) == 21
+    assert len(mcp_r.json()["result"]["tools"]) == 26
 
 
 def test_mcp_rejects_without_token(client, manager_token):

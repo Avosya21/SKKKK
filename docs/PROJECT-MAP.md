@@ -353,6 +353,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **к проектам** | `/` | `project.html` nav | То же |
 | `/login` | `/login` | `login.html` | Вход только для логинов из `Login_up.txt` (регистр не важен); JWT + cookie `skkkk_session` |
 | Гостевая встреча | `/m/{token}` | `meeting_public.html` | Без JWT. Нет навигации по проектам. Сырой токен не хранится — только sha256 |
+| `routers/project_mcp.py` (посылки файлов) | `/mcp/projects/{id}/files/…`, `/projects/{id}/exchange-files` | посылки файлов от агента (карты конфигурации, дипмапы; сервис `services/exchange_files.py`, политика — `docs/agent-exchange/POLICY.md` §10). По Bearer-ключу MCP с правом `files_access`: `POST /mcp/projects/{project_id}/files/bundles` (открыть по манифесту путь/размер/sha256; повтор того же манифеста — докачка), `GET /mcp/projects/{project_id}/files/bundles` (список), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}` (`?files=missing` — что ещё не принято), `PUT /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (`?offset=`, тело до 64 МБ, `X-Chunk-Sha256`), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (скачать, Range, `X-Sha256`). Владелец/админ проекта: `GET /projects/{project_id}/exchange-files`, `DELETE /projects/{project_id}/exchange-files/{bundle_id}` (удалить с диска) |
 | HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
 | `/audio`, `/download`, speaker API | те же URL | — | Без сессии — **401** |
 | `/health` | `/health` | — | Публично только `{"status":"ok"}` |
@@ -542,6 +543,7 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 | Карточка / элемент | API | Кто |
 |--------------------|-----|-----|
 | **Подтверждение требований**: фильтры проверки / статуса / стороны (`#px-rv-verification`, `#px-rv-status`, `#px-rv-side`), **Поиск по тексту** (`#px-rv-q`), **Показать ещё** (`#px-rv-more`) | `GET …/requirements/review` | admin, manager |
+| **Файлы** (select в строке ключа): нет / чтение файлов / приём и чтение файлов | `POST /projects/{id}/mcp/tokens/{token_id}/files` `{files_access: none|read|write}` (по умолчанию `none`, не зависит от прав ключа на вопросы) | admin, manager |
 | **Подтвердить** / **Отклонить** / **Изменить статус** (с причиной) у требования | `POST …/requirements/{rid}/{action}` | admin |
 | **Вернуть решение модели** | `POST …/requirements/entity/{entity_id}/undo-model` | admin |
 | Галочки + **Подтвердить выбранные** (`#px-rv-confirm-selected`) | `POST …/requirements/confirm` | admin |
@@ -1253,6 +1255,8 @@ data/projects/{project_id}/
 
 ### Индекс проекта (`services/project_index/`, сентябрь 2026)
 
+| `exchange_files.py` | посылки файлов агента: манифест, приём частями с докачкой и sha256, только добавление, выдача частями (HTTP и инструменты `files_*` MCP) |
+| `exchange_unpack.py` | раскладка принятой посылки в рабочую копию `data/projects/<id>/config/`: `map/` (gzip распакован, sha256 исходников сверен с MANIFEST.json), `deepmaps/<сущность>/` (zip, открывать `index.html`), `README.md`, `layout.json`; запуск — сам после приёма посылки целиком (`schedule_unpack`, фоновый поток; ошибка — `files_unpack` rejected в журнале обмена) или вручную `scripts/unpack_exchange_bundle.py --project <id> --bundle <n>` |
 Поиск для людей и ИИ-агентов по коду, шаблонам, JS, документам, решениям, связям и истории. План и статус — `docs/plans/PROJECT-INDEX-PLAN.md`, эксплуатация — `docs/OPERATIONS.md` («Индекс проекта»). Хранилище `data/project_map.db` (SQLite + sqlite-vec + FTS5), эмбеддинги — Ollama `bge-m3` на CPU, GPU не занимается. Следующий шаг развития — переносимый инструмент `projectmap` (карта любого проекта, многоязычный разбор, просмотрщик в одном файле): план `docs/plans/PROJECTMAP-PLAN.md`, статус — согласован, не начат.
 
 | Файл | Назначение |
@@ -1333,6 +1337,8 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `preflight.py` | проверки до serve; в `all`/`api` — `meeting_voice` (WARN без `venvs/voice`); `personal_passwords` — argon2 и `credentials.db` при `PERSONAL_PASSWORD≠off` |
 | `credentials_db.py` | отдельная база личных паролей `data/credentials.db`: свой движок и `CredentialsBase`, таблица `personal_passwords` (ключ — логин без регистра, хеш, `pwd_version`, `reset_pending`); в тестах `PATH_OVERRIDE` |
 | `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **7** — сбросить личный пароль пользователя (список, номер или логин, «да»); **8** — карточки пользователей (сменить компанию, отозвать/вернуть согласие на голос, сбросить карточку); **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
+| `exchange_bundles` | `exchange_file.py` | посылка файлов от агента: имя (уникально в проекте), вид `config_map` / `entity_deepmap` / `other`, хеш манифеста, `open` → `complete` (все файлы сошлись по sha256) → `deleted` (удалил владелец); пишет `exchange_files.open_bundle` |
+| `exchange_files` | `exchange_file.py` | файл посылки: относительный путь, размер, sha256, сколько принято (`received_bytes`), `pending` → `complete`; пишет `exchange_files.put_chunk`; сами файлы — `data/exchange_files/p<проект>/b<посылка>/files/` |
 
 ### Workers (`app/app/workers/`)
 
@@ -1658,6 +1664,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Модель | `CURSOR_API_KEY`, `CURSOR_RUNTIME`, `CURSOR_CLOUD_REPO` | пусто, `local`, пусто | провайдер Cursor: ключ, где работает (`local` / `cloud`), репозиторий для облака |
 | Модель | `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL` | `http://127.0.0.1:11434`, `bge-m3` | эмбеддинги для индекса и поиска |
 | Слух | `WHISPER_URL`, `TONE_URL` | `…:18101`, `…:18103` | адреса прежних ASR-контейнеров (откат, проверка при старте) |
+| Данные | `EXCHANGE_FILES_DIR` | пусто (`data/exchange_files`) | куда складываются посылки файлов от агента (карты конфигурации) |
+| Данные | `EXCHANGE_FILES_RESERVE_GB` | `20` | посылка не открывается, если после неё на диске останется меньше |
+| Данные | `EXCHANGE_BUNDLE_MAX_GB` | `64` | предел одной посылки |
+| Данные | `EXCHANGE_AUTO_UNPACK` | `true` | принятая целиком посылка сама раскладывается в `data/projects/<id>/config/` (фоном); `false` — только вручную скриптом |
 | Слух | `GIGAAM_API_KEY` | пусто | ключ контейнера GigaAM, передаётся конвейеру |
 | Слух | `ALLOW_LEGACY_ASR` | не задана | `1` — перезапуск прежних контейнеров вместе с GigaAM; по умолчанию перезапускается только GigaAM |
 | Комнаты | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | пусто | сервер комнат LiveKit |
@@ -1753,6 +1763,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `contract.py` | Модель ContractItem — элемент контракта обмена с внешним агентом. |
 | `decision_memory.py` | Память решений (docs/plans/DECISION-MEMORY-PLAN.md, Э3–Э5): предметы обсуждения и журнал событий по ним. |
 | `entity.py` | Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ. |
+| `exchange_file.py` | Модели ExchangeBundle и ExchangeFile — посылки файлов от внешнего агента (карты конфигурации, дипмапы сущностей). |
 | `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
 | `person.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1). |
@@ -1782,7 +1793,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `pages.py` | HTML-страницы портала и отчёты: вход, проекты, встречи, отчёты артефактов, отдача аудио и скачивание. |
 | `people.py` | Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`). |
 | `project_background.py` | Фоновая работа по проекту: ход, перепроверка, переизвлечение, повтор ошибок, остановка (ПФ9 PLATFORM-FOUNDATION-PLAN). |
-| `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал. |
+| `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал, посылки файлов. |
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
 | `project_memory.py` | Память решений проекта: предметы, их лента и состояние на дату, решение человека (docs/plans/DECISION-MEMORY-PLAN.md, Э6). |
 | `project_people.py` | Люди и стороны проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ3): реестр людей, «Кто это?», стороны компаний. |
@@ -1827,6 +1838,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `docx_extract.py` | DOCX → markdown в порядке документа: заголовки (#), абзацы, списки, таблицы на своих местах, надписи, колонтитулы. |
 | `edge_runtime.py` | HTTPS (Caddy) and LiveKit room — поднимает main вместе с порталом. |
 | `entities.py` | Извлечение сущностей (задачи, упоминания, участники, решения, факты) из нормализованного текста через LLM: разбиение, промпт, разбор JSON и  |
+| `exchange_files.py` | Посылки файлов от внешнего агента: манифест, приём частями с докачкой и проверкой sha256, выдача частями. |
+| `exchange_unpack.py` | Раскладка принятой посылки файлов в рабочую копию проекта: распаковка gzip и zip с проверкой, без исполнения содержимого. |
 | `extraction_context.py` | Контекст для извлечения требований (docs/plans/REQUIREMENTS-PLAN.md, этап 3): карточка проекта, оглавление созвона, |
 | `ffmpeg_tools.py` | Поиск исполняемых файлов ffmpeg и ffprobe. |
 | `gpu_phase.py` | Фазы GPU: замер видеопамяти (nvidia-smi), ожидание освобождения, выгрузка и загрузка модели LM Studio, чтобы ASR и LLM по очереди делили одн |
@@ -1879,7 +1892,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `project_jobs.py` | Фоновая работа по проекту: прогресс, постановка, повтор ошибок, остановка (PLATFORM-FOUNDATION-PLAN, ПФ9). |
 | `project_mcp_contract.py` | MCP-инструменты контракта обмена с агентом анализа (только чтение). Формат и смысл полей — docs/agent-exchange/CONTRACT.md. |
 | `project_mcp_data.py` | Данные проектного MCP (только чтение): обзор проекта, артефакты, сводка, поиск, сущности, граф и заметки — то, что отдают инструменты MCP. |
-| `project_mcp_tokens.py` | Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit) и проверка ключа при запросе. |
+| `project_mcp_tokens.py` | Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit), право на файлы (files_access) и проверка ключ |
 | `project_members.py` | Выдача доступа к проекту: роли manager и user, без admin. |
 | `project_purge.py` | Удаление проекта целиком или одного артефакта: записи БД и файлы на диске. |
 | `project_tasks.py` | Фоновые задачи API (пересборка ТЗ, переиндексация и т.п.): запись и статусы в таблице project_tasks, защита от параллельного запуска, очистк |
@@ -2153,6 +2166,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `start-saved.ps1` | — |
 | `start.ps1` | SKKKK — запуск API + GPU-воркер с выбором LLM |
 | `stop.ps1` | SKKKK — остановить API и GPU-воркер |
+| `unpack_exchange_bundle.py` | Разложить принятую посылку файлов агента в рабочую копию проекта (data/projects/<id>/config): карта, дипмапы, README. |
 | `user_profile.py` | Карточки пользователей из командной строки — когда портал запущен службой, а не из PyCharm. |
 | `verify_backup.py` | Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить. |
 | `voice_people_report.py` | Отчёт: чьи голоса уже есть в общей базе и как они соотносятся с реестром людей проекта (PLATFORM-FOUNDATION-PLAN, ПФ5). |

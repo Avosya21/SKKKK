@@ -105,6 +105,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("project_mcp_tokens", "scope", "VARCHAR(24) NOT NULL DEFAULT 'read'"),
     ("project_mcp_tokens", "agent_name", "VARCHAR(64)"),
     ("project_mcp_tokens", "rate_limit", "INTEGER"),
+    ("project_mcp_tokens", "files_access", "VARCHAR(8) NOT NULL DEFAULT 'none'"),
     ("agent_exchange_log", "client_request_id", "VARCHAR(64)"),
     ("artifacts", "recorded_at", "DATETIME"),
     ("artifacts", "recorded_at_source", "VARCHAR(16)"),

@@ -1,4 +1,4 @@
-"""Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit) и проверка ключа при запросе."""
+"""Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit), право на файлы (files_access) и проверка ключа при запросе."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ def _utcnow() -> datetime:
 SCOPES = ("read", "questions", "questions_verdicts")
 SCOPE_TITLES = {"read": "только чтение", "questions": "чтение + вопросы", "questions_verdicts": "чтение + вопросы и вердикты"}
 MAX_RATE_LIMIT = 1000
+FILES_ACCESS = ("none", "read", "write")
+FILES_ACCESS_TITLES = {"none": "нет", "read": "чтение файлов", "write": "приём и чтение файлов"}
 
 
 def normalize_scope(scope: str | None, can_submit: bool = False) -> str:
@@ -43,6 +45,20 @@ def normalize_rate_limit(value: int | None) -> int | None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1 or value > MAX_RATE_LIMIT:
         raise ValueError(f"Лимит обращений — целое от 1 до {MAX_RATE_LIMIT} за 10 минут или пусто")
     return value
+
+
+def normalize_files_access(value: str | None) -> str:
+    """Право на посылки файлов: none | read | write (write включает чтение)."""
+    if value is None or value == "":
+        return "none"
+    if value not in FILES_ACCESS:
+        raise ValueError(f"Неизвестное право на файлы: {value}. Допустимо: {', '.join(FILES_ACCESS)}")
+    return value
+
+
+def token_files_access(row) -> str:
+    value = getattr(row, "files_access", None)
+    return value if value in FILES_ACCESS else "none"
 
 
 def token_scope(row) -> str:
@@ -67,8 +83,10 @@ def create_project_mcp_token(
     scope: str | None = None,
     agent_name: str | None = None,
     rate_limit: int | None = None,
+    files_access: str | None = None,
 ) -> tuple[ProjectMcpToken, str]:
     scope = normalize_scope(scope, can_submit)
+    files = normalize_files_access(files_access)
     limit = normalize_rate_limit(rate_limit)
     plain = generate_token()
     row = ProjectMcpToken(
@@ -82,6 +100,7 @@ def create_project_mcp_token(
         scope=scope,
         agent_name=(agent_name or "").strip()[:64] or None,
         rate_limit=limit,
+        files_access=files,
     )
     db.add(row)
     db.commit()
@@ -106,6 +125,8 @@ def list_project_mcp_tokens(db: Session, *, project_id: int) -> list[dict[str, A
             "scope_title": SCOPE_TITLES[token_scope(row)],
             "agent_name": row.agent_name,
             "rate_limit": row.rate_limit,
+            "files_access": token_files_access(row),
+            "files_access_title": FILES_ACCESS_TITLES[token_files_access(row)],
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None,
         }
@@ -124,9 +145,11 @@ def set_project_mcp_token_submit(db: Session, *, project_id: int, token_id: int,
 
 
 def set_project_mcp_token_scope(db: Session, *, project_id: int, token_id: int, scope: str,
-                                agent_name: str | None = None, rate_limit: int | None = None, update_limit: bool = False) -> bool:
-    """Сменить права ключа (и при необходимости имя агента и лимит). Ложь — ключ не найден или отозван."""
+                                agent_name: str | None = None, rate_limit: int | None = None, update_limit: bool = False,
+                                files_access: str | None = None) -> bool:
+    """Сменить права ключа (и при необходимости имя агента, лимит, право на файлы). Ложь — ключ не найден или отозван."""
     scope = normalize_scope(scope)
+    files = normalize_files_access(files_access) if files_access is not None else None
     row = db.get(ProjectMcpToken, token_id)
     if not row or row.project_id != project_id or not row.is_active:
         return False
@@ -136,6 +159,8 @@ def set_project_mcp_token_scope(db: Session, *, project_id: int, token_id: int, 
         row.agent_name = agent_name.strip()[:64] or None
     if update_limit:
         row.rate_limit = normalize_rate_limit(rate_limit)
+    if files is not None:
+        row.files_access = files
     db.commit()
     return True
 
