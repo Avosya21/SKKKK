@@ -36,7 +36,7 @@
       bar.style.width = pct + '%'; bar.textContent = pct + '%';
       $('bg-progress-wrap').setAttribute('aria-valuenow', String(pct));
       $('bg-current').innerHTML = d.current
-        ? `Сейчас: <strong>${esc(d.current.stage)}</strong> — ${esc(d.current.material)} <span class="text-muted">с ${esc(fmtTime(d.current.since))}</span>`
+        ? `Сейчас: <strong>${esc(d.current.stage)}</strong>${d.current.material ? ' — ' + esc(d.current.material) : ''} <span class="text-muted">с ${esc(fmtTime(d.current.since))}</span>`
         : 'Ждёт своей очереди (воркер занят расшифровкой или другой задачей).';
       $('bg-estimate').textContent = `Осталось задач: ${d.pending}` + (d.estimate_minutes ? `, примерно ${d.estimate_minutes} мин.` : '.');
     }
@@ -47,12 +47,13 @@
     }).join('');
     $('bg-errors-box').classList.toggle('d-none', !d.errors_total);
     $('bg-errors-title').textContent = d.errors_total ? `Не удалось выполнить (за последние сутки): ${d.errors_total}` : '';
-    $('bg-errors').innerHTML = d.errors.map((e) => `<li>${esc(e.stage)} — ${esc(e.material)}${e.message ? `: <span class="text-muted">${esc(e.message)}</span>` : ''}</li>`).join('');
+    $('bg-errors').innerHTML = d.errors.map((e) => `<li>${esc(e.stage)} — ${esc(e.material)}${e.message ? `: <span class="text-muted">${esc(e.message)}</span>` : ''}`
+      + (e.retry === false ? ' <span class="text-muted">(расшифровку повторяют из карточки материала)</span>' : '') + '</li>').join('');
     const admin = !!d.can_run;
     $('bg-actions').classList.toggle('d-none', !admin);
     $('bg-select-box').classList.toggle('d-none', !admin);
-    $('bg-retry').classList.toggle('d-none', !d.errors_total);
-    $('bg-cancel').classList.toggle('d-none', !(d.pending > 0));
+    $('bg-retry').classList.toggle('d-none', !(d.retryable ?? d.errors_total));
+    $('bg-cancel').classList.toggle('d-none', !((d.cancellable ?? d.pending) > 0));
     for (const id of ['bg-review', 'bg-reextract']) $(id).disabled = !d.worker_ready;
     if (!d.worker_ready && admin) say('Воркер фоновых задач не запущен или старой версии: перезапустите сервер, иначе задачи не выполнятся.', true);
     const sig = d.materials.map((m) => m.id).join(',');
