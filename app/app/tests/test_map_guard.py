@@ -90,6 +90,14 @@ def test_node_for_a_file_outside_git_is_not_dead():
         assert staged.format_problems(report) == []
 
 
+def test_staged_python_that_does_not_parse_is_reported(monkeypatch):
+    staged = _load("check_map_staged")
+    files = {"ok.py": b"x = 1\n", "bad.py": b"def f(:\n    pass\n", "notes.md": b"("}
+    monkeypatch.setattr(staged, "_git", lambda *args, **kw: files[args[1][1:]])
+    found = staged.syntax_errors(["ok.py", "bad.py", "notes.md"])
+    assert len(found) == 1 and found[0].startswith("bad.py:1:")
+
+
 def test_installer_declares_both_map_hooks_and_the_scripts_exist():
     text = (ROOT / "scripts" / "install_hooks.ps1").read_text(encoding="utf-8-sig")
     for needle in ("pre-commit", "commit-msg", "SKKKK-MAP", "SKKKK-PRIVACY", "check_map_staged.py", "check_map_commit_msg.py",
