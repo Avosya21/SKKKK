@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     exchange_files_reserve_gb: int = 20  # приём отклоняется, если после него на диске останется меньше
     exchange_bundle_max_gb: int = 64  # предел одной посылки
     exchange_auto_unpack: bool = True  # принятая посылка сама раскладывается в data/projects/<id>/config (фоном)
+    # Порция ответа инструмента проектного MCP (services/mcp_page.py, MCP-KB-PLAN В1): ~20 тыс. токенов — помещается в лимит
+    # ответа инструмента у Claude Code и Cursor; агент может попросить больше параметром page_bytes (до 200 КБ).
+    mcp_page_bytes: int = 60_000
 
     web_host: str = "127.0.0.1"
     web_port: int = 1111

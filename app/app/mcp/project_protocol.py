@@ -47,7 +47,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "search_project",
-        "description": "Семантический поиск по проиндексированным фрагментам проекта (RAG).",
+        "description": "Поиск по смыслу и словам во фрагментах проекта: текст фрагмента до 800 символов, кто (speaker) и когда (occurred_at); полностью — get_artifact_content(kind=text) с курсором.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -60,57 +60,58 @@ MCP_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "list_entities",
-        "description": "Извлечённые сущности (решения, задачи, факты) по материалам проекта.",
+        "description": "Извлечённые сущности (решения, задачи, факты) по материалам проекта. Порциями {total, cursor, items}: читай до cursor = null.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entity_type": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100, "description": "Сколько в порции"},
+                "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"},
             },
             "additionalProperties": False,
         },
     },
     {
         "name": "get_knowledge_graph",
-        "description": "Узлы и связи графа знаний проекта.",
+        "description": "Узлы и связи графа знаний проекта порциями по узлам: в порции узлы и выходящие из них рёбра; читай до cursor = null.",
         "inputSchema": {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 200}},
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 200, "description": "Узлов в порции"}, "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"}},
             "additionalProperties": False,
         },
     },
     {
         "name": "list_notes",
-        "description": "Пользовательские заметки по проекту.",
+        "description": "Пользовательские заметки по проекту, порциями {total, cursor, items}.",
         "inputSchema": {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}},
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}, "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"}},
             "additionalProperties": False,
         },
     },
     {
         "name": "list_conflicts",
-        "description": "Потенциальные конфликты между сущностями и их статус.",
+        "description": "Потенциальные конфликты между сущностями и их статус; сущности — разобранным JSON с verification. Порциями {total, cursor, items}.",
         "inputSchema": {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}},
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}, "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"}},
             "additionalProperties": False,
         },
     },
     {
         "name": "get_artifact_content",
-        "description": "Текст материала: выжимка созвона, стенограмма или entities.json.",
+        "description": "Содержимое материала порциями: summary (выжимка), brief и outline (у созвона), text (стенограмма созвона, текст документа или переписки), messages (сообщения переписки), entities. auto — выжимка, иначе текст. Ответ: content, offset, total_chars, cursor (следующая порция или null), truncated, available_kinds.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "artifact_id": {"type": "string", "minLength": 1},
                 "kind": {
                     "type": "string",
-                    "enum": ["auto", "summary", "transcript", "entities"],
+                    "enum": ["auto", "summary", "brief", "outline", "text", "transcript", "messages", "entities"],
                     "default": "auto",
                 },
-                "cursor": {"type": "string", "description": "Для contract/*.json: курсор следующей порции"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция (текста материала или файла контракта)"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Для contract/*.json: пунктов в порции"},
             },
             "required": ["artifact_id"],
             "additionalProperties": False,
@@ -237,10 +238,10 @@ MCP_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "get_changes",
-        "description": "Дельта контракта после момента since: какие требования/решения/расхождения добавились, изменились, исчезли.",
+        "description": "Дельта контракта после момента since: какие требования/решения/расхождения добавились, изменились, исчезли. Порциями: cursor из прошлого ответа.",
         "inputSchema": {
             "type": "object",
-            "properties": {"since": {"type": "string", "description": "ISO-8601"}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}},
+            "properties": {"since": {"type": "string", "description": "ISO-8601"}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}, "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"}},
             "additionalProperties": False,
         },
     },
@@ -249,7 +250,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
         "description": "Только точки входа в код (1С/Битрикс24) по требованиям — гипотезы, которые агент анализа проверяет.",
         "inputSchema": {
             "type": "object",
-            "properties": {"requirement_ids": {"type": "array", "items": {"type": "string"}}, "system": {"type": "string", "enum": ["1c", "b24"]}},
+            "properties": {"requirement_ids": {"type": "array", "items": {"type": "string"}}, "system": {"type": "string", "enum": ["1c", "b24"]}, "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"}},
             "additionalProperties": False,
         },
     },
@@ -258,7 +259,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
         "description": "Расхождения контракта с двумя цитатами (сейчас правило scope: согласовано, но вне текущего ТЗ).",
         "inputSchema": {
             "type": "object",
-            "properties": {"min_severity": {"type": "string", "enum": ["low", "medium", "high"]}, "status": {"type": "string"}},
+            "properties": {"min_severity": {"type": "string", "enum": ["low", "medium", "high"]}, "status": {"type": "string"}, "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"}},
             "additionalProperties": False,
         },
     },
@@ -284,9 +285,16 @@ MCP_TOOLS: list[dict[str, Any]] = [
 ]
 
 
-def _tool_result(payload: Any, *, compact: bool = False) -> dict[str, Any]:
-    # compact — для больших ответов контракта (лимит ответа 200 КБ считается по этому виду)
-    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) if compact else json.dumps(payload, ensure_ascii=False, indent=2)
+# Любой инструмент принимает page_bytes: размер порции ответа (MCP-KB-PLAN В1; по умолчанию MCP_PAGE_BYTES = 60 КБ, до 200 КБ).
+PAGE_BYTES_SCHEMA = {"type": "integer", "minimum": 8000, "maximum": 200000,
+                     "description": "Размер порции ответа в байтах (по умолчанию 60000 ≈ 20 тыс. токенов; больше — если клиент принимает длинные ответы)"}
+for _tool in MCP_TOOLS:
+    _tool["inputSchema"].setdefault("properties", {})["page_bytes"] = PAGE_BYTES_SCHEMA
+
+
+def _tool_result(payload: Any, *, compact: bool = True) -> dict[str, Any]:
+    """Ответ инструмента — всегда компактный JSON: отступы стоили до трети токенов."""
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return {"content": [{"type": "text", "text": text}], "isError": False}
 
 
@@ -304,7 +312,32 @@ def call_tool(
     arguments: dict[str, Any] | None,
     token: Any = None,
 ) -> dict[str, Any]:
-    args = arguments or {}
+    """Вызов инструмента в бюджете порции (`page_bytes` агента или MCP_PAGE_BYTES) и со стражем размера ответа."""
+    from app.app.services import mcp_page
+
+    args = dict(arguments or {})
+    page = mcp_page.clamp(args.pop("page_bytes", None), getattr(settings, "mcp_page_bytes", None) or 60_000)
+    with mcp_page.budget(page):
+        result = _call_tool(db, settings, project_id, name, args, token)
+    return _guard_size(result, page, name, args)
+
+
+def _guard_size(result: dict[str, Any], page: int, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Страж: ответ больше порции не уходит агенту целиком (у клиентов лимит ответа инструмента). Список — первая порция с
+    курсором; иное — понятная ошибка с подсказкой. Инструменты сами режут свои ответы; сюда попадает только непредусмотренное."""
+    from app.app.services import mcp_page
+
+    text = result["content"][0]["text"]
+    if result.get("isError") or len(text.encode("utf-8")) <= page * 1.05:
+        return result
+    payload = json.loads(text)
+    if isinstance(payload, list):
+        return _tool_result(mcp_page.list_page({"items": payload}, "items", args.get("cursor"), max_bytes=page))
+    return _tool_error("ответ больше порции", tool=name,
+                       detail=f"too_large: {len(text.encode('utf-8'))} байт при порции {page}; уменьши limit или увеличь page_bytes (до 200000)")
+
+
+def _call_tool(db: Session, settings: Settings, project_id: int, name: str, args: dict[str, Any], token: Any) -> dict[str, Any]:
     try:
         if name == "get_guide":
             from app.app.services import agent_guide
@@ -338,6 +371,8 @@ def call_tool(
                     project_id,
                     query=query,
                     limit=int(args.get("limit") or 12),
+                    text_chars=800,
+                    max_bytes=_page(),
                 )
             )
         if name == "list_entities":
@@ -347,16 +382,17 @@ def call_tool(
                     project_id,
                     entity_type=args.get("entity_type"),
                     limit=int(args.get("limit") or 100),
+                    cursor=args.get("cursor"),
                 )
             )
         if name == "get_knowledge_graph":
             return _tool_result(
-                data.mcp_get_knowledge_graph(db, project_id, limit=int(args.get("limit") or 200))
+                data.mcp_get_knowledge_graph(db, project_id, limit=int(args.get("limit") or 200), cursor=args.get("cursor"))
             )
         if name == "list_notes":
-            return _tool_result(data.mcp_list_notes(db, project_id, limit=int(args.get("limit") or 50)))
+            return _tool_result(data.mcp_list_notes(db, project_id, limit=int(args.get("limit") or 50), cursor=args.get("cursor")))
         if name == "list_conflicts":
-            return _tool_result(data.mcp_list_conflicts(db, project_id, limit=int(args.get("limit") or 50)))
+            return _tool_result(data.mcp_list_conflicts(db, project_id, limit=int(args.get("limit") or 50), cursor=args.get("cursor")))
         if name == "get_artifact_content":
             artifact_id = str(args.get("artifact_id") or "").strip()
             if not artifact_id:
@@ -408,11 +444,11 @@ def call_tool(
 
             return _tool_result(gw.exchange_status(db, project_id))
         if name == "get_changes":
-            return _tool_result(contract_tools.get_changes(db, settings, project_id, since=args.get("since"), limit=int(args.get("limit") or 200)), compact=True)
+            return _tool_result(contract_tools.get_changes(db, settings, project_id, since=args.get("since"), limit=int(args.get("limit") or 200), cursor=args.get("cursor")), compact=True)
         if name == "get_code_anchors":
-            return _tool_result(contract_tools.get_code_anchors(db, settings, project_id, requirement_ids=args.get("requirement_ids"), system=args.get("system")), compact=True)
+            return _tool_result(contract_tools.get_code_anchors(db, settings, project_id, requirement_ids=args.get("requirement_ids"), system=args.get("system"), cursor=args.get("cursor")), compact=True)
         if name == "get_conflicts":
-            return _tool_result(contract_tools.get_conflicts(db, settings, project_id, min_severity=args.get("min_severity"), status=args.get("status")), compact=True)
+            return _tool_result(contract_tools.get_conflicts(db, settings, project_id, min_severity=args.get("min_severity"), status=args.get("status"), cursor=args.get("cursor")), compact=True)
         if name == "get_quote":
             if not args.get("requirement_id") and args.get("entity_id") is None:
                 return _tool_error("requirement_id or entity_id is required", tool=name)
@@ -429,6 +465,12 @@ def call_tool(
         return _tool_error(str(exc), tool=name)
     except Exception as exc:
         return _tool_error("internal error", tool=name, detail=f"{type(exc).__name__}: {exc}")
+
+
+def _page() -> int:
+    from app.app.services import mcp_page
+
+    return mcp_page.current(mcp_page.MAX_PAGE_BYTES)
 
 
 def _files_tool(db: Session, settings: Settings, project_id: int, name: str, args: dict[str, Any], token: Any) -> dict[str, Any]:

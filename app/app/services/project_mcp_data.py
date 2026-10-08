@@ -141,7 +141,13 @@ def mcp_search_project(
     *,
     query: str,
     limit: int = 12,
+    text_chars: int = 2000,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
+    """Гибридный поиск по фрагментам. Для MCP (`text_chars`=800, `max_bytes`) — короче текст и с указанием, кто и когда сказал;
+    полностью материал читается `get_artifact_content` порциями."""
+    from app.app.models.entity import Chunk
+
     if settings.dry_run:
         return {"query": query, "results": []}
     init_vector_store(get_engine())
@@ -158,18 +164,31 @@ def mcp_search_project(
     results: list[dict[str, Any]] = []
     for hit in hits:
         art = db.get(Artifact, hit.get("artifact_id"))
-        results.append(
-            {
-                "score": hit.get("score"),
-                "chunk_id": hit.get("chunk_id"),
-                "artifact_id": art.artifact_id if art else None,
-                "filename": art.original_filename if art else None,
-                "text": hit.get("text", "")[:2000],
-                "start_sec": hit.get("start_sec"),
-                "end_sec": hit.get("end_sec"),
-            }
-        )
-    return {"query": query, "results": results}
+        chunk = db.get(Chunk, hit.get("chunk_id")) if hit.get("chunk_id") else None
+        text = hit.get("text", "")
+        row = {
+            "score": hit.get("score"),
+            "chunk_id": hit.get("chunk_id"),
+            "artifact_id": art.artifact_id if art else None,
+            "filename": art.original_filename if art else None,
+            "text": text[:text_chars],
+            "start_sec": hit.get("start_sec"),
+            "end_sec": hit.get("end_sec"),
+        }
+        if max_bytes is not None:  # MCP: кто и когда, и признак обрезки фрагмента
+            row["speaker"] = chunk.speaker if chunk else None
+            row["occurred_at"] = art.recorded_at.isoformat() if art and art.recorded_at else None
+            row["text_truncated"] = len(text) > text_chars
+        results.append(row)
+    out: dict[str, Any] = {"query": query, "results": results}
+    if max_bytes is not None:
+        from app.app.services import mcp_page
+
+        while len(out["results"]) > 1 and mcp_page.size(out) > max_bytes:
+            out["results"] = out["results"][:-1]
+        if len(out["results"]) < len(results):
+            out["note"] = f"показано {len(out['results'])} из {len(results)} фрагментов (порция ответа); уменьши limit или увеличь page_bytes"
+    return out
 
 
 def mcp_list_entities(
@@ -178,13 +197,16 @@ def mcp_list_entities(
     *,
     entity_type: str | None = None,
     limit: int = 100,
-) -> list[dict[str, Any]]:
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Сущности порциями `{total, cursor, items}` (раньше — список целиком: 250–550 КБ на живых проектах)."""
+    from app.app.services import mcp_page
+
     q = (
         select(Entity)
         .join(Artifact, Artifact.id == Entity.artifact_id)
         .where(Artifact.project_id == project_id, Entity.is_active.is_(True))
         .order_by(Entity.id.desc())
-        .limit(limit)
     )
     if entity_type:
         q = q.where(Entity.entity_type == entity_type)
@@ -207,18 +229,31 @@ def mcp_list_entities(
                 "confidence": ent.confidence,
             }
         )
-    return out
+    return mcp_page.list_page({"items": out}, "items", cursor, max_bytes=mcp_page.current(mcp_page.MAX_PAGE_BYTES), limit=limit)
 
 
-def mcp_get_knowledge_graph(db: Session, project_id: int, *, limit: int = 200) -> dict[str, Any]:
-    return build_graph_payload(db, project_id, limit=limit)
+def mcp_get_knowledge_graph(db: Session, project_id: int, *, limit: int = 200, cursor: str | None = None) -> dict[str, Any]:
+    """Граф порциями по узлам: в порции — узлы и рёбра, которые из них выходят (каждое ребро — ровно в одной порции).
+    limit — узлов в порции; читать до cursor = null, чтобы собрать граф целиком."""
+    from app.app.services import mcp_page
+
+    graph = build_graph_payload(db, project_id, limit=1_000_000)
+    edges_by_source: dict[str, list[dict[str, Any]]] = {}
+    for edge in graph["edges"]:
+        edges_by_source.setdefault(edge["source"], []).append(edge)
+    items = [{"node": n, "edges": edges_by_source.get(n["id"], [])} for n in graph["nodes"]]
+    page = mcp_page.list_page({"items": items}, "items", cursor, max_bytes=mcp_page.current(mcp_page.MAX_PAGE_BYTES), limit=limit)
+    return {"total_nodes": page["total"], "total_edges": len(graph["edges"]), "cursor": page["cursor"],
+            "nodes": [i["node"] for i in page["items"]], "edges": [e for i in page["items"] for e in i["edges"]]}
 
 
-def mcp_list_notes(db: Session, project_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
+def mcp_list_notes(db: Session, project_id: int, *, limit: int = 50, cursor: str | None = None) -> dict[str, Any]:
+    from app.app.services import mcp_page
+
     rows = db.scalars(
-        select(UserNote).where(UserNote.project_id == project_id).order_by(UserNote.id.desc()).limit(limit)
+        select(UserNote).where(UserNote.project_id == project_id).order_by(UserNote.id.desc())
     ).all()
-    return [
+    items = [
         {
             "id": n.id,
             "text": n.text,
@@ -227,11 +262,26 @@ def mcp_list_notes(db: Session, project_id: int, *, limit: int = 50) -> list[dic
         }
         for n in rows
     ]
+    return mcp_page.list_page({"items": items}, "items", cursor, max_bytes=mcp_page.current(mcp_page.MAX_PAGE_BYTES), limit=limit)
 
 
-def mcp_list_conflicts(db: Session, project_id: int, *, limit: int = 50) -> list[dict[str, Any]]:
+def _entity_brief(ent: Entity | None) -> dict[str, Any] | None:
+    """Сущность конфликта разобранным JSON (раньше — строкой JSON внутри JSON) с отметкой, кто её проверил."""
+    if ent is None:
+        return None
+    try:
+        value = json.loads(ent.value_json)
+    except json.JSONDecodeError:
+        value = ent.value_json
+    return {"id": ent.id, "entity_type": ent.entity_type, "value": value,
+            "verification": verification_for(ent.needs_review, value if isinstance(value, dict) else {})}
+
+
+def mcp_list_conflicts(db: Session, project_id: int, *, limit: int = 50, cursor: str | None = None) -> dict[str, Any]:
+    from app.app.services import mcp_page
+
     links = db.scalars(
-        select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT").limit(limit)
+        select(Link).where(Link.project_id == project_id, Link.link_type == "POTENTIAL_CONFLICT").order_by(Link.id)
     ).all()
     out: list[dict[str, Any]] = []
     for lnk in links:
@@ -243,22 +293,61 @@ def mcp_list_conflicts(db: Session, project_id: int, *, limit: int = 50) -> list
                 "link_id": lnk.id,
                 "source_entity_id": lnk.source_entity_id,
                 "target_entity_id": lnk.target_entity_id,
-                "source": src.value_json if src else None,
-                "target": tgt.value_json if tgt else None,
+                "source": _entity_brief(src),
+                "target": _entity_brief(tgt),
                 "resolved": res is not None,
                 "resolution": res.reason if res else None,
                 # model_resolved / model_dismissed — решила локальная модель (не человек), человек может вернуть
                 "resolved_by": ("model" if res.status in ("model_resolved", "model_dismissed") else "human") if res else None,
             }
         )
-    return out
+    return mcp_page.list_page({"items": out}, "items", cursor, max_bytes=mcp_page.current(mcp_page.MAX_PAGE_BYTES), limit=limit)
 
 
-def _read_text(path: Path, max_chars: int = 120_000) -> str:
-    if not path.is_file():
-        return ""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return text[:max_chars]
+def _read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+
+
+# Что из материала можно прочитать, по виду материала (MCP-KB-PLAN Э1). Раньше читались только файлы созвона, а стенограмма
+# молча обрезалась на 120 000 символов: документы и переписки агенту были не видны, длинные созвоны — на треть.
+CONTENT_KINDS = ("auto", "summary", "brief", "outline", "text", "transcript", "messages", "entities")
+MATERIAL_SOURCES: dict[str, dict[str, str]] = {
+    "call": {"summary": "_call_summary.md", "brief": "_call_brief.md", "outline": "_outline.json", "text": "_final.txt"},
+    "document": {"summary": "_doc_summary.md", "text": "_clean.txt"},
+    "chat": {"summary": "_doc_summary.md", "text": "_clean.txt", "messages": "_messages.json"},
+}
+AUTO_ORDER = ("summary", "text", "entities")
+
+
+def material_kind(settings: Settings, art: Artifact) -> str:
+    """call — созвон; chat — переписка (есть разобранные сообщения); exchange — файл обмена самого агента
+    (analysis_request/question/reply_<n>.json); document — остальное."""
+    from app.app.services.agent_gateway import QUESTION_RE, REPLY_RE, REQUEST_RE
+
+    if art.file_type == "audio" or art.source_type == "call":
+        return "call"
+    name = art.original_filename or ""
+    if any(rx.match(name) for rx in (QUESTION_RE, REPLY_RE, REQUEST_RE)):
+        return "exchange"
+    if (parsed_dir(settings, art.project_id, art.source_type) / f"{art.artifact_id}_messages.json").is_file():
+        return "chat"
+    return "document"
+
+
+def _material_text(settings: Settings, art: Artifact, kind: str, mkind: str) -> tuple[str, str]:
+    """Текст материала нужного вида: (вид, текст). Пустой текст — такого вида у материала нет."""
+    if mkind == "exchange":  # файл обмена агента: его собственное письмо, как прислано
+        path = Path(art.file_path)
+        return "exchange", _read_text(path) if path.is_file() else ""
+    if kind == "transcript":  # прежнее имя: у созвона — стенограмма, у документа и переписки — текст
+        kind = "text"
+    if kind == "entities":
+        return "entities", _read_text(project_root(settings, art.project_id) / "structured" / f"{art.artifact_id}_entities.json")
+    suffix = MATERIAL_SOURCES.get(mkind, {}).get(kind)
+    text = _read_text(parsed_dir(settings, art.project_id, art.source_type) / f"{art.artifact_id}{suffix}") if suffix else ""
+    if not text and kind == "text":
+        text = art.transcription_text or ""
+    return kind, text
 
 
 def mcp_get_artifact_content(
@@ -294,30 +383,23 @@ def mcp_get_artifact_content(
     )
     if not art:
         raise ValueError("Artifact not found")
-    parsed = parsed_dir(settings, project_id, art.source_type)
-    base = art.artifact_id
-    candidates: dict[str, Path] = {
-        "transcript": parsed / f"{base}_final.txt",
-        "summary": parsed / f"{base}_call_summary.md",
-        "entities": project_root(settings, project_id) / "structured" / f"{base}_entities.json",
-    }
-    if kind == "auto":
-        order = ("summary", "transcript", "entities")
-    else:
-        order = (kind,)
-    content = ""
-    used_kind = kind
-    for key in order:
-        path = candidates.get(key)
-        if path and path.is_file():
-            content = _read_text(path)
-            used_kind = key
+    from app.app.services import mcp_page
+
+    if kind not in CONTENT_KINDS:
+        raise ValueError(f"kind: один из {', '.join(CONTENT_KINDS)}")
+    mkind = material_kind(settings, art)
+    available = [k for k in ("summary", "brief", "outline", "text", "messages", "entities") if _material_text(settings, art, k, mkind)[1]]
+    frame: dict[str, Any] = {"artifact_id": artifact_id, "filename": art.original_filename, "file_type": art.file_type, "status": art.status,
+                             "material": mkind, "available_kinds": available if mkind != "exchange" else ["exchange"]}
+    if art.status == "rejected":  # В4: отклонённый материал виден в списке, содержимое не отдаётся
+        return {**frame, "kind": kind, "content": "", "reason": f"материал отклонён{': ' + art.error_message if art.error_message else ''}"}
+    used, content = kind, ""
+    for key in (AUTO_ORDER if kind == "auto" else (kind,)):
+        used, content = _material_text(settings, art, key, mkind)
+        if content:
             break
-    return {
-        "artifact_id": artifact_id,
-        "filename": art.original_filename,
-        "file_type": art.file_type,
-        "status": art.status,
-        "kind": used_kind,
-        "content": content,
-    }
+    if not content:
+        why = "материал ещё обрабатывается" if art.status != "done" else f"у материала нет вида {kind}"
+        return {**frame, "kind": used, "content": "", "reason": f"{why}; есть: {', '.join(frame['available_kinds']) or 'ничего'}"}
+    # порция по бюджету вызова (page_bytes); limit здесь не действует — он для файлов контракта (число пунктов)
+    return mcp_page.text_page(content, cursor, {**frame, "kind": used}, max_bytes=mcp_page.current(mcp_page.MAX_PAGE_BYTES))

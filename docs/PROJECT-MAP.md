@@ -551,6 +551,8 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 - чтение: `get_guide` (инструкция агенту), `project_overview`, `list_artifacts`, `get_project_summary`, `search_project`, `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts`, `get_artifact_content`, `get_artifact_meta`, `get_requirements`, `get_tz`, `get_changes`, `get_conflicts`, `get_quote` (дословная цитата), `get_code_anchors`;
 - обмен (только ключ с правами «вопросы» / «вопросы и вердикты»): `submit_question`, `submit_verdicts`, `wait_reply`, `exchange_status`.
 
+Порции и полнота (`docs/plans/MCP-KB-PLAN.md`, с 2026-10-08): ответ любого инструмента — компактный JSON не больше порции `MCP_PAGE_BYTES` (60 КБ ≈ 20 тыс. токенов), агент может попросить до 200 КБ параметром `page_bytes` (`services/mcp_page.py`: бюджет на вызов в контекстной переменной, его берёт и `contract.paginate`; по HTTP файлы контракта — по-прежнему до 200 КБ). Списки `list_entities`, `list_conflicts`, `list_notes`, `get_changes`, `get_code_anchors`, `get_conflicts`, `get_requirements` — `{total, cursor, items}`; граф — порциями по узлам с исходящими рёбрами. `get_artifact_content` отдаёт материал по виду (`project_mcp_data.MATERIAL_SOURCES`): созвон — `summary`, `brief`, `outline`, `text` (стенограмма); документ — `summary`, `text`; переписка — `summary`, `text`, `messages`; файл обмена агента — как прислан; плюс `entities`. Текст — порциями по строкам: `offset`, `total_chars`, `cursor`, `truncated`, `available_kinds`; отклонённый материал — пустое содержимое и `reason`. Страж в `call_tool`: непредусмотренный длинный список — первая порция с курсором, иное — ошибка `too_large`. Проверка на живых данных — `scripts/mcp_audit.py`.
+
 Публичный URL для MCP задаётся в `.env`: `WEB_PUBLIC_URL=https://<публичный-адрес>:777`. Без него в UI подставляется адрес из текущего запроса.
 
 #### Обмен с агентами — три карточки (`partials/px_agent_cards.html` + `static/px_agent.js`)
@@ -1266,7 +1268,8 @@ data/projects/{project_id}/
 | `agent_guide.py` | инструкции для клиента: что и как спрашивать, отдаются в `initialize` MCP |
 | `contract.py`, `contract_text.py`, `project_mcp_contract.py` | контракт обмена: виртуальные файлы `contract/*.json`, разбор переписки, дословные цитаты, оценки часов, якоря кода |
 | `requirement_review.py` | подтверждение требований (сущности decision/task): очередь по темам (вкладки «Ждут вас» / «Устарело» / «Склеено» / …; устаревшее и дубли прячутся из «Ждут вас» уже в тени — А3), у пункта: кто сказал и кто утвердил, где и когда по каждому источнику (`sources`, А9), ход обсуждения (`context`, до 5 реплик), вид пункта, «что заменило»; подтвердить (устаревшее — только с `force`, иначе 409, А6) / отклонить / сменить статус / «Это актуально» (`POST …/requirements/entity/{id}/mark-current`) |
-| `project_mcp_data.py`, `project_mcp_tokens.py` | данные и ключи проектного MCP (`can_submit`); 16 инструментов |
+| `project_mcp_data.py`, `project_mcp_tokens.py` | данные и ключи проектного MCP (`can_submit`); содержимое материалов по виду (`MATERIAL_SOURCES`) |
+| `mcp_page.py` | порции ответов MCP: бюджет `MCP_PAGE_BYTES` / `page_bytes` на вызов, нарезка текста по строкам и списков по курсору |
 | `project_deadlines.py`, `project_tasks.py` | дедлайны проекта (точный срок `deadline_at` от модели — приоритет над разбором текста, `resolve_due`; исполнитель-метка `speaker_N` → имя после переименования спикера через `assignee_start_sec`, промпт `extract_entities_v4.md`); фоновые задачи API (зависшие помечаются при старте) |
 
 ### Индекс проекта (`services/project_index/`, сентябрь 2026)
@@ -1528,6 +1531,7 @@ run_pipeline
 | `eval_chat.py` | Оценка чата на копии БД (`docs/eval/chat_questions_*.json`): пустые ответы, источники, отказ на ловушках |
 | `restart.ps1` | Безопасный перезапуск: проверка Ollama/LM Studio/модели/порта → `start.ps1` → ждёт нового воркера и `/health` |
 | `llm_model.py` | Локальная модель по профилю: `status` / `load` / `unload` / `jit-off` (те же функции, что у портала, §3.2) |
+| `mcp_audit.py` | Аудит проектного MCP на живых данных: размер каждого ответа, полнота текста материалов по курсору против файла на диске, память решений, права в инструкции; `--save` → `data/eval/mcp_audit_*.md`, код 1 — провалы (MCP-KB-PLAN) |
 | `bench_llm_lanes.py` | Замер этапа 0 LLM-LANES-PLAN: VRAM и скорость модели в два потока при разных окнах → `data/eval/llm_lanes_bench_*.md` |
 | `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
@@ -1695,6 +1699,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Данные | `EXCHANGE_FILES_RESERVE_GB` | `20` | посылка не открывается, если после неё на диске останется меньше |
 | Данные | `EXCHANGE_BUNDLE_MAX_GB` | `64` | предел одной посылки |
 | Данные | `EXCHANGE_AUTO_UNPACK` | `true` | принятая целиком посылка сама раскладывается в `data/projects/<id>/config/` (фоном); `false` — только вручную скриптом |
+| Данные | `MCP_PAGE_BYTES` | `60000` | порция ответа инструмента проектного MCP в байтах (~20 тыс. токенов); агент может попросить до 200000 параметром `page_bytes` |
 | Слух | `GIGAAM_API_KEY` | пусто | ключ контейнера GigaAM, передаётся конвейеру |
 | Слух | `ALLOW_LEGACY_ASR` | не задана | `1` — перезапуск прежних контейнеров вместе с GigaAM; по умолчанию перезапускается только GigaAM |
 | Комнаты | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | пусто | сервер комнат LiveKit |
@@ -1884,6 +1889,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `llm_keeper.py` | Хранитель локальной модели: загрузка строго по профилю `tools/lmstudio/qwen-profile.json`, сверка после загрузки, |
 | `llm_lanes.py` | Две полосы локальной модели (план docs/plans/LLM-LANES-PLAN.md). |
 | `login_allowlist.py` | Допуск на вход: только логины из Login_up.txt, без учёта регистра. |
+| `mcp_page.py` | Порции ответов проектного MCP (docs/plans/MCP-KB-PLAN.md, В1): бюджет байт на вызов, нарезка текста и списков по курсору. |
 | `media_cleanup.py` | Чистка исходников: удаление видео после проверки извлечённого WAV и сверка пути исходника артефакта. |
 | `meeting_analyze.py` | Queue dual-hearing jobs for native meeting tracks. No Sortformer. |
 | `meeting_checks.py` | Чистые проверки шкалы созвона. Без БД и без LiveKit. |
@@ -2160,6 +2166,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `llm_model.py` | Локальная модель по профилю tools/lmstudio/qwen-profile.json — те же функции, что у портала (services/llm_keeper.py). |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `material_dates.py` | Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). |
+| `mcp_audit.py` | Аудит проектного MCP на живых данных (docs/plans/MCP-KB-PLAN.md): что и сколько получает внешний агент. |
 | `memory_scorecard.py` | Табло памяти решений: числа, по которым видно, приближаемся ли мы к цели (docs/plans/DECISION-MEMORY-PLAN.md, §4.3). |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
@@ -2357,7 +2364,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-08 11:15: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-08 13:31: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2576,6 +2583,7 @@ _Проверено 2026-10-08 11:15: сущностей 130, не описан�
 | `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
 | `docs/plans/final-plan.md` | SKKKK: идеальная расшифровка созвона — итоговый план |
 | `docs/plans/LLM-LANES-PLAN.md` | SKKKK — Две полосы локальной модели: чат отвечает во время обработки |
+| `docs/plans/MCP-KB-PLAN.md` | SKKKK — MCP базы знаний: полный текст, порции, память решений, честные инструкции |
 | `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |
 | `docs/plans/MEETING-PLAN.md` | SKKKK — Созвон: единый план до production-ready (комната → запись → расшифровка → знания) |
 | `docs/plans/meeting-room-plan.md` | SKKKK: страница созвона — план доработки по тестовому созвону 12 |

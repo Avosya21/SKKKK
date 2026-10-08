@@ -29,7 +29,7 @@ def get_requirements(
         wanted = set(requirement_ids)
         items = [r for r in items if r["id"] in wanted]
     if updated_since:
-        changed = {c["id"] for c in get_changes(db, settings, project_id, since=updated_since, limit=100_000)["items"] if c["change"] != "removed"}
+        changed = {c["id"] for c in change_items(db, settings, project_id, since=updated_since) if c["change"] != "removed"}
         items = [r for r in items if r["id"] in changed]
     if fields == "brief":  # для маршрутизации: без цитат и длинных текстов (~500 байт вместо ~2 КБ); цитата — через get_quote
         items = [_brief(r) for r in items]
@@ -44,12 +44,13 @@ def _brief(r: dict[str, Any]) -> dict[str, Any]:
             "verified_by": (r.get("analysis") or {}).get("verified_by"), "analysis_verdict": (r.get("analysis") or {}).get("verdict")}
 
 
-def get_conflicts(db: Session, settings: Settings, project_id: int, *, min_severity: str | None = None, status: str | None = None) -> dict[str, Any]:
+def get_conflicts(db: Session, settings: Settings, project_id: int, *, min_severity: str | None = None, status: str | None = None,
+                  cursor: str | None = None) -> dict[str, Any]:
     payload = dict(_built(db, settings, project_id).files["conflicts"])
     order = {"low": 0, "medium": 1, "high": 2}
     floor = order.get(min_severity or "low", 0)
     items = [c for c in payload["items"] if (not status or c["status"] == status) and order.get(c["severity"], 0) >= floor]
-    return {**payload, "total": len(items), "items": items}
+    return ctr.paginate({**payload, "total": len(items), "items": items}, cursor=cursor)
 
 
 def get_tz(db: Session, settings: Settings, project_id: int, *, version: str | None = None) -> dict[str, Any]:
@@ -76,7 +77,8 @@ def get_quote(db: Session, settings: Settings, project_id: int, *, requirement_i
     raise ValueError("Requirement not found")
 
 
-def get_code_anchors(db: Session, settings: Settings, project_id: int, *, requirement_ids: list[str] | None = None, system: str | None = None) -> dict[str, Any]:
+def get_code_anchors(db: Session, settings: Settings, project_id: int, *, requirement_ids: list[str] | None = None, system: str | None = None,
+                     cursor: str | None = None) -> dict[str, Any]:
     wanted = set(requirement_ids or [])
     items = []
     for row in _built(db, settings, project_id).files["requirements"]["items"]:
@@ -84,15 +86,23 @@ def get_code_anchors(db: Session, settings: Settings, project_id: int, *, requir
             continue
         anchors = [a for a in row["code_anchors"] if not system or a["system"] == system]
         items.append({"requirement_id": row["id"], "code_anchors": anchors, "code_anchors_reason": row.get("code_anchors_reason")})
-    return {"total": len(items), "items": items}
+    return ctr.paginate({"total": len(items), "items": items}, cursor=cursor)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
     return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def get_changes(db: Session, settings: Settings, project_id: int, *, since: str | None = None, limit: int = 200) -> dict[str, Any]:
-    """Дельта контракта после момента since (ISO-8601): added / changed / removed. Без since — всё как added."""
+def get_changes(db: Session, settings: Settings, project_id: int, *, since: str | None = None, limit: int = 200,
+                cursor: str | None = None) -> dict[str, Any]:
+    """Дельта контракта после момента since (ISO-8601): added / changed / removed. Без since — всё как added.
+    Порциями: limit — сколько пунктов в порции, cursor — из прошлого ответа (раньше курсор отдавался, но не принимался)."""
+    items = change_items(db, settings, project_id, since=since)
+    return ctr.paginate({"since": since, "total": len(items), "items": items}, cursor=cursor, limit=limit)
+
+
+def change_items(db: Session, settings: Settings, project_id: int, *, since: str | None = None) -> list[dict[str, Any]]:
+    """Все пункты дельты контракта после since, без порций."""
     _built(db, settings, project_id)  # обновляет реестр стабильных id
     cutoff = None
     if since:
@@ -113,4 +123,4 @@ def get_changes(db: Session, settings: Settings, project_id: int, *, since: str 
         else:
             continue
         items.append({"id": f"{r.kind}-{slug}-{r.seq:04d}", "change": change, "at": (rem or upd).isoformat()})
-    return {"since": since, "total": len(items), "items": items[:limit], "cursor": str(limit) if len(items) > limit else None}
+    return items
