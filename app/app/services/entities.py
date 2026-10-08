@@ -816,22 +816,15 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str, cont
     """Извлечь сущности частями. ``context`` — карточка проекта, оглавление созвона, темы (extraction_context);
     к каждой части созвона добавляется хвост предыдущей части — только для понимания (REQUIREMENTS-PLAN этап 4)."""
     system = _load_system_prompt()
-    log_event(
-        logger,
-        "entities.llm.start",
-        artifact=artifact.artifact_id,
-        llm_provider=settings.llm_provider,
-        llm=llm_runtime_label(settings.llm_provider),
-        chars=len(text),
-        context_chars=len(context),
-        prompt=PROMPT_VERSION,
-    )
+    # Всё, что нужно от artifact, читаем до вызовов модели: после db.commit() вызывающего объект просрочен, и чтение
+    # поля подгружает его заново — открывается транзакция, которая держала соединение пула все минуты извлечения
+    # (worker.log 2026-10-08 14:29:21). Дальше работаем только с этими значениями.
+    artifact_key = artifact.artifact_id
+    source_type = artifact.source_type
+    timestamp = _material_timestamp(artifact)
     chat = _numbered_message_parts(settings, artifact, max_chars=EXTRACT_PART_CHARS)
     prefixes: list[str] = []
     if chat is not None:  # переписка Telegram: сообщения с номерами (SOURCE-ANCHORS-PLAN этап 2)
-        if not chat:
-            log_event(logger, "entities.chat.all_owned_elsewhere", artifact=artifact.artifact_id)
-            return EntitiesPayload(artifact_id=artifact.artifact_id, source_type=artifact.source_type)
         numbered = [c for _ctx, c in chat]
         prefixes = [ctx for ctx, _c in chat]
         header = _messages_header()
@@ -841,6 +834,24 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str, cont
         if not numbered and getattr(artifact, "file_type", "") != "audio":  # документ: абзацы P<n> (Э1)
             numbered = _numbered_unit_parts(text, max_chars=EXTRACT_PART_CHARS)
             header = _paragraphs_header() if numbered else ""
+    from sqlalchemy import inspect as sa_inspect
+
+    state = sa_inspect(artifact, raiseerr=False)  # не ORM-объект (тесты, заглушки) — сессии нет
+    if state is not None and state.session is not None:
+        state.session.commit()
+    log_event(
+        logger,
+        "entities.llm.start",
+        artifact=artifact_key,
+        llm_provider=settings.llm_provider,
+        llm=llm_runtime_label(settings.llm_provider),
+        chars=len(text),
+        context_chars=len(context),
+        prompt=PROMPT_VERSION,
+    )
+    if chat is not None and not chat:
+        log_event(logger, "entities.chat.all_owned_elsewhere", artifact=artifact_key)
+        return EntitiesPayload(artifact_id=artifact_key, source_type=source_type)
     pieces = numbered or _split_for_extraction(text)
     parts: list[EntitiesPayload] = []
     previous_tail = ""
@@ -850,20 +861,22 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str, cont
             tail = f"## Уже разобрано в другой выгрузке этой переписки (только контекст, не извлекать)\n{prefixes[number]}\n\n" + tail
         body = f"## Основной текст\n{header}{chunk}" if (context or tail) else f"{header}{chunk}"
         user = (
-            f"artifact_id={artifact.artifact_id}\n"
-            f"source_type={artifact.source_type}\n"
-            f"timestamp={_material_timestamp(artifact)}\n\n"
+            f"artifact_id={artifact_key}\n"
+            f"source_type={source_type}\n"
+            f"timestamp={timestamp}\n\n"
             + (f"{context}\n\n" if context else "")
             + tail
             + body
         )
         previous_tail = "\n".join(chunk.splitlines()[-EXTRACT_OVERLAP_TURNS:]) if numbered else ""
         prefix = user[: len(user) - len(chunk)]
-        parts.extend(_extract_chunk(settings, artifact, system, prefix, chunk))
+        parts.extend(_extract_chunk(settings, artifact_key, source_type, system, prefix, chunk))
     return _merge_payloads(parts)
 
 
-def _extract_chunk(settings: Settings, artifact: Artifact, system: str, prefix: str, chunk: str, depth: int = 0) -> list[EntitiesPayload]:
+def _extract_chunk(
+    settings: Settings, artifact_key: str, source_type: str, system: str, prefix: str, chunk: str, depth: int = 0
+) -> list[EntitiesPayload]:
     """Одна часть. Оборванный JSON — обычно ответ упёрся в max_tokens (плотный документ): повтор даст тот же обрыв,
     поэтому часть делится пополам по строкам (до 2 раз) и каждая половина извлекается отдельно."""
     user = prefix + chunk
@@ -872,18 +885,18 @@ def _extract_chunk(settings: Settings, artifact: Artifact, system: str, prefix: 
         try:
             reply = chat_completion_no_think(settings, system=system, user=user, max_tokens=EXTRACT_MAX_TOKENS)
             payload = _parse_entities(reply)
-            payload.artifact_id = artifact.artifact_id
-            payload.source_type = artifact.source_type
+            payload.artifact_id = artifact_key
+            payload.source_type = source_type
             return [payload]
         except (json.JSONDecodeError, ValidationError, RuntimeError) as exc:
             last_err = str(exc)
             lines = chunk.splitlines()
             if isinstance(exc, json.JSONDecodeError) and depth < 2 and len(lines) > 1:
-                log_event(logger, "entities.chunk.split", artifact=artifact.artifact_id, chars=len(chunk), depth=depth + 1, error=last_err)
+                log_event(logger, "entities.chunk.split", artifact=artifact_key, chars=len(chunk), depth=depth + 1, error=last_err)
                 half = len(lines) // 2
                 return [
-                    *_extract_chunk(settings, artifact, system, prefix, "\n".join(lines[:half]), depth + 1),
-                    *_extract_chunk(settings, artifact, system, prefix, "\n".join(lines[half:]), depth + 1),
+                    *_extract_chunk(settings, artifact_key, source_type, system, prefix, "\n".join(lines[:half]), depth + 1),
+                    *_extract_chunk(settings, artifact_key, source_type, system, prefix, "\n".join(lines[half:]), depth + 1),
                 ]
             if attempt == 0:
                 user = user + f"\n\nПредыдущий ответ невалиден: {last_err}. Верни только JSON."

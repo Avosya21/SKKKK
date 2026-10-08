@@ -41,7 +41,9 @@ _checked_out_lock = threading.Lock()
 
 @event.listens_for(Pool, "checkout")
 def _track_checkout(dbapi_conn, _record, _proxy) -> None:
-    stack = "".join(traceback.format_stack(limit=14)[:-1])
+    # Кадры SQLAlchemy занимали весь стек, и место в коде портала в предупреждение не попадало (worker.log 2026-10-08).
+    frames = [f for f in traceback.format_stack(limit=60)[:-1] if "site-packages" not in f and 'File "<string>"' not in f]
+    stack = "".join(frames[-14:])
     thread = threading.current_thread()
     with _checked_out_lock:
         try:
