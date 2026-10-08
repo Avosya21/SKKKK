@@ -1,0 +1,30 @@
+{
+  "_comment": "Профиль локальной модели SKKKK — единственный источник настроек загрузки. Его читают services/llm_keeper.py и run_server.ps1. План: docs/plans/LLM-LANES-PLAN.md.",
+  "model_key": "swift-qwen3.8-27b-uncensored-dynamic-mtp",
+  "context_length": 56000,
+  "parallel": 2,
+  "gpu": "max",
+  "load": {
+    "fields": [
+      { "key": "llm.load.llama.acceleration.offloadRatio", "value": 1 },
+      { "key": "llm.load.llama.evalBatchSize", "value": 512 },
+      { "key": "llm.load.llama.physicalBatchSize", "value": 512 },
+      { "key": "llm.load.llama.flashAttention", "value": true },
+      { "key": "llm.load.llama.kCacheQuantizationType", "value": { "checked": true, "value": "q8_0" } },
+      { "key": "llm.load.llama.vCacheQuantizationType", "value": { "checked": true, "value": "q8_0" } },
+      { "key": "llm.load.llama.speculativeDecoding.draftMtp", "value": true },
+      { "key": "llm.load.llama.speculativeDecoding.draftMtpMaxTokens", "value": 3 },
+      { "key": "llm.load.llama.speculativeDecoding.draftMtpMinTokens", "value": 0 }
+    ]
+  },
+  "operation": {
+    "fields": [
+      { "key": "llm.prediction.temperature", "value": 1.0 },
+      { "key": "llm.prediction.topPSampling", "value": 0.95 },
+      { "key": "llm.prediction.topKSampling", "value": 20 },
+      { "key": "llm.prediction.minPSampling", "value": 0.0 },
+      { "key": "llm.prediction.repeatPenalty", "value": 1.0 },
+      { "key": "llm.prediction.reasoning.enableThinking", "value": true }
+    ]
+  }
+}

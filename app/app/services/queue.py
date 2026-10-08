@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from sqlalchemy import case, select, text, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.app.models.job import Job
@@ -16,6 +16,15 @@ from app.app.models.job import Job
 KIND_PROCESS = "process_artifact"
 KIND_AUTO_REVIEW = "auto_review"
 KIND_REFRESH = "refresh_knowledge"  # после имени голоса у готового созвона: переиндексация чанков и выжимка
+# Кнопки портала, которым нужна модель (пересборки, переизвлечение): выполняет воркер по очереди, а не процесс API —
+# у API своя полоса модели только для чата (docs/plans/LLM-LANES-PLAN.md). Задача привязана к материалу проекта.
+KIND_PROJECT_TASK = "project_task"
+PROJECT_TASK_TZ = "tz_rebuild"
+PROJECT_TASK_ENTITIES = "entities_reextract"
+PROJECT_TASK_CARD = "card_rebuild"
+PROJECT_TASK_SUMMARY = "call_summary_rebuild"
+PROJECT_TASKS = (PROJECT_TASK_TZ, PROJECT_TASK_ENTITIES, PROJECT_TASK_CARD, PROJECT_TASK_SUMMARY)
+WORKER_KINDS = (KIND_PROCESS, KIND_AUTO_REVIEW, KIND_REFRESH, KIND_PROJECT_TASK)
 REVIEW_SCOPES = ("reextract", "artifact", "topics", "relevance", "conflicts", "summary", "memory", "memory_judge")
 
 
@@ -121,7 +130,7 @@ def running_worker_kinds(data_dir: Path) -> set[str]:
     pid_file = data_dir / "locks" / "gpu_worker.pid"
     log = data_dir / "logs" / "worker.log"
     if not pid_file.is_file() or not log.is_file():
-        return {KIND_PROCESS, KIND_AUTO_REVIEW, KIND_REFRESH}
+        return set(WORKER_KINDS)
     pid = pid_file.read_text(encoding="utf-8").strip()
     last = ""
     with log.open(encoding="utf-8", errors="replace") as fh:
@@ -166,3 +175,100 @@ def enqueue_auto_review(db: Session, artifact_id: int, *, scope: str, mode: str)
     db.commit()
     db.refresh(job)
     return job
+
+
+def project_task_payload(job: Job) -> dict:
+    try:
+        data = json.loads(job.payload_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def enqueue_project_task(
+    db: Session, *, artifact_id: int, project_id: int, task: str, user_id: int | None, options: dict | None = None
+) -> Job | None:
+    """Поставить кнопку портала в очередь воркера. Такая же задача проекта уже ждёт или идёт — None."""
+    if task not in PROJECT_TASKS:
+        raise ValueError(f"task: один из {', '.join(PROJECT_TASKS)}")
+    for row in db.scalars(
+        select(Job).where(Job.kind == KIND_PROJECT_TASK, Job.status.in_(("queued", "running")))
+    ).all():
+        data = project_task_payload(row)
+        if data.get("task") == task and data.get("project_id") == project_id and (
+            task not in (PROJECT_TASK_SUMMARY,) or row.artifact_id == artifact_id
+        ):
+            return None
+    payload = {"task": task, "project_id": project_id, "user_id": user_id, **(options or {})}
+    job = Job(
+        artifact_id=artifact_id,
+        kind=KIND_PROJECT_TASK,
+        status="queued",
+        phase="project",
+        payload_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+def project_task_jobs(db: Session, project_id: int) -> list[Job]:
+    """Ждущие и идущие кнопки проекта (для карточки «Фоновая работа» и блокировки кнопок)."""
+    rows = db.scalars(
+        select(Job).where(Job.kind == KIND_PROJECT_TASK, Job.status.in_(("queued", "running"))).order_by(Job.id)
+    ).all()
+    return [r for r in rows if project_task_payload(r).get("project_id") == project_id]
+
+
+class ProjectTaskRefused(RuntimeError):
+    """Кнопку нельзя поставить в очередь: status — HTTP-код ответа, сообщение — для человека."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def queue_project_button(
+    db: Session,
+    data_dir: Path,
+    *,
+    project_id: int,
+    task: str,
+    user_id: int | None,
+    artifact_id: int | None = None,
+    options: dict | None = None,
+    empty_ok: bool = False,
+) -> dict:
+    """Кнопка портала → задача воркера. Без материала задача привязывается к последнему материалу проекта.
+    ``empty_ok`` — в проекте без материалов ответить «нечего делать», а не ошибкой."""
+    from app.app.models.artifact import Artifact
+    from app.app.models.project_task import ProjectTask
+
+    if KIND_PROJECT_TASK not in running_worker_kinds(data_dir):
+        raise ProjectTaskRefused(503, "Запущен воркер старой версии — перезапустите SKKKK, чтобы кнопка встала в очередь")
+    running = db.scalar(
+        select(ProjectTask.id).where(
+            ProjectTask.status == "running", ProjectTask.task_type == task, ProjectTask.project_id == project_id,
+            *([ProjectTask.artifact_db_id == artifact_id] if artifact_id is not None else []),
+        ).limit(1)
+    )
+    if running:
+        raise ProjectTaskRefused(409, "Эта задача уже выполняется")
+    if artifact_id is None:
+        artifact_id = db.scalar(
+            select(Artifact.id).where(Artifact.project_id == project_id).order_by(Artifact.id.desc()).limit(1)
+        )
+        if artifact_id is None:
+            if empty_ok:
+                return {"queued": False, "detail": "В проекте нет материалов — обрабатывать нечего"}
+            raise ProjectTaskRefused(400, "В проекте нет материалов")
+    job = enqueue_project_task(
+        db, artifact_id=artifact_id, project_id=project_id, task=task, user_id=user_id, options=options
+    )
+    if job is None:
+        raise ProjectTaskRefused(409, "Эта задача уже в очереди или выполняется")
+    ahead = db.scalar(
+        select(func.count()).select_from(Job).where(Job.status.in_(("queued", "running")), Job.id < job.id)
+    ) or 0
+    return {"queued": True, "job_id": job.id, "ahead": ahead, "detail": "Поставлено в очередь обработки"}

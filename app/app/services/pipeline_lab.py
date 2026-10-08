@@ -130,7 +130,11 @@ def _run_cmd(
     safe_step = "".join(c if c.isalnum() or c in "-_" else "_" for c in step)[:40]
     stdout_path = log_dir / f"{safe_art}_{safe_step}.out.log"
     stderr_path = log_dir / f"{safe_art}_{safe_step}.err.log"
-    with stdout_path.open("w", encoding="utf-8") as out_f, stderr_path.open("w", encoding="utf-8") as err_f:
+    from app.app.config import get_settings
+    from app.app.services.llm_keeper import asr_gpu_hold
+
+    # GPU-шаг ASR: модель на это время выгружена и не загружается (llm_keeper.asr_gpu_hold, Р1 по замеру 2026-10-05)
+    with asr_gpu_hold(get_settings(), step=step),             stdout_path.open("w", encoding="utf-8") as out_f, stderr_path.open("w", encoding="utf-8") as err_f:
         proc = subprocess.run(
             cmd,
             cwd=str(ROOT),
@@ -597,7 +601,7 @@ def _process_lab_core(db: Session, settings: Settings, artifact: Artifact) -> st
     if uses_local_gemma(settings.llm_provider):
         from app.app.services.gpu_phase import prepare_for_asr  # noqa: PLC0415
 
-        prepare_for_asr()
+        prepare_for_asr(settings=settings)
 
     mark_lab_step(ws, "lab_onnx", "running")
     onnx_cmd = [

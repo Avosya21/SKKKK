@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     # пустой контент. Включается точечно там, где бюджет рассчитан: ТЗ-конвейер.
     lmstudio_enable_thinking: bool = False
     lmstudio_reasoning_effort: str = "medium"
+    # Хранитель модели (services/llm_keeper.py, профиль tools/lmstudio/qwen-profile.json):
+    # выгрузка после простоя без задач и чата; TTL LM Studio — страховка, если процессы SKKKK упали.
+    lmstudio_idle_unload_sec: int = 300
+    lmstudio_load_ttl_sec: int = 1800
+    # Модель рядом с ASR на GPU. Замер 2026-10-05: на карте 24 ГБ не помещается (вынос в общую память, шаги встают),
+    # поэтому по умолчанию false — модель выгружается на время GPU-шагов ASR (llm_keeper.asr_gpu_hold), чат ждёт.
+    lmstudio_keep_during_asr: bool = False
+    # Доля общего окна модели под полосу чата (промпт + ответ); остальное — фоновой полосе (services/llm_lanes.py).
+    lmstudio_chat_token_budget: int = 22000
 
     llm_provider: str = "lmstudio"
     cursor_api_key: str = ""

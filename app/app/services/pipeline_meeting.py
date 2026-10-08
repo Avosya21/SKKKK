@@ -114,7 +114,7 @@ def _process_meeting_tracks(
     if uses_local_gemma(settings.llm_provider):
         from app.app.services.gpu_phase import prepare_for_asr
 
-        prepare_for_asr()
+        prepare_for_asr(settings=settings)
 
     mark_lab_step(ws, "track_asr", "running")
     buckets: dict[str, list[dict]] = {}
@@ -147,6 +147,11 @@ def _process_meeting_tracks(
     mark_lab_step(ws, "track_asr", "ok", detail=f"с речью {spoken}/{len(prepared)}")
     mark_lab_step(ws, "track_giga", "ok", detail="по дорожкам с речью")
     mark_lab_step(ws, "track_proof", "ok", detail="по дорожкам с речью")
+    # GigaAM больше не нужен: освобождаем его VRAM до кадров экрана (vision идёт той же моделью, что и чат).
+    # Раньше контейнер держал память до конца склейки и кадров — 54 мин на созвоне 2026-10-05.
+    from app.app.services.docker_runtime import stop_gigaam
+
+    stop_gigaam()
 
     mark_lab_step(ws, "merge", "running")
     db.commit()
@@ -305,6 +310,12 @@ def _transcribe_track(settings: Settings, parent: Artifact, row: dict) -> tuple[
             run_id,
         ]
         _run_cmd(overlay, env, timeout=timeout, artifact_id=row["child_id"], step=step_id)
+        if step_id == "lab_giga" and not settings.lmstudio_keep_during_asr:
+            # После работы контейнер держит ~2,9 ГБ кэша CUDA; рядом с моделью (вычитка, ответы чата) карта 24 ГБ
+            # переполняется — замер 2026-10-05. Следующая дорожка поднимет его заново (~15 с, ensure_gigaam_ready).
+            from app.app.services.docker_runtime import stop_gigaam
+
+            stop_gigaam()
     replicas = _load_track_replicas(settings, child, run_id)
     replicas, repairs = repair_track_replicas(replicas, _load_giga_turns(settings, child, run_id))
     if repairs:

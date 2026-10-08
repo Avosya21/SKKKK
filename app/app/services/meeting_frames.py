@@ -418,7 +418,8 @@ def _frame_text(settings: Settings, path: Path, *, describe: bool) -> tuple[str,
         return ocr, "ocr" if ocr else ""
     try:
         vision = _describe_frame(settings, path)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — кадр остаётся с OCR, но сбой модели должен быть виден в журнале
+        log_event(logger, "meeting.video_frame.vision_failed", level=logging.WARNING, frame=path.name, error=str(exc)[:300])
         return ocr, "ocr" if ocr else ""
     return vision or ocr, "vision" if vision else ("ocr" if ocr else "")
 

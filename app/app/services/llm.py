@@ -148,7 +148,7 @@ def lmstudio_chat_raw(
         enable_thinking=enable_thinking,
     )
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    with httpx.Client(timeout=timeout) as client:
+    with _lane_request(system, user, max_tokens, "chat"), httpx.Client(timeout=timeout) as client:
         response = client.post(url, json=body, headers=headers)
         if response.status_code >= 400:
             detail = response.text.strip()[:500]
@@ -201,6 +201,25 @@ def lmstudio_completions_raw(
     тогда генерация идёт прямо в контент. На реальных map/reduce-промптах даёт
     ~6-9x меньше токенов и ~5-7x быстрее при том же качестве ответа.
     """
+    with _lane_request(system, user, max_tokens, "completions"):
+        return _completions_http(
+            base_url=base_url, api_key=api_key, model=model, system=system, user=user,
+            temperature=temperature, max_tokens=max_tokens, timeout=timeout,
+        )
+
+
+def _completions_http(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    system: str,
+    user: str,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+) -> tuple[str, dict[str, Any]]:
+    """Сам HTTP-вызов /v1/completions без полос: самопроверка сразу после загрузки и замер этапа 0."""
     prompt = (
         f"<|im_start|>system\n{system}<|im_end|>\n"
         f"<|im_start|>user\n{user}<|im_end|>\n"
@@ -235,13 +254,21 @@ def lmstudio_completions_raw(
         "had_reasoning_content": False,
     }
     logger.info(
-        "lmstudio.completions_raw ok model=%s chars=%s completion_tokens=%s prompt_tokens=%s",
+        "lmstudio.completions_raw ok model=%s chars=%s completion_tokens=%s prompt_tokens=%s prompt_chars=%s",
         model,
         len(text),
         meta.get("completion_tokens"),
         meta.get("prompt_tokens"),
+        len(system) + len(user),
     )
     return text, meta
+
+
+def _lane_request(system: str, user: str, max_tokens: int, what: str):
+    """Полоса модели (services/llm_lanes.py): загрузка по профилю, очередь, бюджет окна."""
+    from app.app.services.llm_lanes import estimate_tokens, llm_request
+
+    return llm_request(Settings(), est_tokens=estimate_tokens(system, user) + max_tokens, what=what)
 
 
 NO_THINK_ENV = "LMSTUDIO_NO_THINK"
@@ -273,7 +300,12 @@ def announce_llm_and_selfcheck(settings: Settings, log) -> None:
     if os.environ.get("SKKKK_DISABLE_LLM_SELFCHECK") == "1":
         return  # тесты не должны будить настоящий LM Studio: он заново загрузит 18-гигабайтную модель в GPU
     if provider_uses_lmstudio(settings):
-        threading.Thread(target=lmstudio_no_think_selfcheck, args=(settings,), daemon=True, name="no-think-selfcheck").start()
+        # Только если модель уже в памяти: проверка не должна загружать 18 ГБ при старте процесса.
+        # Иначе её запустит хранитель сразу после загрузки (llm_keeper._after_load).
+        from app.app.services.llm_keeper import model_state
+
+        if model_state(settings) == "loaded":
+            threading.Thread(target=lmstudio_no_think_selfcheck, args=(settings,), daemon=True, name="no-think-selfcheck").start()
 
 
 def no_think_status() -> dict[str, Any]:
@@ -286,12 +318,14 @@ def lmstudio_no_think_selfcheck(settings: Settings) -> tuple[bool | None, str]:
     True — обход работает; False — модель/шаблон другие, обход даёт мусор (переходим на chat-эндпоинт);
     None — LM Studio недоступна, вывода нет (обход не отключаем)."""
     try:
-        text, _meta = lmstudio_completions_raw(
+        # без полос и без загрузки: проверка идёт сразу после загрузки модели хранителем (llm_keeper._after_load)
+        text, _meta = _completions_http(
             base_url=settings.lmstudio_base_url,
             api_key=settings.lmstudio_api_key,
             model=settings.lmstudio_model,
             system="Отвечай одним словом.",
             user="Ответь словом: готово",
+            temperature=0.0,
             max_tokens=24,
             timeout=60,
         )
@@ -604,14 +638,29 @@ def chat_completion_vision(
         ],
     }
     headers = {"Authorization": f"Bearer {settings.lmstudio_api_key}"}
-    with httpx.Client(timeout=timeout) as client:
+    import time
+
+    started = time.monotonic()
+    # картинка занимает в окне модели порядка 1-2 тыс. токенов — учитываем с запасом
+    with _lane_request(system, user_text, max_tokens + 2000, "vision"), httpx.Client(timeout=timeout) as client:
         r = client.post(url, json=body, headers=headers)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            raise RuntimeError(f"LM Studio HTTP {r.status_code} for {url}: {r.text.strip()[:500] or r.reason_phrase}")
         data = r.json()
     choices = data.get("choices") or []
     if not choices:
         raise RuntimeError("LM Studio returned empty choices")
-    return (choices[0].get("message") or {}).get("content") or ""
+    text = (choices[0].get("message") or {}).get("content") or ""
+    usage = data.get("usage") or {}
+    logger.info(
+        "lmstudio.vision ok model=%s chars=%s completion_tokens=%s prompt_tokens=%s seconds=%.1f",
+        settings.lmstudio_model,
+        len(text),
+        usage.get("completion_tokens"),
+        usage.get("prompt_tokens"),
+        time.monotonic() - started,
+    )
+    return text
 
 
 def lmstudio_models(settings: Settings, timeout: float = 5) -> list[str]:
@@ -632,37 +681,42 @@ def lmstudio_model_loaded(model: str, loaded_ids: list[str]) -> bool:
 
 
 def ensure_lmstudio_gemma_loaded(settings: Settings, *, timeout: float = 10) -> None:
-    """Проверка, что LMSTUDIO_MODEL видна в LM Studio."""
-    loaded = lmstudio_models(settings, timeout=timeout)
-    if lmstudio_model_loaded(settings.lmstudio_model, loaded):
-        return
-    raise RuntimeError(
-        f"{settings.lmstudio_model} не в LM Studio. Сначала остановите GPU ASR-контейнеры "
-        f"и выполните: lms load {settings.lmstudio_model} -y"
-    )
+    """LMSTUDIO_MODEL загружена строго по профилю (llm_keeper); если нет — загрузить. Для процессов ASR (asr/llm_client.py).
+
+    Раньше проверка шла по /v1/models, а при автозагрузке LM Studio он перечисляет и не загруженные модели."""
+    from app.app.services.llm_keeper import ensure_loaded
+
+    ensure_loaded(settings, reason="ASR")
 
 
 def check_llm_provider(settings: Settings):
     from app.app.preflight import CheckResult, FAIL, OK, WARN
 
     if provider_uses_lmstudio(settings):
-        try:
-            models = lmstudio_models(settings)
-        except Exception as exc:
+        from app.app.services.llm_keeper import keeper_status
+
+        status = keeper_status(settings)
+        if status.get("state") is None:
             return CheckResult(
                 "llm",
                 FAIL,
-                f"LM Studio {settings.lmstudio_base_url} недоступен: {exc}",
+                f"LM Studio {settings.lmstudio_base_url} недоступен",
                 "запустите LM Studio и включите сервер",
             )
-        if not lmstudio_model_loaded(settings.lmstudio_model, models):
+        if status.get("error"):
+            return CheckResult("llm", FAIL, f"профиль модели: {status['error']}", "tools/lmstudio/qwen-profile.json")
+        if status.get("jit"):
             return CheckResult(
                 "llm",
                 WARN,
-                f"{settings.lmstudio_model} не загружена (доступно {len(models)})",
-                "lms load " + settings.lmstudio_model,
+                "в LM Studio включена автозагрузка моделей (JIT): модель может подняться не по профилю",
+                "LM Studio → Developer → Server Settings: выключить Just-in-Time Model Loading",
             )
-        return CheckResult("llm", OK, f"{settings.lmstudio_model} через LM Studio")
+        if status.get("mismatch"):
+            return CheckResult("llm", WARN, "модель загружена не по профилю: " + "; ".join(status["mismatch"]),
+                               "перезагрузится по профилю при следующем запросе")
+        state = "в памяти" if status.get("state") == "loaded" else "загрузится по требованию"
+        return CheckResult("llm", OK, f"{settings.lmstudio_model} через LM Studio ({state})")
 
     if not settings.cursor_api_key.strip():
         return CheckResult(

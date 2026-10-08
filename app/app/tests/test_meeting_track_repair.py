@@ -204,10 +204,13 @@ def test_transcribe_track_keeps_speech_heard_only_by_the_second_ear(tmp_path, mo
     monkeypatch.setattr(pm, "_load_track_replicas", lambda settings, child, run_id: [])
     monkeypatch.setattr(pm, "_load_giga_turns", lambda settings, child, run_id: [{"start": 271.0, "end": 273.0, "text": "Кто отвечает за выгрузку?"}])
     monkeypatch.setattr(pm, "_write_track_repairs", lambda settings, child, run_id, repairs: written.setdefault("repairs", repairs))
-    settings = SimpleNamespace(gigaam_url="http://x")
+    stops = []
+    monkeypatch.setattr("app.app.services.docker_runtime.stop_gigaam", lambda: stops.append(1))
+    settings = SimpleNamespace(gigaam_url="http://x", lmstudio_keep_during_asr=False)
     parent = SimpleNamespace(project_id=1, artifact_id="art_parent")
     row = {"child_id": "art_parent__guest-x", "identity": "guest:x", "speaker": "Игорь", "wav16": str(tmp_path / "a.wav"), "offset_sec": 7.614}
     words, _wav, had_words = pm._transcribe_track(settings, parent, row)
+    assert stops == [1]  # GigaAM освобождает VRAM сразу после своего шага: дальше вычитка моделью
     assert had_words is True and " ".join(w["word"] for w in words) == "Кто отвечает за выгрузку?"
     assert round(words[0]["start"], 1) == 278.6 and all(w["speaker"] == "Игорь" for w in words)  # 271 + смещение 7,614
     assert written["repairs"][0]["action"] == "added_from_giga"

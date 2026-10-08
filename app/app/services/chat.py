@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,6 @@ from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import Entity, Link, UserNote
-from app.app.models.job import Job
 from app.app.services.llm import chat_completion_no_think
 from app.app.services.source_links import source_url
 from app.app.services.artifact_reports import load_document_payload
@@ -67,9 +67,17 @@ def _squash(text: str) -> str:
     return " ".join((text or "").split())
 
 
-def asr_busy(db: Session) -> bool:
-    row = db.scalar(select(Job.id).where(Job.status == "running", Job.phase == "asr").limit(1))
-    return row is not None
+class ChatAlreadyPending(RuntimeError):
+    """У пользователя в этом проекте уже есть вопрос, ожидающий ответа."""
+
+
+# Проверка «уже ждёт ответа» и запись вопроса — под одним замком: иначе два одновременных запроса проходят оба.
+_submit_guard = threading.Lock()
+
+
+def chat_owner(project_id: int, user_id: int) -> tuple[str, int, int]:
+    """Ключ очереди полосы чата (llm_lanes.chat_queue) для вопросов пользователя в проекте."""
+    return ("chat", project_id, user_id)
 
 
 def _load_prompt() -> str:
@@ -387,10 +395,14 @@ def cleanup_stale_chat_pending(
         q = q.where(ChatMessage.user_id == user_id)
     rows = db.scalars(q).all()
     n = 0
+    from app.app.services.llm_lanes import chat_queue
+
     for row in rows:
         created = row.created_at
         if not created:
             continue
+        if chat_queue.position(chat_owner(row.project_id, row.user_id)) is not None:
+            continue  # вопрос ещё в очереди полосы чата или ответ готовится — не «завис»
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         if now - created > timedelta(minutes=CHAT_STALE_MINUTES):
@@ -682,13 +694,25 @@ def _answer_chat_body(
     guidance_reply: str | None = None
     answer_question = question.strip()
 
-    save_chat_message(
-        db,
-        project_id=project_id,
-        user_id=user_id,
-        role="user",
-        content=question.strip(),
-    )
+    with _submit_guard:
+        if chat_is_pending(db, project_id=project_id, user_id=user_id):
+            raise ChatAlreadyPending("ИИ уже готовит ответ на предыдущий вопрос")
+        save_chat_message(
+            db,
+            project_id=project_id,
+            user_id=user_id,
+            role="user",
+            content=question.strip(),
+        )
+        pending = save_chat_message(
+            db,
+            project_id=project_id,
+            user_id=user_id,
+            role="assistant",
+            content=CHAT_PENDING_TEXT,
+            sources=[],
+            waiting=True,
+        )
     from app.app.services.user_activity import ACTION_QUESTION
 
     _log_chat_activity(
@@ -711,26 +735,20 @@ def _answer_chat_body(
             topic=pending_meta.get("topic"),
         )
 
-    pending = save_chat_message(
-        db,
-        project_id=project_id,
-        user_id=user_id,
-        role="assistant",
-        content=CHAT_PENDING_TEXT,
-        sources=[],
-        waiting=True,
-    )
+    from app.app.services.llm_lanes import chat_turn
 
     try:
-        return _answer_chat_inner(
-            db,
-            settings,
-            project_id,
-            user_id,
-            answer_question,
-            pending,
-            guidance_reply=guidance_reply,
-        )
+        # Полоса чата: ответы всех пользователей и черновики MCP строго по очереди прихода (llm_lanes.chat_queue).
+        with chat_turn(chat_owner(project_id, user_id), label="chat"):
+            return _answer_chat_inner(
+                db,
+                settings,
+                project_id,
+                user_id,
+                answer_question,
+                pending,
+                guidance_reply=guidance_reply,
+            )
     except Exception:
         finalize_chat_message(
             db,
@@ -752,17 +770,6 @@ def _answer_chat_inner(
     *,
     guidance_reply: str | None = None,
 ) -> dict[str, Any]:
-    if asr_busy(db):
-        answer = "Идёт транскрипция, ответ будет позже."
-        finalize_chat_message(
-            db,
-            pending,
-            content=answer,
-            sources=[],
-            waiting=False,
-        )
-        return {"answer": answer, "sources": [], "waiting": False}
-
     init_vector_store(get_engine())
     q_vecs = embed_texts(settings, [question])
     init_chunk_fts(get_engine())

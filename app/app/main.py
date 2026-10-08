@@ -331,7 +331,18 @@ def health_ready(
         "queue": {"queued": queued, "running": running},
         "build": _build_for(_user),
         "llm_no_think": _no_think_for(_user),
+        "llm_model": _llm_model_for(_user, settings),
     }
+
+
+def _llm_model_for(user: User, settings: Settings) -> dict:
+    """Хранитель модели и очередь чата (LLM-LANES-PLAN): загружена ли модель по профилю, сколько ждут ответа ИИ."""
+    if user.role != "admin" or not provider_uses_lmstudio(settings):
+        return {}
+    from app.app.services.llm_keeper import keeper_status
+    from app.app.services.llm_lanes import chat_queue
+
+    return {**keeper_status(settings), "chat_waiting": chat_queue.waiting()}
 
 
 def _no_think_for(user: User) -> dict:
@@ -446,6 +457,7 @@ def _spawn_worker() -> subprocess.Popen:
     """Воркер поднимается отдельным процессом: у него свой цикл GPU-фаз."""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_PROJECT_ROOT), env.get("PYTHONPATH", "")]))
+    env["SKKKK_PROCESS_ROLE"] = "worker"  # не наследовать роль процесса портала (llm_lanes)
     process = subprocess.Popen(
         [sys.executable, "-m", "app.app.main", "worker", "--skip-checks", "--use-saved-llm"],
         cwd=str(_PROJECT_ROOT),
@@ -483,6 +495,8 @@ def _serve(host: str, port: int, *, reload: bool) -> None:
     # При reload uvicorn перезапускает воркер по строке импорта; `.env` к этому
     # моменту уже подготовлен родительским процессом.
     target = "app.app.main:app" if reload else app
+    # Процесс портала: модель для него — только полоса чата (services/llm_lanes.py); переменная доходит и до reload-воркера.
+    os.environ["SKKKK_PROCESS_ROLE"] = "api"
     uvicorn.run(target, host=host, port=port, log_level="info", reload=reload)
 
 
