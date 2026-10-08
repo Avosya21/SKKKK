@@ -2357,7 +2357,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-06 17:36: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-08 11:15: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2382,8 +2382,7 @@ _Проверено 2026-10-06 17:36: сущностей 130, не описан�
 | `Login_up.txt` | данные | кто имеет право входить в портал (не в git) | нет |
 | `Panel_users.example.txt` | шаблон | образец списка логинов с доступом к панели /admin/users | да |
 | `Panel_users.txt` | данные | логины с доступом к панели /admin/users, по строке на логин (не в git) _(может отсутствовать)_ | нет |
-| `_ai_tools_stage` | черновик | промежуточная выгрузка для ИИ-инструментов: проба и копия материалов карты (не в git, можно удалить) _(может отсутствовать)_ | нет (не в git) |
-| `logo_drafts` | черновик | наброски логотипа: SVG-варианты и скрипты их генерации (не в git) _(может отсутствовать)_ | нет (не в git) |
+| `logo_drafts` | черновик | наброски логотипа: SVG-варианты и скрипты их генерации (не в git) _(может отсутствовать)_ | нет |
 | `opencode.json` | агент | конфиг агента opencode: модель LM Studio qwen3.8-27b | да |
 | `pytest.ini` | тесты | настройки pytest (маркеры gpu/slow, пути тестов) | да |
 | `README.md` | документ | обзор проекта для человека | да |
@@ -2545,6 +2544,7 @@ _Проверено 2026-10-06 17:36: сущностей 130, не описан�
 | `docs/prompts/extract_entities_v2.md` | Промпт: извлечение сущностей v2 — с контекстом проекта, видами пунктов и самодостаточными формулировками |
 | `docs/prompts/extract_entities_v3.md` | Промпт: извлечение сущностей v3 — v2 + переписка по пронумерованным сообщениям |
 | `docs/prompts/extract_entities_v4.md` | Промпт: извлечение сущностей v4 — v3 + точный срок задачи (deadline_at) и исполнитель по метке голоса |
+| `docs/prompts/extract_entities_v5.md` | Промпт: извлечение сущностей v4 — v3 + точный срок задачи (deadline_at) и исполнитель по метке голоса |
 | `docs/prompts/extract_image_vision.md` | Промпт: извлечение текста/содержания с изображения (vision) |
 | `docs/prompts/lab_proof_text.md` | Ты вычитываешь стенограмму делового звонка на русском (внедрение 1С и Битрикс 24). |
 | `docs/prompts/lab_sense_speakers.md` | Смысловая разноска спорных слов лаборатории |
@@ -2586,7 +2586,7 @@ _Проверено 2026-10-06 17:36: сущностей 130, не описан�
 | `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | SKKKK — Подготовка платформы к памяти решений |
 | `docs/plans/PROJECT-INDEX-PLAN.md` | План: индекс проекта, которым можно управлять (поиск по смыслу, коду, связям и истории) |
 | `docs/plans/PROJECTMAP-PLAN.md` | План: инструмент `projectmap` — полная карта любого проекта |
-| `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Пробная сборка просмотрщика карты: замеры G6 и Cytoscape на 150–3680 узлах и решение (G6 с раскладкой, посчитанной заранее) |
+| `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Просмотрщик projectmap: пробная сборка G6 и Cytoscape |
 | `docs/plans/REQUIREMENTS-PLAN.md` | SKKKK — Требования: понятные, с источником «кто и когда», актуальные |
 | `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | SKKKK — Кадры экрана: время, момент, дубли, база знаний |
 | `docs/plans/SKKKK-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | SKKKK — План полного закрытия дыр в конвейере созвона |
@@ -2607,11 +2607,6 @@ _Проверено 2026-10-06 17:36: сущностей 130, не описан�
 | `docs/stages/STAGE-10-scale-out.md` | Этап 10. Масштабирование |
 | `docs/eval/index_questions.json` | [ |
 | `docs/eval/index_questions_holdout.json` | [ |
-| `docs/prompts/speech_acts.md` | Промпт: речевые акты в переписке и созвонах (Э2 памяти решений) |
-| `docs/prompts/subject_judge.md` | Промпт: чем закончилось обсуждение предмета (Э5 памяти решений) |
-| `docs/prompts/subject_match.md` | Промпт: тот же ли это предмет обсуждения (Э3 памяти решений) |
-| `docs/prompts/subject_merge.md` | Промпт: один ли это вопрос у двух предметов (Э3, склейка дублей) |
-| `docs/prompts/subject_window.md` | Промпт: раскладка окна реплик по предметам (Э3, вариант «один проход по окну») |
 | `docs/agent-exchange/CONTRACT.md` | Контракт обмена v1.0: что реализовано |
 | `docs/agent-exchange/POLICY.md` | Политика обмена с внешним агентом |
 | `docs/agent-exchange/README.md` | Обмен с внешним агентом (агент анализа конфигурации) |

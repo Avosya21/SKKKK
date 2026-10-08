@@ -53,7 +53,6 @@ items:
   - {path: "Login_up.txt", kind: "данные", purpose: "кто имеет право входить в портал (не в git)"}
   - {path: "Panel_users.example.txt", kind: "шаблон", purpose: "образец списка логинов с доступом к панели /admin/users"}
   - {path: "Panel_users.txt", kind: "данные", purpose: "логины с доступом к панели /admin/users, по строке на логин (не в git)", optional: true}
-  - {path: "_ai_tools_stage", kind: "черновик", purpose: "промежуточная выгрузка для ИИ-инструментов: проба и копия материалов карты (не в git, можно удалить)", optional: true}
   - {path: "logo_drafts", kind: "черновик", purpose: "наброски логотипа: SVG-варианты и скрипты их генерации (не в git)", optional: true}
   - {path: "opencode.json", kind: "агент", purpose: "конфиг агента opencode: модель LM Studio qwen3.8-27b"}
   - {path: "pytest.ini", kind: "тесты", purpose: "настройки pytest (маркеры gpu/slow, пути тестов)"}

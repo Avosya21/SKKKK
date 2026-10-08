@@ -16,40 +16,40 @@ venv\Scripts\python.exe scripts\export_project_graph.py
 
 <!-- generated:begin atlas -->
 
-_Собрано: 2026-10-05 19:06 · индекс от 2026-10-05 19:00 · коммит `274acfc1` · узлов 8720, рёбер 31302_
+_Собрано: 2026-10-08 11:12 · индекс от 2026-10-08 11:11 · коммит `95a68d94` · узлов 9962, рёбер 36507_
 
 ## 1. Из чего состоит граф
 
 | Узлы | Штук |
 |---|---|
-| символ | 7065 |
-| файл | 719 |
-| элемент интерфейса | 406 |
-| коммит | 171 |
-| роут | 169 |
-| окружение | 136 |
-| таблица БД | 33 |
+| символ | 8122 |
+| файл | 814 |
+| элемент интерфейса | 429 |
+| коммит | 204 |
+| роут | 190 |
+| окружение | 142 |
+| таблица БД | 40 |
 | узел карты | 21 |
 
 | Связь | Смысл | Штук |
 |---|---|---|
-| `calls` | вызывает | 10202 |
-| `defines` | определяет | 7065 |
-| `covers` | покрывает тестом | 6264 |
-| `changed` | изменил | 2235 |
-| `calls_ref` | передаёт как значение | 1488 |
-| `imports` | импортирует | 1165 |
-| `handled_by` | обрабатывается в JS | 462 |
-| `reads` | читает | 438 |
-| `declares` | объявляет | 436 |
-| `depends_on` | зависит от | 363 |
-| `writes` | пишет | 218 |
-| `reads_env` | читает переменную | 185 |
-| `handles` | обрабатывает | 170 |
-| `guarded_by` | защищён | 164 |
-| `co_changes` | co_changes | 59 |
+| `calls` | вызывает | 11991 |
+| `defines` | определяет | 8122 |
+| `covers` | покрывает тестом | 7664 |
+| `changed` | изменил | 2597 |
+| `calls_ref` | передаёт как значение | 1730 |
+| `imports` | импортирует | 1253 |
+| `reads` | читает | 507 |
+| `handled_by` | обрабатывается в JS | 495 |
+| `declares` | объявляет | 459 |
+| `depends_on` | зависит от | 397 |
+| `writes` | пишет | 252 |
+| `reads_env` | читает переменную | 191 |
+| `handles` | обрабатывает | 191 |
+| `guarded_by` | защищён | 172 |
+| `co_changes` | co_changes | 91 |
+| `inherits` | наследует | 45 |
 | `calls_api` | вызывает API | 39 |
-| `inherits` | наследует | 38 |
 | `m:imports` | imports | 17 |
 | `m:mounts` | mounts | 12 |
 | `m:reads` | reads | 12 |
@@ -59,35 +59,35 @@ _Собрано: 2026-10-05 19:06 · индекс от 2026-10-05 19:00 · ко�
 | `m:persists` | persists | 6 |
 | `m:does_not_mutate` | does_not_mutate | 6 |
 
-Всего связей: **31302**; видов: 213.
+Всего связей: **36507**; видов: 213.
 
 ## 2. Подсистемы и их связи
 
 | Подсистема | Файлов | Узлов | Связей наружу | Связей внутрь |
 |---|---|---|---|---|
-| сервисы | 117 | 2559 | 1032 | 4890 |
-| тесты | 150 | 1752 | 8342 | 15 |
-| ASR-скрипты | 45 | 608 | 215 | 567 |
-| шаблоны | 20 | 583 | 296 | 328 |
-| служебные скрипты | 87 | 570 | 453 | 198 |
-| роутеры | 19 | 459 | 1699 | 1203 |
-| фронтенд | 14 | 304 | 6 | 521 |
-| лаборатория ASR | 16 | 279 | 27 | 599 |
-| тесты ASR | 34 | 266 | 757 | 0 |
-| ядро API | 16 | 259 | 85 | 2204 |
-| карта проекта | 12 | 252 | 9 | 368 |
-| инструменты | 17 | 140 | 37 | 28 |
-| комната LiveKit | 4 | 91 | 60 | 301 |
-| стадии ASR | 8 | 87 | 96 | 145 |
-| модели БД | 20 | 71 | 52 | 1864 |
-| смоук портала | 19 | 52 | 30 | 1 |
+| сервисы | 131 | 2846 | 1284 | 5617 |
+| тесты | 163 | 1902 | 9835 | 15 |
+| инструменты | 62 | 744 | 147 | 821 |
+| шаблоны | 22 | 610 | 328 | 407 |
+| ASR-скрипты | 45 | 608 | 267 | 516 |
+| служебные скрипты | 92 | 591 | 535 | 211 |
+| роутеры | 20 | 514 | 1840 | 1321 |
+| фронтенд | 15 | 322 | 6 | 583 |
+| лаборатория ASR | 16 | 279 | 31 | 557 |
+| ядро API | 16 | 266 | 87 | 2402 |
+| тесты ASR | 34 | 266 | 769 | 0 |
+| карта проекта | 12 | 254 | 43 | 417 |
+| комната LiveKit | 4 | 91 | 62 | 319 |
+| модели БД | 23 | 90 | 65 | 2140 |
+| стадии ASR | 8 | 87 | 102 | 136 |
+| смоук портала | 19 | 52 | 29 | 1 |
+| промпты LLM | 34 | 34 | 0 | 9 |
 | .cursor | 29 | 29 | 0 | 0 |
-| промпты LLM | 25 | 25 | 0 | 9 |
-| воркер и конвейеры | 5 | 23 | 102 | 50 |
-| планы | 22 | 22 | 1 | 1 |
+| планы | 24 | 24 | 7 | 2 |
+| воркер и конвейеры | 5 | 23 | 104 | 72 |
 | .env.example | 1 | 19 | 4 | 0 |
-| документация | 18 | 18 | 8 | 5 |
-| MCP портала | 2 | 12 | 25 | 32 |
+| документация | 18 | 18 | 17 | 5 |
+| MCP портала | 2 | 13 | 34 | 38 |
 | этапы | 12 | 12 | 0 | 0 |
 | {artifact} | 0 | 3 | 0 | 6 |
 | корень | 0 | 3 | 3 | 3 |
@@ -128,68 +128,73 @@ flowchart LR
   g21["фронтенд"]
   g22["шаблоны"]
   g23["ядро API"]
-  g19 -->|4170| g15
-  g19 -->|1203| g11
-  g19 -->|1138| g14
-  g14 -->|919| g23
-  g19 -->|854| g23
-  g14 -->|697| g15
-  g15 -->|671| g11
-  g15 -->|441| g23
-  g20 -->|350| g2
-  g16 -->|338| g15
-  g19 -->|320| g22
-  g19 -->|311| g8
-  g19 -->|286| g21
-  g20 -->|258| g10
-  g19 -->|241| g7
-  g22 -->|234| g21
-  g19 -->|175| g16
-  g19 -->|161| g2
-  g19 -->|152| g10
+  g19 -->|4900| g15
+  g19 -->|1378| g11
+  g19 -->|1250| g14
+  g14 -->|1000| g23
+  g19 -->|912| g23
+  g15 -->|788| g11
+  g14 -->|737| g15
+  g19 -->|542| g6
+  g15 -->|471| g23
+  g19 -->|395| g22
+  g16 -->|358| g15
+  g20 -->|342| g2
+  g19 -->|329| g8
+  g19 -->|312| g21
+  g19 -->|272| g7
+  g22 -->|266| g21
+  g20 -->|256| g10
+  g19 -->|181| g16
+  g15 -->|159| g6
+  g19 -->|115| g2
   g20 -->|113| g18
   g18 -->|106| g10
+  g19 -->|104| g10
   g2 -->|103| g10
-  g4 -->|91| g15
-  g14 -->|87| g11
-  g16 -->|82| g7
-  g16 -->|74| g11
-  g20 -->|69| g15
-  g16 -->|66| g23
-  g15 -->|61| g7
-  g8 -->|60| g15
+  g14 -->|101| g11
+  g4 -->|93| g15
+  g16 -->|81| g7
+  g16 -->|79| g23
+  g16 -->|77| g11
+  g20 -->|72| g15
 ```
 
 ## 3. База данных: кто пишет и кто читает
 
 | Таблица | Столбцов | Пишущих файлов | Читающих файлов | Кто пишет (топ-4) |
 |---|---|---|---|---|
-| `artifacts` | 27 | 15 | 50 | `app/app/db.py`, `app/app/routers/knowledge.py`, `app/app/routers/upload.py`, `app/app/services/agent_gateway.py` |
-| `entities` | 9 | 13 | 25 | `app/app/routers/knowledge.py`, `app/app/services/agent_gateway.py`, `app/app/services/agent_verdicts.py`, `app/app/services/entities.py` |
-| `projects` | 7 | 2 | 34 | `app/app/routers/projects.py`, `scripts/qa_meeting_lifecycle.py` |
+| `artifacts` | 27 | 17 | 58 | `app/app/db.py`, `app/app/routers/knowledge.py`, `app/app/routers/upload.py`, `app/app/services/agent_gateway.py` |
+| `entities` | 9 | 14 | 26 | `app/app/routers/knowledge.py`, `app/app/services/agent_gateway.py`, `app/app/services/agent_verdicts.py`, `app/app/services/doc_anchors.py` |
+| `projects` | 7 | 2 | 37 | `app/app/routers/projects.py`, `scripts/qa_meeting_lifecycle.py` |
 | `chunks` | 11 | 6 | 13 | `app/app/services/indexing.py`, `app/app/services/pipeline_progress.py`, `app/app/services/project_index/analyzers.py`, `app/app/services/project_index/chunkers.py` |
 | `speaker_profiles` | 15 | 6 | 8 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py`, `app/app/services/speaker_profiles.py` |
-| `jobs` | 11 | 5 | 14 | `app/app/services/project_jobs.py`, `app/app/services/project_purge.py`, `app/app/services/queue.py`, `app/app/services/speaker_profiles.py` |
+| `jobs` | 11 | 5 | 15 | `app/app/services/project_jobs.py`, `app/app/services/project_purge.py`, `app/app/services/queue.py`, `app/app/services/speaker_profiles.py` |
 | `users` | 7 | 4 | 16 | `app/app/main.py`, `app/app/routers/auth.py`, `app/app/services/project_members.py`, `app/app/services/user_identity.py` |
 | `links` | 11 | 5 | 7 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py`, `app/app/services/review_relevance.py` |
 | `artifact_speaker_links` | 11 | 4 | 2 | `app/app/services/people.py`, `app/app/services/project_purge.py`, `app/app/services/speaker_profiles.py`, `asr/match_sortformer_speakers.py` |
+| `resolutions` | 7 | 7 | 7 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py`, `app/app/services/review_conflicts.py` |
 | `meeting_participants` | 12 | 4 | 4 | `app/app/services/meetings.py`, `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `meetings` | 11 | 3 | 12 | `app/app/services/meetings.py`, `app/app/services/people.py`, `app/app/services/project_purge.py` |
-| `resolutions` | 7 | 6 | 7 | `app/app/routers/knowledge.py`, `app/app/services/graph.py`, `app/app/services/project_purge.py`, `app/app/services/review_conflicts.py` |
+| `speech_acts` | 17 | 5 | 10 | `app/app/services/memory_pipeline.py`, `app/app/services/speech_acts.py`, `app/app/services/subject_judge.py`, `app/app/services/subject_windows.py` |
+| `subjects` | 16 | 4 | 9 | `app/app/services/memory_pipeline.py`, `app/app/services/subject_judge.py`, `app/app/services/subject_windows.py`, `app/app/services/subjects.py` |
 | `people` | 16 | 3 | 4 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `user_profiles` | 12 | 1 | 6 | `app/app/services/user_profile.py` |
 | `companies` | 7 | 2 | 12 | `app/app/services/companies.py`, `app/app/services/user_profile.py` |
 | `chat_messages` | 11 | 2 | 4 | `app/app/services/chat.py`, `app/app/services/project_purge.py` |
+| `decision_events` | 19 | 5 | 3 | `app/app/routers/project_memory.py`, `app/app/services/decision_log.py`, `app/app/services/speech_acts.py`, `app/app/services/subject_windows.py` |
+| `project_mcp_tokens` | 19 | 4 | 2 | `app/app/db.py`, `app/app/routers/project_mcp.py`, `app/app/services/project_mcp_tokens.py`, `app/app/services/project_purge.py` |
 | `project_members` | 6 | 2 | 5 | `app/app/services/project_members.py`, `app/app/services/project_purge.py` |
 | `topics` | 6 | 3 | 6 | `app/app/services/project_purge.py`, `app/app/services/topics.py`, `scripts/eval_auto_review.py` |
 | `user_activity_log` | 11 | 2 | 4 | `app/app/services/project_purge.py`, `app/app/services/user_activity.py` |
 | `person_aliases` | 7 | 3 | 2 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
-| `project_mcp_tokens` | 17 | 3 | 2 | `app/app/db.py`, `app/app/services/project_mcp_tokens.py`, `app/app/services/project_purge.py` |
 | `project_tasks` | 11 | 2 | 3 | `app/app/services/project_purge.py`, `app/app/services/project_tasks.py` |
+| `agent_exchange_log` | 15 | 3 | 2 | `app/app/services/agent_gateway.py`, `app/app/services/exchange_files.py`, `app/app/services/project_purge.py` |
+| `subject_positions` | 7 | 3 | 3 | `app/app/services/subject_judge.py`, `app/app/services/subject_windows.py`, `app/app/services/subjects.py` |
 | `unknown_actors` | 13 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `user_notes` | 5 | 2 | 5 | `app/app/routers/knowledge.py`, `app/app/services/project_purge.py` |
-| `agent_exchange_log` | 15 | 2 | 2 | `app/app/services/agent_gateway.py`, `app/app/services/project_purge.py` |
 | `changelog` | 6 | 3 | 1 | `app/app/services/project_purge.py`, `app/app/services/tz.py`, `scripts/fast_summarize_tz.py` |
+| `exchange_bundles` | 13 | 1 | 1 | `app/app/services/exchange_files.py` |
 | `people_log` | 8 | 3 | 1 | `app/app/services/people.py`, `app/app/services/people_seed.py`, `app/app/services/project_purge.py` |
 | `agent_questions` | 15 | 2 | 1 | `app/app/services/agent_inbox.py`, `app/app/services/project_purge.py` |
 | `contract_items` | 9 | 2 | 1 | `app/app/services/contract.py`, `app/app/services/project_purge.py` |
@@ -197,6 +202,8 @@ flowchart LR
 | `project_parties` | 7 | 2 | 2 | `app/app/services/people.py`, `app/app/services/project_purge.py` |
 | `asr_runs` | 6 | 2 | 0 | `app/app/services/pipeline_audio.py`, `app/app/services/project_purge.py` |
 | `chat_guidance` | 7 | 2 | 1 | `app/app/services/chat.py`, `app/app/services/project_purge.py` |
+| `exchange_files` | 8 | 1 | 1 | `app/app/services/exchange_files.py` |
+| `memory_shadow_review` | 10 | 1 | 2 | `app/app/services/memory_compare.py` |
 
 ## 4. Роуты: права, зависимости, таблицы
 
@@ -204,6 +211,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | `DELETE /projects/{project_id}` | `app/app/routers/projects.py` | delete_project | require_project, require_role, require_role('admin', 'manager') | get_db, get_settings, require_role('admin', 'manager') | — |
 | `DELETE /projects/{project_id}/artifacts/{artifact_id}` | `app/app/routers/upload.py` | delete_artifact | require_project | get_db, get_settings, get_current_user | artifacts |
+| `DELETE /projects/{project_id}/exchange-files/{bundle_id}` | `app/app/routers/project_mcp.py` | exchange_files_delete | require_role, require_role('admin', 'manager') | get_db, get_settings, require_role('admin', 'manager') | — |
 | `DELETE /projects/{project_id}/mcp/tokens/{token_id}` | `app/app/routers/project_mcp.py` | revoke_token | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | — |
 | `DELETE /projects/{project_id}/meetings/{meeting_id}` | `app/app/routers/meetings.py` | delete_project_meeting | — | get_db, get_settings, get_current_user | — |
 | `DELETE /projects/{project_id}/members/{user_id}` | `app/app/routers/project_members.py` | delete_member | require_grant_access | get_db, get_current_user | — |
@@ -216,6 +224,9 @@ flowchart LR
 | `GET /admin/map/graph` | `app/app/routers/admin_map_graph.py` | admin_map_graph_page | require_html_user | require_html_user | — |
 | `GET /admin/map/graph/data` | `app/app/routers/admin_map_graph.py` | admin_map_graph_data | — | get_current_user | — |
 | `GET /admin/map/graph/summary` | `app/app/routers/admin_map_graph.py` | admin_map_graph_summary | — | get_current_user | — |
+| `GET /admin/map/overview` | `app/app/routers/admin_map_graph.py` | admin_map_overview_page | require_html_user | require_html_user | — |
+| `GET /admin/map/overview/frame` | `app/app/routers/admin_map_graph.py` | admin_map_overview_frame | require_html_user | require_html_user | — |
+| `GET /admin/map/overview/state` | `app/app/routers/admin_map_graph.py` | admin_map_overview_state | — | get_current_user | — |
 | `GET /admin/map/search` | `app/app/routers/admin_map.py` | admin_map_search | — | get_current_user | — |
 | `GET /admin/memory` | `app/app/routers/admin_memory.py` | memory_page | require_html_user | require_html_user | — |
 | `GET /admin/memory/data` | `app/app/routers/admin_memory.py` | memory_data | — | get_db, get_settings, get_current_user | people, projects |
@@ -251,6 +262,10 @@ flowchart LR
 | `GET /login` | `app/app/routers/pages.py` | login_page | — | — | — |
 | `GET /m/{token}` | `app/app/routers/pages.py` | public_meeting_page | — | get_db | — |
 | `GET /mcp/projects/{project_id}` | `app/app/routers/project_mcp.py` | mcp_project_endpoint | — | get_db, get_settings | — |
+| `GET /mcp/projects/{project_id}/files/bundles` | `app/app/routers/project_mcp.py` | files_list_bundles | require_files | get_db | — |
+| `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}` | `app/app/routers/project_mcp.py` | files_bundle_status | require_files | get_db | — |
+| `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` | `app/app/routers/project_mcp.py` | files_download | — | get_db, get_settings | — |
+| `GET /mcp/projects/{project_id}/files/catalog` | `app/app/routers/project_mcp.py` | files_catalog | — | get_db, get_settings | — |
 | `GET /me/profile` | `app/app/routers/people.py` | my_profile | — | get_current_user, get_db | — |
 | `GET /meeting.webmanifest` | `app/app/routers/pages.py` | meeting_webmanifest | — | — | — |
 | `GET /people/{user_id}/avatar` | `app/app/routers/people.py` | get_avatar | — | get_current_user, get_db | — |
@@ -272,6 +287,7 @@ flowchart LR
 | `GET /projects/{project_id}/conflicts` | `app/app/routers/knowledge.py` | list_conflicts | require_project, require_role, require_role('admin') | get_db, require_role('admin') | — |
 | `GET /projects/{project_id}/deadlines` | `app/app/routers/knowledge.py` | project_deadlines | require_project | get_db, get_current_user | — |
 | `GET /projects/{project_id}/delete-preview` | `app/app/routers/projects.py` | delete_project_preview | require_project, require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | artifacts, meetings, user_notes |
+| `GET /projects/{project_id}/exchange-files` | `app/app/routers/project_mcp.py` | exchange_files_list | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | — |
 | `GET /projects/{project_id}/graph` | `app/app/routers/pages.py` | graph_page | require_project, require_html_user | get_db, require_html_user | — |
 | `GET /projects/{project_id}/graph/data` | `app/app/routers/knowledge.py` | project_graph | require_project | get_db, get_current_user | — |
 | `GET /projects/{project_id}/mcp/info` | `app/app/routers/project_mcp.py` | mcp_connection_info | require_role, require_role('admin', 'manager') | get_db, get_settings, require_role('admin', 'manager') | — |
@@ -281,6 +297,10 @@ flowchart LR
 | `GET /projects/{project_id}/meetings/{meeting_id}` | `app/app/routers/meetings.py` | get_project_meeting | — | get_db, get_settings, get_current_user | — |
 | `GET /projects/{project_id}/meetings/{meeting_id}/room` | `app/app/routers/pages.py` | meeting_room_page | require_meeting_staff, require_html_user | get_db, require_html_user | — |
 | `GET /projects/{project_id}/members` | `app/app/routers/project_members.py` | list_members | require_grant_access | get_db, get_settings, get_current_user | — |
+| `GET /projects/{project_id}/memory/state-at` | `app/app/routers/project_memory.py` | state_at_date | — | get_db, get_current_user | subjects |
+| `GET /projects/{project_id}/memory/subjects` | `app/app/routers/project_memory.py` | list_subjects | — | get_db, get_current_user | decision_events, speech_acts, subject_positions, subjects |
+| `GET /projects/{project_id}/memory/subjects/{subject_id}` | `app/app/routers/project_memory.py` | get_subject | — | get_db, get_current_user | artifacts, speech_acts, subject_positions |
+| `GET /projects/{project_id}/memory/summary` | `app/app/routers/project_memory.py` | memory_summary | staff_ui_role(db, user, project) == 'admin' | get_db, get_current_user | speech_acts, subjects |
 | `GET /projects/{project_id}/open-questions` | `app/app/routers/knowledge.py` | project_open_questions | require_project | get_db, get_settings, get_current_user | — |
 | `GET /projects/{project_id}/people` | `app/app/routers/project_people.py` | list_people | require_project_staff | get_db, get_settings, get_current_user | — |
 | `GET /projects/{project_id}/people/directory` | `app/app/routers/project_people.py` | people_directory | require_project | get_db, get_current_user | — |
@@ -294,6 +314,7 @@ flowchart LR
 | `GET /projects/{project_id}/tz/versions` | `app/app/routers/knowledge.py` | tz_versions | require_project | get_db, get_settings, get_current_user | changelog |
 | `GET /projects/{project_id}/uploads/{upload_id}` | `app/app/routers/upload.py` | get_resumable_upload | require_project | get_db, get_settings, get_current_user | — |
 | `PATCH /projects/{project_id}/artifacts/{artifact_id}/recorded-at` | `app/app/routers/upload.py` | set_artifact_recorded_at | require_project, user.role != 'admin' | get_db, get_current_user | artifacts |
+| `POST /admin/map/overview/rebuild` | `app/app/routers/admin_map_graph.py` | admin_map_overview_rebuild | — | get_current_user | — |
 | `POST /admin/memory/run` | `app/app/routers/admin_memory.py` | memory_run | — | get_db, get_settings, get_current_user | — |
 | `POST /api/artifacts/{artifact_id}/lab/{run_id}/speaker-enroll` | `app/app/routers/speaker_profiles.py` | api_lab_enroll_speaker | require_admin | get_db, get_settings, get_current_user | — |
 | `POST /api/artifacts/{artifact_id}/lab/{run_id}/speaker-merge` | `app/app/routers/speaker_profiles.py` | api_lab_merge_speakers | require_admin | get_db, get_settings, get_current_user | — |
@@ -320,6 +341,7 @@ flowchart LR
 | `POST /entities/{entity_id}/review` | `app/app/routers/knowledge.py` | review_entity | require_project | get_db, get_settings, get_current_user | artifacts, entities |
 | `POST /links` | `app/app/routers/knowledge.py` | create_link | require_project | get_db, get_current_user | artifacts, entities, links |
 | `POST /mcp/projects/{project_id}` | `app/app/routers/project_mcp.py` | mcp_project_endpoint | — | get_db, get_settings | — |
+| `POST /mcp/projects/{project_id}/files/bundles` | `app/app/routers/project_mcp.py` | files_open_bundle | — | get_db, get_settings | — |
 | `POST /projects` | `app/app/routers/projects.py` | create_project | require_role, require_role('admin', 'manager') | get_db, get_settings, require_role('admin', 'manager') | projects |
 | `POST /projects/{project_id}/agent-inbox/{question_id}/answer` | `app/app/routers/project_mcp.py` | agent_inbox_answer | require_role, require_role('admin') | get_db, require_role('admin') | — |
 | `POST /projects/{project_id}/agent-inbox/{question_id}/draft` | `app/app/routers/project_mcp.py` | agent_inbox_draft | require_role, require_role('admin') | get_db, require_role('admin') | — |
@@ -331,6 +353,7 @@ flowchart LR
 | `POST /projects/{project_id}/background/review` | `app/app/routers/project_background.py` | start_review | require_project_staff | get_db, get_settings, get_current_user | — |
 | `POST /projects/{project_id}/card/rebuild` | `app/app/routers/knowledge.py` | rebuild_project_card | require_project, require_role, require_role('admin') | get_db, get_settings, require_role('admin') | — |
 | `POST /projects/{project_id}/mcp/tokens` | `app/app/routers/project_mcp.py` | create_token | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | — |
+| `POST /projects/{project_id}/mcp/tokens/{token_id}/files` | `app/app/routers/project_mcp.py` | set_token_files | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | project_mcp_tokens |
 | `POST /projects/{project_id}/mcp/tokens/{token_id}/scope` | `app/app/routers/project_mcp.py` | set_token_scope | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | — |
 | `POST /projects/{project_id}/mcp/tokens/{token_id}/submit` | `app/app/routers/project_mcp.py` | set_token_submit | require_role, require_role('admin', 'manager') | get_db, require_role('admin', 'manager') | — |
 | `POST /projects/{project_id}/meetings` | `app/app/routers/meetings.py` | create_project_meeting | require_meeting_staff | get_db, get_settings, get_current_user | — |
@@ -343,6 +366,9 @@ flowchart LR
 | `POST /projects/{project_id}/meetings/{meeting_id}/revoke-link` | `app/app/routers/meetings.py` | revoke_project_meeting_link | — | get_db, get_settings, get_current_user | — |
 | `POST /projects/{project_id}/meetings/{meeting_id}/start` | `app/app/routers/meetings.py` | start_project_meeting | — | get_db, get_settings, get_current_user | — |
 | `POST /projects/{project_id}/members` | `app/app/routers/project_members.py` | add_member | require_grant_access | get_db, get_settings, get_current_user | — |
+| `POST /projects/{project_id}/memory/build` | `app/app/routers/project_memory.py` | build | staff_ui_role(db, user, project) != 'admin' | get_db, get_current_user | — |
+| `POST /projects/{project_id}/memory/subjects/{subject_id}/decide` | `app/app/routers/project_memory.py` | decide | — | get_db, get_current_user | — |
+| `POST /projects/{project_id}/memory/subjects/{subject_id}/release` | `app/app/routers/project_memory.py` | release | — | get_db, get_current_user | decision_events |
 | `POST /projects/{project_id}/notes` | `app/app/routers/knowledge.py` | create_note | require_project | get_db, get_settings, get_current_user | note_refs, user_notes |
 | `POST /projects/{project_id}/people` | `app/app/routers/project_people.py` | create_person | require_project_staff | get_db, get_settings, get_current_user | — |
 | `POST /projects/{project_id}/people/from-user` | `app/app/routers/project_people.py` | person_from_user | require_project_staff | get_db, get_settings, get_current_user | project_members |
@@ -362,10 +388,12 @@ flowchart LR
 | `POST /projects/{project_id}/uploads/init` | `app/app/routers/upload.py` | init_resumable_upload | require_project | get_db, get_settings, get_current_user | — |
 | `POST /projects/{project_id}/uploads/{upload_id}/complete` | `app/app/routers/upload.py` | complete_resumable_upload | require_project, ensure_inside | get_db, get_settings, get_current_user | — |
 | `PUT /companies` | `app/app/routers/companies_admin.py` | save_company | — | get_db, get_current_user | — |
+| `PUT /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` | `app/app/routers/project_mcp.py` | files_put_chunk | require_files | get_db, get_settings | — |
 | `PUT /me/avatar` | `app/app/routers/people.py` | update_my_avatar | — | get_current_user, get_db | — |
 | `PUT /me/profile` | `app/app/routers/people.py` | update_my_profile | — | get_current_user, get_db | — |
 | `PUT /projects/{project_id}/agent-settings` | `app/app/routers/project_mcp.py` | put_agent_settings | require_role, require_role('admin') | get_db, require_role('admin') | — |
 | `PUT /projects/{project_id}/card` | `app/app/routers/knowledge.py` | put_project_card | require_project, require_role, require_role('admin') | get_db, get_settings, require_role('admin') | — |
+| `PUT /projects/{project_id}/memory/mode` | `app/app/routers/project_memory.py` | set_mode | staff_ui_role(db, user, project) != 'admin' | get_db, get_current_user | — |
 | `PUT /projects/{project_id}/parties` | `app/app/routers/project_people.py` | set_party | require_project_staff | get_db, get_settings, get_current_user | — |
 | `PUT /projects/{project_id}/people-platform` | `app/app/routers/project_people.py` | set_platform | require_project_staff, user.role != 'admin' | get_db, get_settings, get_current_user | — |
 | `PUT /projects/{project_id}/people/{person_id}` | `app/app/routers/project_people.py` | update_person | require_project_staff | get_db, get_settings, get_current_user | — |
@@ -406,6 +434,9 @@ flowchart LR
 | `#amg-view-entities` | amg-view-entities | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
 | `#amg-view-hint` | Свод по файлам: показаны самые связанные файлы (по связям),  | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
 | `#amg-view-modules` | amg-view-modules | `app/app/templates/admin_map_graph.html` | — | `collectDom` |
+| `#amo-frame` | Обзор карты проекта | `app/app/templates/admin_map_overview.html` | — | `admin_map_overview.html` |
+| `#amo-meta` | amo-meta | `app/app/templates/admin_map_overview.html` | — | `admin_map_overview.html` |
+| `#amo-rebuild` | Перестроить карту | `app/app/templates/admin_map_overview.html` | — | `admin_map_overview.html` |
 | `#artifacts-body` | artifacts-body | `app/app/templates/project.html` | `GET /projects/{project_id}/artifacts` | `project.html`, `refreshArtifacts` |
 | `#artifacts-cards` | Загружаю материалы… | `app/app/templates/project.html` | `GET /projects/{project_id}/artifacts` | `refreshArtifacts` |
 | `#artifacts-empty` | В этом проекте пока нет загруженных файлов. | `app/app/templates/project.html` | — | `project.html` |
@@ -602,6 +633,26 @@ flowchart LR
 | `#meetings-panel` | meetings-panel | `app/app/templates/project.html` | — | `project.html` |
 | `#meetings-status` | meetings-status | `app/app/templates/project.html` | — | `project.html` |
 | `#meetings-toggle-hint` | (развернуть) | `app/app/templates/project.html` | — | `project.html` |
+| `#mem-asof` | mem-asof | `app/app/templates/partials/memory_card.html` | — | `loadAsOf`, `loadList` |
+| `#mem-badge` | mem-badge | `app/app/templates/partials/memory_card.html` | — | `loadSummary` |
+| `#mem-build` | Построить сейчас | `app/app/templates/partials/memory_card.html` | — | `loadSummary`, `memory.js` |
+| `#mem-card` | mem-card | `app/app/templates/partials/memory_card.html` | — | `memory.js` |
+| `#mem-counts` | mem-counts | `app/app/templates/partials/memory_card.html` | — | `renderCounts` |
+| `#mem-date` | Состояние на дату | `app/app/templates/partials/memory_card.html` | — | `loadList`, `memory.js` |
+| `#mem-empty` | Память решений для проекта ещё не построена: она появится по | `app/app/templates/partials/memory_card.html` | — | `loadSummary` |
+| `#mem-filters` | mem-filters | `app/app/templates/partials/memory_card.html` | — | `loadSummary` |
+| `#mem-list` | mem-list | `app/app/templates/partials/memory_card.html` | — | `loadAsOf`, `loadList` |
+| `#mem-mode` | mem-mode | `app/app/templates/partials/memory_card.html` | — | `loadSummary` |
+| `#mem-next` | Дальше | `app/app/templates/partials/memory_card.html` | — | `loadList`, `memory.js` |
+| `#mem-page` | mem-page | `app/app/templates/partials/memory_card.html` | — | `loadList` |
+| `#mem-pager` | mem-pager | `app/app/templates/partials/memory_card.html` | — | `loadAsOf`, `loadList` |
+| `#mem-panel` | mem-panel | `app/app/templates/partials/memory_card.html` | — | `memory.js` |
+| `#mem-prev` | Назад | `app/app/templates/partials/memory_card.html` | — | `loadList`, `memory.js` |
+| `#mem-q` | Найти по названию или итогу | `app/app/templates/partials/memory_card.html` | — | `loadList`, `memory.js` |
+| `#mem-ready` | mem-ready | `app/app/templates/partials/memory_card.html` | — | `loadSummary` |
+| `#mem-ready-box` | mem-ready-box | `app/app/templates/partials/memory_card.html` | — | `loadSummary` |
+| `#mem-state` | Состояние | `app/app/templates/partials/memory_card.html` | — | `loadList`, `memory.js`, `renderCounts` |
+| `#mem-status` | mem-status | `app/app/templates/partials/memory_card.html` | — | `say` |
 | `#mm-check-summary` | mm-check-summary | `app/app/templates/admin_memory.html` | — | `renderLive` |
 | `#mm-checklist` | mm-checklist | `app/app/templates/admin_memory.html` | — | `renderLive` |
 | `#mm-history` | mm-history | `app/app/templates/admin_memory.html` | — | `renderHistory` |
@@ -758,8 +809,14 @@ flowchart LR
 | `CURSOR_RUNTIME` | переменная | 'local' | да | app/app/config.py:13 |
 | `DATABASE_URL` | переменная | f"sqlite:///{ROOT / 'data' / 'app.db'}" | да | app/app/config.py:13, scripts/eval_auto_review.py:210, scripts/eval_auto_review.py:66 |
 | `DATA_DIR` | переменная | ROOT / 'data' | да | app/app/config.py:13, asr/lab_giga.py:118, asr/lab_hint.py:28 |
+| `DECISION_MEMORY_AUTO_LIVE` | переменная | True | да | app/app/config.py:13 |
+| `DECISION_MEMORY_MODE` | переменная | 'off' | да | app/app/config.py:13 |
 | `DIAR_MODEL` | переменная | 'nemotron3' | да | app/app/config.py:13, asr/lab/diar_models.py:79 |
 | `DRY_RUN` | переменная | False | да | app/app/config.py:13, app/app/tests/conftest.py: |
+| `EXCHANGE_AUTO_UNPACK` | переменная | True | нет | app/app/config.py:13 |
+| `EXCHANGE_BUNDLE_MAX_GB` | переменная | 64 | нет | app/app/config.py:13 |
+| `EXCHANGE_FILES_DIR` | переменная | None | нет | app/app/config.py:13 |
+| `EXCHANGE_FILES_RESERVE_GB` | переменная | 20 | нет | app/app/config.py:13 |
 | `EXECUTOR_ALIASES` | переменная | '' | да | app/app/config.py:13 |
 | `FFMPEG_BIN` | переменная |  | нет | app/app/services/ffmpeg_tools.py:15 |
 | `FFMPEG_DIR` | переменная |  | да | app/app/services/ffmpeg_tools.py:15, asr/lab/audio.py:25 |
@@ -842,7 +899,7 @@ flowchart LR
 | `SKKKK_DISABLE_LLM_SELFCHECK` | переменная |  | нет | app/app/services/llm.py:287 |
 | `SKKKK_HTTPS_PORT` | переменная | 777 | да | app/app/config.py:13 |
 | `SKKKK_MATCH_JSON` | переменная | '' | нет | asr/build_transcript_view.py:67, asr/voice_turn_audit.py:202 |
-| `SKKKK_PROCESS_ROLE` | переменная |  | нет | app/app/main.py:481 |
+| `SKKKK_PROCESS_ROLE` | переменная |  | нет | app/app/main.py:492 |
 | `SKKKK_PROJECT_ID` | переменная | '' | нет | asr/build_transcript_view.py:77, asr/voice_turn_audit.py:202 |
 | `SKKKK_PUBLIC_HOST` | переменная | '' | да | app/app/config.py:13 |
 | `SKKKK_STRICT_DB_HOLD` | переменная |  | нет | app/app/services/llm.py:25 |
@@ -893,9 +950,12 @@ flowchart LR
 | `docs/prompts/extract_entities_v2.md` | `` |
 | `docs/prompts/extract_entities_v3.md` | `` |
 | `docs/prompts/extract_entities_v4.md` | `` |
+| `docs/prompts/extract_entities_v5.md` | `` |
 | `docs/prompts/extract_image_vision.md` | `` |
 | `docs/prompts/lab_proof_text.md` | ``, `asr/lab_proof.py` |
 | `docs/prompts/lab_sense_speakers.md` | ``, `asr/lab_sense.py` |
+| `docs/prompts/memory_arbiter.md` | `` |
+| `docs/prompts/memory_view.md` | `` |
 | `docs/prompts/merge_topics.md` | `` |
 | `docs/prompts/merge_transcript.md` | ``, `asr/merge_ensemble.py` |
 | `docs/prompts/normalize_document.md` | `` |
@@ -908,44 +968,51 @@ flowchart LR
 | `docs/prompts/review_relevance_v2.md` | `` |
 | `docs/prompts/review_requirement.md` | `` |
 | `docs/prompts/screen_frame.md` | `` |
+| `docs/prompts/speech_acts.md` | `` |
+| `docs/prompts/speech_acts_review.md` | `` |
+| `docs/prompts/subject_judge.md` | `` |
+| `docs/prompts/subject_match.md` | `` |
+| `docs/prompts/subject_merge.md` | `` |
+| `docs/prompts/subject_window.md` | `` |
 | `docs/prompts/suggest_speaker_names.md` | `` |
 
 ## 8. Покрытие тестами
 
 | Подсистема | Файл | Тестовых файлов |
 |---|---|---|
-| сервисы | app/app/services/meeting_recordings.py | 90 |
-| сервисы | app/app/services/people.py | 81 |
-| ядро API | app/app/config.py | 69 |
-| комната LiveKit | tools/livekit/screen_recorder.py | 65 |
-| фронтенд | app/app/static/px_agent.js | 53 |
-| шаблоны | app/app/templates/login.html | 53 |
-| модели БД | app/app/models/user.py | 49 |
-| роутеры | app/app/routers/projects.py | 46 |
-| модели БД | app/app/models/artifact.py | 43 |
-| модели БД | app/app/models/project.py | 42 |
-| шаблоны | app/app/templates/admin_users.html | 36 |
-| служебные скрипты | scripts/qa_room.py | 35 |
-| фронтенд | app/app/static/app.js | 28 |
-| сервисы | app/app/services/user_profile_console.py | 27 |
+| сервисы | app/app/services/people.py | 103 |
+| сервисы | app/app/services/meeting_recordings.py | 100 |
+| инструменты | tools/projectmap/projectmap/graphbuf.py | 99 |
+| ядро API | app/app/config.py | 77 |
+| комната LiveKit | tools/livekit/screen_recorder.py | 74 |
+| сервисы | app/app/services/subjects.py | 62 |
+| модели БД | app/app/models/user.py | 58 |
+| фронтенд | app/app/static/px_agent.js | 58 |
+| шаблоны | app/app/templates/login.html | 58 |
+| модели БД | app/app/models/artifact.py | 52 |
+| модели БД | app/app/models/project.py | 51 |
+| роутеры | app/app/routers/projects.py | 50 |
+| шаблоны | app/app/templates/admin_users.html | 45 |
+| служебные скрипты | scripts/qa_room.py | 37 |
+| фронтенд | app/app/static/app.js | 36 |
+| инструменты | tools/projectmap/projectmap/mcp_server.py | 32 |
+| сервисы | app/app/services/user_profile_console.py | 28 |
 | сервисы | app/app/services/storage.py | 26 |
-| лаборатория ASR | asr/lab/paths.py | 25 |
-| роутеры | app/app/routers/pages.py | 24 |
-| сервисы | app/app/services/personal_password_console.py | 24 |
-| модели БД | app/app/models/entity.py | 21 |
+| роутеры | app/app/routers/pages.py | 25 |
+| сервисы | app/app/services/personal_password_console.py | 25 |
+| модели БД | app/app/models/entity.py | 23 |
 | ядро API | app/app/db.py | 19 |
+| ядро API | app/app/main.py | 17 |
 | роутеры | app/app/routers/auth.py | 17 |
-| сервисы | app/app/services/transcript_turns.py | 17 |
-| ASR-скрипты | asr/speakers.py | 16 |
-| карта проекта | app/app/services/project_index/store.py | 14 |
-| лаборатория ASR | asr/lab/pipeline.py | 14 |
+| воркер и конвейеры | app/app/workers/gpu_worker.py | 17 |
 
-Файлов Python без тестов: **42** из 543. Первые 25:
+Файлов Python без тестов: **52** из 624. Первые 25:
 
 - `app/app/__init__.py`
 - `app/app/cursor_compat.py`
 - `app/app/mcp/__init__.py`
 - `app/app/models/__init__.py`
+- `app/app/models/exchange_file.py`
 - `app/app/models/project_mcp_token.py`
 - `app/app/models/project_member.py`
 - `app/app/routers/acme.py`
@@ -960,43 +1027,42 @@ flowchart LR
 - `app/app/services/notify.py`
 - `app/app/services/pipeline_voice_gate.py`
 - `app/app/services/project_index/__init__.py`
-- `app/app/services/project_index/analyzers.py`
 - `app/app/services/project_members.py`
 - `app/app/services/tesseract_tools.py`
 - `app/app/workers/processor.py`
 - `app/app/workers/project_jobs.py`
+- `asr/build_sortformer_transcript_view.py`
 - `asr/client.py`
-- `asr/dump_pyannote.py`
 
 ## 9. Пересечения: самые связанные узлы
 
 | Узел | Вид | Адрес | Исходящих | Входящих |
 |---|---|---|---|---|
-| `get_settings` | символ | `app/app/config.py:172` | 1 | 689 |
-| `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 397 |
+| `get_settings` | символ | `app/app/config.py:182` | 1 | 750 |
+| `meeting_recordings.py` | файл | `app/app/services/meeting_recordings.py:` | 107 | 436 |
+| `read_text` | символ | `tools/projectmap/projectmap/graphbuf.py:45` | 0 | 505 |
+| `Artifact` | символ | `app/app/models/artifact.py:13` | 1 | 377 |
 | `Снимок проекта для приватного репозитория SKKKK` | коммит | `:` | 349 | 0 |
-| `Artifact` | символ | `app/app/models/artifact.py:13` | 1 | 341 |
-| `project.html` | файл | `app/app/templates/project.html:` | 232 | 103 |
-| `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 55 | 263 |
-| `get_db` | символ | `app/app/db.py:161` | 0 | 310 |
-| `get` | символ | `app/app/services/people.py:116` | 3 | 298 |
-| `Entity` | символ | `app/app/models/entity.py:11` | 1 | 282 |
-| `log_event` | символ | `app/app/logging_setup.py:71` | 1 | 278 |
+| `project.html` | файл | `app/app/templates/project.html:` | 235 | 109 |
+| `get_db` | символ | `app/app/db.py:163` | 0 | 344 |
+| `get` | символ | `app/app/services/people.py:116` | 3 | 337 |
+| `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 55 | 281 |
+| `Entity` | символ | `app/app/models/entity.py:11` | 1 | 293 |
+| `log_event` | символ | `app/app/logging_setup.py:71` | 1 | 291 |
+| `User` | символ | `app/app/models/user.py:13` | 1 | 280 |
 | `Первое сохранение Primary Analytics` | коммит | `:` | 263 | 0 |
-| `User` | символ | `app/app/models/user.py:13` | 1 | 260 |
-| `Project` | символ | `app/app/models/project.py:14` | 1 | 227 |
-| `create_project` | символ | `app/app/routers/projects.py:36` | 14 | 208 |
-| `Settings` | символ | `app/app/config.py:13` | 73 | 145 |
-| `list_projects` | символ | `app/app/routers/projects.py:25` | 5 | 208 |
-| `get_current_user` | символ | `app/app/dependencies.py:164` | 4 | 204 |
-| `post` | символ | `app/app/static/px_agent.js:24` | 1 | 207 |
-| `post` | символ | `app/app/templates/login.html:141` | 0 | 207 |
+| `Project` | символ | `app/app/models/project.py:14` | 1 | 253 |
+| `create_project` | символ | `app/app/routers/projects.py:36` | 14 | 221 |
+| `group` | символ | `app/app/services/memory_compare.py:74` | 0 | 233 |
+| `get_current_user` | символ | `app/app/dependencies.py:164` | 4 | 224 |
+| `list_projects` | символ | `app/app/routers/projects.py:25` | 5 | 221 |
+| `Settings` | символ | `app/app/config.py:13` | 79 | 145 |
+| `post` | символ | `app/app/static/px_agent.js:24` | 1 | 222 |
+| `post` | символ | `app/app/templates/login.html:141` | 0 | 222 |
+| `PROJECT-MAP.md` | файл | `docs/PROJECT-MAP.md:` | 102 | 106 |
+| `config.py` | файл | `app/app/config.py:` | 22 | 178 |
+| `subjects.py` | файл | `app/app/services/subjects.py:` | 29 | 166 |
 | `meeting_room.js` | файл | `app/app/static/meeting_room.js:` | 178 | 14 |
-| `config.py` | файл | `app/app/config.py:` | 22 | 163 |
-| `entities.py` | файл | `app/app/services/entities.py:` | 151 | 26 |
-| `evaluate` | символ | `app/app/services/agent_gateway.py:148` | 31 | 130 |
-| `meeting: events.jsonl, meeting.json contract, per-track replicas, leaks, checks,` | коммит | `:` | 147 | 0 |
-| `meeting_room.html` | файл | `app/app/templates/meeting_room.html:` | 67 | 76 |
 
 ## 10. Никто не вызывает (проверить: мёртвый код или точка входа)
 
@@ -1007,8 +1073,8 @@ _Строгий список: у функции нет ни вызовов, ни
 | `artifact_speakers_match_ready` | `app/app/services/speaker_profiles.py:1767` | function |
 | `_ensurePlayback` | `app/app/static/meeting_room.js:1898` | function |
 | `sideOf` | `app/app/static/px_agent.js:88` | function |
-| `hideDownloadBanner` | `app/app/templates/project.html:1204` | function |
-| `toggleMcpSubmit` | `app/app/templates/project.html:2397` | function |
+| `hideDownloadBanner` | `app/app/templates/project.html:1205` | function |
+| `toggleMcpSubmit` | `app/app/templates/project.html:2423` | function |
 | `Confirm-Step` | `scripts/bootstrap.ps1:45` | function |
 
 Всего: 6.
@@ -1019,27 +1085,27 @@ _циклов нет_
 
 ## 12. Группы по связности (Louvain)
 
-Файлы без тестов, связанные вызовами, импортами и наследованием, разбиты на группы алгоритмом Louvain (разрешение 1.5, запусков 5, берётся лучший по модулярности). Модулярность **0.54** (выше 0,3 — группы выражены); согласие групп с заданными подсистемами (NMI, 1 — совпадают) **0.46**; в группах 344 из 531 файлов.
+Файлы без тестов, связанные вызовами, импортами и наследованием, разбиты на группы алгоритмом Louvain (разрешение 1.5, запусков 5, берётся лучший по модулярности). Модулярность **0.543** (выше 0,3 — группы выражены); согласие групп с заданными подсистемами (NMI, 1 — совпадают) **0.46**; в группах 414 из 603 файлов.
 
 | Группа | Файлов | Подсистема (доля) | Ключевые слова | Главные файлы |
 |---|---|---|---|---|
-| 0 | 47 | сервисы (62%) | review, chat, chunk, artifact | `app/app/models/artifact.py`, `app/app/models/project.py`, `app/app/models/entity.py` |
-| 1 | 37 | сервисы (57%) | llm, ensure, chat, tokens | `app/app/logging_setup.py`, `app/app/services/llm.py`, `app/app/services/tz.py` |
-| 2 | 34 | лаборатория ASR (44%) | stage, voice, json, artifact | `asr/lab/paths.py`, `asr/lab/run.py`, `app/app/models/company.py` |
-| 3 | 33 | роутеры (39%) | project, user, token, activity | `app/app/config.py`, `app/app/db.py`, `app/app/models/user.py` |
-| 4 | 31 | смоук портала (58%) | question, login, call, exchange | `app/app/services/agent_gateway.py`, `scripts/qa_flows.py`, `scripts/smoke/common.py` |
-| 5 | 27 | служебные скрипты (48%) | map, symbol, deadline, hit | `app/app/services/project_index/search.py`, `app/app/services/entities.py`, `app/app/services/project_index/store.py` |
-| 6 | 23 | сервисы (74%) | artifact, ffprobe, report, audio | `app/app/services/storage.py`, `app/app/services/artifact_lab.py`, `app/app/services/status.py` |
-| 7 | 23 | ASR-скрипты (74%) | turns, speech, word, default | `asr/speakers.py`, `tools/projectmap/projectmap/coverage.py`, `asr/hallucination_guard.py` |
-| 8 | 20 | шаблоны (55%) | render, esc, load, history | `app/app/static/app.js`, `app/app/static/errors_ru.js`, `app/app/static/meeting_layout.js` |
-| 9 | 12 | сервисы (50%) | profile, login, personal, avatar | `app/app/services/personal_password.py`, `app/app/services/user_profile.py`, `app/app/models/user_profile.py` |
-| 10 | 12 | служебные скрипты (33%) | meeting, public, track, url | `app/app/models/meeting.py`, `app/app/services/meetings.py`, `app/app/services/meeting_analyze.py` |
-| 11 | 12 | сервисы (92%) | table, extract, tables, span | `app/app/services/prompts.py`, `app/app/services/table_md.py`, `app/app/services/pipeline_documents.py` |
-| 12 | 10 | служебные скрипты (30%) | profile, match, speaker, link | `app/app/models/speaker_profile.py`, `app/app/services/speaker_profiles.py`, `app/app/services/project_tasks.py` |
-| 13 | 8 | сервисы (38%) | job, task, project, jobs | `app/app/services/queue.py`, `app/app/models/job.py`, `app/app/services/single_instance.py` |
-| 14 | 7 | сервисы (57%) | progress, session, recorded, date | `app/app/services/recorded_at.py`, `app/app/services/upload.py`, `app/app/schemas/artifact.py` |
-| 15 | 5 | служебные скрипты (40%) | side, person, unknown, party | `app/app/services/people.py`, `app/app/models/person.py`, `app/app/services/people_seed.py` |
-| 16 | 3 | ASR-скрипты (100%) | docker, work, stage, input | `asr/docker_stage.py`, `asr/pipeline_checklist.py`, `asr/run_pipeline.py` |
+| 0 | 66 | инструменты (53%) | render, env, adapter, url | `tools/projectmap/projectmap/graphbuf.py`, `asr/speakers.py`, `tools/projectmap/projectmap/paths.py` |
+| 1 | 49 | сервисы (59%) | table, ensure, llm, process | `app/app/logging_setup.py`, `app/app/services/llm.py`, `app/app/services/status.py` |
+| 2 | 46 | сервисы (65%) | project, review, artifact, chunk | `app/app/models/artifact.py`, `app/app/models/project.py`, `app/app/models/entity.py` |
+| 3 | 34 | роутеры (38%) | project, token, user, activity | `app/app/config.py`, `app/app/db.py`, `app/app/models/user.py` |
+| 4 | 34 | лаборатория ASR (44%) | stage, voice, json, artifact | `asr/lab/paths.py`, `asr/lab/run.py`, `app/app/models/company.py` |
+| 5 | 34 | служебные скрипты (41%) | handle, date, map, analyze | `app/app/services/memory_compare.py`, `app/app/services/project_index/search.py`, `app/app/services/recorded_at.py` |
+| 6 | 31 | смоук портала (58%) | question, login, exchange, browser | `app/app/services/agent_gateway.py`, `scripts/qa_flows.py`, `scripts/smoke/common.py` |
+| 7 | 28 | сервисы (79%) | artifact, track, report, meeting | `app/app/services/storage.py`, `app/app/services/artifact_lab.py`, `app/app/services/artifact_audio.py` |
+| 8 | 22 | шаблоны (55%) | render, esc, load, say | `app/app/static/app.js`, `app/app/static/errors_ru.js`, `app/app/static/meeting_layout.js` |
+| 9 | 15 | сервисы (60%) | backup, review, system, judge | `app/app/services/prompts.py`, `app/app/models/decision_memory.py`, `app/app/models/speech_act.py` |
+| 10 | 15 | служебные скрипты (27%) | profile, match, speaker, link | `app/app/models/speaker_profile.py`, `tools/projectmap/projectmap/mcp_server.py`, `app/app/services/people.py` |
+| 11 | 12 | сервисы (50%) | profile, login, personal, avatar | `app/app/services/personal_password.py`, `app/app/services/user_profile.py`, `app/app/models/user_profile.py` |
+| 12 | 7 | сервисы (43%) | job, jobs, task, project | `app/app/services/queue.py`, `app/app/models/job.py`, `app/app/services/project_jobs.py` |
+| 13 | 7 | служебные скрипты (43%) | meeting, public, join, project | `app/app/models/meeting.py`, `app/app/services/meetings.py`, `app/app/services/meeting_tokens.py` |
+| 14 | 6 | сервисы (50%) | bundle, version, exchange, chunk | `app/app/services/exchange_files.py`, `app/app/models/exchange_file.py`, `app/app/services/agent_guide.py` |
+| 15 | 5 | ASR-скрипты (60%) | ffprobe, tool, win, candidates | `app/app/services/ffmpeg_tools.py`, `asr/pipeline_checklist.py`, `asr/prepare_audio.py` |
+| 16 | 3 | инструменты (100%) | signature, default, treesitter, visit | `tools/projectmap/projectmap/lang_treesitter.py`, `tools/projectmap/projectmap/lang_specs.py`, `tools/projectmap/projectmap/grammars.py` |
 
 ## 13. Узлы-перекрёстки и рейтинги связности
 
@@ -1047,43 +1113,44 @@ Fan-in — сколько других файлов зависят от файл
 
 | Хаб | Fan-in | Fan-out |
 |---|---|---|
-| `app/app/services/agent_gateway.py` | 26 | 15 |
-| `app/app/services/entities.py` | 12 | 21 |
-| `app/app/services/speaker_profiles.py` | 10 | 22 |
+| `app/app/services/project_index/search.py` | 45 | 10 |
+| `app/app/services/agent_gateway.py` | 26 | 17 |
+| `app/app/services/entities.py` | 12 | 24 |
+| `app/app/services/speaker_profiles.py` | 10 | 23 |
+| `app/app/services/tz.py` | 12 | 16 |
 | `app/app/services/graph.py` | 14 | 13 |
-| `app/app/services/tz.py` | 12 | 14 |
-| `app/app/services/contract.py` | 10 | 16 |
-| `app/app/services/artifact_audio.py` | 10 | 11 |
+| `app/app/services/contract.py` | 10 | 18 |
+| `app/app/services/artifact_audio.py` | 10 | 14 |
 
 **Больше всего зависят от файла (fan-in)**
 
 | Файл | Fan-in |
 |---|---|
-| `app/app/config.py` | 128 |
-| `app/app/models/artifact.py` | 72 |
-| `app/app/db.py` | 60 |
-| `app/app/logging_setup.py` | 47 |
-| `app/app/services/storage.py` | 44 |
-| `app/app/models/project.py` | 41 |
-| `app/app/services/project_index/search.py` | 38 |
-| `app/app/models/user.py` | 35 |
-| `app/app/models/entity.py` | 33 |
-| `app/app/services/agent_gateway.py` | 26 |
+| `app/app/config.py` | 144 |
+| `tools/projectmap/projectmap/graphbuf.py` | 136 |
+| `app/app/models/artifact.py` | 81 |
+| `app/app/db.py` | 68 |
+| `app/app/logging_setup.py` | 54 |
+| `app/app/services/memory_compare.py` | 50 |
+| `app/app/services/storage.py` | 46 |
+| `app/app/models/project.py` | 45 |
+| `app/app/services/project_index/search.py` | 45 |
+| `app/app/models/user.py` | 36 |
 
 **Больше всего зависит файл (fan-out)**
 
 | Файл | Fan-out |
 |---|---|
 | `app/app/main.py` | 28 |
-| `app/app/routers/knowledge.py` | 26 |
-| `app/app/services/pipeline_lab.py` | 25 |
-| `app/app/services/chat.py` | 24 |
+| `app/app/services/chat.py` | 28 |
+| `app/app/routers/knowledge.py` | 27 |
+| `app/app/services/pipeline_lab.py` | 26 |
+| `app/app/services/entities.py` | 24 |
 | `app/app/services/project_purge.py` | 24 |
 | `app/app/routers/upload.py` | 23 |
-| `app/app/services/speaker_profiles.py` | 22 |
-| `app/app/services/entities.py` | 21 |
-| `app/app/services/pipeline_meeting.py` | 20 |
-| `app/app/models/__init__.py` | 19 |
+| `app/app/services/speaker_profiles.py` | 23 |
+| `app/app/models/__init__.py` | 22 |
+| `app/app/services/pipeline_meeting.py` | 21 |
 
 ## 14. Файлы в «чужой» группе
 
@@ -1091,70 +1158,68 @@ Fan-in — сколько других файлов зависят от файл
 
 | Файл | Лежит в | Живёт в группе | Группа № |
 |---|---|---|---|
-| `app/app/mcp/project_protocol.py` | MCP портала | сервисы | 0 |
-| `app/app/models/__init__.py` | модели БД | сервисы | 0 |
-| `app/app/models/artifact.py` | модели БД | сервисы | 0 |
-| `app/app/models/chat_guidance.py` | модели БД | сервисы | 0 |
-| `app/app/models/chat_message.py` | модели БД | сервисы | 0 |
-| `app/app/models/contract.py` | модели БД | сервисы | 0 |
-| `app/app/models/entity.py` | модели БД | сервисы | 0 |
-| `app/app/models/project.py` | модели БД | сервисы | 0 |
-| `app/app/workers/review.py` | воркер и конвейеры | сервисы | 0 |
-| `scripts/audit_integrity.py` | служебные скрипты | сервисы | 0 |
-| `scripts/auto_review_backlog.py` | служебные скрипты | сервисы | 0 |
-| `scripts/eval_auto_review.py` | служебные скрипты | сервисы | 0 |
-| `scripts/fast_summarize_tz.py` | служебные скрипты | сервисы | 0 |
-| `scripts/fix_conflict_links.py` | служебные скрипты | сервисы | 0 |
-| `scripts/inspect_project_index.py` | служебные скрипты | сервисы | 0 |
-| `scripts/memory_scorecard.py` | служебные скрипты | сервисы | 0 |
-| `scripts/reextract_project.py` | служебные скрипты | сервисы | 0 |
-| `scripts/review_project.py` | служебные скрипты | сервисы | 0 |
-| `app/app/workers/pipeline.py` | воркер и конвейеры | сервисы | 6 |
-| `app/app/workers/processor.py` | воркер и конвейеры | сервисы | 6 |
-| `asr/prepare_audio.py` | ASR-скрипты | сервисы | 6 |
-| `asr/seed_artifact_asr.py` | ASR-скрипты | сервисы | 6 |
-| `scripts/rebuild_artifact_report.py` | служебные скрипты | сервисы | 6 |
-| `scripts/redescribe_screen_frames.py` | служебные скрипты | сервисы | 6 |
-| `tools/projectmap/projectmap/cli.py` | инструменты | ASR-скрипты | 7 |
-| `tools/projectmap/projectmap/config.py` | инструменты | ASR-скрипты | 7 |
-| `tools/projectmap/projectmap/context.py` | инструменты | ASR-скрипты | 7 |
-| `tools/projectmap/projectmap/coverage.py` | инструменты | ASR-скрипты | 7 |
-| `tools/projectmap/projectmap/probes.py` | инструменты | ASR-скрипты | 7 |
-| `tools/projectmap/projectmap/schema.py` | инструменты | ASR-скрипты | 7 |
+| `app/app/models/artifact.py` | модели БД | сервисы | 2 |
+| `app/app/models/chat_guidance.py` | модели БД | сервисы | 2 |
+| `app/app/models/chat_message.py` | модели БД | сервисы | 2 |
+| `app/app/models/contract.py` | модели БД | сервисы | 2 |
+| `app/app/models/entity.py` | модели БД | сервисы | 2 |
+| `app/app/models/project.py` | модели БД | сервисы | 2 |
+| `app/app/models/project_task.py` | модели БД | сервисы | 2 |
+| `scripts/auto_review_backlog.py` | служебные скрипты | сервисы | 2 |
+| `scripts/bind_document_units.py` | служебные скрипты | сервисы | 2 |
+| `scripts/eval_auto_review.py` | служебные скрипты | сервисы | 2 |
+| `scripts/fast_summarize_tz.py` | служебные скрипты | сервисы | 2 |
+| `scripts/fix_conflict_links.py` | служебные скрипты | сервисы | 2 |
+| `scripts/memory_scorecard.py` | служебные скрипты | сервисы | 2 |
+| `scripts/reextract_project.py` | служебные скрипты | сервисы | 2 |
+| `scripts/refresh_portal_knowledge.py` | служебные скрипты | сервисы | 2 |
+| `scripts/review_project.py` | служебные скрипты | сервисы | 2 |
+| `app/app/routers/upload.py` | роутеры | сервисы | 7 |
+| `app/app/schemas/artifact.py` | ядро API | сервисы | 7 |
+| `scripts/qa_analysis.py` | служебные скрипты | сервисы | 7 |
+| `scripts/redescribe_screen_frames.py` | служебные скрипты | сервисы | 7 |
+| `tools/livekit/screen_recorder.py` | комната LiveKit | сервисы | 7 |
+| `tools/livekit/voice_cleaner.py` | комната LiveKit | сервисы | 7 |
+| `app/app/models/decision_memory.py` | модели БД | сервисы | 9 |
+| `app/app/models/speech_act.py` | модели БД | сервисы | 9 |
+| `app/app/routers/project_memory.py` | роутеры | сервисы | 9 |
+| `scripts/build_decision_memory.py` | служебные скрипты | сервисы | 9 |
+| `scripts/compare_memory_vs_review.py` | служебные скрипты | сервисы | 9 |
+| `scripts/extract_speech_acts.py` | служебные скрипты | сервисы | 9 |
 
-Всего: 31.
+Всего: 28.
 
 ## 15. Частота правок и скрытая связность
 
-Частота правок — в скольких коммитах менялся файл. Скрытая связность — файлы, которые часто меняют вместе, хотя прямой связи в коде между ними нет (пар с совместными правками: 59).
+Частота правок — в скольких коммитах менялся файл. Скрытая связность — файлы, которые часто меняют вместе, хотя прямой связи в коде между ними нет (пар с совместными правками: 91).
 
 | Файл | Коммитов |
 |---|---|
-| `docs/PROJECT-MAP.md` | 49 |
-| `docs/project-map/manifest.yaml` | 27 |
-| `docs/DECISIONS.md` | 20 |
-| `app/app/main.py` | 16 |
+| `docs/PROJECT-MAP.md` | 76 |
+| `docs/project-map/manifest.yaml` | 44 |
+| `docs/DECISIONS.md` | 27 |
+| `app/app/templates/project.html` | 20 |
+| `app/app/main.py` | 19 |
+| `app/app/config.py` | 16 |
 | `docs/TESTING.md` | 15 |
-| `app/app/templates/project.html` | 14 |
-| `app/app/config.py` | 13 |
-| `.env.example` | 11 |
-| `app/app/routers/pages.py` | 11 |
-| `app/app/templates/base.html` | 11 |
+| `.env.example` | 13 |
+| `docs/plans/PROJECTMAP-PLAN.md` | 13 |
+| `app/app/services/entities.py` | 12 |
 
 **Меняются вместе без связи в коде**
 
 | Файл | Файл | Коммитов вместе |
 |---|---|---|
-| `docs/PROJECT-MAP.md` | `docs/project-map/manifest.yaml` | 17 |
-| `docs/DECISIONS.md` | `docs/PROJECT-MAP.md` | 9 |
+| `docs/PROJECT-MAP.md` | `docs/project-map/manifest.yaml` | 27 |
+| `docs/PROJECT-MAP.md` | `docs/plans/PROJECTMAP-PLAN.md` | 11 |
+| `docs/DECISIONS.md` | `docs/PROJECT-MAP.md` | 10 |
+| `docs/plans/PROJECTMAP-PLAN.md` | `docs/project-map/manifest.yaml` | 9 |
 | `docs/PROJECT-MAP.md` | `docs/TESTING.md` | 8 |
+| `docs/PROJECT-MAP.md` | `tools/projectmap/README.md` | 8 |
+| `docs/DECISIONS.md` | `docs/project-map/manifest.yaml` | 7 |
 | `docs/PROJECT-MAP.md` | `docs/project-map/DEPENDENCIES.md` | 7 |
-| `docs/DECISIONS.md` | `docs/project-map/manifest.yaml` | 6 |
-| `.env.example` | `app/app/config.py` | 5 |
-| `app/app/main.py` | `docs/PROJECT-MAP.md` | 5 |
-| `app/app/templates/base.html` | `app/app/templates/meeting_public.html` | 5 |
-| `app/app/templates/meeting_public.html` | `app/app/templates/meeting_room.html` | 5 |
-| `docs/PROJECT-MAP.md` | `scripts/check_map_drift.py` | 5 |
+| `docs/PROJECT-MAP.md` | `tools/projectmap/projectmap/cli.py` | 7 |
+| `docs/project-map/manifest.yaml` | `tools/projectmap/README.md` | 7 |
 
 ## 16. Как обновлять
 
