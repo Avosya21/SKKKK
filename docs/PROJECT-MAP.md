@@ -549,7 +549,7 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 | **MCP endpoint** | `POST /mcp/projects/{id}` + `Authorization: Bearer <ключ>` | держатель ключа |
 
 Инструменты MCP (`app/app/mcp/project_protocol.py`, `MCP_TOOLS`):
-- чтение: `get_guide` (инструкция агенту), `project_overview`, `list_artifacts`, `get_project_summary`, `search_project`, `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts`, `get_artifact_content`, `get_artifact_meta`, `get_requirements`, `get_tz`, `get_changes`, `get_conflicts`, `get_quote` (дословная цитата), `get_code_anchors`;
+- чтение: `get_guide` (инструкция агенту), `project_overview`, `list_artifacts`, `get_project_summary`, `search_project`, `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts`, `get_artifact_content`, `get_artifact_meta`, `get_requirements`, `get_tz`, `get_changes`, `get_conflicts`, `get_quote` (дословная цитата), `get_code_anchors`, `get_decisions` (память решений: предметы, лента реплик с цитатами и источником, итог на дату; только проект в режиме live, иначе ошибка `memory_not_live`; логика общая с экраном памяти — `services/decision_memory_view.py`);
 - обмен (только ключ с правами «вопросы» / «вопросы и вердикты»): `submit_question`, `submit_verdicts`, `wait_reply`, `exchange_status`.
 
 Порции и полнота (`docs/plans/MCP-KB-PLAN.md`, с 2026-10-08): ответ любого инструмента — компактный JSON не больше порции `MCP_PAGE_BYTES` (60 КБ ≈ 20 тыс. токенов), агент может попросить до 200 КБ параметром `page_bytes` (`services/mcp_page.py`: бюджет на вызов в контекстной переменной, его берёт и `contract.paginate`; по HTTP файлы контракта — по-прежнему до 200 КБ). Списки `list_entities`, `list_conflicts`, `list_notes`, `get_changes`, `get_code_anchors`, `get_conflicts`, `get_requirements` — `{total, cursor, items}`; граф — порциями по узлам с исходящими рёбрами. `get_artifact_content` отдаёт материал по виду (`project_mcp_data.MATERIAL_SOURCES`): созвон — `summary`, `brief`, `outline`, `text` (стенограмма); документ — `summary`, `text`; переписка — `summary`, `text`, `messages`; файл обмена агента — как прислан; плюс `entities`. Текст — порциями по строкам: `offset`, `total_chars`, `cursor`, `truncated`, `available_kinds`; отклонённый материал — пустое содержимое и `reason`. Страж в `call_tool`: непредусмотренный длинный список — первая порция с курсором, иное — ошибка `too_large`. Проверка на живых данных — `scripts/mcp_audit.py`. Инструкция при подключении (`initialize`) называет права именно этого ключа («ТВОЙ КЛЮЧ: …», файлы) и правило порций; руководство `get_guide` — версия 1.3. Каждый вызов — строка `mcp.call` в api.log и счётчик `mcp_call_stats` (`services/mcp_journal.py`).
@@ -1270,6 +1270,7 @@ data/projects/{project_id}/
 | `contract.py`, `contract_text.py`, `project_mcp_contract.py` | контракт обмена: виртуальные файлы `contract/*.json`, разбор переписки, дословные цитаты, оценки часов, якоря кода |
 | `requirement_review.py` | подтверждение требований (сущности decision/task): очередь по темам (вкладки «Ждут вас» / «Устарело» / «Склеено» / …; устаревшее и дубли прячутся из «Ждут вас» уже в тени — А3), у пункта: кто сказал и кто утвердил, где и когда по каждому источнику (`sources`, А9), ход обсуждения (`context`, до 5 реплик), вид пункта, «что заменило»; подтвердить (устаревшее — только с `force`, иначе 409, А6) / отклонить / сменить статус / «Это актуально» (`POST …/requirements/entity/{id}/mark-current`) |
 | `project_mcp_data.py`, `project_mcp_tokens.py` | данные и ключи проектного MCP (`can_submit`); содержимое материалов по виду (`MATERIAL_SOURCES`) |
+| `decision_memory_view.py` | память решений для чтения: список предметов, предмет с лентой (цитата, автор, сторона, `artifact_id`/`ref` источника) и журналом, состояние на дату — общее для экрана памяти (`routers/project_memory.py`) и MCP `get_decisions` |
 | `mcp_journal.py` | журнал чтения MCP: строка `mcp.call` в api.log (ключ, агент, инструмент, имена параметров, байты, мс, ошибка — без содержимого) и счётчик `mcp_call_stats`; `key_stats` для списка ключей |
 | `mcp_page.py` | порции ответов MCP: бюджет `MCP_PAGE_BYTES` / `page_bytes` на вызов, нарезка текста по строкам и списков по курсору |
 | `project_deadlines.py`, `project_tasks.py` | дедлайны проекта (точный срок `deadline_at` от модели — приоритет над разбором текста, `resolve_due`; исполнитель-метка `speaker_N` → имя после переименования спикера через `assignee_start_sec`, промпт `extract_entities_v4.md`); фоновые задачи API (зависшие помечаются при старте) |
@@ -1871,6 +1872,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `contract.py` | Контракт обмена «база знаний ↔ агент анализа конфигурации» (v1.0). |
 | `contract_text.py` | Разбор текста для контракта обмена с агентом анализа: сообщения переписки, дословные цитаты, оценки часов, якоря кода. |
 | `decision_log.py` | Журнал событий и состояние предмета на дату (docs/plans/DECISION-MEMORY-PLAN.md, Э4). Чистый код, модель не вызывается. |
+| `decision_memory_view.py` | Память решений для чтения: список предметов, предмет с лентой и журналом, состояние на дату. |
 | `doc_anchors.py` | Привязка уже извлечённых пунктов документов к абзацам ``P<n>`` без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
 | `doc_units.py` | Единицы документа с адресами ``P<n>`` (docs/plans/DECISION-MEMORY-PLAN.md, этап Э1). |
 | `docker_runtime.py` | Автозапуск Docker Desktop и ASR-контейнеров перед обработкой аудио. |
@@ -1934,7 +1936,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `project_deadlines.py` | Дедлайны проекта: разбор сроков из текста («до пятницы», «на следующей неделе», даты) относительно даты артефакта и сведение задач в единый  |
 | `project_jobs.py` | Фоновая работа по проекту: прогресс, постановка, повтор ошибок, остановка (PLATFORM-FOUNDATION-PLAN, ПФ9). |
 | `project_mcp_contract.py` | MCP-инструменты контракта обмена с агентом анализа (только чтение). Формат и смысл полей — docs/agent-exchange/CONTRACT.md. |
-| `project_mcp_data.py` | Данные проектного MCP (только чтение): обзор проекта, артефакты, сводка, поиск, сущности, граф и заметки — то, что отдают инструменты MCP. |
+| `project_mcp_data.py` | Данные проектного MCP (только чтение): обзор проекта, материалы целиком порциями, сводка, поиск, сущности, граф, заметки и память решений —  |
 | `project_mcp_tokens.py` | Ключи доступа проектного MCP: выпуск, хеширование, список, отзыв, право отправки (can_submit), право на файлы (files_access) и проверка ключ |
 | `project_members.py` | Выдача доступа к проекту: роли manager и user, без admin. |
 | `project_purge.py` | Удаление проекта целиком или одного артефакта: записи БД и файлы на диске. |
