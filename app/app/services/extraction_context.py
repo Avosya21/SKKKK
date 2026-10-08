@@ -176,12 +176,24 @@ def call_outline(settings: Settings, artifact: Artifact, *, force: bool = False)
     if not parts:
         return ""
     system = load_prompt_block(OUTLINE_PROMPT)
+    artifact_key = artifact.artifact_id
+    # Чтение полей artifact после коммита карточки проекта открывает новую транзакцию (ленивая подгрузка), и она висела
+    # всё время ответов модели (worker.log 2026-10-05 11:58:49). Закрываем её до вызовов модели.
+    from sqlalchemy.orm import object_session
+
+    session = object_session(artifact)
+    if session is not None:
+        session.commit()
     topics: list[dict[str, Any]] = []
     for part in parts:
-        try:
-            data = json.loads(strip_json_fence(chat_completion_no_think(settings, system=system, user=part, max_tokens=2048)))
-        except Exception as exc:  # noqa: BLE001 — часть без оглавления не ломает извлечение
-            log_event(logger, "call_outline.part_failed", artifact=artifact.artifact_id, error=str(exc)[:200])
+        data = None
+        for attempt in (1, 2):  # кривой JSON у модели случаен: один повтор, иначе часть оглавления теряется
+            try:
+                data = json.loads(strip_json_fence(chat_completion_no_think(settings, system=system, user=part, max_tokens=2048)))
+                break
+            except Exception as exc:  # noqa: BLE001 — часть без оглавления не ломает извлечение
+                log_event(logger, "call_outline.part_failed", artifact=artifact_key, attempt=attempt, error=str(exc)[:200])
+        if data is None:
             continue
         for item in (data.get("topics") if isinstance(data, dict) else None) or []:
             if isinstance(item, dict) and item.get("title"):
@@ -189,7 +201,7 @@ def call_outline(settings: Settings, artifact: Artifact, *, force: bool = False)
                                "outcome": str(item.get("outcome") or "")[:240]})
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"topics": topics, "at": _now()}, ensure_ascii=False, indent=2), encoding="utf-8")
-    log_event(logger, "call_outline.built", artifact=artifact.artifact_id, topics=len(topics))
+    log_event(logger, "call_outline.built", artifact=artifact_key, topics=len(topics))
     return outline_text(topics)
 
 

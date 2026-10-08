@@ -737,3 +737,28 @@ def test_big_topic_reviewed_in_batches_oldest_included(client, admin_token, tmp_
         assert db.get(Entity, app_ent.id).is_active is False
     finally:
         db.close()
+
+def test_truncated_entities_reply_splits_chunk(monkeypatch):
+    """Ответ упёрся в max_tokens (оборванный JSON) — часть делится пополам, а не повторяется целиком."""
+    from types import SimpleNamespace
+
+    from app.app.config import get_settings
+    from app.app.services import entities as ents
+
+    calls: list[str] = []
+
+    def fake(_settings, *, system, user, max_tokens):
+        calls.append(user)
+        if "P1" in user and "P4" in user:
+            return '{"summary": "обрыв'
+        return json.dumps({"summary": "ok", "decisions": [], "tasks": [], "facts": {}, "mentions": [], "participants": []})
+
+    monkeypatch.setattr(ents, "chat_completion_no_think", fake)
+    art = SimpleNamespace(artifact_id="art_x", source_type="document", file_type="docx", recorded_at=None, created_at=None)
+    monkeypatch.setattr(ents, "_numbered_message_parts", lambda *_a, **_k: None)
+    monkeypatch.setattr(ents, "_numbered_turn_parts", lambda *_a, **_k: [])
+    monkeypatch.setattr(ents, "_numbered_unit_parts", lambda *_a, **_k: ["P1 а\nP2 б\nP3 в\nP4 г"])
+    monkeypatch.setattr(ents, "_material_timestamp", lambda _a: "")
+    ents.extract_entities_llm(get_settings(), art, "x")
+    assert len(calls) == 3
+    assert "P1" in calls[1] and "P3" not in calls[1] and "P3" in calls[2]

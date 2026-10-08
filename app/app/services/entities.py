@@ -55,6 +55,8 @@ HUMAN_TRANSFER_TIME_WINDOW = 45.0
 REPLICA_MATCH_WINDOW = 3
 TEXT_OVERLAP_MIN_RATIO = 0.35
 EXTRACT_PART_CHARS = 6000
+# Ответ модели на одну часть: 4096 обрезал плотные ТЗ (~12 тыс. символов JSON); окно фона 56000-22000 вмещает с запасом.
+EXTRACT_MAX_TOKENS = 6144
 # «Утвердил» принимается, только если реплика согласия не дальше стольких реплик от реплики решения.
 DECIDED_BY_WINDOW = 5
 SPEAKER_SOURCE_TRACK = "track"  # комната: имя по дорожке микрофона — доказательство
@@ -856,22 +858,38 @@ def extract_entities_llm(settings: Settings, artifact: Artifact, text: str, cont
             + body
         )
         previous_tail = "\n".join(chunk.splitlines()[-EXTRACT_OVERLAP_TURNS:]) if numbered else ""
-        last_err = ""
-        for attempt in range(2):
-            try:
-                reply = chat_completion_no_think(settings, system=system, user=user, max_tokens=4096)
-                payload = _parse_entities(reply)
-                payload.artifact_id = artifact.artifact_id
-                payload.source_type = artifact.source_type
-                parts.append(payload)
-                break
-            except (json.JSONDecodeError, ValidationError, RuntimeError) as exc:
-                last_err = str(exc)
-                if attempt == 0:
-                    user = user + f"\n\nПредыдущий ответ невалиден: {last_err}. Верни только JSON."
-                else:
-                    raise RuntimeError(f"entity extraction failed: {last_err}") from exc
+        prefix = user[: len(user) - len(chunk)]
+        parts.extend(_extract_chunk(settings, artifact, system, prefix, chunk))
     return _merge_payloads(parts)
+
+
+def _extract_chunk(settings: Settings, artifact: Artifact, system: str, prefix: str, chunk: str, depth: int = 0) -> list[EntitiesPayload]:
+    """Одна часть. Оборванный JSON — обычно ответ упёрся в max_tokens (плотный документ): повтор даст тот же обрыв,
+    поэтому часть делится пополам по строкам (до 2 раз) и каждая половина извлекается отдельно."""
+    user = prefix + chunk
+    last_err = ""
+    for attempt in range(2):
+        try:
+            reply = chat_completion_no_think(settings, system=system, user=user, max_tokens=EXTRACT_MAX_TOKENS)
+            payload = _parse_entities(reply)
+            payload.artifact_id = artifact.artifact_id
+            payload.source_type = artifact.source_type
+            return [payload]
+        except (json.JSONDecodeError, ValidationError, RuntimeError) as exc:
+            last_err = str(exc)
+            lines = chunk.splitlines()
+            if isinstance(exc, json.JSONDecodeError) and depth < 2 and len(lines) > 1:
+                log_event(logger, "entities.chunk.split", artifact=artifact.artifact_id, chars=len(chunk), depth=depth + 1, error=last_err)
+                half = len(lines) // 2
+                return [
+                    *_extract_chunk(settings, artifact, system, prefix, "\n".join(lines[:half]), depth + 1),
+                    *_extract_chunk(settings, artifact, system, prefix, "\n".join(lines[half:]), depth + 1),
+                ]
+            if attempt == 0:
+                user = user + f"\n\nПредыдущий ответ невалиден: {last_err}. Верни только JSON."
+            else:
+                raise RuntimeError(f"entity extraction failed: {last_err}") from exc
+    raise RuntimeError(f"entity extraction failed: {last_err}")
 
 
 def stub_entities(artifact: Artifact, text: str) -> EntitiesPayload:
