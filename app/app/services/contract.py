@@ -863,8 +863,12 @@ def _build_contract(db, settings, project, project_id, slug, now, cfg, LOCAL_TZ,
 
 # ---------------------------------------------------------------- выдача порциями
 
-def paginate(payload: dict, *, cursor: str | None = None, limit: int | None = None, max_bytes: int = MAX_PAGE_BYTES) -> dict:
-    """Отдаёт items порциями не больше max_bytes: {total, cursor (следующий или None), items}."""
+def paginate(payload: dict, *, cursor: str | None = None, limit: int | None = None, max_bytes: int | None = None) -> dict:
+    """Отдаёт items порциями не больше max_bytes: {total, cursor (следующий или None), items}.
+    Без max_bytes — бюджет текущего вызова MCP (services/mcp_page.py, 60 КБ по умолчанию), вне MCP — 200 КБ."""
+    from app.app.services import mcp_page
+
+    max_bytes = max_bytes or mcp_page.current(MAX_PAGE_BYTES)
     items = payload.get("items")
     if not isinstance(items, list):
         return payload

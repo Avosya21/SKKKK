@@ -3493,6 +3493,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_mcp_page
+    kind: service
+    path: app/app/services/mcp_page.py
+    title: "Порции ответов проектного MCP (docs/plans/MCP-KB-PLAN.md, В1): бюджет байт на вызов, нарезка текста и списков по курсору."
+    tags: [auto]
+    auto: true
+
+  - id: script_mcp_audit
+    kind: file
+    path: scripts/mcp_audit.py
+    title: "Аудит проектного MCP на живых данных (docs/plans/MCP-KB-PLAN.md): что и сколько получает внешний агент."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

@@ -169,8 +169,8 @@ def test_mcp_list_artifacts_no_longer_crashes_and_serves_contract(client, manage
     assert {r["filename"] for r in only_contract} == {f"contract/{n}.json" for n in ctr.FILES} | {"contract/GUIDE.md"}
     body = data.mcp_get_artifact_content(db, settings, pid, artifact_id="contract/requirements.json", limit=1)
     assert body["content"]["items"] and body["content"]["cursor"] == "1"
-    ents = data.mcp_list_entities(db, pid, entity_type="decision")
-    assert ents and ents[0]["verification"] == "extracted"
+    ents = data.mcp_list_entities(db, pid, entity_type="decision")  # порция {total, cursor, items}, как обещает контракт
+    assert ents["items"] and ents["items"][0]["verification"] == "extracted" and ents["total"] == len(ents["items"])
     req = ctr.get_contract(db, settings, pid).files["requirements"]["items"][0]
     assert tools.get_quote(db, settings, pid, requirement_id=req["id"])["evidence"]
     assert tools.get_artifact_meta(db, settings, pid, artifact_id=art.artifact_id)["participants"]
