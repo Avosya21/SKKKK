@@ -887,13 +887,6 @@ def _answer_chat_inner(
             db,
             pending,
             content=answer,
-    try:  # журнал решений (память решений, Э6): состояние предметов, даты, стороны, цитаты; чат его только читает
-        from app.app.services.memory_chat import decision_block
-
-        decisions = decision_block(db, project_id, q_vecs[0], question)
-    except Exception:  # noqa: BLE001 - память решений не должна ломать ответ чата
-        logger.warning("журнал решений для чата не собран", exc_info=True)
-        decisions = ""
             sources=[],
             waiting=False,
         )
@@ -953,6 +946,9 @@ def _answer_chat_inner(
         user += f"\n\nДополнительно из БД проекта:\n{supplement}"
     if tz_excerpt:
         user += f"\n\nАктуальная выжимка проекта (current_tz.md):\n{tz_excerpt}"
+    if decisions:
+        user += ("\n\nЖурнал решений проекта (предметы обсуждения: состояние, кто и когда что сказал; для вопросов «что решили», "
+                 "«что отменили», «что было на дату» опирайся на него, называй даты и стороны):\n" + decisions)
     if graph_part:
         user += f"\n\n{graph_part}"
     if settings.dry_run:
@@ -960,9 +956,6 @@ def _answer_chat_inner(
     else:
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
-    if decisions:
-        user += ("\n\nЖурнал решений проекта (предметы обсуждения: состояние, кто и когда что сказал; для вопросов «что решили», "
-                 "«что отменили», «что было на дату» опирайся на него, называй даты и стороны):\n" + decisions)
         answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
     from app.app.services.plain_text import plainify_llm_markup
 
