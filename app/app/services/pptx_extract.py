@@ -2,8 +2,8 @@
 
 Каждый слайд — секция `## Слайд N: заголовок`, чтобы normalize_document резал текст по границам слайдов,
 а индексация/цитаты могли ссылаться на номер слайда. Извлекаем: заголовок, текст по порядку чтения,
-таблицы (markdown), группы фигур, диаграммы (данные рядов), заметки докладчика, текст картинок (OCR/vision)
-для слайдов, где своего текста мало.
+таблицы (markdown), группы фигур, диаграммы (данные рядов), заметки докладчика, текст картинок всех слайдов
+(vision-модель с подсказкой OCR; одна и та же картинка читается один раз, иконки меньше 200 px пропускаются).
 """
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ from app.app.services.office_convert import find_soffice as _find_soffice  # noq
 
 logger = logging.getLogger("skkkk.pptx")
 
-SLIDE_SPARSE_CHARS = 80  # меньше — слайд считаем «картинкой», прогоняем OCR по вставленным изображениям
-MAX_IMAGES_PER_DECK = 25
 MIN_IMAGE_SIDE_PX = 200  # иконки/логотипы не распознаём
 
 
@@ -95,11 +93,15 @@ def _smartart_text(shape) -> str:
         return ""
 
 
-def _ocr_picture(shape, settings: Settings | None) -> str:
+def _ocr_picture(shape, settings: Settings | None, seen: set[str] | None = None) -> str:
     from app.app.services.pipeline_documents import _extract_image
 
     try:
         img = shape.image
+        if seen is not None:
+            if img.sha1 in seen:
+                return ""
+            seen.add(img.sha1)
         if (img.size[0] or 0) < MIN_IMAGE_SIDE_PX or (img.size[1] or 0) < MIN_IMAGE_SIDE_PX:
             return ""
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,7 +128,7 @@ def extract_pptx(path: Path, settings: Settings | None = None) -> str:
 
     prs = Presentation(str(path))
     sections: list[str] = []
-    images_left = MAX_IMAGES_PER_DECK
+    seen_images: set[str] = set()
     use_images = settings is not None and not settings.dry_run
 
     for num, slide in enumerate(prs.slides, start=1):
@@ -159,13 +161,9 @@ def extract_pptx(path: Path, settings: Settings | None = None) -> str:
                 if md:
                     blocks.append(md)
 
-        body_chars = sum(len(b) for b in blocks) + len(title)
-        if use_images and pictures and body_chars < SLIDE_SPARSE_CHARS:
+        if use_images:
             for pic in pictures:
-                if images_left <= 0:
-                    break
-                images_left -= 1
-                text = _ocr_picture(pic, settings)
+                text = _ocr_picture(pic, settings, seen_images)
                 if text:
                     blocks.append(f"Текст на изображении:\n{text}")
 

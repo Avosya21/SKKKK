@@ -18,6 +18,8 @@ from app.app.services.table_md import Table, clean_cell, make_table, render_md
 
 logger = logging.getLogger("skkkk.documents")
 SCAN_CHARS_THRESHOLD = 40
+PDF_FIGURE_MIN_AREA = 0.08  # доля площади страницы
+PDF_FIGURE_MIN_SIDE_PT = 120
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rtf", ".csv", ".log", ".json", ".yaml", ".yml", ".ini", ".text"}
 TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "cp1251", "cp866", "latin-1")
 
@@ -129,37 +131,89 @@ def _pdf_page_with_tables(page, tables, first_no: int) -> str:
     return "\n\n".join(text for _y, _o, text in items)
 
 
-def _extract_pdf(path: Path) -> str:
+def _pdf_figure_rects(page) -> list:
+    """Крупные картинки на странице с текстом (схемы процессов, скриншоты): от 8% площади и от 120 pt по меньшей
+    стороне — иконки и логотипы не берём; картинки, лежащие внутри уже взятой, не повторяем."""
+    page_area = page.rect.get_area()
+    rects: list = []
+    for img in page.get_images(full=True):
+        try:
+            found = page.get_image_rects(img[0])
+        except Exception:
+            continue
+        for r in found:
+            r = r & page.rect
+            if r.is_empty or r.get_area() < PDF_FIGURE_MIN_AREA * page_area or min(r.width, r.height) < PDF_FIGURE_MIN_SIDE_PT:
+                continue
+            if any((r & x).get_area() >= 0.8 * r.get_area() for x in rects if r.intersects(x)):
+                continue
+            rects.append(r)
+    return sorted(rects, key=lambda r: (r.y0, r.x0))
+
+
+def _read_pdf_image(page, settings: Settings, clip=None) -> str:
+    """Страница-скан (``clip=None``) или картинка страницы → текст через ``_extract_image``: vision-модель
+    с черновиком OCR, при её сбое — OCR. Ошибка не роняет разбор документа: пустая строка."""
+    import tempfile
+
+    pix = page.get_pixmap(dpi=200, clip=clip)
+    with tempfile.TemporaryDirectory() as tmp:
+        img = Path(tmp) / f"page{page.number + 1}.png"
+        pix.save(str(img))
+        try:
+            return _extract_image(img, settings).strip()
+        except Exception as exc:
+            logger.warning("pdf image read failed (page %s): %s", page.number + 1, exc)
+            return ""
+
+
+def _extract_pdf(path: Path, settings: Settings | None = None) -> str:
+    """Текст страниц + таблицы на местах. В живом прогоне страницы-сканы и крупные картинки на страницах с текстом
+    (схемы, скриншоты) читает vision-модель — без лимита: полнота важнее времени. Без настроек и в сухом
+    прогоне — только OCR сканов, картинки не читаются."""
     import pymupdf
 
     doc = pymupdf.open(path)
     parts: list[str] = []
     table_no = 1
+    live = settings is not None and not settings.dry_run
+    scans = figures = 0
     for page in doc:
         text = page.get_text().strip()
         if len(text) < SCAN_CHARS_THRESHOLD:
-            parts.append(_ocr_pdf_page(page) or text)
+            scans += 1
+            parts.append((_read_pdf_image(page, settings) if live else _ocr_pdf_page(page)) or text)
             continue
         tables = _pdf_page_tables(page)
         if not tables:
-            parts.append(text)
-            continue
-        parts.append(_pdf_page_with_tables(page, tables, table_no))
-        table_no += len(tables)
+            page_md = text
+        else:
+            page_md = _pdf_page_with_tables(page, tables, table_no)
+            table_no += len(tables)
+        for rect in _pdf_figure_rects(page) if live else []:
+            fig = _read_pdf_image(page, settings, clip=rect)
+            if fig:
+                figures += 1
+                page_md += f"\n\nРисунок на странице {page.number + 1}:\n{fig}"
+        parts.append(page_md)
+    if scans or figures:
+        log_event(logger, "pdf.images_read", file=path.name, scans=scans, figures=figures, vision=live)
     return "\n\n".join(parts).strip()
 
 
-def _extract_docx(path: Path) -> str:
+def _extract_docx(path: Path, settings: Settings | None = None) -> str:
     from app.app.services.docx_extract import extract_docx
 
-    return extract_docx(path)
+    return extract_docx(path, settings)
 
 
 def _extract_image(path: Path, settings: Settings | None = None) -> str:
+    """Картинка → текст. В живом прогоне всегда vision-модель (OCR схем и форм — мусор, и проверка «мусора»
+    ловит не всё), черновик Tesseract идёт ей подсказкой; при сбое модели остаётся OCR."""
     import pytesseract
     from PIL import Image, ImageEnhance
 
-    from app.app.services.image_extract import extract_image_via_vision, ocr_text_is_weak
+    from app.app.services.image_extract import extract_image_via_vision
     from app.app.services.tesseract_tools import configure_pytesseract
 
     tess_cfg = configure_pytesseract()
@@ -169,23 +223,12 @@ def _extract_image(path: Path, settings: Settings | None = None) -> str:
 
     if settings is None or settings.dry_run:
         return ocr
-    if not ocr_text_is_weak(ocr):
-        log_event(logger, "image.ocr_ok", file=path.name, chars=len(ocr))
-        return ocr
-
-    log_event(
-        logger,
-        "image.vision_fallback",
-        file=path.name,
-        ocr_chars=len(ocr),
-        reason="weak_ocr",
-    )
     try:
         vision = extract_image_via_vision(settings, path, ocr_hint=ocr)
-        log_event(logger, "image.vision_ok", file=path.name, chars=len(vision))
+        log_event(logger, "image.vision_ok", file=path.name, chars=len(vision), ocr_chars=len(ocr))
         return vision
     except Exception as exc:
-        logger.warning("vision fallback failed for %s: %s", path.name, exc)
+        logger.warning("vision failed for %s: %s", path.name, exc)
         if ocr.strip():
             log_event(logger, "image.vision_failed_keep_ocr", file=path.name, error=str(exc))
             return ocr
@@ -211,9 +254,9 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     is_chat = False  # переписка (выгрузка Telegram, копия чата Битрикс24): текст — сообщения дословно
 
     if artifact.file_type == "pdf":
-        raw = _extract_pdf(path)
+        raw = _extract_pdf(path, settings)
     elif artifact.file_type == "docx":
-        raw = _extract_docx(path)
+        raw = _extract_docx(path, settings)
     elif artifact.file_type == "xlsx":
         from app.app.services.xlsx_extract import extract_spreadsheet
 

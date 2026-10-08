@@ -193,6 +193,34 @@ def test_extract_xlsx_tables_with_merged_header(tmp_path: Path):
     assert "показаны строки" not in out
 
 
+def test_extract_xlsx_cell_notes_and_detached_header(tmp_path: Path):
+    """Примечание ячейки (и ветка комментариев нового Excel) — в той же ячейке; шапка, отбитая пустыми строками,
+    приклеивается к данным, а пустая шкала дат Ганта убирается."""
+    from openpyxl import Workbook
+    from openpyxl.comments import Comment
+
+    from app.app.services.xlsx_extract import extract_spreadsheet
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "План"
+    ws.append(["Этап", "Задача", "Статус", "01.02.2026", "02.02.2026"])
+    ws.append([])
+    ws.append([])
+    ws.append(["Подготовка", "Стенд", "В работе"])
+    ws.append(["Подготовка", "Договор", "Готово"])
+    ws["C4"].comment = Comment("[Threaded comment]\n Your version of Excel allows you to read this threaded comment.\n"
+                               "Comment:\n\tждём заказчика\nReply:\n\tпереносим", "tc={1}")
+    ws["B5"].comment = Comment("подписан в марте", "Автор")
+    path = tmp_path / "gantt.xlsx"
+    wb.save(path)
+    out = extract_spreadsheet(path)
+    assert "| Этап | Задача | Статус |\n| --- | --- | --- |" in out
+    assert "| Подготовка | Стенд | В работе [примечание: ждём заказчика / переносим] |" in out
+    assert "Договор [примечание: подписан в марте]" in out
+    assert "01.02.2026" not in out and "Threaded" not in out
+
+
 def test_extract_csv_semicolon_cp1251(tmp_path: Path):
     from app.app.services.xlsx_extract import extract_spreadsheet
 
@@ -252,6 +280,70 @@ def test_extract_pdf_table_keeps_columns(tmp_path: Path):
     assert "| 2 | AI layer | 240 000 |" in out
     assert out.index("Estimate for the project") < out.index("| No |") < out.index("Notes after the table")
     assert out.count("Analysis") == 1  # текст таблицы не дублируется простым текстом страницы
+
+
+def test_extract_pdf_reads_figures_and_scans_with_vision(tmp_path: Path, monkeypatch):
+    """Живой прогон: крупная картинка на странице с текстом и страница-скан читаются через _extract_image
+    (vision); иконка — нет. Без настроек и в сухом прогоне картинки не читаются, скан — только OCR."""
+    from types import SimpleNamespace
+
+    import pymupdf
+
+    from app.app.services import pipeline_documents as pd
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((50, 60), "Process description of the approval before the diagram")
+    big = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 400, 300), 0)
+    big.clear_with(200)
+    page.insert_image(pymupdf.Rect(50, 100, 450, 400), pixmap=big)
+    small = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 20, 20), 0)
+    small.clear_with(100)
+    page.insert_image(pymupdf.Rect(500, 30, 520, 50), pixmap=small)
+    scan = doc.new_page()
+    scan.insert_image(scan.rect, pixmap=big)
+    path = tmp_path / "process.pdf"
+    doc.save(str(path))
+
+    calls = []
+    monkeypatch.setattr(pd, "_extract_image", lambda img, settings: calls.append(img.name) or f"vision {len(calls)}")
+    monkeypatch.setattr(pd, "_ocr_pdf_page", lambda page: "ocr scan")
+    out = pd._extract_pdf(path, SimpleNamespace(dry_run=False))
+    assert calls == ["page1.png", "page2.png"]
+    assert out.index("Process description") < out.index("Рисунок на странице 1:\nvision 1") < out.index("vision 2")
+    for offline in (pd._extract_pdf(path), pd._extract_pdf(path, SimpleNamespace(dry_run=True))):
+        assert "Рисунок" not in offline and "ocr scan" in offline
+
+
+def test_extract_docx_reads_images_in_place(tmp_path: Path, monkeypatch):
+    """Картинка Word читается на своём месте (после абзаца), повтор той же картинки и иконка — нет."""
+    from types import SimpleNamespace
+
+    from docx import Document
+    from PIL import Image
+
+    from app.app.services import pipeline_documents as pd
+    from app.app.services.docx_extract import extract_docx
+
+    big, icon = tmp_path / "scheme.png", tmp_path / "icon.png"
+    Image.new("RGB", (400, 300), "white").save(big)
+    Image.new("RGB", (32, 32), "white").save(icon)
+    d = Document()
+    d.add_paragraph("Before the scheme")
+    d.add_picture(str(big))
+    d.add_paragraph("Between")
+    d.add_picture(str(big))
+    d.add_picture(str(icon))
+    d.add_paragraph("After")
+    path = tmp_path / "spec.docx"
+    d.save(str(path))
+
+    calls = []
+    monkeypatch.setattr(pd, "_extract_image", lambda img, settings: calls.append(img) or "Approve -> Send")
+    out = extract_docx(path, SimpleNamespace(dry_run=False))
+    assert len(calls) == 1
+    assert out.index("Before the scheme") < out.index("Рисунок 1:\nApprove -> Send") < out.index("Between")
+    assert "Рисунок" not in extract_docx(path) and "Рисунок" not in extract_docx(path, SimpleNamespace(dry_run=True))
 
 
 # --- HTML (выгрузка Google Sheets / Excel как веб-страницы, обычные страницы) -------------------------------------
