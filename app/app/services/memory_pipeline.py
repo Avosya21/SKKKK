@@ -45,6 +45,11 @@ def _waiting(db: Session, project_id: int, scopes: tuple[str, ...], *, exclude_a
     return int(db.scalar(stmt) or 0)
 
 
+def building(db: Session, project_id: int) -> int:
+    """Сколько задач памяти проекта ещё ждёт или идёт: карточка показывает ход, повторное «Построить» в это время не принимается."""
+    return _waiting(db, project_id, SCOPES)
+
+
 def enqueue_for_artifact(db: Session, settings: Settings, artifact: Artifact, mode: str) -> list[str]:
     """Поставить задачи памяти нового материала (после проверок и выжимки). Возвращает поставленные области."""
     from app.app.services.queue import enqueue_auto_review
@@ -65,6 +70,8 @@ def queue_project(db: Session, settings: Settings, project_id: int) -> dict[str,
     from app.app.services.queue import enqueue_auto_review
     from app.app.services.requirements_reextract import project_materials
 
+    if building(db, project_id):
+        raise ValueError("Память уже строится: дождитесь окончания, она появится в карточке сама")
     project = db.get(Project, project_id)
     if memory_mode.mode_of(settings, project) == "off":
         memory_mode.set_mode(db, project, "shadow")

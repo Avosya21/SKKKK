@@ -97,9 +97,9 @@ def memory_summary(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """Лёгкая сводка для карточки: режим, счётчики по состояниям, сколько реплик, зависшие предметы, готовность к включению."""
+    """Лёгкая сводка для карточки: режим, счётчики по состояниям, сколько реплик, зависшие предметы, задачи построения в очереди, готовность."""
     from app.app.config import get_settings
-    from app.app.services import memory_mode
+    from app.app.services import memory_mode, memory_pipeline
 
     project = _staff(db, user, project_id)
     settings = get_settings()
@@ -108,7 +108,7 @@ def memory_summary(
     built_at = db.scalar(select(func.max(Subject.updated_at)).where(Subject.project_id == project_id))
     return {"mode": memory_mode.mode_of(settings, project), "is_admin": staff_ui_role(db, user, project) == "admin", "counts": counts, "labels": STATE_LABELS, "acts_total": acts_total,
             "built_at": built_at.isoformat() if built_at else None, "needs_attention": memory_mode.stale_count(db, project_id),
-            "readiness": memory_mode.readiness(db, project_id)}
+            "building": memory_pipeline.building(db, project_id), "readiness": memory_mode.readiness(db, project_id)}
 
 
 def _act_out(db: Session, a: SpeechAct, names: dict[int, tuple[str, str]]) -> dict[str, Any]:
@@ -242,7 +242,8 @@ def build(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """Поставить в очередь построение памяти по всем материалам проекта (только администратор). Дальше память дописывается сама."""
+    """Поставить в очередь построение памяти по всем материалам проекта (только администратор). Дальше память дописывается сама.
+    Пока прежнее построение не закончено, повторное не ставится (409)."""
     from app.app.config import get_settings
     from app.app.services import memory_pipeline
 
@@ -250,6 +251,8 @@ def build(
     if staff_ui_role(db, user, project) != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Построение запускает администратор")
     try:
+        if memory_pipeline.building(db, project_id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Память уже строится: дождитесь окончания, она появится в карточке сама")
         return memory_pipeline.queue_project(db, get_settings(), project_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
