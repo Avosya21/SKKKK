@@ -80,7 +80,7 @@ def _delete_chunks(conn: sqlite3.Connection, where: str, args: tuple) -> None:
 
 def _delete_file(conn: sqlite3.Connection, rel: str) -> None:
     _delete_chunks(conn, "path=? AND (meta IS NULL OR meta NOT LIKE '%\"generated\": true%')", (rel,))
-    for table in ("symbols", "calls", "imports"):
+    for table in ("symbols", "calls", "imports", "symbol_aliases"):
         conn.execute(f"DELETE FROM {table} WHERE path=?", (rel,))
     conn.execute("DELETE FROM files WHERE path=?", (rel,))
 
@@ -105,6 +105,9 @@ def _store_result(conn: sqlite3.Connection, rel: str, res: FileResult, cfg: Inde
                      [(c.path, c.caller, c.callee, c.qualifier, c.line, c.lang) for c in res.calls])
     conn.executemany("INSERT INTO imports(path, module, names, line) VALUES (?,?,?,?)",
                      [(i.path, i.module, i.names, i.line) for i in res.imports])
+    if hasattr(res, "aliases"):
+        conn.executemany("INSERT INTO symbol_aliases(alias, file, path, line, kind, name, qualname, module, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                         [(a.alias, a.file, a.path, a.line, a.kind, a.name, a.qualname, a.module, a.source) for a in res.aliases])
     st = (ROOT / rel).stat()
     conn.execute("INSERT OR REPLACE INTO files(path, sha, size, mtime, kind, indexed_at) VALUES (?,?,?,?,?,?)",
                  (rel, _sha_bytes(raw), st.st_size, st.st_mtime, rel.rsplit(".", 1)[-1], time.time()))

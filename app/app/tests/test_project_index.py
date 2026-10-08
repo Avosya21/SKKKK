@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib.util
+import ast
 import json
 import os
 import sqlite3
@@ -181,6 +182,53 @@ def test_stale_lock_is_taken_over(tmp_path, monkeypatch):
 def test_identifiers_split_camel_and_snake():
     text = store.identifiers_text("_ensureMicPicker log_activity")
     assert "mic" in text and "picker" in text and "activity" in text
+
+
+def test_alias_from_route_makes_product_wording():
+    a = chunkers._alias_from_route("/api/meetings/{meeting_id}/transcribe")
+    assert "transcribe_meeting" in a and "meetings_transcribe" in a
+    assert chunkers._alias_from_route("/admin/map/graph") == {"graph_map", "graph_maps", "map_graph", "maps_graph"}
+    # служебные сегменты и неодумляемые формы отбрасываются
+    assert not any(x.startswith("well_known") for x in a)
+    # составное действие через дефис остаётся целиком, сущность берётся из пути
+    assert chunkers._alias_from_route("/api/artifacts/{artifact_id}/rebuild-summary") >= {"rebuild_summary_artifact"}
+    assert chunkers._alias_from_route("") == set()
+
+
+def test_alias_from_decorators_reads_http_and_task_names():
+    src = ("@router.post('/api/meetings/{meeting_id}/transcribe')\n"
+           "@shared_task(name='app.transcribe_meeting')\n"
+           "def run():\n    pass\n")
+    decos = [d for n in ast.parse(src).body for d in getattr(n, "decorator_list", [])]
+    routes, tasks = chunkers._alias_from_decorators(decos)
+    assert "transcribe_meeting" in routes
+    assert tasks == {"transcribe_meeting"}
+
+
+def test_alias_from_test_gives_short_product_prefix():
+    a = chunkers._alias_from_test("test_transcribe_meeting_creates_job")
+    assert "transcribe_meeting" in a and "transcribe_meeting_creates" in a
+    assert chunkers._alias_from_test("test_x") == set()
+
+
+def test_chunker_emits_aliases_for_route_task_and_test(tmp_path):
+    f = tmp_path / "routers_meetings.py"
+    f.write_text("@router.post('/api/meetings/{meeting_id}/transcribe')\n"
+                  "@shared_task(name='transcribe_meeting')\n"
+                  "def transcribe():\n    pass\n", encoding="utf-8")
+    res = chunkers.chunk_file("routers_meetings.py", f.read_text(encoding="utf-8"))
+    got = {a.alias: a.source for a in res.aliases}
+    # одно название может прийти и из роута, и из задачи: важно, что оно вообще есть
+    assert got.get("transcribe_meeting") in ("route", "task")
+    assert got.get("transcribe") == "symbol"
+    assert all(a.path == "routers_meetings.py" and a.line > 0 for a in res.aliases)
+
+    t = tmp_path / "test_meetings.py"
+    t.write_text("def test_transcribe_meeting_creates_job():\n    pass\n", encoding="utf-8")
+    got_t = {a.alias: a.source for a in chunkers.chunk_file("test_meetings.py", t.read_text(encoding="utf-8")).aliases}
+    assert got_t.get("transcribe_meeting") == "test"
+    assert got_t.get("transcribe_meeting_creates") == "test"
+    assert got_t.get("transcribe_meeting_creates_job") == "test"
 
 
 # ───────────────────────────── запрос ─────────────────────────────

@@ -465,6 +465,20 @@ def symbol_info(conn: sqlite3.Connection, name: str) -> list[dict]:
         (last, name, f"%.{last}", last)).fetchall()
     if not rows:
         rows = conn.execute("SELECT * FROM symbols WHERE name LIKE ? ORDER BY path LIMIT 30", (f"%{last}%",)).fetchall()
+    if not rows:
+        # название функции словами: алиасы из роутов, задач и имён тестов
+        rows = conn.execute(
+            "SELECT s.*, a.alias AS matched_alias, a.source AS matched_source FROM symbol_aliases a "
+            "JOIN symbols s ON s.path=a.path AND s.name=a.name AND s.qualname=a.qualname "
+            "WHERE a.alias=? OR lower(a.alias)=? "
+            "ORDER BY CASE a.source WHEN 'route' THEN 0 WHEN 'task' THEN 1 WHEN 'test' THEN 2 ELSE 3 END, s.path "
+            "LIMIT 30", (name, name.lower())).fetchall()
+    if not rows:
+        rows = conn.execute(
+            "SELECT s.*, a.alias AS matched_alias, a.source AS matched_source FROM symbol_aliases a "
+            "JOIN symbols s ON s.path=a.path AND s.name=a.name AND s.qualname=a.qualname "
+            "WHERE lower(a.alias) LIKE ? "
+            "ORDER BY LENGTH(a.alias), s.path LIMIT 30", (f"%{name.lower()}%",)).fetchall()
     return [dict(r) for r in rows]
 
 
