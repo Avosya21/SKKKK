@@ -151,3 +151,20 @@ def test_api_build_is_admin_only(client, admin_token, manager_token, world):
     assert client.post(f"/projects/{pid}/memory/build", headers=manager).status_code in (403, 404)
     r = client.post(f"/projects/{pid}/memory/build", headers=admin)
     assert r.status_code == 200 and r.json()["jobs_queued"] == 3
+
+
+def test_build_is_refused_while_previous_build_runs(client, admin_token, world):
+    from app.app.models.job import Job
+
+    db, settings, project, arts, _ = world
+    admin = {"Authorization": f"Bearer {admin_token}"}
+    assert client.post(f"/projects/{project.id}/memory/build", headers=admin).status_code == 200
+    assert client.get(f"/projects/{project.id}/memory/summary", headers=admin).json()["building"] == 3
+    r = client.post(f"/projects/{project.id}/memory/build", headers=admin)
+    assert r.status_code == 409 and "уже строится" in r.json()["detail"]
+    with pytest.raises(ValueError):
+        mp.queue_project(db, settings, project.id)
+    db.query(Job).update({Job.status: "done"})
+    db.commit()
+    assert client.get(f"/projects/{project.id}/memory/summary", headers=admin).json()["building"] == 0
+    assert client.post(f"/projects/{project.id}/memory/build", headers=admin).status_code == 200  # после окончания — снова можно

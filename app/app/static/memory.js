@@ -19,6 +19,8 @@
   let total = 0;
   let isAdmin = false;
   let timer = null;
+  let watch = null;  // опрос сводки, пока память строится
+  let wasBuilding = false;
 
   const say = (text, bad) => { const el = $('mem-status'); el.textContent = text || ''; el.classList.toggle('text-danger', !!bad); };
   const errText = async (r) => { try { const d = (await r.json()).detail; return typeof d === 'string' ? d : JSON.stringify(d); } catch (e) { return 'Ошибка ' + r.status; } };
@@ -59,8 +61,14 @@
     badge.title = 'Предметы, по которым предложили, но давно нет ответа';
     root.querySelector('.px-toggle-hint').textContent = total ? `(предметов: ${total})` : '(развернуть)';
     renderCounts(d.counts || {}, d.labels || {});
-    $('mem-empty').classList.toggle('d-none', total > 0);
-    $('mem-build').classList.toggle('d-none', !isAdmin);
+    const building = d.building || 0;
+    $('mem-empty').classList.toggle('d-none', total > 0 || building > 0);
+    $('mem-build').classList.toggle('d-none', !isAdmin || building > 0);
+    if (building) say(`Память строится: в очереди задач ${building}. Карточка обновится сама, когда построение закончится.`);
+    else if (wasBuilding) say(total ? 'Память построена.' : 'Построение закончено, но предметов не найдено.');
+    if (building && !watch) watch = setInterval(poll, 15000);
+    if (!building && watch) { clearInterval(watch); watch = null; }
+    wasBuilding = building > 0;
     $('mem-filters').classList.toggle('d-none', !total);
     const box = $('mem-ready-box');
     const ready = d.readiness;
@@ -166,7 +174,7 @@
     }
     if (t.id === 'mem-build') {
       const d = await api('/build', 'POST');
-      if (d) say(`Поставлено в очередь задач: ${d.jobs_queued}. Ход виден в карточке «Фоновая работа».`);
+      if (d) { say(`Поставлено в очередь задач: ${d.jobs_queued}. Карточка обновится сама, когда память построится.`); await loadSummary(); }
       return;
     }
     if (t.classList.contains('mem-mode-set')) {
@@ -180,6 +188,12 @@
   $('mem-q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(reload, 350); });
   $('mem-prev').addEventListener('click', () => { offset = Math.max(0, offset - PAGE); loadList(); });
   $('mem-next').addEventListener('click', () => { offset += PAGE; loadList(); });
+
+  async function poll() {
+    const building = wasBuilding;
+    const has = await loadSummary();
+    if (building && !wasBuilding && has) { offset = 0; await loadList(); loaded = true; }
+  }
 
   let loaded = false;
   async function init() {
