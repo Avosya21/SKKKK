@@ -14,7 +14,7 @@ from app.app.config import Settings, external_base_url, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user, require_role
 from app.app.services.project_access import require_project
-from app.app.mcp.project_protocol import dispatch_mcp_body
+from app.app.mcp.project_protocol import MCP_TOOLS, dispatch_mcp_body
 from app.app.models.project import Project
 from app.app.models.user import User
 from app.app.services.project_mcp_tokens import (
@@ -361,7 +361,11 @@ def list_tokens(
     user: Annotated[User, Depends(require_role("admin", "manager"))],
 ):
     _owned_project(db, user, project_id)
-    return {"tokens": list_project_mcp_tokens(db, project_id=project_id)}
+    from app.app.services.mcp_journal import key_stats
+
+    stats = key_stats(db, project_id, days=7)  # журнал чтения (MCP-KB-PLAN Э4): сколько и чего ключ читал за неделю
+    empty = {"calls": 0, "bytes": 0, "errors": 0, "top_tools": []}
+    return {"tokens": [{**t, "usage_7d": stats.get(t["id"], empty)} for t in list_project_mcp_tokens(db, project_id=project_id)]}
 
 
 @router.post("/projects/{project_id}/mcp/tokens", status_code=status.HTTP_201_CREATED)
@@ -426,8 +430,10 @@ def mcp_connection_info(
         "uses_public_url": bool((settings.web_public_url or "").strip()),
         "transport": "streamable-http",
         "auth_header": "Authorization: Bearer <MCP-токен>",
-        "tools_count": 9,
-        "read_only": True,
+        "tools_count": len(MCP_TOOLS),
+        # было «9 инструментов, только чтение»: запись (вопросы, вердикты, приём файлов) — по правам ключа
+        "read_only": False,
+        "access": "чтение — любому ключу; вопросы, вердикты и приём файлов — по правам ключа",
         "cursor_config_example": {
             "mcpServers": {
                 f"skkkk-project-{project_id}": {

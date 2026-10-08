@@ -3507,6 +3507,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_mcp_journal
+    kind: service
+    path: app/app/services/mcp_journal.py
+    title: "Журнал чтения проектного MCP (docs/plans/MCP-KB-PLAN.md, Э4): кто, чем и сколько читал — без содержимого ответов."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
