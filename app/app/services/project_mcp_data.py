@@ -1,8 +1,9 @@
-"""Данные проектного MCP (только чтение): обзор проекта, артефакты, сводка, поиск, сущности, граф и заметки — то, что отдают инструменты MCP."""
+"""Данные проектного MCP (только чтение): обзор проекта, материалы целиком порциями, сводка, поиск, сущности, граф, заметки и память решений — то, что отдают инструменты MCP."""
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -403,3 +404,52 @@ def mcp_get_artifact_content(
         return {**frame, "kind": used, "content": "", "reason": f"{why}; есть: {', '.join(frame['available_kinds']) or 'ничего'}"}
     # порция по бюджету вызова (page_bytes); limit здесь не действует — он для файлов контракта (число пунктов)
     return mcp_page.text_page(content, cursor, {**frame, "kind": used}, max_bytes=mcp_page.current(mcp_page.MAX_PAGE_BYTES))
+
+
+def mcp_get_decisions(
+    db: Session,
+    settings: Settings,
+    project_id: int,
+    *,
+    subject_id: int | None = None,
+    as_of: str | None = None,
+    query: str | None = None,
+    state: str | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Память решений (MCP-KB-PLAN Э5): что решили, кто и когда сказал, что отклонили или заменили. Только в режиме live (В2),
+    как и для чата портала: в shadow память видна лишь администратору и ещё проверяется.
+
+    Без параметров — предметы проекта; query — предметы по смыслу вопроса; subject_id — лента реплик и журнал предмета
+    (as_of — итог на дату); as_of без subject_id — состояние всех предметов на дату. Всё порциями с курсором."""
+    from app.app.services import decision_memory_view as view
+    from app.app.services import mcp_page, memory_mode
+
+    project = db.get(Project, project_id)
+    mode = memory_mode.mode_of(settings, project)
+    if mode != "live":
+        raise PermissionError(f"память решений для проекта ещё не включена (режим {mode}): она открывается агентам вместе с чатом портала")
+    budget = mcp_page.current(mcp_page.MAX_PAGE_BYTES)
+    if as_of and not re.match(r"^\d{4}-\d{2}-\d{2}$", as_of):
+        raise ValueError("as_of: дата ГГГГ-ММ-ДД")
+    if subject_id is not None:
+        s = view.active_subject(db, project_id, int(subject_id))
+        if s is None:
+            raise ValueError("Предмет не найден")
+        detail = view.subject_detail(db, project_id, s, as_of=as_of)
+        return mcp_page.list_page(detail, "acts", cursor, max_bytes=budget)
+    if as_of:
+        return mcp_page.list_page(view.state_at(db, project_id, as_of), "items", cursor, max_bytes=budget)
+    ids = None
+    if query and query.strip():
+        from app.app.services.memory_chat import pick_subjects
+
+        try:
+            vectors = embed_texts(settings, [query]) if not settings.dry_run else []
+        except Exception:  # noqa: BLE001 — без векторов ищем по словам
+            vectors = []
+        ids = [s.id for s in pick_subjects(db, project_id, vectors[0] if vectors else None, query, limit=30)]
+    listing = view.list_subjects(db, project_id, state=state, ids=ids, limit=None)
+    page = mcp_page.list_page(listing, "items", cursor, max_bytes=budget)
+    page["hint"] = "лента предмета с цитатами — get_decisions(subject_id); итог на дату — as_of=ГГГГ-ММ-ДД"
+    return page

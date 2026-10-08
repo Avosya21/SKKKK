@@ -7,22 +7,21 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.app.db import get_db
 from app.app.dependencies import get_current_user
-from app.app.models.artifact import Artifact
-from app.app.models.decision_memory import EVENT_KINDS, EVENT_LABELS, POSITION_LABELS, STATE_LABELS, DecisionEvent, Subject, SubjectPosition
-from app.app.models.speech_act import ACT_LABELS, SpeechAct
+from app.app.models.decision_memory import EVENT_KINDS, STATE_LABELS, DecisionEvent, Subject
+from app.app.models.speech_act import SpeechAct
 from app.app.models.user import User
 from app.app.services import decision_log as dl
+from app.app.services import decision_memory_view as view
 from app.app.services.project_access import require_project_staff, staff_ui_role
-from app.app.services.source_links import source_url
 
 router = APIRouter(prefix="/projects", tags=["project-memory"])
 HUMAN_KINDS = ("agreed", "rejected", "implemented", "withdrawn", "superseded", "reopened")
@@ -56,9 +55,7 @@ def _subject(db: Session, project_id: int, subject_id: int) -> Subject:
     return row
 
 
-def _summary(s: Subject, acts: int, last_at: str | None, *, human: bool = False, positions: int = 0) -> dict[str, Any]:
-    return {"id": s.id, "title": s.title, "state": s.state, "state_label": STATE_LABELS.get(s.state, s.state), "since": s.state_since,
-            "source": s.state_source, "summary": s.summary, "acts": acts, "last_at": last_at, "human": human, "positions": positions}
+_summary = view.summary_row  # общая логика экрана и MCP — services/decision_memory_view.py
 
 
 @router.get("/{project_id}/memory/subjects")
@@ -72,24 +69,7 @@ def list_subjects(
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     _staff(db, user, project_id)
-    where = [Subject.project_id == project_id, Subject.is_active.is_(True)]
-    if state:
-        where.append(Subject.state == state)
-    if q and q.strip():
-        like = f"%{q.strip()}%"
-        where.append(or_(Subject.title.ilike(like), Subject.summary.ilike(like)))
-    total = db.scalar(select(func.count()).select_from(Subject).where(*where)) or 0
-    counts = dict(db.execute(select(Subject.state, func.count()).where(Subject.project_id == project_id, Subject.is_active.is_(True)).group_by(Subject.state)).all())
-    rows = db.scalars(select(Subject).where(*where).order_by(Subject.state_since.desc().nulls_last(), Subject.id.desc()).limit(limit).offset(offset)).all()
-    stats = {sid: (n, last) for sid, n, last in db.execute(select(SpeechAct.subject_id, func.count(), func.max(SpeechAct.said_at))
-                                                          .where(SpeechAct.subject_id.in_([r.id for r in rows] or [-1])).group_by(SpeechAct.subject_id)).all()}
-    ids = [r.id for r in rows] or [-1]
-    humans = set(db.scalars(select(DecisionEvent.subject_id).where(DecisionEvent.subject_id.in_(ids), DecisionEvent.decided_by == "human",
-                                                                  DecisionEvent.is_active.is_(True))).all())
-    pos = dict(db.execute(select(SubjectPosition.subject_id, func.count()).where(SubjectPosition.subject_id.in_(ids)).group_by(SubjectPosition.subject_id)).all())
-    return {"total": total, "counts": counts, "labels": STATE_LABELS,
-            "items": [_summary(r, *(stats.get(r.id) or (0, None)), human=r.id in humans, positions=pos.get(r.id, 0)) for r in rows]}
-
+    return view.list_subjects(db, project_id, state=state, q=q, limit=limit, offset=offset)
 
 @router.get("/{project_id}/memory/summary")
 def memory_summary(
@@ -111,29 +91,7 @@ def memory_summary(
             "building": memory_pipeline.building(db, project_id), "readiness": memory_mode.readiness(db, project_id)}
 
 
-def _act_out(db: Session, a: SpeechAct, names: dict[int, tuple[str, str]]) -> dict[str, Any]:
-    aid, fname = names.get(a.artifact_id, ("", ""))
-    url = None
-    if aid:
-        url = source_url(aid, start_sec=a.start_sec, message_id=int(a.unit_key) if a.unit_ref.startswith("M") else None, quote=a.quote)
-    return {"id": a.id, "ref": a.unit_ref, "at": a.said_at, "author": a.author, "side": a.side, "act": a.act, "act_label": ACT_LABELS.get(a.act, a.act),
-            "quote": a.quote, "about": a.about, "material": fname, "url": url}
-
-
-def _dedupe_acts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Одна и та же реплика из двух выгрузок одной переписки показывается один раз, со всеми ссылками на источник (`urls`)."""
-    seen: dict[tuple, dict[str, Any]] = {}
-    out: list[dict[str, Any]] = []
-    for it in items:
-        key = (it["at"], it["author"], it["act"], " ".join((it["quote"] or "").split()))
-        if key in seen:
-            if it["url"] and it["url"] not in seen[key]["urls"]:
-                seen[key]["urls"].append(it["url"])
-            continue
-        it["urls"] = [it["url"]] if it["url"] else []
-        seen[key] = it
-        out.append(it)
-    return out
+_dedupe_acts = view.dedupe_acts
 
 
 @router.get("/{project_id}/memory/subjects/{subject_id}")
@@ -145,22 +103,7 @@ def get_subject(
 ):
     """Предмет: лента актов с цитатами и ссылками на источник, события журнала, как менялось состояние, состояние на дату."""
     _staff(db, user, project_id)
-    s = _subject(db, project_id, subject_id)
-    acts = db.scalars(select(SpeechAct).where(SpeechAct.subject_id == s.id).order_by(SpeechAct.said_at, SpeechAct.artifact_id, SpeechAct.unit_key)).all()
-    names = {a.id: (a.artifact_id, a.original_filename) for a in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all()}
-    events = dl.events_of(db, s.id)
-    fold = dl.fold(events, as_of=as_of) if as_of else dl.fold(events)
-    return {
-        "subject": _summary(s, len(acts), acts[-1].said_at if acts else None),
-        "acts": _dedupe_acts([_act_out(db, a, names) for a in acts]),
-        "events": [{"id": e.id, "kind": e.kind, "kind_label": EVENT_LABELS.get(e.kind, e.kind), "at": e.occurred_at, "precision": e.precision, "actor": e.actor_label,
-                    "side": e.actor_side, "anchor": e.anchor, "quote": e.quote, "decided_by": e.decided_by, "note": e.note} for e in events],
-        "positions": [{"label": p.label, "state": p.state, "state_label": POSITION_LABELS.get(p.state, p.state), "replaced_by": p.replaced_by}
-                      for p in db.scalars(select(SubjectPosition).where(SubjectPosition.subject_id == s.id).order_by(SubjectPosition.id)).all()],
-        "fold": {**fold.as_dict(), "state_label": STATE_LABELS.get(fold.state, fold.state)},
-        "as_of": as_of,
-    }
-
+    return view.subject_detail(db, project_id, _subject(db, project_id, subject_id), as_of=as_of)
 
 @router.get("/{project_id}/memory/state-at")
 def state_at_date(
@@ -171,14 +114,7 @@ def state_at_date(
 ):
     """Состояние всех предметов проекта на дату (до конца этого дня): что было решено к этому дню."""
     _staff(db, user, project_id)
-    out = []
-    for s in db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.is_active.is_(True)).order_by(Subject.id)).all():
-        res = dl.state_at(db, s.id, date)
-        if res.state != "open" or res.trail:
-            out.append({"id": s.id, "title": s.title, "state": res.state, "state_label": STATE_LABELS.get(res.state, res.state), "since": res.since,
-                        "flags": res.flags, "source": res.source})
-    return {"date": date, "items": out}
-
+    return view.state_at(db, project_id, date)
 
 @router.post("/{project_id}/memory/subjects/{subject_id}/decide")
 def decide(

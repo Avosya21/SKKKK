@@ -278,6 +278,21 @@ MCP_TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {"artifact_id": {"type": "string", "minLength": 1}}, "required": ["artifact_id"], "additionalProperties": False},
     },
     {
+        "name": "get_decisions",
+        "description": "ПАМЯТЬ РЕШЕНИЙ: что решили по предметам обсуждения, кто и когда это сказал (дословные цитаты, сторона), что отклонили или заменили. Без параметров — предметы с состоянием и итогом; query — предметы по смыслу вопроса; subject_id — лента реплик и журнал предмета; as_of=ГГГГ-ММ-ДД — итог на дату. human=true — итог поправил человек. Только если память проекта включена (иначе ошибка memory_not_live). Порциями: cursor.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject_id": {"type": "integer"},
+                "as_of": {"type": "string", "description": "ГГГГ-ММ-ДД: состояние на конец этого дня"},
+                "query": {"type": "string", "maxLength": 300, "description": "О чём вопрос: найдёт подходящие предметы"},
+                "state": {"type": "string", "enum": ["agreed", "proposed", "open", "rejected", "superseded", "implemented", "withdrawn"]},
+                "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "get_tz",
         "description": "Текущее ТЗ по пунктам с привязкой к требованиям (requirement_ids).",
         "inputSchema": {"type": "object", "properties": {"version": {"type": "string"}}, "additionalProperties": False},
@@ -458,6 +473,12 @@ def _call_tool(db: Session, settings: Settings, project_id: int, name: str, args
             if not artifact_id:
                 return _tool_error("artifact_id is required", tool=name)
             return _tool_result(contract_tools.get_artifact_meta(db, settings, project_id, artifact_id=artifact_id))
+        if name == "get_decisions":
+            try:
+                return _tool_result(data.mcp_get_decisions(db, settings, project_id, subject_id=args.get("subject_id"), as_of=args.get("as_of"),
+                                                           query=args.get("query"), state=args.get("state"), cursor=args.get("cursor")))
+            except PermissionError as exc:
+                return _tool_error(str(exc), tool=name, detail="memory_not_live")
         if name == "get_tz":
             return _tool_result(contract_tools.get_tz(db, settings, project_id, version=args.get("version")), compact=True)
         return _tool_error(f"Unknown tool: {name}", tool=name)
