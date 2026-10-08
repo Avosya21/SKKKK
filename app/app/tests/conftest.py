@@ -6,6 +6,8 @@ import os
 
 os.environ.setdefault("SKKKK_STRICT_DB_HOLD", "1")  # вызов LLM при открытой транзакции БД в тестах — ошибка (держит соединение пула)
 os.environ.setdefault("SKKKK_DISABLE_LLM_SELFCHECK", "1")  # самопроверка LLM при старте приложения будила бы настоящий LM Studio
+os.environ.setdefault("SKKKK_DISABLE_LLM_KEEPER", "1")  # хранитель модели не вызывает lms: иначе тест загрузил бы 18 ГБ в GPU
+os.environ.setdefault("SKKKK_STRICT_LLM_LANE", "1")  # фоновый вызов модели из процесса API в тестах — ошибка (llm_lanes)
 os.environ.setdefault("SKKKK_DISABLE_EDGE", "1")  # тесты не запускают настоящие рекордеры записи (см. edge_runtime.edge_disabled)
 
 from collections.abc import Generator

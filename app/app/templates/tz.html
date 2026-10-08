@@ -64,9 +64,8 @@
         return;
       }
       if (!r.ok) throw new Error('rebuild failed');
-      tzRebuildRunning = false;
-      SKKKK.setButtonBusy(rebuildBtn, false);
-      await load();
+      // пересборка — задача очереди воркера: кнопка ждёт её завершения через опрос задач
+      await syncTaskUi();
     } catch (err) {
       tzStatus.textContent = 'Не удалось пересобрать выжимку';
       if (!(await syncTaskUi())) {

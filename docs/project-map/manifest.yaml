@@ -2975,6 +2975,41 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_llm_keeper
+    kind: service
+    path: app/app/services/llm_keeper.py
+    title: "Хранитель локальной модели: загрузка строго по профилю `tools/lmstudio/qwen-profile.json`, сверка после загрузки,"
+    tags: [auto]
+    auto: true
+
+  - id: svc_llm_lanes
+    kind: service
+    path: app/app/services/llm_lanes.py
+    title: "Две полосы локальной модели (план docs/plans/LLM-LANES-PLAN.md)."
+    tags: [auto]
+    auto: true
+
+  - id: mod_project_jobs
+    kind: file
+    path: app/app/workers/project_jobs.py
+    title: "Кнопки портала, которым нужна модель, — задачи очереди ``kind=project_task``: пересборка выжимки проекта,"
+    tags: [auto]
+    auto: true
+
+  - id: script_bench_llm_lanes
+    kind: file
+    path: scripts/bench_llm_lanes.py
+    title: "Замер этапа 0 плана docs/plans/LLM-LANES-PLAN.md: память и скорость локальной модели в два потока."
+    tags: [auto]
+    auto: true
+
+  - id: script_llm_model
+    kind: file
+    path: scripts/llm_model.py
+    title: "Локальная модель по профилю tools/lmstudio/qwen-profile.json — те же функции, что у портала (services/llm_keeper.py)."
+    tags: [auto]
+    auto: true
+
   - id: tool___main__
     kind: file
     path: tools/projectmap/projectmap/__main__.py

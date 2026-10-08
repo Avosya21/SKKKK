@@ -21,7 +21,6 @@ from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.services.project_tasks import (
     TASK_ARTIFACT_REINDEX,
-    TASK_CALL_SUMMARY,
     TASK_SPEAKER_ENROLL,
     TASK_SPEAKER_RECALC,
     TaskAlreadyRunning,
@@ -33,7 +32,6 @@ from app.app.services.speaker_profiles import (
     enroll_speaker,
     list_profiles,
     merge_speakers,
-    rebuild_artifact_call_summary,
     recalculate_speaker_match,
     refresh_artifact_project_index,
     speakers_confirm_status,
@@ -45,7 +43,6 @@ from app.app.services.user_activity import (
     ACTION_REBUILD,
     ACTION_REINDEX,
     BLOCK_KNOWLEDGE,
-    BLOCK_REPORT,
     BLOCK_SPEAKERS,
     log_activity,
 )
@@ -411,44 +408,20 @@ def api_rebuild_summary(
 ):
     artifact = _owned_artifact(db, user, artifact_id)
     require_project_staff(db, user, artifact.project_id)
+    from app.app.services.queue import PROJECT_TASK_SUMMARY, ProjectTaskRefused, queue_project_button
+
+    # Пересборка выжимки идёт задачей воркера (LLM-LANES-PLAN этап 3): у процесса API модель только для чата.
     try:
-        with track_project_task(
+        return queue_project_button(
             db,
-            task_type=TASK_CALL_SUMMARY,
+            get_settings().data_dir,
             project_id=artifact.project_id,
-            artifact_db_id=artifact.id,
-            label=(
-                "Пересборка выжимки созвона"
-                if artifact.file_type == "audio"
-                else "Пересборка выжимки документа"
-            ),
-        ):
-            result = rebuild_artifact_call_summary(
-                db,
-                project_id=artifact.project_id,
-                artifact_id=artifact_id,
-            )
-    except TaskAlreadyRunning as exc:
-        raise _task_conflict(exc) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    _log_artifact_action(
-        db,
-        user,
-        artifact,
-        block=BLOCK_REPORT,
-        action=ACTION_REBUILD,
-        title=(
-            "Пересобрал выжимку созвона"
-            if artifact.file_type == "audio"
-            else "Пересобрал выжимку документа"
-        ),
-    )
-    return result
+            task=PROJECT_TASK_SUMMARY,
+            user_id=user.id,
+            artifact_id=artifact.id,
+        )
+    except ProjectTaskRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
 @router.post("/artifacts/{artifact_id}/reindex")

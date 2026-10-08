@@ -251,3 +251,18 @@ def test_question_from_other_project_id_rejected_and_destructive_blocked(client,
 def test_question_needs_text(client, manager_token, tmp_data):
     db, pid, art, _ = _seed(client, manager_token, tmp_data)
     assert _q(db, pid, art, {"request_id": 10, "question": "   "}).status == "rejected"
+
+
+def test_draft_goes_through_chat_lane(client, manager_token, tmp_data, monkeypatch):
+    """Черновик MCP — в полосе чата, в общей очереди с ответами чата (LLM-LANES-PLAN, решение П2)."""
+    from app.app.models.agent_question import AgentQuestion
+    from app.app.services import agent_inbox as inbox
+    from app.app.services import llm, llm_lanes
+
+    lanes = []
+    monkeypatch.setattr(llm, "chat_completion_no_think", lambda *a, **k: lanes.append(llm_lanes.current_lane()) or "ответ")
+    db, pid, art, _ = _seed(client, manager_token, tmp_data)
+    _q(db, pid, art, {"request_id": 21, "question": "Какой срок?"}, name="analysis_question_21.json")
+    row = db.query(AgentQuestion).filter_by(project_id=pid, request_id="21").one()
+    inbox.draft_with_llm(db, __import__("app.app.config", fromlist=["x"]).get_settings(), pid, row.id)
+    assert lanes == [llm_lanes.LANE_CHAT]

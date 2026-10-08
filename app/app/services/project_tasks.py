@@ -18,6 +18,7 @@ TASK_ENTITIES_REEXTRACT = "entities_reextract"
 TASK_SPEAKER_RECALC = "speaker_recalculate"
 TASK_SPEAKER_ENROLL = "speaker_enroll"
 TASK_CHAT_ANSWER = "chat_answer"
+TASK_CARD_REBUILD = "card_rebuild"
 
 TASK_LABELS: dict[str, str] = {
     TASK_TZ_REBUILD: "Пересборка выжимки проекта",
@@ -27,6 +28,7 @@ TASK_LABELS: dict[str, str] = {
     TASK_SPEAKER_RECALC: "Пересчёт спикеров",
     TASK_SPEAKER_ENROLL: "Сохранение профиля спикера",
     TASK_CHAT_ANSWER: "Ответ ИИ в чате",
+    TASK_CARD_REBUILD: "Пересборка карточки проекта",
 }
 
 USER_SCOPED_TASKS = {TASK_CHAT_ANSWER}
@@ -160,7 +162,43 @@ def list_active_tasks(
     elif project_id is not None:
         q = q.where(ProjectTask.project_id == project_id)
     rows = db.scalars(q.order_by(ProjectTask.id.desc())).all()
-    return [_task_to_dict(r) for r in rows]
+    out = [_task_to_dict(r) for r in rows]
+    if project_id is not None or artifact_db_id is not None:
+        out += _queued_button_tasks(db, project_id=project_id, artifact_db_id=artifact_db_id)
+    return out
+
+
+def _queued_button_tasks(db: Session, *, project_id: int | None, artifact_db_id: int | None) -> list[dict[str, Any]]:
+    """Кнопки, поставленные в очередь воркера (queue.KIND_PROJECT_TASK), — как задачи «running» для блокировки
+    кнопок и карточки «Фоновая работа»; ждущие подписаны «в очереди»."""
+    from app.app.models.artifact import Artifact
+    from app.app.services.queue import project_task_jobs, project_task_payload
+
+    if project_id is None:
+        art = db.get(Artifact, artifact_db_id)
+        if art is None:
+            return []
+        project_id = art.project_id
+    out = []
+    for job in project_task_jobs(db, project_id):
+        data = project_task_payload(job)
+        task_type = str(data.get("task") or "")
+        if artifact_db_id is not None and job.artifact_id != artifact_db_id:
+            continue
+        label = TASK_LABELS.get(task_type, task_type)
+        out.append({
+            "id": f"job-{job.id}",
+            "project_id": project_id,
+            "artifact_id": job.artifact_id if task_type == "call_summary_rebuild" else None,
+            "task_type": task_type,
+            "status": "running",
+            "label": label if job.status == "running" else f"{label} — в очереди",
+            "user_id": data.get("user_id"),
+            "error_message": None,
+            "started_at": (job.started_at or job.created_at).isoformat() if (job.started_at or job.created_at) else None,
+            "finished_at": None,
+        })
+    return out
 
 
 def begin_task(

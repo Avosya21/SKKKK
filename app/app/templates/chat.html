@@ -97,6 +97,19 @@ function renderHistoryMessage(msg) {
   );
 }
 
+// Место в очереди к модели: ответы чата и черновики агента идут по одному, строго по порядку прихода.
+async function refreshChatLabel() {
+  if (!chatStatus) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/chat/status`);
+    if (!r.ok) return;
+    const s = await r.json();
+    if (s.label) chatStatus.textContent = s.label;
+  } catch (err) {
+    /* метка не обязательна */
+  }
+}
+
 async function reloadChatLog() {
   const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
   if (!r.ok) return null;
@@ -115,6 +128,8 @@ function startChatPoll() {
       clearInterval(chatPollTimer);
       chatPollTimer = null;
       setChatBusy(false);
+    } else {
+      await refreshChatLabel();
     }
   }, 3000);
 }
@@ -148,6 +163,7 @@ sendBtn.onclick = async () => {
     appendMessage('a', chatPendingHtml());
     const pending = log.lastElementChild;
     setChatBusy(true);
+    const labelTimer = setInterval(refreshChatLabel, 3000);
     try {
       const r = await SKKKK.api('/chat', {
         method: 'POST',
@@ -168,6 +184,8 @@ sendBtn.onclick = async () => {
       pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
       setChatBusy(false);
       await syncChatUi();
+    } finally {
+      clearInterval(labelTimer);
     }
   }, { label: 'Отправка…' });
 };

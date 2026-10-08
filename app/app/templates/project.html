@@ -1256,6 +1256,19 @@ function renderChatHistoryMessage(msg) {
   );
 }
 
+// Место в очереди к модели: ответы чата и черновики агента идут по одному, строго по порядку прихода.
+async function refreshChatLabel() {
+  if (!chatStatus) return;
+  try {
+    const r = await SKKKK.api(`/projects/${projectId}/chat/status`);
+    if (!r.ok) return;
+    const s = await r.json();
+    if (s.label) chatStatus.textContent = s.label;
+  } catch (err) {
+    /* метка не обязательна */
+  }
+}
+
 async function reloadChatLog() {
   const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
   if (!r.ok) return null;
@@ -1278,6 +1291,8 @@ function startChatPoll() {
         clearInterval(chatPollTimer);
         chatPollTimer = null;
         setChatBusy(false);
+      } else {
+        await refreshChatLabel();
       }
     } finally {
       chatPollBusy = false;
@@ -1318,6 +1333,7 @@ async function askProjectChat() {
     appendChat('a', chatPendingHtml());
     const pending = chatLog.lastElementChild;
     setChatBusy(true);
+    const labelTimer = setInterval(refreshChatLabel, 3000);
     try {
       const r = await SKKKK.api('/chat', {
         method: 'POST',
@@ -1342,6 +1358,8 @@ async function askProjectChat() {
       pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
       setChatBusy(false);
       await syncChatUi();
+    } finally {
+      clearInterval(labelTimer);
     }
   }, { label: 'Отправка…' });
 }
@@ -1626,9 +1644,8 @@ async function rebuildTz() {
       return;
     }
     if (!r.ok) throw new Error('rebuild failed');
-    tzRebuildRunning = false;
-    if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
-    await loadTz();
+    // пересборка — задача очереди воркера: кнопка ждёт её завершения через опрос задач
+    await syncTzTaskUi();
   } catch (err) {
     tzStatus.textContent = 'Не удалось пересобрать выжимку';
     if (!(await syncTzTaskUi())) {
@@ -2764,13 +2781,10 @@ document.getElementById('deadlines-reextract')?.addEventListener('click', async 
       return;
     }
     if (!r.ok) throw new Error('reextract failed');
-    const data = await r.json();
     if (deadlinesStatus) {
       deadlinesStatus.textContent =
-        `Готово: ${data.succeeded}/${data.artifacts} материалов, ` +
-        `${SKKKK.count(data.tasks_with_deadline, ['срок', 'срока', 'сроков'])} в материалах`;
+        'Поставлено в очередь обработки. Сроки обновятся, когда воркер дойдёт до задачи (ход — в «Фоновой работе»).';
     }
-    await loadDeadlinesPanel();
   }, { label: 'Обновление…' });
 });
 if (deadlinesPanel && deadlinesToggleHint) {

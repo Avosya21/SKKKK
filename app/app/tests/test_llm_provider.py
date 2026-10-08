@@ -183,38 +183,41 @@ def test_ensure_lmstudio_accepts_configured_qwen(monkeypatch, tmp_path):
     llm.ensure_lmstudio_gemma_loaded(settings)
 
 
-def test_ensure_lmstudio_rejects_missing_configured_model(monkeypatch, tmp_path):
+def test_ensure_lmstudio_loads_through_keeper(monkeypatch, tmp_path):
+    """Процессы ASR загружают модель тем же хранителем, что и портал, — строго по профилю, а не по /v1/models."""
     settings = Settings(
         secret_key="test-secret-key-32chars!!",
         data_dir=tmp_path,
         llm_provider="lmstudio",
         lmstudio_model="qwen/qwen3.8-27b",
     )
-    monkeypatch.setattr(
-        llm,
-        "lmstudio_models",
-        lambda _settings, timeout=10: ["google/gemma-4-31b-qat"],
-    )
-    with pytest.raises(RuntimeError, match="qwen/qwen3.8-27b"):
-        llm.ensure_lmstudio_gemma_loaded(settings)
+    calls = []
+    monkeypatch.setattr("app.app.services.llm_keeper.ensure_loaded", lambda s, reason="": calls.append(reason))
+    llm.ensure_lmstudio_gemma_loaded(settings)
+    assert calls == ["ASR"]
 
 
-def test_check_llm_lmstudio_matches_quantized_id(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("status", "expected", "needle"),
+    [
+        ({"state": "loaded", "jit": False, "mismatch": []}, "ok", "в памяти"),
+        ({"state": "not-loaded", "jit": False}, "ok", "по требованию"),
+        ({"state": "loaded", "jit": True}, "warn", "JIT"),
+        ({"state": "loaded", "jit": False, "mismatch": ["потоков 1 вместо 2"]}, "warn", "не по профилю"),
+        ({"state": None, "jit": False}, "fail", "недоступен"),
+    ],
+)
+def test_check_llm_lmstudio_reports_keeper_state(monkeypatch, tmp_path, status, expected, needle):
     settings = Settings(
         secret_key="test-secret-key-32chars!!",
         data_dir=tmp_path,
         llm_provider="lmstudio",
         lmstudio_model="qwen/qwen3.8-27b",
     )
-    monkeypatch.setattr(
-        llm,
-        "lmstudio_models",
-        lambda _settings, timeout=5: ["qwen/qwen3.8-27b@q4_k_m"],
-    )
+    monkeypatch.setattr("app.app.services.llm_keeper.keeper_status", lambda _s: dict(status))
     result = llm.check_llm_provider(settings)
-    assert result.status == "ok"
-    assert "qwen/qwen3.8-27b" in result.detail
-    assert "Gemma" not in result.detail
+    assert result.status == expected
+    assert needle in result.detail
 
 
 def test_check_llm_cursor_without_key(tmp_path):
@@ -268,7 +271,7 @@ def test_no_think_selfcheck_falls_back_when_template_differs(monkeypatch):
     monkeypatch.setitem(llm._no_think_state, "ok", None)
 
     # Другой шаблон модели: обход возвращает <think> в тексте -> самопроверка забраковала.
-    monkeypatch.setattr(llm, "lmstudio_completions_raw", lambda **kw: ("<think>рассуждаю", {}))
+    monkeypatch.setattr(llm, "_completions_http", lambda **kw: ("<think>рассуждаю", {}))
     ok, detail = llm.lmstudio_no_think_selfcheck(settings)
     assert ok is False and "think" in detail
     assert llm.no_think_enabled() is False
@@ -279,7 +282,7 @@ def test_no_think_selfcheck_falls_back_when_template_differs(monkeypatch):
     assert text == "через chat" and calls["max_tokens"] == 100 + llm.REASONING_FALLBACK_EXTRA_TOKENS
 
     # Исправная модель -> обход снова включён.
-    monkeypatch.setattr(llm, "lmstudio_completions_raw", lambda **kw: ("готово", {}))
+    monkeypatch.setattr(llm, "_completions_http", lambda **kw: ("готово", {}))
     assert llm.lmstudio_no_think_selfcheck(settings)[0] is True
     assert llm.no_think_enabled() is True
 
@@ -302,6 +305,6 @@ def test_selfcheck_unreachable_does_not_disable(monkeypatch):
     def boom(**kw):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(llm, "lmstudio_completions_raw", boom)
+    monkeypatch.setattr(llm, "_completions_http", boom)
     assert llm.lmstudio_no_think_selfcheck(Settings(llm_provider="lmstudio"))[0] is None
     assert llm.no_think_enabled() is True

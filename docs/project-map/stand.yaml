@@ -58,7 +58,7 @@ items:
   - {path: "opencode.json", kind: "агент", purpose: "конфиг агента opencode: модель LM Studio qwen3.8-27b"}
   - {path: "pytest.ini", kind: "тесты", purpose: "настройки pytest (маркеры gpu/slow, пути тестов)"}
   - {path: "README.md", kind: "документ", purpose: "обзор проекта для человека"}
-  - {path: "run_server.ps1", kind: "запуск", purpose: "LM Studio + пресет swift-qwen-24gb (сервер SKKKK не поднимает)"}
+  - {path: "run_server.ps1", kind: "запуск", purpose: "сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер SKKKK не поднимает)"}
   - {path: "app", kind: "код", purpose: "портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7)"}
   - {path: "asr", kind: "код", purpose: "ASR: лабораторный контур, легаси-движки, docker, модели (§8)"}
   - {path: "data", kind: "данные", purpose: "БД, файлы проектов, записи встреч, логи, индексы"}
@@ -113,6 +113,7 @@ items:
   - {path: "tools/caddy", kind: "сервис", purpose: "caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git", optional: true}
   - {path: "tools/ffmpeg", kind: "бинарник", purpose: "портативный FFmpeg (если нет в PATH); не в git", optional: true}
   - {path: "tools/libreoffice", kind: "бинарник", purpose: "LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git", optional: true}
+  - {path: "tools/lmstudio", kind: "конфиг", purpose: "qwen-profile.json — профиль локальной модели (окно, 2 потока, flash-attn, KV q8_0, MTP); читают llm_keeper и run_server.ps1"}
   - {path: "tools/lightrag", kind: "сервис", purpose: "LightRAG в Docker (:9621): граф знаний по документации"}
   - {path: "tools/livekit", kind: "сервис", purpose: "livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py"}
   - {path: "tools/projectmap", kind: "инструмент", purpose: "переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md)"}
@@ -185,7 +186,7 @@ machine:
   - {name: "Службы Windows (NSSM)", kind: "runtime", purpose: "SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1"}
   - {name: "Планировщик заданий", kind: "runtime", purpose: "задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел"}
   - {name: "Ollama", kind: "внешнее", purpose: "bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает"}
-  - {name: "LM Studio", kind: "внешнее", purpose: ":1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) с пресетом swift-qwen-24gb, JIT-автозагрузка выключена"}
+  - {name: "LM Studio", kind: "внешнее", purpose: ":1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 56000; загружает и выгружает портал, JIT-автозагрузка выключена"}
   - {name: "Docker Desktop", kind: "внешнее", purpose: "контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621)"}
   - {name: "Caddy", kind: "внешнее", purpose: "HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP)"}
   - {name: "LiveKit", kind: "внешнее", purpose: "native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478"}

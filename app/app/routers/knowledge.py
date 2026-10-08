@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings, get_settings
@@ -20,29 +20,30 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Link, NoteRef, Resolution, UserNote
 from app.app.models.project import Project
 from app.app.models.user import User
-from app.app.services.chat import answer_chat, chat_is_pending, list_chat_messages
-from app.app.services.entities import reextract_project_entities
+from app.app.services.chat import ChatAlreadyPending, answer_chat, chat_is_pending, chat_owner, list_chat_messages
+from app.app.services.llm_lanes import chat_status as chat_queue_status
 from app.app.services.graph import build_graph_payload, entity_text
 from app.app.services.ollama_client import embed_texts
 from app.app.services.vector_index import init_vector_store, upsert_entity_vectors
 from app.app.services.project_deadlines import list_project_deadlines
 from app.app.services.project_tasks import (
-    TASK_ENTITIES_REEXTRACT,
-    TASK_TZ_REBUILD,
     TaskAlreadyRunning,
     list_active_tasks,
-    track_project_task,
+)
+from app.app.services.queue import (
+    PROJECT_TASK_CARD,
+    PROJECT_TASK_ENTITIES,
+    PROJECT_TASK_TZ,
+    ProjectTaskRefused,
+    queue_project_button,
 )
 from app.app.services.storage import project_notes_dir
-from app.app.services.tz import rebuild_tz_fast, tz_paths
+from app.app.services.tz import tz_paths
 from app.app.services.user_activity import (
     ACTION_NOTE,
-    ACTION_REBUILD,
-    ACTION_REEXTRACT,
     ACTION_RESOLVE,
     ACTION_REVIEW,
     BLOCK_KNOWLEDGE,
-    BLOCK_TZ,
     log_activity,
     list_activity,
 )
@@ -420,20 +421,23 @@ def rebuild_project_card(
     settings: Annotated[Settings, Depends(get_settings)],
     admin: Annotated[User, Depends(require_role("admin"))],
 ):
-    """Новый черновик карточки моделью. Правка человека заменяется только по явному ``discard_human``."""
-    from app.app.services.extraction_context import build_project_card_draft, read_project_card, save_project_card
+    """Новый черновик карточки моделью — задачей очереди воркера. Правка человека заменяется только по явному
+    ``discard_human``."""
+    from app.app.services.extraction_context import read_project_card
 
     require_project(db, admin, project_id)
     _text, meta = read_project_card(settings, project_id)
     if meta.get("source") == "human" and not body.get("discard_human"):
         raise HTTPException(status_code=409, detail="Карточку правил человек: черновик модели заменит правку. Подтвердите замену.")
-    draft = build_project_card_draft(db, settings, project_id)
-    if not draft:
-        raise HTTPException(status_code=400, detail="Нет материалов для карточки: нужна выжимка проекта или выжимки созвонов")
-    meta = save_project_card(settings, project_id, draft, source="model")
-    log_activity(db, user_id=admin.id, project_id=project_id, block=BLOCK_KNOWLEDGE, action=ACTION_REBUILD,
-                 title="Пересобрал черновик карточки проекта", content="", target_kind="project", target_id=project_id)
-    return {"text": draft, "meta": meta}
+    return _queue_button(db, settings, project_id=project_id, task=PROJECT_TASK_CARD, user_id=admin.id)
+
+
+def _queue_button(db: Session, settings: Settings, **kwargs) -> dict:
+    """Кнопка, которой нужна модель, — задача воркера (LLM-LANES-PLAN этап 3): у API модель только для чата."""
+    try:
+        return queue_project_button(db, settings.data_dir, **kwargs)
+    except ProjectTaskRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
 @router.get("/projects/{project_id}/open-questions")
@@ -471,27 +475,7 @@ def rebuild_tz_endpoint(
     admin: Annotated[User, Depends(require_role("admin"))],
 ):
     require_project(db, admin, project_id)
-    try:
-        with track_project_task(
-            db,
-            task_type=TASK_TZ_REBUILD,
-            project_id=project_id,
-            user_id=admin.id,
-        ):
-            path = rebuild_tz_fast(db, settings, project_id, manual=True)
-    except TaskAlreadyRunning as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    log_activity(
-        db,
-        user_id=admin.id,
-        project_id=project_id,
-        block=BLOCK_TZ,
-        action=ACTION_REBUILD,
-        title="Пересобрал выжимку проекта",
-        target_kind="project",
-        target_id=project_id,
-    )
-    return {"path": str(path)}
+    return _queue_button(db, settings, project_id=project_id, task=PROJECT_TASK_TZ, user_id=admin.id)
 
 
 @router.get("/projects/{project_id}/deadlines")
@@ -512,27 +496,7 @@ def reextract_entities_endpoint(
     user: Annotated[User, Depends(get_current_user)],
 ):
     project = require_project_staff(db, user, project_id)
-    try:
-        with track_project_task(
-            db,
-            task_type=TASK_ENTITIES_REEXTRACT,
-            project_id=project_id,
-            user_id=user.id,
-        ):
-            result = reextract_project_entities(db, settings, project_id)
-    except TaskAlreadyRunning as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    log_activity(
-        db,
-        user_id=user.id,
-        project_id=project_id,
-        block=BLOCK_KNOWLEDGE,
-        action=ACTION_REEXTRACT,
-        title="Переизвлёк сущности",
-        target_kind="project",
-        target_id=project_id,
-    )
-    return result
+    return _queue_button(db, settings, project_id=project_id, task=PROJECT_TASK_ENTITIES, user_id=user.id, empty_ok=True)
 
 
 @router.get("/projects/{project_id}/tz/content")
@@ -622,7 +586,9 @@ def chat_status(
 ):
     project = require_project(db, user, project_id)
     pending = chat_is_pending(db, project_id=project_id, user_id=user.id)
-    return {"pending": pending, "label": "ИИ готовит ответ…" if pending else ""}
+    queue = chat_queue_status(chat_owner(project_id, user.id))
+    label = queue.get("label") or ("ИИ готовит ответ…" if pending else "")
+    return {"pending": pending, "label": label, "position": queue.get("position")}
 
 
 @router.post("/chat")
@@ -633,24 +599,9 @@ def chat_endpoint(
     user: Annotated[User, Depends(get_current_user)],
 ):
     project = require_project(db, user, body.project_id)
-    if chat_is_pending(db, project_id=body.project_id, user_id=user.id):
-        raise HTTPException(status_code=409, detail="ИИ уже готовит ответ на предыдущий вопрос")
-    from app.app.llm_settings import uses_local_gemma
-    from app.app.models.job import Job
-
-    if uses_local_gemma(settings.llm_provider):
-        from app.app.services.queue import KIND_PROCESS
-
-        # Блокирует только расшифровка/знания: фоновая автопроверка делит с чатом ту же LLM, запросы просто идут по очереди.
-        running = (
-            db.scalar(
-                select(func.count()).select_from(Job).where(Job.status == "running", Job.kind == KIND_PROCESS)
-            )
-            or 0
-        )
-        if running:
-            raise HTTPException(status_code=409, detail="GPU занят расшифровкой")
+    # Чат не блокируется обработкой (DECISIONS 2026-10-05, LLM-LANES-PLAN): модель работает в два потока,
+    # вопрос ждёт только своей очереди в полосе чата и загрузки модели.
     try:
         return answer_chat(db, settings, body.project_id, user.id, body.question)
-    except TaskAlreadyRunning as exc:
+    except (TaskAlreadyRunning, ChatAlreadyPending) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -225,7 +225,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **Whisper / T-one** | Docker (не стартуют) | `:18101` / `:18103` — откат, воркер не вызывает |
 | **Ollama** | вне проекта | `:11434` — `bge-m3`, CPU |
 | **LightRAG** | `docker compose up` в `tools/lightrag/` | `:9621` — граф карты проекта (agents) |
-| **LM Studio** | вне проекта, запуск `run_server.ps1` | `:1234` — Local LLM (если `LLM_PROVIDER=lmstudio`) |
+| **LM Studio** | сервер — `run_server.ps1`; модель загружает и выгружает портал (`services/llm_keeper.py`) | `:1234` — Local LLM (если `LLM_PROVIDER=lmstudio`): одна модель, два потока — воркер и чат (§3.2) |
 | **Cursor API** | облако/local SDK | если `LLM_PROVIDER=cursor` |
 
 **Важно:** кнопки «Пересчитать» / «Пересобрать выжимку» / «Переиндексировать» идут через **API-процесс**, не через GPU-воркер.
@@ -237,7 +237,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Задача | Команда | Что делает |
 |--------|---------|------------|
 | Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1`; проверка окружения — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`) |
-| Локальная LLM | `run_server.ps1` (корень) | запускает LM Studio и грузит Swift-Qwen 27B с пресетом `swift-qwen-24gb` (один слот, flash-attn, KV q8_0, MTP; `-NoMtp` — без MTP). Сервер SKKKK не поднимает |
+| Локальная LLM | `run_server.ps1` (корень) | выключает автозагрузку LM Studio, поднимает сервер `:1234` и грузит модель по профилю `tools/lmstudio/qwen-profile.json` через `scripts/llm_model.py load` (`-SkipLoad` — только сервер). Сервер SKKKK не поднимает |
 | **Перезапуск (основной способ)** | `scripts/restart.ps1` [`-Llm saved\|gemma\|cursor`] [`-Force`] [`-SkipChecks`] | 1) **отказ, если идёт встреча** (`scripts/live_meetings.py`, код 3) — иначе оборвётся запись голоса; `-Force` перезапускает всё равно; 2) встреч нет — гасит все копии `voice_cleaner` / `screen_recorder` и их pid-файлы; 3) проверки: Ollama `:11434`, при `lmstudio` — LM Studio `:1234` и загружена ли `LMSTUDIO_MODEL`; 4) `start.ps1 -SkipChecks` в фоне, лог `data/logs/restart.log` (+ `.err`); 5) ждёт `/health` **и новый PID воркера** (старый сервер может ещё отвечать); 6) в фоне обновляет индекс проекта |
 | Запуск | `scripts/start.ps1` [`-Llm cursor\|gemma`] [`-NoStop`]; обёртки `start-saved.ps1` (LLM из `.env`), `start-gemma.ps1`, `start-cursor.ps1`, `run_all.ps1` | сначала останавливает старое (PID воркера + процесс на `WEB_PORT`, снимает `gpu_worker.lock/.pid`), затем `main all` |
 | Остановка | `scripts/stop.ps1` | гасит API и GPU-воркер |
@@ -246,7 +246,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO`: `app-*.db` и `credentials-*.db` (личные пароли), фото — `people-*.zip`; проверка — `scripts/verify_backup.py` |
 | Автоподъём | `scripts/monitor_skkkk_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
 
-Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`). LM Studio — вручную или `run_server.ps1`.
+Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`), модель в LM Studio — по требованию и строго по профилю, выгрузка после простоя (`llm_keeper.py`, §3.2). Сервер LM Studio — вручную или `run_server.ps1`.
 
 **HTTPS (Caddy, `tools/caddy/Caddyfile`).**
 
@@ -270,6 +270,23 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **Tone sidecar txt** | `asr/out/input_raw_tone.txt` | dev-арtefact; prod пишет в `SKKKK_ASR_OUT/docker_tone.*` |
 
 Инварианты: lab-прогон в `lab/runs/{run_id}/`; GigaAM embed — stage + hash-check; prod-код **не** читает `asr/out` как fallback. Whisper/T-one воркер не вызывает. `tone_for_align` — lex/duration guard; `finalize_audio_outputs` — всегда перезаписывает parsed raw-копии; prod-код **не** читает `asr/out` как fallback для арtefact-отчётов.
+
+
+### 3.2. Локальная модель: два потока, загрузка по профилю (актуально 2026-10-05)
+
+План и замеры — `docs/plans/LLM-LANES-PLAN.md`; решения Р1–Р3 — `docs/DECISIONS.md` (2026-10-05).
+
+| Что | Как |
+|-----|-----|
+| Профиль | `tools/lmstudio/qwen-profile.json` — единственный источник настроек: ключ модели (= `LMSTUDIO_MODEL`), окно 56000, 2 потока, flash-attn, KV q8_0, MTP, выборка |
+| Загрузка | `llm_keeper.ensure_loaded`: под замком `data/locks/llm_model.lock` пишет профиль в конфиг модели LM Studio (`user-concrete-model-default-config`), `lms load --context-length --parallel --ttl`, сверяет `lms ps --json`; не по профилю — выгрузка и ошибка. Загружено ли — список `GET /api/v0/models` (`state`; при выключенной автозагрузке — только загруженные), не `/v1/models` |
+| Выгрузка | воркер при пустой очереди: простой ≥ `LMSTUDIO_IDLE_UNLOAD_SEC` (300 с) и обе полосы свободны → `lms unload` (`llm_keeper.maybe_unload_idle`); `LMSTUDIO_LOAD_TTL_SEC` — страховка LM Studio, если процессы SKKKK упали |
+| Фоновая полоса | только воркер и его процессы ASR (`asr/lab_proof.py`, `lab_sense.py`): расшифровки, документы, автопроверки, выжимки, кадры, кнопки-задачи `project_task`. Замок `data/locks/llm_lane_background.lock` |
+| Полоса чата | только процесс API: ответы чата и черновики MCP, строго по очереди прихода (`llm_lanes.chat_queue`, талоны), по одному; замок `llm_lane_chat.lock`. Позиция — `GET /projects/{id}/chat/status` |
+| Бюджет окна | окно общее (`kv_unified`): чату `LMSTUDIO_CHAT_TOKEN_BUDGET` (22000), фону остаток; фоновый запрос сверх доли (финальная сборка ТЗ) берёт и полосу чата — ждёт текущий ответ, следующий ответ ждёт его (`llm.lane.exclusive`) |
+| ASR | на время GPU-шагов ASR (`lab_onnx`, `lab_giga`, `lab_voice`) модель выгружена: `llm_keeper.asr_gpu_hold` в `pipeline_lab._run_cmd` ждёт текущие ответы (обе полосы), выгружает модель, пишет метку `data/locks/asr_gpu.hold` и не даёт загрузить модель до конца шага; чат в это время видит «Идёт распознавание речи…». Между шагами (вычитка, ответы) модель загружается снова. Замер 2026-10-05: модель 22,4 ГБ + ASR до 6,5 ГБ на карте 24 ГБ не помещаются (вынос в общую память, GigaAM стоял 12 мин). `LMSTUDIO_KEEP_DURING_ASR=true` — держать рядом (только если карта вмещает). GigaAM останавливается сразу после дорожек, до кадров экрана |
+| Страж | фоновый вызов модели из процесса API (`SKKKK_PROCESS_ROLE=api`) — предупреждение `llm.lane.violation`, в тестах ошибка (`SKKKK_STRICT_LLM_LANE`) |
+| Вручную | `scripts/llm_model.py` (`status`, `load`, `unload`, `jit-off`); замер — `scripts/bench_llm_lanes.py` |
 
 ---
 
@@ -318,7 +335,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 ## 5. UI: страницы, кнопки, кто выполняет
 
-> **Правило:** кнопки с `POST /api/artifacts/…` и `POST /projects/…/rebuild-tz` идут **синхронно через FastAPI** (`:777`).  
+> **Правило:** кнопки, которым нужна модель (`POST /projects/…/rebuild-tz`, `…/reextract-entities`, `…/card/rebuild`, `POST /api/artifacts/{id}/rebuild-summary`), с 2026-10-05 **ставят задачу очереди** `project_task` и сразу отвечают `{queued, job_id, ahead}`; выполняет воркер по очереди (§3.2). Остальные `POST /api/artifacts/…` — **синхронно через FastAPI** (`:777`).  
 > **Блокировка повторного нажатия:** `SKKKK.guardButton` / `SKKKK.guardSubmit` (портал) и `guardActionButton` (стенограмма) — спиннер, фиксированная ширина, как у «Скачать».  
 > **Долгие операции:** таблица `project_tasks`, `GET …/tasks/active`. Кнопка «Пересобрать» на `/projects/{id}` и `/projects/{id}/tz` опрашивает задачу каждые **3 с** (в том числе автосбор после документа) и блокируется так же, как при клике: `disabled` + spinner + `aria-busy`. Повторный POST → **409**.  
 > Загрузка файлов → **job в GPU-воркер**. Авто-опрос статусов на странице проекта — каждые **3 с**.
@@ -423,7 +440,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Кнопка | API | Кто | На чём | Время | Роль |
 |--------|-----|-----|--------|-------|------|
 | *(авто load)* | `GET /projects/{id}/tz/content` | FastAPI | `project_state/current_tz.md` | — | все |
-| **Пересобрать** | `POST /projects/{id}/rebuild-tz` | FastAPI → `tz.rebuild_tz_fast()` (с 2026-09-18: было `tz.rebuild_tz()`, см. §5.10/§5.11) → top-K векторный поиск (chunks + `decision`/`task` сущности, MMR на разнообразие) + **один** LLM reduce-вызов | Не читает весь проект — top-36 чанков + top-36 сущностей по 7 обобщённым поисковым запросам (не завязаны на тематику конкретного заказчика) + заметки + справочный блок предыдущей версии (фильтр противоречий, не источник фактов). Пока `tz_rebuild` running — кнопка disabled/spinner, POST 409. | ~30-35 с | **admin** |
+| **Пересобрать** | `POST /projects/{id}/rebuild-tz` | FastAPI → задача очереди `project_task` (`tz_rebuild`) → воркер `workers/project_jobs.py` → `tz.rebuild_tz_fast()` (с 2026-09-18: было `tz.rebuild_tz()`, см. §5.10/§5.11) → top-K векторный поиск (chunks + `decision`/`task` сущности, MMR на разнообразие) + **один** LLM reduce-вызов | Не читает весь проект — top-36 чанков + top-36 сущностей по 7 обобщённым поисковым запросам (не завязаны на тематику конкретного заказчика) + заметки + справочный блок предыдущей версии (фильтр противоречий, не источник фактов). Пока `tz_rebuild` в очереди или running — кнопка disabled/spinner («— в очереди»), POST 409. | ~30-35 с после очереди | **admin** |
 
 Источник — **не** обрезанный excerpt сырого текста. Если у аудио нет `_final.txt` — fallback на чанки / `transcription_text`. Роут в `knowledge.py`.
 
@@ -438,9 +455,9 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Спросить** | `POST /chat` `{project_id, question}` | FastAPI → `chat.answer_chat()` | RAG: sqlite-vec **чанки** + `search_entities` (`decision`/`task`/`fact` по `entity_vectors`) + документы + выжимки + хвост `current_tz.md` (если файл есть) + **chat_guidance** + **вся лента `chat_messages` этого логина в проекте** (та же, что на экране; лимит ~32k символов с хвоста) + LLM. «Не найдено» только если нет чанков, сущностей, документов, выжимки и своей ленты. |
 | **История чата** | `GET /projects/{id}/chat/history` | FastAPI → `chat.list_chat_messages()` | Лента UI + `waiting`, `meta` (уточнения) |
 | **Журнал действий** | `GET /projects/{id}/activity` | FastAPI → `user_activity.list_activity()` | API для аудита и памяти чата; **в UI чата не показывается** |
-| **Статус чата** | `GET /projects/{id}/chat/status` | FastAPI → `chat.chat_is_pending()` | `{pending, label}` |
+| **Статус чата** | `GET /projects/{id}/chat/status` | FastAPI → `chat.chat_is_pending()` + `llm_lanes.chat_status()` | `{pending, label, position}`: «В очереди к ИИ: перед вами N», «Загружаю модель…», «ИИ готовит ответ…» |
 
-Enter в textarea — тоже отправка. Отдельная страница `/projects/{id}/chat` — тот же endpoint. Повторный `POST /chat` при активном ответе — **409**.
+Enter в textarea — тоже отправка. Отдельная страница `/projects/{id}/chat` — тот же endpoint. Повторный `POST /chat` при активном ответе — **409** (проверка и запись вопроса под одним замком). Обработка созвонов чат **не** блокирует (Р2, 2026-10-05): ответы идут полосой чата строго по очереди (§3.2).
 
 #### Дедлайны (сворачиваемый блок, над MCP)
 
@@ -449,7 +466,7 @@ Enter в textarea — тоже отправка. Отдельная страни
 | Элемент | API | Поведение |
 |---------|-----|-----------|
 | **Список** | `GET /projects/{id}/deadlines` (`knowledge.py` → `list_project_deadlines`) | Только tasks с `deadline`; таблица: задача, ответственный, срок, статус, источник |
-| **Обновить из материалов** | `POST /projects/{id}/reextract-entities` (`knowledge.py` → `reextract_project_entities`) | admin/manager — LLM по lab `_final.txt` / `transcription_text`; пишет `entities`, **не** переиндексирует; 409 если уже идёт |
+| **Обновить из материалов** | `POST /projects/{id}/reextract-entities` → задача очереди `project_task` (`entities_reextract`) → воркер → `reextract_project_entities` | admin/manager — LLM по lab `_final.txt` / `transcription_text`; пишет `entities`, **не** переиндексирует; 409 если уже ждёт или идёт; в проекте без материалов — `{queued: false}` |
 | **Календарь** | тот же GET | **FullCalendar** — только задачи с распознанной датой (ISO, `DD.MM.YYYY`, «15 марта 2026») |
 | Загрузка | — | При развороте блока; авто-обновление после `done` артефакта, если панель открыта |
 
@@ -597,7 +614,7 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 | **Запомнить** / **Сохранить** | `POST /api/artifacts/{id}/speaker-enroll` | FastAPI → DB + `write_prod_view` | match JSON, `speaker_profiles`; lab: proof + имена → speakers.json/HTML, **не** `build_transcript_view`, **не** `voice_turn_audit` / GigaAM по всем репликам | ~1–5 с |
 | **Слить** (два ID) | `POST /api/artifacts/{id}/speaker-merge` | FastAPI | merge_map + lab `write_prod_view` | ~1 с |
 | **Пересчитать** (`#recalc`) | `POST /api/artifacts/{id}/speaker-recalculate` | FastAPI, **admin/manager** | Тот же API, что «Пересчитать подсказки» на match. Lab: cosine `speaker_N` ↔ база. Legacy: Sortformer JSON **этого** артефакта. У `user` кнопка скрыта, POST 403 | ~1–20 с |
-| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | FastAPI, **admin/manager** | имена в speakers.json → `summarize_call.py` → **LLM**. Lab: proof turns с именами, затем HTML из `write_prod_view`. Промпты `call_summary.md` **и** `call_brief.md` → `call_summary.md` + `call_brief.md`. У `user` скрыто, POST 403 | ~1–5 мин |
+| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | задача очереди `project_task` (`call_summary_rebuild`) → воркер, **admin/manager** | имена в speakers.json → `summarize_call.py` → **LLM**. Lab: proof turns с именами, затем HTML из `write_prod_view`. Промпты `call_summary.md` **и** `call_brief.md` → `call_summary.md` + `call_brief.md`. У `user` скрыто, POST 403 | ~1–5 мин |
 | **Обновить и переиндексировать** | `POST /api/artifacts/{id}/reindex` | FastAPI, **admin/manager** | rebuild view → `*_final.txt` → **Ollama** index chunks. У `user` скрыто, POST 403 | ~30 с |
 
 После POST-кнопок — `location.reload()`.
@@ -628,7 +645,7 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 
 | Кнопка | API | Кто | На чём | Время |
 |--------|-----|-----|--------|-------|
-| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | FastAPI → `summarize_document.run_document_summary` | только `*_clean.txt` / `transcription_text`; HTML переписывается; **без** reindex | ~1–5 мин |
+| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | задача очереди `project_task` → воркер → `summarize_document.run_document_summary` | только `*_clean.txt` / `transcription_text`; HTML переписывается; **без** reindex | ~1–5 мин |
 | **Выжимка Word** | `GET /artifacts/{id}/download/summary.docx` | FastAPI | `{id}_doc_summary.md` | мгновенно |
 | **Полный текст** | `GET /artifacts/{id}/download/transcript.txt` | FastAPI | `*_clean.txt` | мгновенно |
 
@@ -771,9 +788,9 @@ API без кнопок в UI (для будущего / интеграций):
 
 | Исполнитель | Что |
 |-------------|-----|
-| **GPU worker** | lab ASR, knowledge (entities, index, summary, graph) после upload и после confirm |
+| **GPU worker** | lab ASR, knowledge (entities, index, summary, graph) после upload и после confirm; кнопки-задачи `project_task`: rebuild-tz, reextract-entities, card/rebuild, rebuild-summary |
 | **`main` edge** | Caddy, LiveKit, рекордер голоса `voice_cleaner` (`skkkk-dfn`) — только `all`/`api`, не worker |
-| **FastAPI sync** | recalculate, enroll, merge, rebuild-summary, reindex, rebuild-tz, chat |
+| **FastAPI sync** | recalculate, enroll, merge, reindex, chat (полоса чата), черновик MCP (полоса чата) |
 | **Docker GigaAM** | второй слух + voice embed |
 | **LLM** (Cursor / Local LLM) | sense, proof, summary, entities, TZ, chat |
 | **Ollama bge-m3** | index/reindex chunks, semantic search |
@@ -1144,7 +1161,6 @@ data/projects/{project_id}/
 | `llm.py` | Единый адаптер: lmstudio / cursor |
 | `gpu_phase.py` | Load/unload Gemma, VRAM-фазы |
 | `queue.py` | jobs: claim — сначала `kind=process_artifact`, затем фоновая `auto_review`; внутри вида FIFO (`created_at`, `id`); finish, requeue; `enqueue_auto_review` / `enqueue_knowledge_refresh` без дублей; очередь **глобальная**, не per-user |
-| `projectmap_view.py` | мост к инструменту projectmap: граф `.projectmap/out/graph.json`, страница просмотрщика для «Обзора карты» (кэш по времени файла), пересборка под замком |
 | `workers/review.py` | задачи `auto_review` (scope `reextract` / `artifact` / `topics` / `relevance` / `conflicts` / `summary`, режим shadow/live): исполнители регистрируются по области; ошибка не трогает статус артефакта; неизвестный `kind` — ошибка задачи, не запуск расшифровки |
 | `auto_review.py` | режим автопроверки (`AUTO_REVIEW_MODE` / настройка проекта), вердикт модели в `value_json.model_review`, «Вернуть», контрольная выборка (каждое N-е) |
 | `review_requirements.py` | этап 2 автопроверки: decision/task → источник (окно ±4 реплик канона / абзац документа), дубли без LLM, пачки по `AUTO_REVIEW_BATCH` в `review_requirement.md`, пороги confirm ≥ 0.7 / reject ≥ 0.8, «кто утвердил» через `_validated_decided_by`; контракт: `verification` = human_confirmed / model_confirmed / extracted; очередь «Ждут вас» и «Вернуть» (`POST /projects/{id}/requirements/entity/{entity_id}/undo-model`); замер — `scripts/eval_auto_review.py` (копия БД) |
@@ -1153,7 +1169,7 @@ data/projects/{project_id}/
 | `conflict_rules.py` | правила Р1 без модели: `source_weight` (документ заказчика 3 > утверждённое решение / внутренний документ / ответ заказчика на вопрос исполнителя в переписке 2 > высказывание 1 > вопрос 0; стороны — `project_sides` → `contract._participant_sides`, `customer_answer` по `answer_to`/`asked_by` привязки), `cancel_allowed` (ответ в переписке не отменяет документ заказчика), `winner_by_weight`, `CANCEL_PATTERNS` (без «исправляем»), `is_material_topic` (деньги, сроки; «8.3» — не дата) |
 | `conflict_context.py` | противоречия для LLM чата (`_supplement_context`, только по найденным материалам; в допконтексте первыми и без обрезки лимитом `CHAT_SUPPLEMENT_CHARS`) и ТЗ (`_collect_project_material`): «В силе / Раньше считалось / Основание», открытые — «Не решено: 1) … 2) …»; `model_dismissed` не выводится; сырой `value_json` не отдаётся (и в `_graph_snippet` тоже) |
 | Эталон конфликтов | один постоянный `data/eval/conflicts_gold.csv` на все проекты: `scripts/eval_auto_review.py --export-gold --project N [--only-undone]` (дописать пары для разметки), `--gold` (контрольный прогон на копии БД: правила + модель; код 0 — можно live: 0 неверных победителей, ≥ 20 размеченных, «не уверена» ≤ 30 %); обязателен при смене модели, промпта или извлечения |
-| `extraction_context.py` | REQUIREMENTS-PLAN этап 3: контекст извлечения — карточка проекта `project_state/project_card.md` (+ `project_card.json`: source model/human; черновик моделью `project_card.md` из выжимки проекта, выжимок созвонов, участников; правка admin главнее), оглавление созвона `parsed/calls/<aid>_outline.json` (`call_outline.md`, части по 20000 знаков), темы проекта; `build_extraction_context` вызывают `pipeline_knowledge` и `reextract_artifact_entities`. API: `GET/PUT /projects/{id}/card`, `POST …/card/rebuild` (409, если правил человек и нет `discard_human`) |
+| `extraction_context.py` | REQUIREMENTS-PLAN этап 3: контекст извлечения — карточка проекта `project_state/project_card.md` (+ `project_card.json`: source model/human; черновик моделью `project_card.md` из выжимки проекта, выжимок созвонов, участников; правка admin главнее), оглавление созвона `parsed/calls/<aid>_outline.json` (`call_outline.md`, части по 20000 знаков), темы проекта; `build_extraction_context` вызывают `pipeline_knowledge` и `reextract_artifact_entities`. API: `GET/PUT /projects/{id}/card`, `POST …/card/rebuild` — задача очереди `project_task` (`card_rebuild`), 409, если правил человек и нет `discard_human`. `call_outline` закрывает транзакцию до вызовов модели и повторяет часть с кривым JSON один раз |
 | `topics.py` | REQUIREMENTS-PLAN этап 5: таблица `topics`, `entities.topic_id`; раскладка по темам моделью (`assign_topics.md`, пачки по 60; тема — потребность или объект, не способ решения, А2); подсказка `value.topic`, совпавшая с темой, — без модели; новые пункты сбрасывают `Topic.reviewed_at`; очередь `auto_review` scope `topics`; `merge_topics` склеивает только группы с новой темой — просмотренные темы в настройке проекта `topics_merge_seen` (иначе темы сливались при каждом прогоне) |
 | `review_relevance.py` | REQUIREMENTS-PLAN этапы 6–7: пункты темы по хронологии → `review_relevance.md` → current / superseded / duplicate / done / unclear в `value.relevance` (отдельно от `model_review`). Замена — позже по дате записи (А4: обе даты известны), опора в источнике, вес Р1, А6 (подтверждено человеком до появления заменяющего материала → `over_human`, «Важное»); оформляется `POTENTIAL_CONFLICT` + `apply_conflict_verdict(rule:topic_superseded)`. Дубль в live — `reject_kind=duplicate`, `merged_into`. Scope `relevance` ждёт, пока проект не разобран (`_project_busy`); «Это актуально» — `mark_current` |
 | `requirements_reextract.py` | REQUIREMENTS-PLAN этап 9: `queue_project_reextract` — сброс тем, задача `auto_review` scope `reextract` на каждый готовый материал (без файлов обмена `analysis_*.json`); исполнитель: `reextract_artifact_entities` (v2, перенос ручных решений) → `seed_graph` → проверки artifact/topics/relevance/conflicts. Итоговую выжимку (`current_tz.md`) исполнитель не собирает: последнее переизвлечение проекта (`_reextract_left` = 0, в том числе упавшее) ставит за своими проверками задачу scope `summary` → `summary_for_review` → `rebuild_project_summary` (`prepare_for_llm` + `rebuild_tz_fast`). Воркер один, задачи идут по порядку постановки, поэтому выжимка собирается после конфликтов последнего материала, когда актуальность и конфликты уже выключили заменённое (раньше собиралась до них — 2026-09-28, проект 34). Ту же задачу с 2026-09-29 ставит за своими проверками каждый новый материал (`pipeline_knowledge._enqueue_auto_review`); `summary_for_review` пропускает её без вызова модели, если в очереди ждёт ещё одна выжимка проекта (`tz.summary_jobs_queued`) — одна сборка на партию. API `POST /projects/{id}/requirements/reextract` (admin, кнопка «Переизвлечь требования»), CLI `scripts/reextract_project.py --project N [--apply]` |
@@ -1282,7 +1298,10 @@ data/projects/{project_id}/
 | `report_embed.py` | встраивание отчётов |
 | `rate_limit.py` | ограничение попыток входа |
 | `prompts.py`, `build_info.py` | реестр промптов; сведения о сборке |
-| `meeting_frames.py` | кадры записи экрана и их описание |
+| `meeting_frames.py` | кадры записи экрана и их описание; сбой vision — `meeting.video_frame.vision_failed`, кадр остаётся с OCR |
+| `llm_keeper.py` | хранитель локальной модели: загрузка строго по профилю `tools/lmstudio/qwen-profile.json`, сверка `lms ps`, состояние из `/api/v0/models`, выгрузка после простоя (§3.2) |
+| `projectmap_view.py` | мост к инструменту projectmap: граф `.projectmap/out/graph.json`, страница просмотрщика для «Обзора карты» (кэш по времени файла), пересборка под замком |
+| `llm_lanes.py` | две полосы модели: фоновая (воркер) и чат (API, очередь по талонам), бюджет общего окна, исключительный режим (§3.2) |
 
 ### Модели (`app/app/models/`) — все таблицы БД
 
@@ -1344,7 +1363,8 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 
 | Файл | Роль |
 |------|------|
-| `gpu_worker.py` | Loop: claim job → processor |
+| `gpu_worker.py` | Loop: claim job → processor; при пустой очереди — выгрузка модели по простою (`llm_keeper.maybe_unload_idle`) |
+| `project_jobs.py` | кнопки-задачи `project_task` (rebuild-tz, reextract-entities, card/rebuild, rebuild-summary): раньше их выполнял процесс API |
 | `processor.py` | dry_run stubs; real routing в pipeline_* |
 
 ---
@@ -1507,6 +1527,8 @@ run_pipeline
 | `eval_tz.py` | Качество быстрой сводки ТЗ на эталонных фактах (`docs/eval/tz_facts_*.json`): recall/противоречия/стабильность; только чтение |
 | `eval_chat.py` | Оценка чата на копии БД (`docs/eval/chat_questions_*.json`): пустые ответы, источники, отказ на ловушках |
 | `restart.ps1` | Безопасный перезапуск: проверка Ollama/LM Studio/модели/порта → `start.ps1` → ждёт нового воркера и `/health` |
+| `llm_model.py` | Локальная модель по профилю: `status` / `load` / `unload` / `jit-off` (те же функции, что у портала, §3.2) |
+| `bench_llm_lanes.py` | Замер этапа 0 LLM-LANES-PLAN: VRAM и скорость модели в два потока при разных окнах → `data/eval/llm_lanes_bench_*.md` |
 | `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
@@ -1661,6 +1683,11 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Обработка | `DECISION_MEMORY_MODE` | `off` | память решений по умолчанию: `off` / `shadow` / `live`; проект включает своей настройкой `decision_memory` (режим `shadow` строит и показывает память админу, `live` — менеджерам и чату) |
 | Обработка | `DECISION_MEMORY_AUTO_LIVE` | `true` | после построения проект сам переходит `shadow` → `live`, когда пройдены автоматические проверки готовности (без ручной разметки) |
 | Модель | `LMSTUDIO_BASE_URL`, `LMSTUDIO_API_KEY` | `http://127.0.0.1:1234/v1`, `lm-studio` | локальная модель (LM Studio) |
+| Модель | `LMSTUDIO_IDLE_UNLOAD_SEC` | `300` | выгрузить модель после стольких секунд простоя без задач и чата (§3.2, Р3); `0` — не выгружать |
+| Модель | `LMSTUDIO_LOAD_TTL_SEC` | `1800` | TTL загрузки в LM Studio — страховка, если процессы SKKKK упали |
+| Модель | `LMSTUDIO_KEEP_DURING_ASR` | `false` | `false` — модель выгружается на время GPU-шагов ASR, чат ждёт (Р1 по замеру 2026-10-05); `true` — держать модель рядом с ASR, если карта вмещает обе |
+| Модель | `LMSTUDIO_CHAT_TOKEN_BUDGET` | `22000` | доля общего окна модели под полосу чата; фоновый запрос сверх остатка ждёт ответа чата |
+| Модель | `LMSTUDIO_HOME` | не задана (`~/.lmstudio`) | каталог LM Studio: `lms.exe`, конфиги моделей, настройки сервера |
 | Модель | `CURSOR_API_KEY`, `CURSOR_RUNTIME`, `CURSOR_CLOUD_REPO` | пусто, `local`, пусто | провайдер Cursor: ключ, где работает (`local` / `cloud`), репозиторий для облака |
 | Модель | `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL` | `http://127.0.0.1:11434`, `bge-m3` | эмбеддинги для индекса и поиска |
 | Слух | `WHISPER_URL`, `TONE_URL` | `…:18101`, `…:18103` | адреса прежних ASR-контейнеров (откат, проверка при старте) |
@@ -1678,6 +1705,9 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Инструменты | `LIGHTRAG_URL`, `LIGHTRAG_API_KEY` | `http://127.0.0.1:9621`, пусто | граф знаний LightRAG для `scripts/lightrag_index.py` |
 | Отладка и тесты | `SKKKK_STRICT_DB_HOLD` | не задана | `1` — вызов модели при открытой транзакции БД падает исключением вместо предупреждения в журнале |
 | Отладка и тесты | `SKKKK_DISABLE_LLM_SELFCHECK` | не задана | `1` — не проверять LM Studio при старте (тесты не должны будить модель в GPU) |
+| Отладка и тесты | `SKKKK_DISABLE_LLM_KEEPER` | не задана | `1` — хранитель модели не вызывает `lms` (тесты) |
+| Отладка и тесты | `SKKKK_STRICT_LLM_LANE` | не задана | `1` — фоновый вызов модели из процесса API падает исключением (тесты), иначе предупреждение `llm.lane.violation` |
+| Отладка и тесты | `SKKKK_PROCESS_ROLE` | `worker` | роль процесса для полос модели: `api` ставит `main._serve`, воркеру — `worker` |
 
 ---
 
@@ -1690,7 +1720,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 - Очередь `jobs` + один GPU worker
 - sqlite-vec + entities/links (не Qdrant/Neo4j до этапа 10)
 - Секреты только в `.env`
-- Обход reasoning имеет самопроверку при старте API и воркера (`llm.lmstudio_no_think_selfcheck`, `LMSTUDIO_NO_THINK=0` — принудительный откат на chat-эндпоинт); статус — `/health/ready.llm_no_think`
+- Обход reasoning имеет самопроверку (`llm.lmstudio_no_think_selfcheck`, `LMSTUDIO_NO_THINK=0` — принудительный откат на chat-эндпоинт): сразу после загрузки модели хранителем и при старте процесса, если модель уже в памяти (старт модель не будит); статус — `/health/ready.llm_no_think`
+- Локальная модель поднимается только хранителем `llm_keeper` по профилю `tools/lmstudio/qwen-profile.json` (прямой `lms load` в коде портала запрещён — страж `test_llm_lanes.py`); к модели не больше двух запросов: фоновая полоса (воркер) + полоса чата (API, строго по очереди); состояние — `/health/ready.llm_model` (§3.2)
 - Вход ограничен по попыткам (`services/rate_limit.py`: 8 неудач/5 мин на IP и логин → 429; неверный личный пароль считается так же, счётчик логина сбрасывает только полный вход); заголовки безопасности в `main.SECURITY_HEADERS` (HSTS/CSP сознательно нет)
 - Стили: `static/app.css` (структура) + `static/design.css` (единая дизайн-система, токены `--ds-*`), см. DECISIONS; отчёты (документ и стенограмма) — сгенерированные HTML, тема `static/report-theme.css` подключается при отдаче в `_serve_report`, файлы отчётов не меняются
 - Обмен с внешним агентом: `services/agent_gateway.py` (белый список, журнал `agent_exchange_log`), контракт — `services/contract.py` + `project_mcp_contract.py` (MCP-инструменты 16 шт., файлы `contract/*.json` виртуальные), правила — `docs/agent-exchange/`; файлы `analysis_reply_/analysis_request_*.json` в конвейер не идут
@@ -1842,7 +1873,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `exchange_unpack.py` | Раскладка принятой посылки файлов в рабочую копию проекта: распаковка gzip и zip с проверкой, без исполнения содержимого. |
 | `extraction_context.py` | Контекст для извлечения требований (docs/plans/REQUIREMENTS-PLAN.md, этап 3): карточка проекта, оглавление созвона, |
 | `ffmpeg_tools.py` | Поиск исполняемых файлов ffmpeg и ffprobe. |
-| `gpu_phase.py` | Фазы GPU: замер видеопамяти (nvidia-smi), ожидание освобождения, выгрузка и загрузка модели LM Studio, чтобы ASR и LLM по очереди делили одн |
+| `gpu_phase.py` | Фазы GPU: замер видеопамяти (nvidia-smi), ожидание свободной памяти, подготовка ASR и этапа LLM. Загрузку и выгрузку модели делает хранитель |
 | `graph.py` | Граф знаний проекта: тексты сущностей, автосвязи по косинусной близости, пересборка графа, удаление сущностей с зависимостями, чистка «осиро |
 | `html_extract.py` | HTML → текст с таблицами: блоки разметки дают переносы строк, ``<table>`` — markdown-таблицы на своих местах. |
 | `image_extract.py` | Текст из изображений: проверка слабого OCR и распознавание через vision-модель LLM. |
@@ -1850,6 +1881,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lab_errors.py` | User-facing lab errors. ONNX warnings and ANSI stay out of the UI. |
 | `livekit_env.py` | Keys and livekit.yaml for the Meeting Mind room. |
 | `llm.py` | Единый адаптер LLM (LM Studio или Cursor API): вызовы без reasoning (`*_no_think`), разбор JSON, самопроверка обхода reasoning при старте. |
+| `llm_keeper.py` | Хранитель локальной модели: загрузка строго по профилю `tools/lmstudio/qwen-profile.json`, сверка после загрузки, |
+| `llm_lanes.py` | Две полосы локальной модели (план docs/plans/LLM-LANES-PLAN.md). |
 | `login_allowlist.py` | Допуск на вход: только логины из Login_up.txt, без учёта регистра. |
 | `media_cleanup.py` | Чистка исходников: удаление видео после проверки извлечённого WAV и сверка пути исходника артефакта. |
 | `meeting_analyze.py` | Queue dual-hearing jobs for native meeting tracks. No Sortformer. |
@@ -2008,6 +2041,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `gpu_worker.py` | GPU-воркер: один процесс, берёт задачи из очереди по одной, ждёт зависимости и запускает обработку артефактов. |
 | `pipeline.py` | Обработка артефакта воркером: выбор конвейера по типу файла (`process_artifact`). |
 | `processor.py` | Заглушка обработки для режима DRY_RUN: проходит статусы без моделей. |
+| `project_jobs.py` | Кнопки портала, которым нужна модель, — задачи очереди ``kind=project_task``: пересборка выжимки проекта, |
 | `review.py` | Фоновая автопроверка артефакта локальной моделью (задачи очереди ``kind=auto_review``). |
 
 **`asr/`**
@@ -2084,6 +2118,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `audit_integrity.py` | Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы, устаревший индекс поиска. Только чтение. |
 | `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
 | `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db |
+| `bench_llm_lanes.py` | Замер этапа 0 плана docs/plans/LLM-LANES-PLAN.md: память и скорость локальной модели в два потока. |
 | `bind_document_units.py` | Привязать уже извлечённые пункты документов к абзацам P<n> без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
 | `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
 | `build_decision_memory.py` | Память решений проекта: акты -> предметы -> события -> итоги (docs/plans/DECISION-MEMORY-PLAN.md, Э2–Э5). |
@@ -2122,6 +2157,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
 | `link_voice_profiles.py` | Привязка слепков голоса к карточкам сотрудников — только по подтверждению, ничего не привязывается само. |
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
+| `llm_model.py` | Локальная модель по профилю tools/lmstudio/qwen-profile.json — те же функции, что у портала (services/llm_keeper.py). |
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `material_dates.py` | Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). |
 | `memory_scorecard.py` | Табло памяти решений: числа, по которым видно, приближаемся ли мы к цели (docs/plans/DECISION-MEMORY-PLAN.md, §4.3). |
@@ -2321,7 +2357,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-05 00:16: сущностей 129, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-06 17:36: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2351,7 +2387,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `opencode.json` | агент | конфиг агента opencode: модель LM Studio qwen3.8-27b | да |
 | `pytest.ini` | тесты | настройки pytest (маркеры gpu/slow, пути тестов) | да |
 | `README.md` | документ | обзор проекта для человека | да |
-| `run_server.ps1` | запуск | LM Studio + пресет swift-qwen-24gb (сервер SKKKK не поднимает) | да |
+| `run_server.ps1` | запуск | сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер SKKKK не поднимает) | да |
 | `app` | код | портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7) | да |
 | `asr` | код | ASR: лабораторный контур, легаси-движки, docker, модели (§8) | да |
 | `data` | данные | БД, файлы проектов, записи встреч, логи, индексы | нет (не в git) |
@@ -2401,6 +2437,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `tools/caddy` | сервис | caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git _(может отсутствовать)_ | да |
 | `tools/ffmpeg` | бинарник | портативный FFmpeg (если нет в PATH); не в git _(может отсутствовать)_ | нет |
 | `tools/libreoffice` | бинарник | LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git _(может отсутствовать)_ | нет |
+| `tools/lmstudio` | конфиг | qwen-profile.json — профиль локальной модели (окно, 2 потока, flash-attn, KV q8_0, MTP); читают llm_keeper и run_server.ps1 | да |
 | `tools/lightrag` | сервис | LightRAG в Docker (:9621): граф знаний по документации | да |
 | `tools/livekit` | сервис | livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py | да |
 | `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
@@ -2538,6 +2575,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | `docs/plans/DECISION-MEMORY-STAGES-6-8.md` | Память решений: оставшиеся этапы Э6 (экран), Э7 (тень и включение), Э8 (инкремент) — подготовка |
 | `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
 | `docs/plans/final-plan.md` | SKKKK: идеальная расшифровка созвона — итоговый план |
+| `docs/plans/LLM-LANES-PLAN.md` | SKKKK — Две полосы локальной модели: чат отвечает во время обработки |
 | `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |
 | `docs/plans/MEETING-PLAN.md` | SKKKK — Созвон: единый план до production-ready (комната → запись → расшифровка → знания) |
 | `docs/plans/meeting-room-plan.md` | SKKKK: страница созвона — план доработки по тестовому созвону 12 |
@@ -2586,7 +2624,7 @@ _Проверено 2026-10-05 00:16: сущностей 129, не описан�
 | Службы Windows (NSSM) | runtime | SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1 |
 | Планировщик заданий | runtime | задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел |
 | Ollama | внешнее | bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает |
-| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) с пресетом swift-qwen-24gb, JIT-автозагрузка выключена |
+| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 56000; загружает и выгружает портал, JIT-автозагрузка выключена |
 | Docker Desktop | внешнее | контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621) |
 | Caddy | внешнее | HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP) |
 | LiveKit | внешнее | native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478 |

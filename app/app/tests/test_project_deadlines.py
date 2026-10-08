@@ -304,9 +304,23 @@ def test_reextract_entities_dry_run_and_roles(client, manager_token, user_token,
     )
     assert ok.status_code == 200
     body = ok.json()
-    assert body["artifacts"] == 1
-    assert body["succeeded"] == 1
-    assert body["tasks_with_deadline"] == 0
+    # кнопка — задача очереди воркера (LLM-LANES-PLAN этап 3): API ставит её и сразу отвечает
+    assert body["queued"] is True
+    again = client.post(f"/projects/{pid}/reextract-entities", headers={"Authorization": f"Bearer {manager_token}"})
+    assert again.status_code == 409  # такая же задача уже ждёт
+    tasks = client.get(f"/projects/{pid}/tasks/active", headers={"Authorization": f"Bearer {manager_token}"}).json()["tasks"]
+    assert [t["task_type"] for t in tasks] == ["entities_reextract"] and "в очереди" in tasks[0]["label"]
+
+    from app.app.models.job import Job
+    from app.app.workers.gpu_worker import run_once
+
+    assert run_once() is True
+    db = SessionLocal()
+    try:
+        job = db.get(Job, body["job_id"])
+        assert job.status == "done", job.error_message
+    finally:
+        db.close()
 
     listed = client.get(
         f"/projects/{pid}/deadlines",

@@ -244,7 +244,8 @@ def test_s25_chat_without_index(client, manager_token, user_token):
     assert r.json().get("answer")
 
 
-def test_s26_chat_409_when_gpu_busy(client, manager_token, user_token, monkeypatch):
+def test_s26_chat_answers_while_processing_runs(client, manager_token, user_token, monkeypatch):
+    """Р2 (DECISIONS 2026-10-05): чат не блокируется расшифровкой — модель работает в два потока (LLM-LANES-PLAN)."""
     from app.app.db import SessionLocal
     from app.app.models.job import Job
 
@@ -270,8 +271,8 @@ def test_s26_chat_409_when_gpu_busy(client, manager_token, user_token, monkeypat
         json={"project_id": pid, "question": "Что в стенограмме?"},
         headers=_auth(manager_token),
     )
-    assert r.status_code == 409
-    assert "GPU" in (r.json().get("detail") or "")
+    assert r.status_code == 200, r.text
+    assert "GPU" not in (r.json().get("answer") or "")
 
 
 def test_s27_health_public_no_secrets(anon_client):

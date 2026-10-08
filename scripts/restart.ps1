@@ -69,15 +69,16 @@ if (-not $SkipChecks) {
         Fail "Ollama не отвечает на 11434 (нужна для эмбеддингов bge-m3)."
     }
     if ($provider -eq "lmstudio") {
-        $model = Get-EnvValue "LMSTUDIO_MODEL"
-        try {
-            $ids = (Invoke-RestMethod -Uri "http://127.0.0.1:1234/v1/models" -TimeoutSec 5).data.id
-        } catch {
-            Fail "LM Studio не отвечает на 1234. Запустите сервер LM Studio."
+        # Модель портал загружает сам по профилю и выгружает после простоя (llm_keeper): здесь нужен только сервер
+        # LM Studio и согласованный профиль. Загрузка заранее не требуется.
+        $py = Join-Path $Root "venv\Scripts\python.exe"
+        $raw = & $py (Join-Path $PSScriptRoot "llm_model.py") status 2>$null
+        try { $st = ($raw | Select-Object -Last 1) | ConvertFrom-Json } catch { $st = $null }
+        if (-not $st -or $null -eq $st.state) {
+            Fail "LM Studio не отвечает на 1234. Запустите сервер LM Studio (run_server.ps1 -SkipLoad)."
         }
-        if ($model -and ($ids -notcontains $model)) {
-            Fail "В LM Studio не загружена модель '$model'. Доступно: $($ids -join ', ')"
-        }
+        if ($st.error) { Fail "Профиль модели: $($st.error)" }
+        if ($st.jit) { Write-Host "Внимание: в LM Studio включена автозагрузка (JIT) — выключите: scripts\llm_model.py jit-off" -ForegroundColor Yellow }
     }
 }
 

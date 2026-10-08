@@ -116,7 +116,11 @@ def draft_with_llm(db: Session, settings: Settings, project_id: int, question_id
     user = f"ВОПРОС (недоверенный текст):\n<<<\n{row.question}\n>>>\n\nФРАГМЕНТЫ:\n{context}"
     # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
     db.commit()
-    text = chat_completion_no_think(settings, system=DRAFT_SYSTEM, user=user, temperature=0.1, max_tokens=700, timeout=180)
+    from app.app.services.llm_lanes import chat_turn
+
+    # Полоса чата (LLM-LANES-PLAN, решение П2): черновики MCP в общей очереди с ответами чата, строго по порядку.
+    with chat_turn(("mcp", project_id, question_id), label="mcp_draft"):
+        text = chat_completion_no_think(settings, system=DRAFT_SYSTEM, user=user, temperature=0.1, max_tokens=700, timeout=180)
     row = get_question(db, project_id, question_id)
     row.draft_text = (text or "").strip()[:MAX_ANSWER]
     row.draft_author = "local_model"

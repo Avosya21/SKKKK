@@ -67,7 +67,9 @@ from app.app.models.artifact import Artifact
 from app.app.services.queue import (
     KIND_AUTO_REVIEW,
     KIND_PROCESS,
+    KIND_PROJECT_TASK,
     KIND_REFRESH,
+    WORKER_KINDS,
     claim_next_job,
     finish_claimed_job,
     finish_job,
@@ -134,9 +136,14 @@ def _run_other_job(db, settings, job, artifact: Artifact) -> bool:
     artifact_id = artifact.artifact_id
     artifact_pk = artifact.id
     try:
-        if job.kind not in (KIND_AUTO_REVIEW, KIND_REFRESH):
+        if job.kind not in (KIND_AUTO_REVIEW, KIND_REFRESH, KIND_PROJECT_TASK):
             raise ValueError(f"неизвестный вид задачи: {job.kind!r}")
-        if settings.dry_run:
+        if job.kind == KIND_PROJECT_TASK:
+            # кнопки портала сами понимают DRY_RUN (заглушки вместо модели), как раньше в процессе API
+            from app.app.workers.project_jobs import run_project_task
+
+            run_project_task(db, settings, job, artifact)
+        elif settings.dry_run:
             log_event(logger, "job.skipped", artifact=artifact.artifact_id, kind=job.kind, reason="dry_run")
         elif job.kind == KIND_REFRESH:
             from app.app.workers.review import refresh_knowledge
@@ -284,6 +291,16 @@ def run_once() -> bool:
         db.close()
 
 
+def _unload_llm_if_idle(settings) -> None:
+    """Очередь пуста: выгрузить модель после простоя LMSTUDIO_IDLE_UNLOAD_SEC, если и чат её не ждёт (llm_keeper)."""
+    try:
+        from app.app.services.llm_keeper import maybe_unload_idle
+
+        maybe_unload_idle(settings)
+    except Exception:  # noqa: BLE001 — сбой выгрузки не должен останавливать очередь
+        logger.exception("llm idle unload failed")
+
+
 def main() -> int:
     settings = get_settings()
     setup_logging("worker", settings.data_dir / "logs")
@@ -313,7 +330,7 @@ def main() -> int:
             dry_run=settings.dry_run,
             data_dir=settings.data_dir,
             # по этой метке API и скрипты проверяют, что работающий воркер понимает новые виды задач
-            kinds=",".join((KIND_PROCESS, KIND_AUTO_REVIEW, KIND_REFRESH)),
+            kinds=",".join(WORKER_KINDS),
         )
         while True:
             try:
@@ -323,6 +340,7 @@ def main() -> int:
                 logger.exception("run_once crashed; worker continues")
                 busy = False
             if not busy:
+                _unload_llm_if_idle(settings)
                 time.sleep(2)
     finally:
         guard.__exit__(None, None, None)
