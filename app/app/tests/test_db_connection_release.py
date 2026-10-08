@@ -70,6 +70,37 @@ def test_chat_releases_connection_before_llm_call(client, db_engine, admin_token
         "чат держал соединение БД во время ответа LLM:\n" + "\n".join(held_at_call[0][baseline:][:1]))
 
 
+def test_entity_extraction_does_not_reload_artifact_during_llm(client, db_engine, admin_token, tmp_data, monkeypatch):
+    """Вызывающий делает db.commit() перед извлечением — artifact просрочен. Чтение его полей открывало транзакцию,
+    и она висела все вызовы модели (worker.log 2026-10-08 14:29:21)."""
+    import json
+
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.services import entities as ents_mod
+
+    pid, uid = _project_and_user(SessionLocal)
+    held_at_call: list[list[str]] = []
+    reply = json.dumps({"summary": "", "decisions": [], "tasks": [], "facts": {}, "mentions": [], "participants": []})
+
+    def fake_llm(*_a, **_k):
+        held_at_call.append(db_mod.thread_held_connections())
+        return reply
+
+    monkeypatch.setattr(ents_mod, "chat_completion_no_think", fake_llm)
+    db = SessionLocal()
+    art = Artifact(artifact_id=f"art_hold_{pid}", project_id=pid, user_id=uid, original_filename="doc.txt", stored_filename="doc.txt",
+                   file_path="/x", file_type="document", source_type="document", sha256=f"hold{pid}", status="done")
+    db.add(art)
+    db.commit()  # как run_knowledge_pipeline: коммит перед извлечением просрочивает artifact
+    baseline = len(db_mod.thread_held_connections())
+    payload = ents_mod.extract_entities_llm(_real_settings(), art, "Первый абзац.\n\nВторой абзац.")
+    db.close()
+    assert payload.artifact_id == f"art_hold_{pid}"
+    assert held_at_call and all(len(h) == baseline for h in held_at_call), (
+        "извлечение держало соединение БД во время ответа LLM:\n" + "\n".join(held_at_call[0][baseline:][:1]))
+
+
 LLM_CALLS = {"chat_completion_no_think", "chat_completion", "chat_from_env", "chat_from_env_no_think", "lmstudio_chat_raw",
              "lmstudio_completions_raw", "cursor_chat_raw", "_build_tz_body", "extract_entities_llm", "chat_completion_vision"}
 
