@@ -61,7 +61,8 @@ def test_extract_image_uses_vision_when_ocr_weak(tmp_path: Path, monkeypatch):
     assert "договор поставки" in out
 
 
-def test_extract_image_keeps_ocr_when_good(tmp_path: Path, monkeypatch):
+def test_extract_image_vision_even_when_ocr_good(tmp_path: Path, monkeypatch):
+    """Полнота важнее скорости: vision читает всегда, OCR идёт ей подсказкой; при сбое модели остаётся OCR."""
     img_path = tmp_path / "scan.png"
     Image.new("RGB", (32, 32), color=(255, 255, 255)).save(img_path)
 
@@ -72,15 +73,19 @@ def test_extract_image_keeps_ocr_when_good(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr("app.app.services.tesseract_tools.configure_pytesseract", lambda: "")
     monkeypatch.setattr("pytesseract.image_to_string", lambda *a, **k: good)
-
-    def boom(*_a, **_k):
-        raise AssertionError("vision must not run")
-
-    monkeypatch.setattr("app.app.services.image_extract.extract_image_via_vision", boom)
+    hints = []
+    monkeypatch.setattr("app.app.services.image_extract.extract_image_via_vision",
+                        lambda settings, path, *, ocr_hint="": hints.append(ocr_hint) or "vision: акт № 42")
 
     settings = Settings(secret_key="test-secret-key-32chars!!", dry_run=False, data_dir=tmp_path)
-    out = docs._extract_image(img_path, settings)
-    assert out == good
+    assert docs._extract_image(img_path, settings) == "vision: акт № 42"
+    assert hints == [good]
+
+    def boom(*_a, **_k):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr("app.app.services.image_extract.extract_image_via_vision", boom)
+    assert docs._extract_image(img_path, settings) == good
 
 
 def test_extract_image_dry_run_skips_vision(tmp_path: Path, monkeypatch):

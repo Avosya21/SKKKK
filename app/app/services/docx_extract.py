@@ -3,6 +3,9 @@
 Таблица стоит под своим разделом (раньше все таблицы шли в конец файла и теряли контекст). Объединённые по
 горизонтали ячейки дают одно значение и пустые соседние, по вертикали — повтор значения (строка самодостаточна).
 Вложенные таблицы — отдельным блоком сразу после родительской. Старые .doc/.odt/.rtf — через LibreOffice.
+Картинки (схемы, скриншоты) в живом прогоне читает vision-модель: «Рисунок N:» сразу после абзаца или таблицы, где
+картинка стоит; повтор той же картинки не читается заново; иконки меньше 200 px пропускаются; EMF/WMF (Visio) —
+через LibreOffice в PNG.
 """
 
 from __future__ import annotations
@@ -20,6 +23,8 @@ LEGACY_WORD_SUFFIXES = {".doc", ".docm", ".odt", ".rtf", ".dot", ".dotx"}
 _STYLE_HEADING = re.compile(r"(?:heading|заголовок)\s*(\d)", re.I)
 _NUMBERED_HEADING = re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})\.?\s+[А-ЯЁA-Z«\"(]")
 NUMBERED_HEADING_MAX_CHARS = 120
+IMAGE_MIN_SIDE_PX = 200  # меньше — иконка/логотип
+VECTOR_IMAGE_SUFFIXES = {".emf", ".wmf"}
 
 
 def _paragraph_heading_level(par) -> int:
@@ -101,10 +106,55 @@ def _table_grid(table) -> tuple[list[list[str]], list]:
     return grid, nested
 
 
+def _image_text(blob: bytes, suffix: str, settings) -> str:
+    """Картинка из документа → текст (vision-модель с подсказкой OCR); мелкие и нечитаемые — пустая строка."""
+    from PIL import Image
+
+    from app.app.services.pipeline_documents import _extract_image
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / f"image{suffix}"
+        src.write_bytes(blob)
+        if suffix in VECTOR_IMAGE_SUFFIXES:
+            from app.app.services.office_convert import convert_with_soffice
+
+            src = convert_with_soffice(src, Path(tmp), "png")
+        with Image.open(src) as img:
+            if min(img.size) < IMAGE_MIN_SIDE_PX:
+                return ""
+        return _extract_image(src, settings).strip()
+
+
 class _Emitter:
-    def __init__(self) -> None:
+    def __init__(self, doc=None, settings=None) -> None:
         self.parts: list[str] = []
         self.table_no = 0
+        self.doc = doc
+        self.read_images = settings is not None and not getattr(settings, "dry_run", True)
+        self.settings = settings
+        self.figure_no = 0
+        self.seen_images: set[str] = set()
+
+    def images(self, element) -> None:
+        """Картинки внутри элемента (абзац, таблица) — блоками «Рисунок N:» на этом месте."""
+        if not self.read_images:
+            return
+        rids = element.xpath(".//*[local-name()='blip']/@*[local-name()='embed']")
+        rids += element.xpath(".//*[local-name()='imagedata']/@*[local-name()='id']")
+        for rid in rids:
+            part = self.doc.part.related_parts.get(rid)
+            name = str(getattr(part, "partname", "")) if part is not None else ""
+            if not name or name in self.seen_images:
+                continue
+            self.seen_images.add(name)
+            try:
+                text = _image_text(part.blob, Path(name).suffix.lower(), self.settings)
+            except Exception as exc:
+                logger.warning("docx image %s not read: %s", name, exc)
+                continue
+            if text:
+                self.figure_no += 1
+                self.parts.append(f"Рисунок {self.figure_no}:\n{text}")
 
     def table(self, table, caption: str = "") -> None:
         grid, nested = _table_grid(table)
@@ -116,6 +166,8 @@ class _Emitter:
         self.parts.append(render_md(md_table, number=None if own_caption else self.table_no))
         for inner in nested:
             self.table(inner, caption=f"вложена в таблицу {self.table_no}")
+        if caption == "":
+            self.images(table._tbl)  # картинки ячеек (и вложенных таблиц) — после таблицы
 
 
 def _walk(container, doc, em: _Emitter) -> None:
@@ -137,6 +189,7 @@ def _walk(container, doc, em: _Emitter) -> None:
                 else:
                     em.parts.append(text)
             em.parts += _textbox_texts(child)
+            em.images(child)
         elif child.tag == qn("w:tbl"):
             em.table(Table(child, doc))
         elif child.tag == qn("w:sdt"):
@@ -165,21 +218,22 @@ def _header_footer_lines(doc) -> list[str]:
     return seen
 
 
-def extract_docx(path: Path) -> str:
+def extract_docx(path: Path, settings=None) -> str:
+    """``settings`` живого прогона включает чтение картинок vision-моделью; без него — только текст и таблицы."""
     if path.suffix.lower() in LEGACY_WORD_SUFFIXES:
         from app.app.services.office_convert import convert_with_soffice
 
         with tempfile.TemporaryDirectory() as tmp:
             converted = convert_with_soffice(path, Path(tmp), "docx")
-            return extract_docx(converted)
+            return extract_docx(converted, settings)
 
     from docx import Document
 
     doc = Document(str(path))
-    em = _Emitter()
+    em = _Emitter(doc, settings)
     _walk(doc.element.body, doc, em)
     hf = _header_footer_lines(doc)
     if hf:
         em.parts.append("## Колонтитулы\n" + "\n".join(hf))
-    logger.debug("docx %s: blocks=%s tables=%s", path.name, len(em.parts), em.table_no)
+    logger.debug("docx %s: blocks=%s tables=%s figures=%s", path.name, len(em.parts), em.table_no, em.figure_no)
     return "\n\n".join(em.parts).strip()

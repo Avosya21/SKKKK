@@ -4,7 +4,8 @@
 - .xls/.ods — сначала LibreOffice → .xlsx.
 - .csv/.tsv — разделитель через csv.Sniffer, кодировка как у текстовых файлов.
 Лист режется на таблицы по пустым строкам; объединённые ячейки разворачиваются значением; строка с одной
-ячейкой над таблицей — подпись таблицы; двухуровневая шапка склеивается «верх / низ». Скрытые листы пропускаются.
+ячейкой над таблицей — подпись таблицы; двухуровневая шапка склеивается «верх / низ»; шапка, отбитая от данных
+пустыми строками, приклеивается к ним. Примечания ячеек — в той же ячейке «[примечание: …]». Скрытые листы пропускаются.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import tempfile
 from datetime import date, datetime, time
 from pathlib import Path
@@ -131,20 +133,48 @@ def _block_to_table(block: list[list[str]], start: int, merged_rows: dict[int, s
     return make_table(rows, caption=caption)
 
 
+def _detached_header(block: list[list[str]]) -> bool:
+    """Одна строка из 3+ значений, в основном текстовых (у Ганта в шапке ещё и даты шкалы), над пустыми строками —
+    шапка таблицы, отбитая от данных."""
+    if len(block) != 1:
+        return False
+    filled = [c for c in block[0] if c.strip()]
+    textual = sum(1 for c in filled if _looks_textual([c]))
+    return len(filled) >= 3 and textual * 2 >= len(filled)
+
+
+def _glue_header(header: list[str], block: list[list[str]]) -> list[list[str]]:
+    """Шапка + строки данных; столбцы, пустые во всех строках данных (шкала дат Ганта с заливкой), убираются."""
+    rows = [header, *block]
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    keep = [j for j in range(width) if any(r[j].strip() for r in block if j < len(r))]
+    return [[r[j] for j in keep] for r in rows]
+
+
 def grid_markdown(
     grid: list[list[str]], merged_rows: dict[int, set[int]], table_no: int, *, default_caption: str = ""
 ) -> tuple[list[str], int]:
     """Сетка листа (Excel, таблица HTML) → markdown-блоки: таблицы по блокам между пустыми строками, надписи
-    над таблицей — её подпись. ``merged_rows`` — строки с горизонтальными объединениями (для двухуровневой шапки)."""
+    над таблицей — её подпись. ``merged_rows`` — строки с горизонтальными объединениями (для двухуровневой шапки).
+    Шапка, отделённая от данных пустыми строками, приклеивается к следующему блоку."""
     parts: list[str] = []
     index_of = {id(row): i for i, row in enumerate(grid)}
     pending: list[str] = []  # надписи над таблицей, отделённые пустой строкой, — подпись следующей таблицы
-    for block in _split_grid(grid):
+    blocks = _split_grid(grid)
+    k = 0
+    while k < len(blocks):
+        block = blocks[k]
+        k += 1
         width = max(len(r) for r in block)
         if len(block) == 1 and (_is_caption_row(block[0], width) or sum(1 for c in block[0] if c.strip()) <= 2):
             pending.append(" ".join(dict.fromkeys(c for c in block[0] if c.strip())))
             continue
-        table = _block_to_table(block, index_of[id(block[0])], merged_rows)
+        start = index_of[id(block[0])]
+        if _detached_header(block) and k < len(blocks) and not _detached_header(blocks[k]):
+            block = _glue_header(block[0], blocks[k])
+            k += 1
+        table = _block_to_table(block, start, merged_rows)
         if table is None:
             continue
         table_no += 1
@@ -153,6 +183,16 @@ def grid_markdown(
         parts.append(render_md(table, number=table_no))
     parts += pending  # надписи в конце листа без таблицы под ними
     return [p for p in parts if p.strip()], table_no
+
+
+def comment_text(comment) -> str:
+    """Текст примечания ячейки. У ветки комментариев нового Excel служебная преамбула «[Threaded comment] …»
+    отрезается, ответы («Reply:») идут через « / »; автор не нужен (у веток это идентификатор, не имя)."""
+    text = (getattr(comment, "text", "") or "").strip()
+    if text.startswith("[Threaded comment]"):
+        text = text.split("\nComment:", 1)[1] if "\nComment:" in text else ""
+        text = re.sub(r"\s*\n\s*Reply:\s*", " / ", text)
+    return clean_cell(text)
 
 
 def _sheet_markdown(title: str, grid: list[list[str]], merged_rows: dict[int, set[int]], table_no: int) -> tuple[str, int]:
@@ -178,7 +218,7 @@ def _extract_xlsx(path: Path) -> str:
             log_event(logger, "xlsx.sheet_hidden_skipped", file=path.name, sheet=ws.title)
             continue
         # max_row/max_column учитывают пустые отформатированные ячейки — границы берём по заполненным.
-        filled = [key for key, cell in ws._cells.items() if cell.value is not None]
+        filled = [key for key, cell in ws._cells.items() if cell.value is not None or cell.comment is not None]
         real_rows = max((r for r, _c in filled), default=0)
         real_cols = max((c for _r, c in filled), default=0)
         max_row = min(real_rows, MAX_ROWS_PER_SHEET)
@@ -195,7 +235,11 @@ def _extract_xlsx(path: Path) -> str:
                     raw = wsf.cell(row=r_idx, column=c_idx).value
                     if isinstance(raw, str) and raw.startswith("="):
                         value = raw
-                out.append(format_value(value, cell.number_format or ""))
+                text = format_value(value, cell.number_format or "")
+                note = comment_text(cell.comment) if cell.comment is not None else ""
+                if note:
+                    text = f"{text} [примечание: {note}]" if text else f"[примечание: {note}]"
+                out.append(text)
             grid.append(out)
         # Объединённые ячейки: значение левой верхней во все ячейки диапазона.
         merged_header_rows: dict[int, set[int]] = {}
