@@ -86,6 +86,42 @@ def test_progress_idle_then_active_with_stages_errors_and_estimate(db, setup):
     assert got["estimate_minutes"] >= 1  # по средней длительности завершённых задач и ожидающим
 
 
+def test_progress_shows_every_queue_kind_not_only_auto_review(db, setup):
+    """Расшифровка, обновление индекса и кнопки-пересборки тоже видны (раньше карточка их не показывала, 2026-10-08)."""
+    from app.app.models.job import Job
+
+    pid, ids = setup
+    now = datetime.utcnow()
+    db.add_all([
+        Job(artifact_id=ids[0], kind="process_artifact", status="running", phase="asr", started_at=now),
+        Job(artifact_id=ids[1], kind="refresh_knowledge", status="queued", phase="refresh"),
+        Job(artifact_id=ids[2], kind="project_task", status="error", phase="project", error_message="сбой",
+            payload_json=json.dumps({"task": "entities_reextract", "project_id": pid}), finished_at=now),
+        Job(artifact_id=ids[2], kind="project_task", status="queued", phase="project", payload_json=json.dumps({"task": "new_button", "project_id": pid})),
+    ])
+    db.commit()
+    got = pj.progress(db, pid)
+    labels = [s["label"] for s in got["stages"]]
+    assert labels == ["Расшифровка и разбор материала", "Обновление индекса и выжимки созвона", "Переизвлечение задач и сроков", "task:new_button"]
+    assert got["current"]["stage"] == "Расшифровка и разбор материала" and got["current"]["material"] == "созвон.webm"
+    assert got["errors"][0]["material"] == "весь проект" and got["errors"][0]["retry"] is True
+    assert got["pending"] == 3 and got["cancellable"] == 2  # расшифровку из очереди не убирают
+
+
+def test_transcription_is_neither_cancelled_nor_retried(db, setup):
+    from app.app.models.job import Job
+
+    pid, ids = setup
+    waiting = Job(artifact_id=ids[0], kind="process_artifact", status="queued", phase="asr")
+    failed = Job(artifact_id=ids[1], kind="process_artifact", status="error", phase="asr", error_message="сбой", finished_at=datetime.utcnow())
+    db.add_all([waiting, failed])
+    db.commit()
+    assert pj.progress(db, pid)["errors"][0]["retry"] is False and pj.progress(db, pid)["retryable"] == 0
+    assert pj.cancel_pending(db, pid) == 0 and pj.retry_errors(db, pid) == 0
+    db.expire_all()
+    assert db.get(Job, waiting.id).status == "queued" and db.get(Job, failed.id).status == "error"
+
+
 def test_old_finished_jobs_are_not_counted(db, setup):
     pid, ids = setup
     old = datetime.utcnow() - timedelta(days=3)

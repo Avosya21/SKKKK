@@ -1,7 +1,9 @@
 """Фоновая работа по проекту: прогресс, постановка, повтор ошибок, остановка (PLATFORM-FOUNDATION-PLAN, ПФ9).
 
-Задачи проекта идут через очередь (``jobs``, вид ``auto_review``, область ``scope``): переизвлечение требований → проверка
-требований → раскладка по темам → устаревшее и дубли → конфликты → итоговая выжимка. Здесь — то, чем эти задачи показывают ход:
+Задачи проекта идут через очередь (``jobs``): расшифровка и разбор материала (``process_artifact``), обновление индекса
+(``refresh_knowledge``), кнопки-пересборки (``project_task``) и автопроверка (``auto_review``, область ``scope``):
+переизвлечение требований → проверка требований → раскладка по темам → устаревшее и дубли → конфликты → итоговая выжимка.
+Здесь — то, чем все эти задачи показывают ход:
 сколько ждёт, что идёт сейчас, что закончилось за последние сутки, где ошибки и сколько осталось (по средней длительности
 таких же задач). Перезапуск воркера задачи не теряет (``queue.requeue_orphaned_jobs``); упавшие повторяются кнопкой.
 Работает на уже существующей очереди, новых таблиц нет. Ту же очередь будут использовать будущие пересчёты памяти решений.
@@ -18,10 +20,23 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.models.artifact import Artifact
 from app.app.models.job import Job
-from app.app.services.queue import KIND_AUTO_REVIEW, enqueue_auto_review
+from app.app.services.queue import (
+    KIND_AUTO_REVIEW,
+    KIND_PROCESS,
+    KIND_PROJECT_TASK,
+    KIND_REFRESH,
+    WORKER_KINDS,
+    enqueue_auto_review,
+    project_task_payload,
+)
 
-# Порядок этапов и подписи для людей
+# Порядок этапов и подписи для людей. Карточка показывает ВСЕ задачи очереди по проекту, не только автопроверку:
+# раньше расшифровка, обновление индекса и кнопки-пересборки шли невидимо (2026-10-08). Ключ этапа — scope автопроверки,
+# «process:<phase>», «refresh» или «task:<кнопка>»; этап, которого нет в списке, показывается под своим ключом.
 STAGES: tuple[tuple[str, str], ...] = (
+    ("process:asr", "Расшифровка и разбор материала"),
+    ("process:knowledge", "Извлечение знаний из материала"),
+    ("refresh", "Обновление индекса и выжимки созвона"),
     ("reextract", "Извлечение требований"),
     ("artifact", "Проверка требований моделью"),
     ("topics", "Раскладка по темам"),
@@ -30,12 +45,22 @@ STAGES: tuple[tuple[str, str], ...] = (
     ("summary", "Итоговая выжимка"),
     ("memory", "Память решений: реплики"),
     ("memory_judge", "Память решений: итоги"),
+    ("task:entities_reextract", "Переизвлечение задач и сроков"),
+    ("task:tz_rebuild", "Пересборка выжимки проекта"),
+    ("task:card_rebuild", "Пересборка карточки проекта"),
+    ("task:call_summary_rebuild", "Пересборка выжимки созвона"),
 )
 STAGE_LABEL = dict(STAGES)
 RECENT_HOURS = 24
 ERRORS_SHOWN = 10
-DEFAULT_SECONDS = {"reextract": 150, "artifact": 90, "topics": 40, "relevance": 120, "conflicts": 60, "summary": 90, "memory": 200, "memory_judge": 240}  # пока нет истории
+DEFAULT_SECONDS = {"reextract": 150, "artifact": 90, "topics": 40, "relevance": 120, "conflicts": 60, "summary": 90, "memory": 200, "memory_judge": 240,
+                   "process:asr": 900, "process:knowledge": 300, "refresh": 60}  # пока нет истории
+OTHER_SECONDS = 120
 FOLLOW_UP_SCOPES = ("artifact", "topics", "relevance", "conflicts")
+# Расшифровку не убирают из очереди и не повторяют отсюда: без неё материал останется необработанным, а повтор —
+# это полная переобработка созвона. Остальные задачи можно остановить и повторить.
+MANAGED_KINDS = (KIND_AUTO_REVIEW, KIND_REFRESH, KIND_PROJECT_TASK)
+PROJECT_LEVEL_TASKS = {"tz_rebuild", "card_rebuild", "entities_reextract"}  # материал у задачи — только якорь в очереди
 
 
 class JobsError(ValueError):
@@ -57,9 +82,29 @@ def _scope(job: Job) -> str:
         return ""
 
 
-def _project_jobs(db: Session, project_id: int, *, since: datetime | None = None) -> list[tuple[Job, Artifact]]:
+def _stage(job: Job) -> str:
+    """Ключ этапа для любой задачи очереди (см. STAGES)."""
+    if job.kind == KIND_AUTO_REVIEW:
+        return _scope(job)
+    if job.kind == KIND_PROCESS:
+        return f"process:{job.phase or 'asr'}"
+    if job.kind == KIND_REFRESH:
+        return "refresh"
+    if job.kind == KIND_PROJECT_TASK:
+        return f"task:{project_task_payload(job).get('task') or ''}"
+    return job.kind
+
+
+def _material_name(job: Job, art: Artifact) -> str:
+    if job.kind == KIND_PROJECT_TASK and project_task_payload(job).get("task") in PROJECT_LEVEL_TASKS:
+        return "весь проект"
+    return art.original_filename
+
+
+def _project_jobs(db: Session, project_id: int, *, since: datetime | None = None,
+                  kinds: tuple[str, ...] = WORKER_KINDS) -> list[tuple[Job, Artifact]]:
     q = (select(Job, Artifact).join(Artifact, Artifact.id == Job.artifact_id)
-         .where(Artifact.project_id == project_id, Job.kind == KIND_AUTO_REVIEW))
+         .where(Artifact.project_id == project_id, Job.kind.in_(kinds)))
     if since is not None:
         q = q.where((Job.status.in_(("queued", "running"))) | (Job.created_at >= since))
     return [(j, a) for j, a in db.execute(q.order_by(Job.id)).all()]
@@ -68,13 +113,13 @@ def _project_jobs(db: Session, project_id: int, *, since: datetime | None = None
 def _average_seconds(db: Session) -> dict[str, float]:
     """Средняя длительность последних завершённых задач каждого этапа (по всем проектам: модель и железо одни)."""
     out: dict[str, list[float]] = {}
-    rows = db.execute(select(Job).where(Job.kind == KIND_AUTO_REVIEW, Job.status == "done", Job.started_at.is_not(None), Job.finished_at.is_not(None))
-                      .order_by(Job.id.desc()).limit(300)).scalars().all()
+    rows = db.execute(select(Job).where(Job.status == "done", Job.started_at.is_not(None), Job.finished_at.is_not(None))
+                      .order_by(Job.id.desc()).limit(500)).scalars().all()
     for job in rows:
         seconds = (job.finished_at - job.started_at).total_seconds()
-        if 0 < seconds < 3600:
-            out.setdefault(_scope(job), []).append(seconds)
-    return {scope: sum(v) / len(v) for scope, v in out.items() if v}
+        if 0 < seconds < 3 * 3600:
+            out.setdefault(_stage(job), []).append(seconds)
+    return {stage: sum(v) / len(v) for stage, v in out.items() if v}
 
 
 def progress(db: Session, project_id: int) -> dict[str, Any]:
@@ -84,13 +129,15 @@ def progress(db: Session, project_id: int) -> dict[str, Any]:
     averages = _average_seconds(db)
     stages = []
     remaining = 0.0
-    for scope, label in STAGES:
-        mine = [(j, a) for j, a in jobs if _scope(j) == scope]
+    known = [key for key, _label in STAGES]
+    present = {_stage(j) for j, _a in jobs}
+    for key in known + sorted(present - set(known)):  # этап не из списка не пропадает: показывается под своим ключом
+        mine = [(j, a) for j, a in jobs if _stage(j) == key]
         counts = {s: sum(1 for j, _a in mine if j.status == s) for s in ("queued", "running", "done", "error")}
         left = counts["queued"] + counts["running"]
-        remaining += left * averages.get(scope, DEFAULT_SECONDS[scope])
+        remaining += left * averages.get(key, DEFAULT_SECONDS.get(key, OTHER_SECONDS))
         if mine:
-            stages.append({"scope": scope, "label": label, **counts})
+            stages.append({"scope": key, "label": STAGE_LABEL.get(key, key), **counts})
     running = next(((j, a) for j, a in jobs if j.status == "running"), None)
     total_active = sum(1 for j, _a in jobs if j.status in ("queued", "running"))
     finished = sum(1 for j, _a in jobs if j.status in ("done", "error"))
@@ -98,15 +145,18 @@ def progress(db: Session, project_id: int) -> dict[str, Any]:
     return {
         "active": total_active > 0,
         "pending": total_active,
+        "cancellable": sum(1 for j, _a in jobs if j.status == "queued" and j.kind in MANAGED_KINDS),
         "finished_24h": finished,
         "percent": round(100 * finished / (finished + total_active)) if (finished + total_active) else None,
         "estimate_minutes": round(remaining / 60) if total_active else 0,
         "stages": stages,
-        "current": {"stage": STAGE_LABEL.get(_scope(running[0]), _scope(running[0])), "material": running[1].original_filename,
+        "current": {"stage": STAGE_LABEL.get(_stage(running[0]), _stage(running[0])), "material": _material_name(*running),
                     "since": _iso(running[0].started_at)} if running else None,
-        "errors": [{"id": j.id, "stage": STAGE_LABEL.get(_scope(j), _scope(j)), "material": a.original_filename,
-                    "message": (j.error_message or "")[:300], "at": _iso(j.finished_at)} for j, a in errors[-ERRORS_SHOWN:]],
+        "errors": [{"id": j.id, "stage": STAGE_LABEL.get(_stage(j), _stage(j)), "material": _material_name(j, a),
+                    "message": (j.error_message or "")[:300], "at": _iso(j.finished_at), "retry": j.kind in MANAGED_KINDS}
+                   for j, a in errors[-ERRORS_SHOWN:]],
         "errors_total": len(errors),
+        "retryable": sum(1 for j, _a in errors if j.kind in MANAGED_KINDS),
     }
 
 
@@ -165,8 +215,10 @@ def queue_reextract(db: Session, settings: Settings, project_id: int, *, artifac
 
 
 def retry_errors(db: Session, project_id: int) -> int:
-    """Вернуть упавшие задачи проекта в очередь (попытки обнуляются). Вернуть, сколько задач возвращено."""
-    ids = [j.id for j, _a in _project_jobs(db, project_id) if j.status == "error"]
+    """Вернуть упавшие задачи проекта в очередь (попытки обнуляются). Вернуть, сколько задач возвращено.
+    Только те, что карточка показывает (последние сутки), и без расшифровки (см. MANAGED_KINDS)."""
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=RECENT_HOURS)
+    ids = [j.id for j, _a in _project_jobs(db, project_id, since=since, kinds=MANAGED_KINDS) if j.status == "error"]
     if not ids:
         return 0
     db.execute(update(Job).where(Job.id.in_(ids)).values(status="queued", attempts=0, started_at=None, finished_at=None, error_message=None))
@@ -175,8 +227,8 @@ def retry_errors(db: Session, project_id: int) -> int:
 
 
 def cancel_pending(db: Session, project_id: int) -> int:
-    """Убрать из очереди ждущие задачи проекта. Идущая сейчас доработает: воркер её не прерывает."""
-    ids = [j.id for j, _a in _project_jobs(db, project_id) if j.status == "queued"]
+    """Убрать из очереди ждущие задачи проекта. Идущая сейчас доработает: воркер её не прерывает. Расшифровку не трогаем."""
+    ids = [j.id for j, _a in _project_jobs(db, project_id, kinds=MANAGED_KINDS) if j.status == "queued"]
     if not ids:
         return 0
     db.query(Job).filter(Job.id.in_(ids)).delete(synchronize_session=False)
