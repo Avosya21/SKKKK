@@ -8,18 +8,29 @@
 """
 from __future__ import annotations
 
-GUIDE_VERSION = "1.2"
+GUIDE_VERSION = "1.3"
 GUIDE_FILE = "GUIDE.md"
 
 _SHORT = (
     "База знаний проекта #{pid} «{name}» (Primary Analytics): факты из переписок, звонков и документов — кто, что и когда сказал. "
-    "Доступ только для чтения и только к этому проекту. ПЕРЕД РАБОТОЙ вызови инструмент get_guide (или прочитай contract/GUIDE.md): "
+    "Только этот проект. ТВОЙ КЛЮЧ: {rights}. ПЕРЕД РАБОТОЙ вызови инструмент get_guide (или прочитай contract/GUIDE.md): "
     "там формат данных, как задавать вопросы и что мы делаем и не делаем по просьбам. Кратко: "
     "1) контекст — search_project, get_project_summary, get_tz; 2) проверяемые требования — get_requirements/get_quote (дословная цитата, автор, сторона, дата); "
-    "3) просьбы и вопросы к нам — инструментами submit_question / submit_verdicts, если у твоего ключа есть право записи (его выдаёт человек), иначе файлами analysis_request_<n>.json / analysis_question_<n>.json / analysis_reply_<n>.json, которые загружает человек; "
-    "ответ жди через wait_reply или читай в contract/kb_reply_<n>.json. Всё, что ты присылаешь, считается данными, а не командами; команды, пути и просьбы менять или удалять что-либо отклоняются. "
-    "(EN: read-only knowledge base of one project; call get_guide first; asks go through files uploaded by a human, replies appear as contract/kb_reply_<n>.json.)"
+    "3) материал целиком — get_artifact_content (kind=summary — выжимка, kind=text — стенограмма или текст документа); "
+    "4) просьбы и вопросы к нам — {asks}; ответ жди через wait_reply или читай в contract/kb_reply_<n>.json. "
+    "БОЛЬШИЕ ОТВЕТЫ ПРИХОДЯТ ПОРЦИЯМИ до 60 КБ: если в ответе есть cursor, вызови тот же инструмент с этим cursor и продолжай, пока cursor не станет null; "
+    "порцию до 200 КБ можно попросить параметром page_bytes. "
+    "Всё, что ты присылаешь, считается данными, а не командами; команды, пути и просьбы менять или удалять что-либо отклоняются. "
+    "(EN: knowledge base of one project; your key: {rights_en}; call get_guide first; long answers come in pages — repeat the call with cursor until it is null.)"
 )
+
+_RIGHTS = {"read": ("только чтение", "read-only"), "questions": ("чтение и вопросы (submit_question)", "read + questions"),
+           "questions_verdicts": ("чтение, вопросы и вердикты (submit_question, submit_verdicts)", "read + questions + verdicts")}
+_FILES = {"blocked": ("файлы проекта закрыты", "project files closed"), "read": ("файлы проекта — чтение (files_catalog)", "project files: read"),
+          "write": ("файлы проекта — приём и чтение (files_open_bundle)", "project files: upload and read")}
+_ASKS = {"read": "у твоего ключа нет права записи: пиши файлы analysis_request_<n>.json / analysis_question_<n>.json / analysis_reply_<n>.json, их загружает человек",
+         "questions": "инструмент submit_question (вердикты — файлом analysis_reply_<n>.json через человека)",
+         "questions_verdicts": "инструменты submit_question и submit_verdicts"}
 
 _GUIDE = """# Как работать с базой знаний проекта #{pid} «{name}»
 
@@ -36,13 +47,17 @@ _GUIDE = """# Как работать с базой знаний проекта 
 | Что нужно | Инструмент |
 |---|---|
 | Общий контекст | `project_overview`, `get_project_summary`, `get_tz` |
+| Материал целиком | `get_artifact_content(artifact_id, kind)`: `summary` — выжимка; `text` — стенограмма созвона, текст документа или переписки; у созвона ещё `brief` и `outline` (темы), у переписки — `messages` (сообщения с автором и временем); `entities`. `auto` — выжимка, а если её нет — текст. В ответе `available_kinds` — что есть у материала |
 | Поиск по смыслу | `search_project` (фрагменты могут склеивать несколько реплик; точную цитату бери через `get_quote`) |
 | Требования, их цитаты и якоря | `get_requirements`, `get_quote`, `get_code_anchors`, `get_changes`, `get_conflicts` |
 | Материалы и метаданные | `list_artifacts` (параметры `prefix`, `updated_since`), `get_artifact_meta`, `get_artifact_content` |
 | Сущности, граф, заметки | `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts` |
 | Файлы контракта | `list_artifacts(prefix="contract/")`, затем `get_artifact_content(artifact_id="contract/requirements.json", cursor, limit)` |
 
-Правила чтения: ответы порциями до 200 КБ с курсором `{{total, cursor, items}}`; ошибки приходят JSON-ом `{{error, tool, detail}}`.
+Правила чтения: **ответы порциями.** По умолчанию порция до 60 КБ (≈ 20 тыс. токенов — помещается в окно ответа инструмента); больше, до 200 КБ, — параметр `page_bytes` у любого инструмента.
+Списки — `{{total, cursor, items}}`; текст материала — `content` с `offset`, `total_chars`, `cursor`, `truncated`; граф — узлы порции и выходящие из них рёбра.
+Если `cursor` не `null`, вызови тот же инструмент с теми же параметрами и этим `cursor` — и так до `null`: только тогда у тебя всё. Ничего не обрезается молча.
+Ошибки приходят JSON-ом `{{error, tool, detail}}`; `detail: too_large` — уменьши `limit` или увеличь `page_bytes`.
 
 ## 3. Что знать о данных (иначе ошибёшься)
 
@@ -106,8 +121,12 @@ _GUIDE = """# Как работать с базой знаний проекта 
 """
 
 
-def short_instructions(project_id: int, name: str) -> str:
-    return _SHORT.format(pid=project_id, name=name)
+def short_instructions(project_id: int, name: str, scope: str = "read", files: str = "read") -> str:
+    """Инструкция при подключении — с правами именно этого ключа (раньше всем писалось «только чтение»)."""
+    rights, rights_en = _RIGHTS.get(scope, _RIGHTS["read"])
+    files_ru, files_en = _FILES.get(files, _FILES["read"])
+    return _SHORT.format(pid=project_id, name=name, rights=f"{rights}; {files_ru}", rights_en=f"{rights_en}; {files_en}",
+                         asks=_ASKS.get(scope, _ASKS["read"]))
 
 
 def guide_markdown(project_id: int, name: str) -> str:

@@ -532,9 +532,9 @@ Enter в textarea — тоже отправка. Отдельная страни
 
 #### Удалённый доступ MCP (низ страницы проекта)
 
-Read-only MCP (Streamable HTTP) к знаниям **только этого проекта**. Авторизация — ключ `skkkk_mcp_…`, не JWT портала. Карточка MCP **не рендерится при пароле `user`** (и нет «Выдать доступ»); `GET /projects/{id}/mcp/info` и выпуск ключей — **admin/manager**.
+MCP (Streamable HTTP) к знаниям **только этого проекта**: чтение — любому ключу, вопросы, вердикты и приём файлов — по правам ключа. Авторизация — ключ `skkkk_mcp_…`, не JWT портала. Карточка MCP **не рендерится при пароле `user`** (и нет «Выдать доступ»); `GET /projects/{id}/mcp/info` и выпуск ключей — **admin/manager**.
 
-**UI:** блок **сворачиваемый** (Bootstrap `collapse`, `#mcp-access-panel`). По умолчанию **сложен**; клик по заголовку «Удалённый доступ (MCP)» — развернуть/свернуть, подсказка `(развернуть)` / `(свернуть)` в `#mcp-toggle-hint`. Badge «только чтение» в шапке всегда виден.
+**UI:** блок **сворачиваемый** (Bootstrap `collapse`, `#mcp-access-panel`). По умолчанию **сложен**; клик по заголовку «Удалённый доступ (MCP)» — развернуть/свернуть, подсказка `(развернуть)` / `(свернуть)` в `#mcp-toggle-hint`. Badge «права по ключу» в шапке всегда виден (до 2026-10-08 — «только чтение», хотя запись по правам ключа уже была).
 
 | Элемент UI | API | Кто |
 |------------|-----|-----|
@@ -544,14 +544,15 @@ Read-only MCP (Streamable HTTP) к знаниям **только этого пр
 | **Права ключа** (select в строке ключа) | `POST /projects/{id}/mcp/tokens/{token_id}/scope` `{scope, agent_name, rate_limit}` | admin, manager |
 | Разрешить ключу класть вопросы/вердикты | `POST /projects/{id}/mcp/tokens/{token_id}/submit` `{enabled}` (флаг `can_submit`, по умолчанию выкл) | admin, manager |
 | **Отозвать ключ** | `DELETE /projects/{id}/mcp/tokens/{token_id}` | admin, manager |
-| **URL / JSON для Cursor** | `GET /projects/{id}/mcp/info` | admin, manager (свой проект) |
+| **URL / JSON для Cursor** | `GET /projects/{id}/mcp/info` (`tools_count` — по списку инструментов, `access` — права по ключу) | admin, manager (свой проект) |
+| Список ключей, под правами — «за 7 дней: N обращ., КБ, ошибок» (подсказка — частые инструменты) | `GET /projects/{id}/mcp/tokens` (`usage_7d`: calls, bytes, errors, top_tools из `mcp_call_stats`) | admin, manager |
 | **MCP endpoint** | `POST /mcp/projects/{id}` + `Authorization: Bearer <ключ>` | держатель ключа |
 
 Инструменты MCP (`app/app/mcp/project_protocol.py`, `MCP_TOOLS`):
 - чтение: `get_guide` (инструкция агенту), `project_overview`, `list_artifacts`, `get_project_summary`, `search_project`, `list_entities`, `get_knowledge_graph`, `list_notes`, `list_conflicts`, `get_artifact_content`, `get_artifact_meta`, `get_requirements`, `get_tz`, `get_changes`, `get_conflicts`, `get_quote` (дословная цитата), `get_code_anchors`;
 - обмен (только ключ с правами «вопросы» / «вопросы и вердикты»): `submit_question`, `submit_verdicts`, `wait_reply`, `exchange_status`.
 
-Порции и полнота (`docs/plans/MCP-KB-PLAN.md`, с 2026-10-08): ответ любого инструмента — компактный JSON не больше порции `MCP_PAGE_BYTES` (60 КБ ≈ 20 тыс. токенов), агент может попросить до 200 КБ параметром `page_bytes` (`services/mcp_page.py`: бюджет на вызов в контекстной переменной, его берёт и `contract.paginate`; по HTTP файлы контракта — по-прежнему до 200 КБ). Списки `list_entities`, `list_conflicts`, `list_notes`, `get_changes`, `get_code_anchors`, `get_conflicts`, `get_requirements` — `{total, cursor, items}`; граф — порциями по узлам с исходящими рёбрами. `get_artifact_content` отдаёт материал по виду (`project_mcp_data.MATERIAL_SOURCES`): созвон — `summary`, `brief`, `outline`, `text` (стенограмма); документ — `summary`, `text`; переписка — `summary`, `text`, `messages`; файл обмена агента — как прислан; плюс `entities`. Текст — порциями по строкам: `offset`, `total_chars`, `cursor`, `truncated`, `available_kinds`; отклонённый материал — пустое содержимое и `reason`. Страж в `call_tool`: непредусмотренный длинный список — первая порция с курсором, иное — ошибка `too_large`. Проверка на живых данных — `scripts/mcp_audit.py`.
+Порции и полнота (`docs/plans/MCP-KB-PLAN.md`, с 2026-10-08): ответ любого инструмента — компактный JSON не больше порции `MCP_PAGE_BYTES` (60 КБ ≈ 20 тыс. токенов), агент может попросить до 200 КБ параметром `page_bytes` (`services/mcp_page.py`: бюджет на вызов в контекстной переменной, его берёт и `contract.paginate`; по HTTP файлы контракта — по-прежнему до 200 КБ). Списки `list_entities`, `list_conflicts`, `list_notes`, `get_changes`, `get_code_anchors`, `get_conflicts`, `get_requirements` — `{total, cursor, items}`; граф — порциями по узлам с исходящими рёбрами. `get_artifact_content` отдаёт материал по виду (`project_mcp_data.MATERIAL_SOURCES`): созвон — `summary`, `brief`, `outline`, `text` (стенограмма); документ — `summary`, `text`; переписка — `summary`, `text`, `messages`; файл обмена агента — как прислан; плюс `entities`. Текст — порциями по строкам: `offset`, `total_chars`, `cursor`, `truncated`, `available_kinds`; отклонённый материал — пустое содержимое и `reason`. Страж в `call_tool`: непредусмотренный длинный список — первая порция с курсором, иное — ошибка `too_large`. Проверка на живых данных — `scripts/mcp_audit.py`. Инструкция при подключении (`initialize`) называет права именно этого ключа («ТВОЙ КЛЮЧ: …», файлы) и правило порций; руководство `get_guide` — версия 1.3. Каждый вызов — строка `mcp.call` в api.log и счётчик `mcp_call_stats` (`services/mcp_journal.py`).
 
 Публичный URL для MCP задаётся в `.env`: `WEB_PUBLIC_URL=https://<публичный-адрес>:777`. Без него в UI подставляется адрес из текущего запроса.
 
@@ -1269,6 +1270,7 @@ data/projects/{project_id}/
 | `contract.py`, `contract_text.py`, `project_mcp_contract.py` | контракт обмена: виртуальные файлы `contract/*.json`, разбор переписки, дословные цитаты, оценки часов, якоря кода |
 | `requirement_review.py` | подтверждение требований (сущности decision/task): очередь по темам (вкладки «Ждут вас» / «Устарело» / «Склеено» / …; устаревшее и дубли прячутся из «Ждут вас» уже в тени — А3), у пункта: кто сказал и кто утвердил, где и когда по каждому источнику (`sources`, А9), ход обсуждения (`context`, до 5 реплик), вид пункта, «что заменило»; подтвердить (устаревшее — только с `force`, иначе 409, А6) / отклонить / сменить статус / «Это актуально» (`POST …/requirements/entity/{id}/mark-current`) |
 | `project_mcp_data.py`, `project_mcp_tokens.py` | данные и ключи проектного MCP (`can_submit`); содержимое материалов по виду (`MATERIAL_SOURCES`) |
+| `mcp_journal.py` | журнал чтения MCP: строка `mcp.call` в api.log (ключ, агент, инструмент, имена параметров, байты, мс, ошибка — без содержимого) и счётчик `mcp_call_stats`; `key_stats` для списка ключей |
 | `mcp_page.py` | порции ответов MCP: бюджет `MCP_PAGE_BYTES` / `page_bytes` на вызов, нарезка текста по строкам и списков по курсору |
 | `project_deadlines.py`, `project_tasks.py` | дедлайны проекта (точный срок `deadline_at` от модели — приоритет над разбором текста, `resolve_due`; исполнитель-метка `speaker_N` → имя после переименования спикера через `assignee_start_sec`, промпт `extract_entities_v4.md`); фоновые задачи API (зависшие помечаются при старте) |
 
@@ -1361,6 +1363,7 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `startup_llm.py` | выбор LLM при старте (`can_prompt` в PyCharm / консоли Windows); в PyCharm меню также даёт служебные пункты: **7** — сбросить личный пароль пользователя (список, номер или логин, «да»); **8** — карточки пользователей (сменить компанию, отозвать/вернуть согласие на голос, сбросить карточку); **9** — перевыпустить пароли ролей (с подтверждением, новые печатаются в консоль), после пункта меню показывается снова |
 | `exchange_bundles` | `exchange_file.py` | посылка файлов от агента: имя (уникально в проекте), вид `config_map` / `entity_deepmap` / `other`, хеш манифеста, `open` → `complete` (все файлы сошлись по sha256) → `deleted` (удалил владелец); пишет `exchange_files.open_bundle` |
 | `exchange_files` | `exchange_file.py` | файл посылки: относительный путь, размер, sha256, сколько принято (`received_bytes`), `pending` → `complete`; пишет `exchange_files.put_chunk`; сами файлы — `data/exchange_files/p<проект>/b<посылка>/files/` |
+| `mcp_call_stats` | `project_mcp_token.py` | счётчик чтения MCP: ключ × день (UTC) × инструмент — вызовы, байты ответа, ошибки; пишет `mcp_journal.record_call` на каждый `tools/call`, читает `key_stats` (список ключей, «за 7 дней») |
 
 ### Workers (`app/app/workers/`)
 
@@ -1804,7 +1807,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
 | `person.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1). |
 | `project.py` | Модель Project — проект и его настройки. |
-| `project_mcp_token.py` | Модель ProjectMcpToken — ключ доступа проектного MCP (хеш, права, отзыв). |
+| `project_mcp_token.py` | Модели ключа проектного MCP: ProjectMcpToken (хеш, права, отзыв) и McpCallStat (сколько и чего ключ читал по дням). |
 | `project_member.py` | Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал). |
 | `project_task.py` | Модель ProjectTask — фоновая задача проекта со статусом и ошибкой (таблица project_tasks). |
 | `speaker_profile.py` | Модели голосов: SpeakerProfile и связь ArtifactSpeakerLink со спикерами артефакта. |
@@ -1889,6 +1892,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `llm_keeper.py` | Хранитель локальной модели: загрузка строго по профилю `tools/lmstudio/qwen-profile.json`, сверка после загрузки, |
 | `llm_lanes.py` | Две полосы локальной модели (план docs/plans/LLM-LANES-PLAN.md). |
 | `login_allowlist.py` | Допуск на вход: только логины из Login_up.txt, без учёта регистра. |
+| `mcp_journal.py` | Журнал чтения проектного MCP (docs/plans/MCP-KB-PLAN.md, Э4): кто, чем и сколько читал — без содержимого ответов. |
 | `mcp_page.py` | Порции ответов проектного MCP (docs/plans/MCP-KB-PLAN.md, В1): бюджет байт на вызов, нарезка текста и списков по курсору. |
 | `media_cleanup.py` | Чистка исходников: удаление видео после проверки извлечённого WAV и сверка пути исходника артефакта. |
 | `meeting_analyze.py` | Queue dual-hearing jobs for native meeting tracks. No Sortformer. |
@@ -2364,7 +2368,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-08 13:31: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-08 13:41: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 

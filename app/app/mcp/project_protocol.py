@@ -516,10 +516,13 @@ def _files_tool(db: Session, settings: Settings, project_id: int, name: str, arg
     return _tool_error(f"Unknown tool: {name}", tool=name)
 
 
-def _instructions(db: Session, project_id: int) -> str:
+def _instructions(db: Session, project_id: int, token: Any = None) -> str:
+    """Инструкция при подключении: права именно этого ключа, порции, файлы проекта."""
     from app.app.services import agent_guide
+    from app.app.services.project_mcp_tokens import token_files_access, token_scope
 
-    text = agent_guide.short_instructions(project_id, agent_guide.project_name(db, project_id))
+    scope, files = (token_scope(token), token_files_access(token)) if token is not None else ("read", "read")
+    text = agent_guide.short_instructions(project_id, agent_guide.project_name(db, project_id), scope, files)
     from app.app.services import exchange_files as xf
 
     brief = xf.catalog_brief(db, project_id) if db is not None else None
@@ -554,14 +557,30 @@ def handle_jsonrpc(
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-                "instructions": _instructions(db, project_id),
+                "instructions": _instructions(db, project_id, token),
             },
         }
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": MCP_TOOLS}}
     if method == "tools/call":
-        tool_name = params.get("name")
-        result = call_tool(db, settings, project_id, str(tool_name), params.get("arguments") or {}, token=token)
+        import time
+
+        from app.app.services.mcp_journal import record_call
+
+        tool_name = str(params.get("name"))
+        arguments = params.get("arguments") or {}
+        started = time.monotonic()
+        result = call_tool(db, settings, project_id, tool_name, arguments, token=token)
+        text = result["content"][0]["text"] if result.get("content") else ""
+        error = None
+        if result.get("isError"):
+            try:
+                error = str(json.loads(text).get("detail") or json.loads(text).get("error") or "error")[:60]
+            except (ValueError, AttributeError):
+                error = "error"
+        # журнал чтения (MCP-KB-PLAN Э4): имена параметров, размер и время — без содержимого
+        record_call(project_id, token, tool_name, arguments if isinstance(arguments, dict) else {}, size=len(text.encode("utf-8")),
+                    ms=int((time.monotonic() - started) * 1000), error=error)
         return {"jsonrpc": "2.0", "id": msg_id, "result": result}
     if msg_id is None:
         return None

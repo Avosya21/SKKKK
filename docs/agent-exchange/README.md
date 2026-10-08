@@ -17,7 +17,7 @@
 ## Канал
 
 ```
-агент анализа  ──(MCP, только чтение)──►  наш сервер:  contract/*.json, get_* инструменты, contract/kb_reply_<n>.json
+агент анализа  ──(MCP: чтение; вопросы, вердикты, файлы — по правам ключа)──►  наш сервер:  contract/*.json, get_* инструменты, contract/kb_reply_<n>.json
 агент анализа  ──(человек загружает файл)──►  analysis_reply_<n>.json / analysis_request_<n>.json / analysis_question_<n>.json  ──►  ШЛЮЗ  ──►  журнал + analysis_verdict / ящик вопросов
 ```
 

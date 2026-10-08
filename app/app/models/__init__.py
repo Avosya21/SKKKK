@@ -22,7 +22,7 @@ from app.app.models.meeting import Meeting, MeetingParticipant
 from app.app.models.person import PeopleLog, Person, PersonAlias, ProjectParty, UnknownActor
 from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
-from app.app.models.project_mcp_token import ProjectMcpToken
+from app.app.models.project_mcp_token import McpCallStat, ProjectMcpToken
 from app.app.models.project_task import ProjectTask
 from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Subject, SubjectPosition
 from app.app.models.speech_act import SpeechAct
@@ -45,6 +45,7 @@ __all__ = [
     "Company",
     "ProjectTask",
     "ProjectMcpToken",
+    "McpCallStat",
     "ProjectMember",
     "Project",
     "Artifact",

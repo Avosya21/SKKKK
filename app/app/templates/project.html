@@ -950,7 +950,7 @@
       <strong>Удалённый доступ (MCP)</strong>
       <span id="mcp-toggle-hint" class="small mcp-toggle-hint">(развернуть)</span>
     </button>
-    <span class="badge text-bg-secondary flex-shrink-0">только чтение</span>
+    <span class="badge text-bg-secondary flex-shrink-0" title="Чтение — любому ключу; вопросы, вердикты и приём файлов — по правам ключа">права по ключу</span>
   </div>
   <div id="mcp-access-panel" class="collapse">
   <div class="card-body">
@@ -2333,7 +2333,7 @@ async function loadMcpPanel() {
     );
     mcpStatus.textContent = mcpInfo.uses_public_url
       ? `${mcpInfo.tools_count} инструментов · публичный URL (${mcpInfo.public_base_url})`
-      : `${mcpInfo.tools_count} инструментов · только чтение`;
+      : `${mcpInfo.tools_count} инструментов · права по ключу`;
     await loadMcpTokens();
   } catch (err) {
     mcpStatus.textContent = 'Не удалось загрузить настройки MCP';
@@ -2359,7 +2359,7 @@ async function loadMcpTokens() {
       <tr>
         <td>${escapeHtml(t.label)}${t.agent_name ? `<div class="small text-muted">агент: ${escapeHtml(t.agent_name)}</div>` : ''}</td>
         <td><code>${escapeHtml(t.token_prefix)}</code></td>
-        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}${t.is_active ? `<div><select class="form-select form-select-sm w-auto mcp-files mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.files_access || 'read')}" aria-label="Право ключа на файлы"><option value="read"${(t.files_access || 'read') === 'read' ? ' selected' : ''}>Файлы: чтение</option><option value="write"${t.files_access === 'write' ? ' selected' : ''}>Файлы: приём и чтение</option><option value="blocked"${t.files_access === 'blocked' ? ' selected' : ''}>Файлы: закрыты</option></select></div>` : ''}</td>
+        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.usage_7d && t.usage_7d.calls ? `<div class="small text-muted" title="Чаще всего: ${escapeHtml((t.usage_7d.top_tools || []).join(', '))}">за 7 дней: ${t.usage_7d.calls} обращ., ${Math.round(t.usage_7d.bytes / 1024)} КБ${t.usage_7d.errors ? `, ошибок ${t.usage_7d.errors}` : ''}</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}${t.is_active ? `<div><select class="form-select form-select-sm w-auto mcp-files mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.files_access || 'read')}" aria-label="Право ключа на файлы"><option value="read"${(t.files_access || 'read') === 'read' ? ' selected' : ''}>Файлы: чтение</option><option value="write"${t.files_access === 'write' ? ' selected' : ''}>Файлы: приём и чтение</option><option value="blocked"${t.files_access === 'blocked' ? ' selected' : ''}>Файлы: закрыты</option></select></div>` : ''}</td>
         <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}${t.is_active ? `<div class="mt-1"><button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button></div>` : ''}</td>
       </tr>`).join('');
     mcpTokensBody.querySelectorAll('.mcp-scope').forEach((sel) => {
