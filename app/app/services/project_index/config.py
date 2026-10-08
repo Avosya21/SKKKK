@@ -20,7 +20,7 @@ GLOSSARY_PATH = ROOT / "scripts" / "index_glossary.yaml"
 LOG_PATH = ROOT / "data" / "logs" / "index.log"
 SCHEMA_VERSION = 2
 # Поднимать при любом изменении логики нарезки (chunkers.py, analyzers.py): файлы перечитаются, векторы возьмутся из кэша.
-CHUNKER_VERSION = "6"
+CHUNKER_VERSION = "7"  # 7: алиасы символов symbol_aliases
 
 
 @dataclass

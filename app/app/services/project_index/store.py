@@ -70,12 +70,27 @@ CREATE TABLE IF NOT EXISTS invariants (text TEXT NOT NULL, source TEXT, line INT
 CREATE TABLE IF NOT EXISTS ui_text (text TEXT NOT NULL, path TEXT, line INTEGER);
 CREATE INDEX IF NOT EXISTS ix_uitext ON ui_text(text);
 CREATE TABLE IF NOT EXISTS history (hash TEXT PRIMARY KEY, date TEXT, author TEXT, subject TEXT, files TEXT);
+CREATE TABLE IF NOT EXISTS symbol_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias TEXT NOT NULL,
+    file TEXT NOT NULL,
+    path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    kind TEXT,
+    name TEXT,
+    qualname TEXT,
+    module TEXT,
+    source TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_symbol_aliases_alias ON symbol_aliases(alias);
+CREATE INDEX IF NOT EXISTS ix_symbol_aliases_alias_lwr ON symbol_aliases(lower(alias));
+CREATE INDEX IF NOT EXISTS ix_symbol_aliases_path ON symbol_aliases(path);
 """
 
 # таблицы, которые целиком пересчитываются при любом запуске (дёшево, без эмбеддингов)
 DERIVED_TABLES = ["routes", "db_columns", "table_access", "env_vars", "ui_links", "test_cover", "invariants", "ui_text", "history"]
 # таблицы, привязанные к файлу: при переиндексации файла его строки удаляются
-PER_FILE_TABLES = {"chunks": "path", "symbols": "path", "calls": "path", "imports": "path"}
+PER_FILE_TABLES = {"chunks": "path", "symbols": "path", "calls": "path", "imports": "path", "symbol_aliases": "path"}
 
 
 def pack(vec: list[float]) -> bytes:

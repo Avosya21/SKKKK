@@ -68,11 +68,170 @@ class Import:
 
 
 @dataclass
+class SymbolAlias:
+    alias: str
+    file: str
+    path: str
+    line: int
+    kind: str | None
+    name: str | None
+    qualname: str | None
+    module: str | None
+    source: str | None
+
+
+@dataclass
 class FileResult:
     chunks: list[Chunk] = field(default_factory=list)
     symbols: list[Symbol] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
     imports: list[Import] = field(default_factory=list)
+    aliases: list[SymbolAlias] = field(default_factory=list)
+
+
+# --- человеко-понятные алиасы символов (вариант Б) ---------------------------------
+# Цель: найти символ по названию функции словами («memory_build»), хотя обработчик в коде называется `build`,
+# а роут — `POST /projects/{id}/memory/build`. Источники алиасов: адреса роутов, декораторы задач, имена тестов.
+
+_ALIAS_HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
+_ALIAS_TASK_DECOS = {"task", "shared_task", "celery", "celery_app", "job", "enqueue", "activity"}
+# сегменты адреса, ничего не говорящие о функции
+_ALIAS_URL_NOISE = {"api", "v1", "v2", "admin", "portal", "internal", "public", "auth", "health", "healthz",
+                    "status", "static", "docs", "openapi", "me", "index", "token", "data", "info", "well",
+                    "known", "wellknown", "json", "xml", "html", "log", "logs", "error", "errors", "ping",
+                    "version", "schema", "config", "settings", "true", "false", "null", "none"}
+# слова, к которым английский не прибавляет 's'
+_ALIAS_NO_PLURAL = {"well", "known", "admin", "auth", "api", "personal", "setup", "data", "info", "status",
+                    "main", "live", "raw", "login", "oauth", "sso", "totp", "webauthn", "udp", "tcp", "tls"}
+
+
+def _alias_singular(word: str) -> str:
+    """Meetings -> meeting; tries -> try; address -> address."""
+    low = word.lower()
+    if len(low) > 4 and low.endswith("ies"):
+        return low[:-3] + "y"
+    if len(low) > 3 and low.endswith("s") and not low.endswith(("ss", "us", "is")):
+        return low[:-1]
+    return low
+
+
+def _alias_url_segments(url: str) -> list[str]:
+    """`/api/meetings/{meeting_id}/transcribe` -> ['api', 'meetings', '{meeting_id}', 'transcribe']."""
+    out: list[str] = []
+    for seg in (url or "").split("/"):
+        seg = seg.strip()
+        if seg:
+            out.append(seg)
+    return out
+
+
+def _alias_pairs(action: str, entity: str) -> set[str]:
+    """transcribe + meeting -> {transcribe_meeting, meeting_transcribe, ...}."""
+    a, e = action.lower(), entity.lower()
+    if not a or not e or a == e:
+        return set()
+    plural = e if e.endswith("s") else e + "s"
+    out = {f"{a}_{e}", f"{e}_{a}"}
+    # `meetings` -> `meeting`: продуктовое название пишут и в единственном числе
+    sing = _alias_singular(e)
+    if sing != e and not set(sing.split("_")) & _ALIAS_NO_PLURAL:
+        out |= {f"{a}_{sing}", f"{sing}_{a}"}
+    # `well-known` -> `known` не получает 's': мусорные `well_knowns`
+    if not set(e.split("_")) & _ALIAS_NO_PLURAL:
+        out |= {f"{a}_{plural}", f"{plural}_{a}"}
+    return {x for x in out if x and len(x) > 3}
+
+
+def _alias_from_route(url: str) -> set[str]:
+    """`/api/meetings/{meeting_id}/transcribe` -> transcribe_meeting / meetings_transcribe."""
+    segs = _alias_url_segments(url)
+    plain: list[str] = []
+    for seg in segs:
+        if seg.startswith(("{", ":")):
+            continue
+        word = re.sub(r"[^A-Za-z0-9]+", "_", seg).strip("_").lower()
+        # `.well-known` -> well_known: ни одна часть сегмента не должна быть служебной
+        if not word or set(word.split("_")) & _ALIAS_URL_NOISE:
+            continue
+        plain.append(word)
+    if len(plain) < 2:
+        return set()
+    action, entity = plain[-1], plain[-2]
+    # параметр адреса точнее называет сущность: {meeting_id} -> meeting
+    for seg in segs:
+        m = re.match(r"^\{?([A-Za-z_][A-Za-z0-9]*)", seg)
+        if m and re.search(r"_(id|uuid|key)$", m.group(1), re.I):
+            cand = re.sub(r"_(id|uuid|key)$", "", m.group(1), flags=re.I).lower()
+            if cand and cand not in _ALIAS_URL_NOISE:
+                entity = cand
+    return _alias_pairs(action, entity)
+
+
+def _alias_from_decorators(decos: list[ast.expr]) -> tuple[set[str], set[str]]:
+    """`@router.post("/meetings/{id}/transcribe")`, `@shared_task(name="transcribe_meeting")`.
+
+    Возвращает (алиасы роутов, алиасы задач).
+    """
+    routes: set[str] = set()
+    tasks: set[str] = set()
+    for deco in decos:
+        if not isinstance(deco, ast.Call):
+            continue
+        attr = getattr(deco.func, "attr", "") or getattr(deco.func, "id", "")
+        if attr in _ALIAS_HTTP_METHODS and deco.args and isinstance(deco.args[0], ast.Constant):
+            routes |= _alias_from_route(str(deco.args[0].value))
+        elif attr in _ALIAS_TASK_DECOS:
+            for kw in deco.keywords:
+                if kw.arg == "name" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                    tasks.add(kw.value.value.rsplit(".", 1)[-1].strip())
+    return {a for a in routes if a}, {a for a in tasks if a}
+
+
+def _alias_from_test(name: str) -> set[str]:
+    """test_transcribe_meeting_creates_job -> transcribe_meeting_creates_job / transcribe_meeting.
+
+    Все начальные отрезки из двух и более слов: точные варианты не теряются, и короткое название тоже находится.
+    """
+    toks = [t for t in name.split("_") if t]
+    if toks and toks[0] in ("test", "it"):
+        toks = toks[1:]
+    return {"_".join(toks[:k]) for k in range(2, len(toks) + 1)}
+
+
+def _alias_variants(name: str) -> set[str]:
+    """Имя в CamelCase, snake_case или через точку -> нормализованные написания."""
+    if not name:
+        return set()
+    out = {name, name.lower()}
+    toks = re.findall(r"[A-Za-z0-9]+", name)
+    if len(toks) > 1:
+        out.add("_".join(toks).lower())
+        out.add("".join(toks).lower())
+    return {a for a in out if a}
+
+
+def _add_aliases(rel: str, res: FileResult, sym: Symbol, source: str = "symbol",
+                  decos: list[ast.expr] | None = None) -> None:
+    """Человеко-понятные написания символа (название функции словами) -> сам символ."""
+    name = sym.name or sym.qualname or ""
+    qual = sym.qualname or name
+    groups: dict[str, set[str]] = {"symbol": set(), "route": set(), "task": set(), "test": set()}
+    if source == "test":
+        groups["test"] |= _alias_from_test(name)
+    else:
+        groups["symbol"] |= _alias_variants(name)
+    groups["symbol"] |= _alias_variants(qual)
+    if decos:
+        r_aliases, t_aliases = _alias_from_decorators(decos)
+        groups["route"] |= r_aliases
+        groups["task"] |= t_aliases
+    for src, cands in groups.items():
+        for a in sorted(cands):
+            if not a or len(a) < 3:
+                continue
+            res.aliases.append(SymbolAlias(alias=a, file=rel.rsplit("/", 1)[-1], path=sym.path or rel, line=sym.line,
+                                           kind=sym.kind, name=sym.name, qualname=sym.qualname,
+                                           module=qual.split(".")[0] if "." in qual else name, source=src))
 
 
 def _mk(path: str, kind: str, title: str, symbol: str, start: int, end: int, text: str, meta: dict | None = None,
@@ -151,7 +310,9 @@ def chunk_python(rel: str, src: str, max_lines: int) -> FileResult:
 
     doc = ast.get_docstring(tree) or ""
     mod_name = rel.rsplit("/", 1)[-1].removesuffix(".py")
-    res.symbols.append(Symbol(mod_name, rel, "module", rel, 1, len(lines), "", "", doc[:300]))
+    sym_m = Symbol(mod_name, rel, "module", rel, 1, len(lines), "", "", doc[:300])
+    res.symbols.append(sym_m)
+    _add_aliases(rel, res, sym_m)
     for node in tree.body:  # константы модуля: LIVEKIT_TOKEN_TTL_HOURS = 4
         target = None
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -159,8 +320,10 @@ def chunk_python(rel: str, src: str, max_lines: int) -> FileResult:
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             target = node.target.id
         if target and target.isupper() and len(target) > 2 and node.value is not None:
-            res.symbols.append(Symbol(target, target, "constant", rel, node.lineno, node.end_lineno or node.lineno,
-                                      lines[node.lineno - 1].strip()[:140], "", ""))
+            sym_c = Symbol(target, target, "constant", rel, node.lineno, node.end_lineno or node.lineno,
+                           lines[node.lineno - 1].strip()[:140], "", "")
+            res.symbols.append(sym_c)
+            _add_aliases(rel, res, sym_c)
 
     # обзор модуля: докстринг + перечень определений (по нему находят файл по смыслу, а не по импортам)
     top_names = [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
@@ -182,13 +345,15 @@ def chunk_python(rel: str, src: str, max_lines: int) -> FileResult:
         sig = lines[node.lineno - 1].strip()
         fdoc = ast.get_docstring(node) or ""
         kind = ("async " if isinstance(node, ast.AsyncFunctionDef) else "") + (kind_fn if "." not in qual else ("test" if is_test else "method"))
-        res.symbols.append(Symbol(node.name, qual, kind, rel, start, end, sig, decos, fdoc[:300]))
+        sym = Symbol(node.name, qual, kind, rel, start, end, sig, decos, fdoc[:300])
+        res.symbols.append(sym)
         res.chunks.extend(_split_lines(rel, "test" if is_test else "function", qual, qual, start, body, max_lines,
                                        meta={"decorators": decos, "doc": fdoc[:200]}, header=""))
-        # шапка `путь:строки` внутри text помогает FTS и выдаче
+        # ссылку `путь:строка` добавляем в текст чанка, чтобы FTS искал по ней
         for ch in res.chunks[-max(1, (len(body) + max_lines - 1) // max_lines):]:
             ch.text = f"{rel}:{ch.line_start}-{ch.line_end}  {qual}\n{ch.text}"
         _py_calls(rel, node, qual, known, res.calls)
+        _add_aliases(rel, res, sym, source="test" if is_test else "symbol", decos=node.decorator_list)
 
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -200,8 +365,10 @@ def chunk_python(rel: str, src: str, max_lines: int) -> FileResult:
             head = lines[node.lineno - 1: max(node.lineno, min(first_m - 1, node.lineno + max_lines))]
             cdoc = ast.get_docstring(node) or ""
             bases = ", ".join(ast.unparse(b) for b in node.bases)
-            res.symbols.append(Symbol(node.name, node.name, "class", rel, node.lineno, end, f"class {node.name}({bases})",
-                                      "; ".join(ast.unparse(d)[:80] for d in node.decorator_list), cdoc[:300]))
+            sym = Symbol(node.name, node.name, "class", rel, node.lineno, end, f"class {node.name}({bases})",
+                         "; ".join(ast.unparse(d)[:80] for d in node.decorator_list), cdoc[:300])
+            res.symbols.append(sym)
+            _add_aliases(rel, res, sym)
             res.chunks.append(_mk(rel, "class", node.name, node.name, node.lineno, node.lineno + len(head) - 1,
                                   f"{rel}:{node.lineno}  class {node.name}({bases}); методы: "
                                   f"{', '.join(m.name for m in methods)}\n" + "\n".join(head),
@@ -363,8 +530,10 @@ def chunk_js(rel: str, src: str, max_lines: int, *, line_offset: int = 0, lang: 
             covered[k] = True
         endpoints = _js_calls(rel, qual, "\n".join(lines[i:end + 1]), i + 1 + line_offset, res.calls, lang)
         sig = line.strip()[:160]
-        res.symbols.append(Symbol(name, qual, "function" if not owner else "method", rel, i + 1 + line_offset,
-                                  end + 1 + line_offset, sig, "", "", lang))
+        sym_js = Symbol(name, qual, "function" if not owner else "method", rel, i + 1 + line_offset,
+                        end + 1 + line_offset, sig, "", "", lang)
+        res.symbols.append(sym_js)
+        _add_aliases(rel, res, sym_js)
         chs = _split_lines(rel, "js", qual, qual, first, body_lines, max_lines, meta={"endpoints": endpoints}, header="")
         for ch in chs:
             ch.text = f"{rel}:{ch.line_start}-{ch.line_end}  {qual}\n{ch.text}"

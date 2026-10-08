@@ -1279,10 +1279,10 @@ data/projects/{project_id}/
 |------|------------|
 | `config.py` | какие файлы индексируем (`scripts/index_config.yaml`), исключения, версия схемы и нарезчика, маскирование секретов |
 | `store.py` | схема БД, версии, кэш эмбеддингов, блокировка индексатора |
-| `chunkers.py` | нарезка: функции и методы Python (`ast`), JS, шаблоны (элементы с `id`, inline-скрипты), CSS, Markdown (разделы, строки находок), манифест, конфиги; символы, вызовы, импорты |
+| `chunkers.py` | нарезка: функции и методы Python (`ast`), JS, шаблоны (элементы с `id`, inline-скрипты), CSS, Markdown (разделы, строки находок), манифест, конфиги; символы, вызовы, импорты, алиасы (`symbol_aliases`: название функции словами из роутов, имён задач и тестов) |
 | `analyzers.py` | производные знания: роуты, карта БД (модели, миграции, кто пишет/читает), окружение, связка элемент→JS→API, покрытие тестами, инварианты, тексты интерфейса, история git |
 | `indexer.py` | инкрементальная индексация, векторы добираются отдельно (обрыв безопасен) |
-| `search.py` | гибридный поиск (FTS5 + вектор + точный символ + намерения «кто вызывает», роут, таблица), режимы `--callers`, `--route` и др., единый вывод для веба и MCP |
+| `search.py` | гибридный поиск (FTS5 + вектор + точный символ + алиасы + намерения «кто вызывает», роут, таблица), режимы `--callers`, `--route` и др., единый вывод для веба и MCP |
 | `graph.py` | граф зависимостей проекта (§16): сборка всех сущностей и связей из индекса и манифеста, окрестность узла, сироты, циклы импортов, выгрузка в json/graphml/dot |
 | `graph_atlas.py` | атлас зависимостей: markdown `docs/project-map/DEPENDENCIES.md` и текстовые виды графа для CLI и MCP |
 
@@ -1552,7 +1552,7 @@ run_pipeline
 | `smoke_cycle.py` | Smoke test |
 | `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
 | `export_project_graph.py` | сборка графа зависимостей (§16) вместе с метриками projectmap (группы Louvain, fan-in/out, частота правок, co-change; `--no-metrics` отключает): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
-| `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops` |
+| `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops`. `--symbol` принимает и название фичи словами (`rebuild_summary_artifact`) — ищет по таблице алиасов `symbol_aliases` |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |

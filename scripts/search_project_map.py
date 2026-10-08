@@ -4,7 +4,8 @@
   venv\\Scripts\\python.exe scripts\\search_project_map.py "почему исчерпывается пул соединений"
 
 Режимы (точные, по таблицам индекса):
-  --symbol NAME          где определён символ (функция, метод, класс), сигнатура, докстринг
+  --symbol NAME          где определён символ (функция, метод, класс), сигнатура, докстринг;
+                        NAME может быть названием функции словами: memory_build, search_map
   --callers NAME         кто вызывает (включая передачу как значение: Depends, to_thread)
   --callees NAME         что вызывает эта функция и где определено
   --imports PATH         что импортирует файл;  --imported-by MODULE  кто его импортирует
@@ -80,6 +81,8 @@ def _fmt_symbols(rows: list[dict]) -> None:
         print("символ не найден")
     for r in rows:
         print(f"{r['path']}:{r['line']}-{r['end_line']}  {r['qualname']} [{r['kind']}]  {r['signature'][:110]}")
+        if r.get("matched_alias"):
+            print(f"    найдено по названию функции: {r['matched_alias']} ({r.get('matched_source')})")
         if r["decorators"]:
             print(f"    декораторы: {r['decorators'][:120]}")
         if r["doc"]:
