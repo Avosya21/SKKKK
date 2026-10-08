@@ -214,6 +214,15 @@ async def html_error_pages(request: Request, exc: StarletteHTTPException):
     return await http_exception_handler(request, exc)
 
 
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Необработанная ошибка (500): uvicorn пишет её только в консоль, в api.log её не было — разбирать было нечем."""
+    from fastapi.responses import JSONResponse
+
+    logger.error("api.unhandled %s %s: %s", request.method, request.url.path, exc, exc_info=exc)
+    return JSONResponse({"detail": "Внутренняя ошибка сервера"}, status_code=500)
+
+
 # Заголовки безопасности (пункт плана 4.7). Без HSTS (сертификат на IP живёт 6 дней — при сбое продления HSTS
 # заблокировал бы пользователей) и без CSP (страницы используют встроенные скрипты).
 SECURITY_HEADERS = {
