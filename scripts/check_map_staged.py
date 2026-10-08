@@ -4,7 +4,8 @@
 индекса git: файлы коммита выгружаются во временный каталог, и там запускается `check_map_drift.py`. Поэтому чужие
 незавершённые правки в рабочей копии (другая сессия, другой ИИ) коммит не блокируют, а недописанная карта в самом
 коммите — блокирует. Проверяет то же, что тест `test_map_coverage`: файлы кода, роуты, таблицы БД, переменные
-окружения, реестр модулей, манифест.
+окружения, реестр модулей, манифест. Сначала — что каждый Python-файл коммита разбирается: частичный коммит однажды
+унёс в git `chat.py` с куском кода посреди вызова функции, и портал с чистой выгрузки не стартовал.
 
   venv\\Scripts\\python.exe scripts\\check_map_staged.py          # проверить индекс git
   venv\\Scripts\\python.exe scripts\\check_map_staged.py --all    # то же, даже если в индексе нет файлов кода
@@ -16,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import subprocess
@@ -48,6 +50,25 @@ def staged_paths() -> list[str]:
     """Пути, которые коммит добавляет, меняет или удаляет."""
     raw = _git("diff", "--cached", "--name-only", "-z", "--diff-filter=ACDMRT")
     return [p for p in raw.decode("utf-8").split("\0") if p]
+
+
+def syntax_errors(paths: list[str]) -> list[str]:
+    """Python-файлы коммита (содержимое индекса git), которые не разбираются: `путь:строка: ошибка`."""
+    out = []
+    for path in paths:
+        if not path.endswith(".py"):
+            continue
+        try:
+            src = _git("show", f":{path}")
+        except RuntimeError:
+            continue  # файл удаляется коммитом
+        try:
+            ast.parse(src.decode("utf-8-sig"), filename=path)
+        except SyntaxError as exc:
+            out.append(f"{path}:{exc.lineno}: {exc.msg}")
+        except UnicodeDecodeError as exc:
+            out.append(f"{path}: не UTF-8 ({exc.reason})")
+    return out
 
 
 def is_relevant(path: str) -> bool:
@@ -134,6 +155,11 @@ def main() -> int:
     except RuntimeError as exc:
         print(f"SKKKK: проверка карты пропущена ({exc})", file=sys.stderr)
         return 0
+    broken = syntax_errors(staged)
+    if broken:
+        print("✗ Python-файлы коммита не разбираются (частичный коммит захватил не те строки?):", file=sys.stderr)
+        print("\n".join(f"     {line}" for line in broken), file=sys.stderr)
+        return 1
     if not args.all and not any(is_relevant(p) for p in staged):
         return 0
 
