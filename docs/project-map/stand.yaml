@@ -136,6 +136,7 @@ items:
   - {path: "data/backups", kind: "бэкапы", purpose: "резервные копии БД и разовые снимки перед правками; не в git"}
   - {path: "data/caddy", kind: "сертификаты", purpose: "хранилище ACME-сертификатов Caddy; не в git"}
   - {path: "data/eval", kind: "эталоны", purpose: "золотые наборы и результаты замеров; не в git"}
+  - {path: "data/exchange_files", kind: "обмен", purpose: "посылки файлов от агента (карты конфигурации, дипмапы) по проектам и посылкам; не в git"}
   - {path: "data/gigaam", kind: "обмен", purpose: "задания и результаты GigaAM-контейнера (embed_voice); не в git"}
   - {path: "data/inbox", kind: "входящие", purpose: "входящие материалы до разбора (например записи Телемоста); не в git"}
   - {path: "data/locks", kind: "блокировки", purpose: "pid и lock GPU-воркера; не в git"}

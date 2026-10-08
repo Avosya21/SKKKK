@@ -8,6 +8,7 @@ data/modelscope-cache/
 data/nemo-diar-cache/
 data/llmpm-cache/
 data/smoke/
+data/exchange_files/
 data/project_map.db
 data/project_map.db-*
 data/project_map.lock
