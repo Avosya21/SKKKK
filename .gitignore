@@ -9,6 +9,8 @@ data/nemo-diar-cache/
 data/llmpm-cache/
 data/smoke/
 data/exchange_files/
+# наброски логотипа — рабочие файлы владельца, не часть портала
+logo_drafts/
 data/project_map.db
 data/project_map.db-*
 data/project_map.lock
