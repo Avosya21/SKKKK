@@ -96,6 +96,19 @@ def test_helpers():
     assert dl.ACT_TO_EVENT["done"] == "implemented" and "asked" not in dl.ACT_TO_EVENT
     assert dl.occurred_for_act(SimpleNamespace(said_at="2026-01-01T10:00:00"), "2026-01-01") == ("2026-01-01T10:00:00", "minute")
     assert dl.occurred_for_act(SimpleNamespace(said_at=None), "2026-01-01") == ("2026-01-01", "day")
+    assert dl.occurred_for_act(SimpleNamespace(said_at="2026-02-03"), "2026-10-08") == ("2026-02-03", "day")  # дата документа без времени
+
+
+def test_documented_rules():
+    """Пункт документа: «в документе»; принимает его заказчик или другая сторона, своя сторона — нет; согласованное не понижает."""
+    assert state(ev(1, "documented", "2026-01-01", "executor", precision="day")) == "documented"
+    assert state(ev(1, "documented", "2026-01-01", "executor", precision="day"), ev(2, "agreed", "2026-02-01T10:00", "customer")) == "agreed"
+    own = dl.fold([ev(1, "documented", "2026-01-01", "executor", precision="day"), ev(2, "agreed", "2026-02-01T10:00", "executor")])
+    assert own.state == "documented" and "своей же стороны" in own.trail[-1]["note"]
+    assert state(ev(1, "documented", "2026-01-01", None, precision="day"), ev(2, "rejected", "2026-02-01T10:00", "customer")) == "rejected"
+    assert state(ev(1, "agreed", "2026-01-01T10:00", "customer"), ev(2, "documented", "2026-02-01", "executor", precision="day")) == "agreed"
+    assert state(ev(1, "proposed", "2026-01-01T10:00", "customer"), ev(2, "rejected", "2026-01-02T10:00", "executor"),
+                 ev(3, "documented", "2026-03-01", "executor", precision="day")) == "documented"  # новый документ снова фиксирует
 
 
 # ---------------------------------------------------------------- база: события и пересборка из актов

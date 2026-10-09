@@ -286,7 +286,7 @@ MCP_TOOLS: list[dict[str, Any]] = [
                 "subject_id": {"type": "integer"},
                 "as_of": {"type": "string", "description": "ГГГГ-ММ-ДД: состояние на конец этого дня"},
                 "query": {"type": "string", "maxLength": 300, "description": "О чём вопрос: найдёт подходящие предметы"},
-                "state": {"type": "string", "enum": ["agreed", "proposed", "open", "rejected", "superseded", "implemented", "withdrawn"]},
+                "state": {"type": "string", "enum": ["agreed", "documented", "proposed", "open", "rejected", "superseded", "implemented", "withdrawn"]},
                 "cursor": {"type": "string", "description": "Из прошлого ответа: следующая порция"},
             },
             "additionalProperties": False,

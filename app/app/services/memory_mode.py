@@ -28,7 +28,7 @@ MIN_JUDGED_SHARE = 0.80  # доля предметов с решающими р�
 MIN_ACCURACY = 0.85  # доля сравнённых пунктов, по которым память верна (совпала с прежним контуром или права в споре по арбитру)
 MAX_BEHIND_OLD = 0.05  # насколько память может уступать прежнему контуру по этой доле
 MIN_COMPARED = 10  # пунктов, сравнённых с прежним контуром, чтобы вывод имел смысл
-DECISIVE_ACTS = ("proposed", "agreed", "rejected", "done", "cancelled")
+DECISIVE_ACTS = ("proposed", "agreed", "rejected", "done", "cancelled", "documented")
 
 
 def mode_of(settings: Settings, project: Any | None) -> str:
@@ -75,8 +75,13 @@ def readiness(db: Session, project_id: int) -> dict[str, Any]:
     subjects = db.scalars(select(Subject).where(Subject.project_id == project_id, Subject.is_active.is_(True))).all()
     acts = int(db.scalar(select(func.count()).select_from(SpeechAct).where(SpeechAct.project_id == project_id)) or 0)
     no_quote = int(db.scalar(select(func.count()).select_from(SpeechAct).where(SpeechAct.project_id == project_id, func.length(func.trim(SpeechAct.quote)) == 0)) or 0)
-    decisive = {sid for (sid,) in db.execute(select(SpeechAct.subject_id).where(SpeechAct.project_id == project_id, SpeechAct.act.in_(DECISIVE_ACTS),
-                                                                              SpeechAct.subject_id.is_not(None))).all()}
+    from app.app.services.subject_judge import needs_judge
+
+    by_subject: dict[int, list[SpeechAct]] = {}
+    for act in db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id, SpeechAct.act.in_(DECISIVE_ACTS),
+                                                  SpeechAct.subject_id.is_not(None))).all():
+        by_subject.setdefault(act.subject_id, []).append(act)
+    decisive = {sid for sid, acts_of in by_subject.items() if needs_judge(acts_of)}  # предметам одного документа итог судьи не нужен
     judged = sum(1 for s in subjects if s.id in decisive and s.state_source in ("judge", "human"))
     share = judged / len(decisive) if decisive else 0.0
     reviews = db.scalars(select(MemoryShadowReview).where(MemoryShadowReview.project_id == project_id)).all()

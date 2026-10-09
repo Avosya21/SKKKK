@@ -1088,7 +1088,9 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | «Построить сейчас» (пусто, admin) | ставит построение памяти в очередь по всем материалам проекта; пока идёт построение, кнопка скрыта, карточка раз в 15 с опрашивает сводку и сама показывает предметы по окончании | `POST …/memory/build` |
 | «Готовность к показу менеджерам и чату» (admin) | автоматические проверки: построена, цитаты на месте, итоги судьи, сравнение с прежним контуром, согласие арбитра | `summary.readiness` |
 
-Построение идёт само: новый материал ставит в очередь области `memory` (акты) и `memory_judge` (итог проекта) — `pipeline_knowledge._enqueue_auto_review` → `memory_pipeline.enqueue_for_artifact`; воркер `workers/review.py`. После итога — сравнение с прежним контуром (`memory_compare`) и, если пройдены проверки готовности и включён `DECISION_MEMORY_AUTO_LIVE`, автопереход `shadow` → `live` (`memory_mode.maybe_promote`).
+Построение идёт само: новый материал (созвон, выгрузка переписки, документ) ставит в очередь области `memory` (акты) и `memory_judge` (итог проекта) — `pipeline_knowledge._enqueue_auto_review` → `memory_pipeline.enqueue_for_artifact`; воркер `workers/review.py`. После итога — сравнение с прежним контуром (`memory_compare`) и, если пройдены проверки готовности и включён `DECISION_MEMORY_AUTO_LIVE`, автопереход `shadow` → `live` (`memory_mode.maybe_promote`).
+
+Документы в памяти (`docs/plans/DOCUMENT-MEMORY-PLAN.md`, `services/doc_memory.py`): документ размечается по единицам `P<n>` (абзац, пункт, строка таблицы; заголовок и шапка таблицы — контекст), автор — сам документ. Паспорт документа (вид, сторона-автор, утверждён ли и кем, дата; каждое поле — с цитатой, которую проверяет код) — `parsed/…/<artifact_id>_passport.json`, промпт `document_passport.md`; акты единиц — промпт `speech_acts_doc.md`, вид `documented` («зафиксировано в документе»). Состояние предмета `documented` — «в документе»: принимает согласие заказчика или другой стороны, утверждённый заказчиком документ — сразу «согласовано». Судья — только если документ встретился с репликой, документов несколько или документ себе противоречит (`subject_judge.needs_judge`). Файлы обмена с агентами — не документы. Дочитка уже загруженных — `scripts/memory_documents.py`.
 
 ---
 
@@ -1348,8 +1350,8 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `contract_items` | `contract.py` | реестр стабильных id контракта обмена с агентом (`req-` / `dec-` / `cft-`): id не меняется при переизвлечении; `content_hash` нужен дельте `get_changes`; пишет `contract._insert_item` / `_assign_ids` |
 | `agent_exchange_log` | `agent_exchange.py` | журнал обмена с внешним агентом: каждый запрос и ответ проходят через шлюз и оставляют след (решение, риск, причины, контрольная сумма) |
 | `agent_questions` | `agent_question.py` | ящик вопросов внешнего агента: `pending` → `drafted` (черновик локальной модели, наружу не виден) → `answered`; текст вопроса — недоверенные данные; пишет `agent_inbox.create_question`, читают `list_questions` / `get_question`, на экране — `GET /projects/{id}/agent-inbox` |
-| `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов (предложил, согласился, отказал, сделано…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
-| `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние и с какого момента, итог словами, центр-вектор, замена другим предметом |
+| `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов и единиц документа `P<n>` (предложил, согласился, отказал, сделано, зафиксировано в документе…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
+| `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние (обсуждается, предложено, в документе, согласовано, отклонено, заменено, выполнено, снято) и с какого момента, итог словами, центр-вектор, замена другим предметом |
 | `decision_events` | `decision_memory.py` | журнал событий предмета (append-only): вид, кто, когда, точность даты, цитата, кто решил (модель или человек) |
 | `subject_positions` | `decision_memory.py` | позиции внутри предмета (вариант или значение: «цена 144 000», «пометка “!”») со своим состоянием и «чем заменено»; пишет судья итога |
 | `memory_shadow_review` | `decision_memory.py` | сравнение «память против прежнего контура» по пунктам: совпало (`agree`) или спор с вердиктом арбитра (`old` / `new` / `neither` / `unclear`); по доле «права память» считается готовность проекта к live |
@@ -1376,8 +1378,8 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 
 ---
 
-| `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов (предложил, согласился, отказал, сделано…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
-| `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние и с какого момента, итог словами, центр-вектор, замена другим предметом |
+| `speech_acts` | `speech_act.py` | речевые акты реплик переписки и созвонов и единиц документа `P<n>` (предложил, согласился, отказал, сделано, зафиксировано в документе…) с дословной цитатой, автором, стороной и привязкой к предмету (Э2 памяти решений) |
+| `subjects` | `decision_memory.py` | предметы памяти решений: название, состояние (обсуждается, предложено, в документе, согласовано, отклонено, заменено, выполнено, снято) и с какого момента, итог словами, центр-вектор, замена другим предметом |
 | `decision_events` | `decision_memory.py` | журнал событий предмета (append-only): вид, кто, когда, точность даты, цитата, кто решил (модель или человек) |
 | `subject_positions` | `decision_memory.py` | позиции внутри предмета (вариант или значение: «цена 144 000», «пометка “!”») со своим состоянием и «чем заменено»; пишет судья итога |
 ## 8. ASR-модули (`asr/`)
@@ -1512,10 +1514,12 @@ run_pipeline
 | `review_conflict_v3.md` | review_conflicts.py (автопроверка конфликтов, `review_conflict-v3`) |
 | `review_relevance_v2.md` | review_relevance.py (актуальность пунктов по темам, `review_relevance-v2.1`) |
 | `suggest_speaker_names.md` | speaker_auto.py (подсказка имён неназванным голосам) |
-| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v4`) |
+| `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v5`) |
+| `speech_acts_doc.md` | speech_acts.py + doc_memory.py (акты единиц документа, `speech_acts_doc-v1`) |
+| `document_passport.md` | doc_memory.py (паспорт документа: вид, сторона, утверждение, дата — с цитатами, `document_passport-v1`) |
 | `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
 | `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |
-| `subject_judge.md` | subject_judge.py (итог предмета и его позиции по ленте реплик, `subject_judge-v2`) |
+| `subject_judge.md` | subject_judge.py (итог предмета и его позиции по ленте реплик и пунктов документов, `subject_judge-v3`) |
 | `subject_merge.md` | subject_windows.py (склейка дублей: один ли вопрос у двух предметов, `subject_merge-v1`) |
 
 Предыдущие версии промптов лежат рядом и кодом не читаются: `extract_entities.md`, `extract_entities_v2.md`, `extract_entities_v3.md` (текущая — v4), `review_conflict.md` (текущая — v3), `review_relevance.md` (текущая — v2).
@@ -1602,6 +1606,7 @@ run_pipeline
 | `app/app/tests/test_preflight.py` | `meeting_voice` в plan `all`/`api`, не `worker` |
 | `extract_speech_acts.py` | речевые акты материалов проекта (Э2 памяти решений) |
 | `build_decision_memory.py` | память решений: акты → предметы → события → итоги, копия БД перед записью |
+| `memory_documents.py` | документы в память решений: отчёт по документам без актов (единицы, порции, время); `--enqueue` — копия БД и задачи `memory` + `memory_judge`; `--all`, `--redo` |
 | `tools/projectmap/tests/test_languages_and_grammars.py` | реестр языков (расширения, уровни, 12 языков Emerge) и грамматики tree-sitter: кэш проекта, докачка, разбор простого кода |
 | `tools/projectmap/tests/test_lang_python.py` | разбор Python через `ast`: символы, вызовы по принадлежности, импорты (в том числе внутри функций), базовые классы, ошибки синтаксиса |
 | `tools/projectmap/tests/test_lang_treesitter.py` | разбор 21 языка: образец кода на язык, шум вызовов, замыкания, отсутствие грамматики, сбой одного файла, `split_target` |
@@ -1874,6 +1879,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `decision_log.py` | Журнал событий и состояние предмета на дату (docs/plans/DECISION-MEMORY-PLAN.md, Э4). Чистый код, модель не вызывается. |
 | `decision_memory_view.py` | Память решений для чтения: список предметов, предмет с лентой и журналом, состояние на дату. |
 | `doc_anchors.py` | Привязка уже извлечённых пунктов документов к абзацам ``P<n>`` без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
+| `doc_memory.py` | Документы в памяти решений (docs/plans/DOCUMENT-MEMORY-PLAN.md): документ разбирается как созвон — по единицам. |
 | `doc_units.py` | Единицы документа с адресами ``P<n>`` (docs/plans/DECISION-MEMORY-PLAN.md, этап Э1). |
 | `docker_runtime.py` | Автозапуск Docker Desktop и ASR-контейнеров перед обработкой аудио. |
 | `docx_extract.py` | DOCX → markdown в порядке документа: заголовки (#), абзацы, списки, таблицы на своих местах, надписи, колонтитулы. |
@@ -2173,6 +2179,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `make_hashes.py` | Print bcrypt hashes for the three role passwords (paste into .env). |
 | `material_dates.py` | Даты материалов проекта: откуда взята дата записи (docs/plans/REQUIREMENTS-PLAN.md, этап 1). |
 | `mcp_audit.py` | Аудит проектного MCP на живых данных (docs/plans/MCP-KB-PLAN.md): что и сколько получает внешний агент. |
+| `memory_documents.py` | Документы в память решений (docs/plans/DOCUMENT-MEMORY-PLAN.md): дочитать уже загруженные документы проекта. |
 | `memory_scorecard.py` | Табло памяти решений: числа, по которым видно, приближаемся ли мы к цели (docs/plans/DECISION-MEMORY-PLAN.md, §4.3). |
 | `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
 | `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
@@ -2370,7 +2377,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-08 13:41: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-09 02:38: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2553,6 +2560,7 @@ _Проверено 2026-10-08 13:41: сущностей 130, не описан�
 | `docs/prompts/call_outline.md` | Промпт: оглавление созвона (контекст для извлечения требований) |
 | `docs/prompts/call_summary.md` | Промпт: протокол встречи по стенограмме |
 | `docs/prompts/doc_summary.md` | Промпт: протокол по документу |
+| `docs/prompts/document_passport.md` | Промпт: паспорт документа (документы в памяти решений) |
 | `docs/prompts/extract_entities.md` | Промпт: извлечение сущностей |
 | `docs/prompts/extract_entities_v2.md` | Промпт: извлечение сущностей v2 — с контекстом проекта, видами пунктов и самодостаточными формулировками |
 | `docs/prompts/extract_entities_v3.md` | Промпт: извлечение сущностей v3 — v2 + переписка по пронумерованным сообщениям |
@@ -2576,6 +2584,7 @@ _Проверено 2026-10-08 13:41: сущностей 130, не описан�
 | `docs/prompts/review_requirement.md` | Промпт: проверка требований локальной моделью (автопроверка, этап 2) |
 | `docs/prompts/screen_frame.md` | Промпт: кадр шаринга экрана на созвоне |
 | `docs/prompts/speech_acts.md` | Промпт: речевые акты в переписке и созвонах (Э2 памяти решений) |
+| `docs/prompts/speech_acts_doc.md` | Промпт: акты единиц документа (документы в памяти решений) |
 | `docs/prompts/speech_acts_review.md` | Промпт: проверка разметки речевых актов (Э2, второй проход) |
 | `docs/prompts/subject_judge.md` | Промпт: чем закончилось обсуждение предмета (Э5 памяти решений) |
 | `docs/prompts/subject_match.md` | Промпт: тот же ли это предмет обсуждения (Э3 памяти решений) |
@@ -2586,6 +2595,7 @@ _Проверено 2026-10-08 13:41: сущностей 130, не описан�
 | `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | SKKKK — Автономное разрешение противоречий: созвоны и документы без ручного разбора |
 | `docs/plans/DECISION-MEMORY-PLAN.md` | SKKKK — Память решений: что решено, что отклонено, что заменено |
 | `docs/plans/DECISION-MEMORY-STAGES-6-8.md` | Память решений: оставшиеся этапы Э6 (экран), Э7 (тень и включение), Э8 (инкремент) — подготовка |
+| `docs/plans/DOCUMENT-MEMORY-PLAN.md` | Документы в памяти решений |
 | `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
 | `docs/plans/final-plan.md` | SKKKK: идеальная расшифровка созвона — итоговый план |
 | `docs/plans/LLM-LANES-PLAN.md` | SKKKK — Две полосы локальной модели: чат отвечает во время обработки |
