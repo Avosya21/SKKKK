@@ -8,7 +8,7 @@
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const PAGE = 30;
   const STATE_CLASS = { agreed: 'text-bg-success', implemented: 'text-bg-success', rejected: 'text-bg-danger', withdrawn: 'text-bg-secondary',
-    superseded: 'text-bg-secondary', proposed: 'text-bg-warning', open: 'text-bg-light border' };
+    superseded: 'text-bg-secondary', proposed: 'text-bg-warning', documented: 'text-bg-info', open: 'text-bg-light border' };
   const POS_CLASS = { current: 'text-bg-success', rejected: 'text-bg-danger', superseded: 'text-bg-secondary', open: 'text-bg-light border' };
   const SIDE = { customer: 'заказчик', executor: 'исполнитель' };
   const MODE_TEXT = { off: 'Память решений выключена: строится вручную, чат и менеджеры её не видят.',
@@ -37,7 +37,7 @@
   }
 
   function renderCounts(counts, labels) {
-    const order = ['agreed', 'proposed', 'open', 'rejected', 'superseded', 'implemented', 'withdrawn'];
+    const order = ['agreed', 'documented', 'proposed', 'open', 'rejected', 'superseded', 'implemented', 'withdrawn'];
     $('mem-counts').innerHTML = order.filter((k) => counts[k]).map((k) =>
       `<span class="badge ${STATE_CLASS[k] || 'text-bg-light border'}">${esc(fmtState(k, labels))}: ${counts[k]}</span>`).join('');
     const sel = $('mem-state');

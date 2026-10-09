@@ -1,6 +1,7 @@
 """Речевые акты реплик (docs/plans/DECISION-MEMORY-PLAN.md, Э2): что делает каждая реплика переписки или созвона в обсуждении решений.
 
-Одна строка — один акт в одной реплике; у реплики их может быть несколько. Строки материала целиком заменяются при
+Одна строка — один акт в одной реплике; у реплики их может быть несколько. Единица документа (абзац ``P<n>``, строка таблицы)
+тоже даёт акты: автор — сам документ, его сторона — из паспорта документа (``services/doc_memory.py``). Строки материала целиком заменяются при
 повторном разборе. Цитата проверена кодом (дословно есть в реплике), модель сама номеров и текста не задаёт.
 """
 
@@ -13,10 +14,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.app.db import Base
 
-ACTS = ("proposed", "agreed", "rejected", "deferred", "asked", "answered", "done", "cancelled", "blocked", "info")
+ACTS = ("proposed", "agreed", "rejected", "deferred", "asked", "answered", "done", "cancelled", "blocked", "info", "documented")
 ACT_LABELS = {
     "proposed": "предложил", "agreed": "согласился", "rejected": "отклонил", "deferred": "отложил", "asked": "спросил",
     "answered": "ответил", "done": "сообщил о выполненном", "cancelled": "отменил прежнее", "blocked": "сообщил о препятствии", "info": "сообщил факт",
+    "documented": "зафиксировано в документе",  # только у единиц документа: требование или решение записано, но не подтверждено
 }
 
 
@@ -27,7 +29,7 @@ class SpeechAct(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     artifact_id: Mapped[int] = mapped_column(ForeignKey("artifacts.id"), nullable=False, index=True)
-    unit_ref: Mapped[str] = mapped_column(String(24), nullable=False)  # M141 / T20
+    unit_ref: Mapped[str] = mapped_column(String(24), nullable=False)  # M141 / T20 / P12
     unit_key: Mapped[int] = mapped_column(Integer, nullable=False)
     start_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     said_at: Mapped[str | None] = mapped_column(String(40), nullable=True)  # ISO; у реплики созвона — время записи + секунды, если известно

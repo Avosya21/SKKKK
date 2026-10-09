@@ -174,7 +174,7 @@ def _m2(db: Session, settings: Settings, project_id: int) -> tuple[float | None,
     return passed / len(rules), details
 
 
-SUBJECT_TO_RULE_STATE = {"open": "current", "proposed": "current", "agreed": "current", "implemented": "done", "rejected": "rejected",
+SUBJECT_TO_RULE_STATE = {"open": "current", "proposed": "current", "documented": "current", "agreed": "current", "implemented": "done", "rejected": "rejected",
                          "withdrawn": "rejected", "superseded": "superseded"}
 
 

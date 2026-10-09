@@ -1,6 +1,6 @@
 """Сравнение памяти решений с прежним контуром актуальности пунктов (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7).
 
-Для каждого пункта проекта (решение или задача из переписки/созвона) берётся состояние по прежнему контуру (``memory_scorecard._state``:
+Для каждого пункта проекта (решение или задача из переписки, созвона или абзаца документа) берётся состояние по прежнему контуру (``memory_scorecard._state``:
 current/done/superseded/duplicate/rejected) и состояние по памяти решений (позиция предмета, в основаниях которой акт пункта, иначе
 предмет целиком). Совпавшие по группе «действует / не действует» пишутся как ``agree``; спорные идут арбитру — модели, которая читает
 ленту реплик и решает, что верно (методы названы «A» и «B» вслепую, порядок чередуется). Человек ничего не размечает: вердикты
@@ -27,7 +27,7 @@ logger = logging.getLogger("skkkk.memory_compare")
 
 PROMPT_VERSION = "memory_arbiter-v2"
 ACTIVE = {"current", "done"}
-SUBJECT_TO_OLD = {"open": "current", "proposed": "current", "agreed": "current", "implemented": "done", "rejected": "rejected",
+SUBJECT_TO_OLD = {"open": "current", "proposed": "current", "documented": "current", "agreed": "current", "implemented": "done", "rejected": "rejected",
                   "withdrawn": "rejected", "superseded": "superseded"}
 TURN_TOLERANCE = 0.02
 MAX_FEED = 12
@@ -76,7 +76,11 @@ def group(state: str) -> str:
 
 
 def _acts_for(acts: list[SpeechAct], artifact_id: int, value: dict[str, Any]) -> list[SpeechAct]:
-    """Акты на том же адресе, что и пункт прежнего контура: сообщение переписки или реплика созвона (по началу в секундах)."""
+    """Акты на том же адресе, что и пункт прежнего контура: сообщение переписки, реплика созвона (по началу в секундах) или
+    абзац документа (``source_paragraph``)."""
+    if value.get("source_paragraph") is not None:
+        ref = f"P{int(value['source_paragraph'])}"
+        return [a for a in acts if a.artifact_id == artifact_id and a.unit_ref == ref]
     if value.get("message_id") is not None:
         ref = f"M{int(value['message_id'])}"
         return [a for a in acts if a.artifact_id == artifact_id and a.unit_ref == ref]

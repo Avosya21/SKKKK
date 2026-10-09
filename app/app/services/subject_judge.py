@@ -6,6 +6,8 @@
 на какие реплики опирается. Код проверяет ответ: состояние из списка, ``basis`` — непустой набор номеров из показанной ленты.
 Решение человека судья не трогает. Принятый вердикт пишется в предмет (``state_source=judge``, итог словами, номера актов);
 отвергнутый — оставляет состояние свёртки. Следующая пересборка журнала возвращает состояние к свёртке — судью запускают заново.
+Предмет, о котором есть только один документ и в нём нет противоречий (``needs_judge``), судье не нужен: спорить не о чем, итог —
+свёртка («в документе», «выполнено» …). Так документ на сотни пунктов не превращается в сотни вызовов модели.
 """
 from __future__ import annotations
 
@@ -24,12 +26,26 @@ from app.app.models.speech_act import ACT_LABELS, SpeechAct
 
 logger = logging.getLogger("skkkk.subject_judge")
 
-PROMPT_VERSION = "subject_judge-v2"
+PROMPT_VERSION = "subject_judge-v3"  # v3: акты документов («зафиксировано в документе») и состояние documented
 MAX_POSITIONS = 8
 LABEL_MAX = 160
 MAX_LINES = 15  # актов в ленте; длиннее — первые два и последние
 SIDE_RU = {"customer": "заказчик", "executor": "исполнитель"}
-EVENT_ACTS = ("proposed", "agreed", "rejected", "done", "cancelled")  # субъект без таких актов судье не нужен
+EVENT_ACTS = ("proposed", "agreed", "rejected", "done", "cancelled", "documented")  # субъект без таких актов судье не нужен
+DOC_LINES_PER_DOC = 3  # пунктов одного документа в ленте судьи
+DOC_PRIORITY = {"cancelled": 0, "rejected": 0, "done": 1, "agreed": 1, "deferred": 1, "documented": 2}
+SETTLED = ("agreed", "implemented", "rejected", "superseded", "withdrawn")  # «в документе» эти состояния не понижает
+
+
+def needs_judge(acts: list[Any]) -> bool:
+    """Нужен ли предмету судья: есть решающие акты, и среди них реплика созвона/переписки, либо документов несколько, либо один
+    документ говорит о предмете разное (например, «зафиксировано» и «отменено»)."""
+    decisive = [a for a in acts if a.act in EVENT_ACTS]
+    if not decisive:
+        return False
+    if any(not str(a.unit_ref).startswith("P") for a in decisive):
+        return True
+    return len({a.artifact_id for a in decisive}) > 1 or len({a.act for a in decisive}) > 1
 
 
 def _system() -> str:
@@ -54,11 +70,31 @@ def _when(act: SpeechAct, days: dict[int, str]) -> str:
     return f"{days.get(act.artifact_id, '????-??-??')} (время неизвестно)"
 
 
-def timeline_acts(acts: list[SpeechAct]) -> list[SpeechAct]:
-    """Лента для судьи: все акты предмета по времени; если их больше ``MAX_LINES`` — два первых и последние."""
+def _is_doc(act: Any) -> bool:
+    return str(getattr(act, "unit_ref", "") or "").startswith("P")
+
+
+def timeline_acts(acts: list[Any]) -> list[Any]:
+    """Лента для судьи по времени. От каждого документа — не больше ``DOC_LINES_PER_DOC`` пунктов (сначала отмена, отказ, «сделано»,
+    потом «зафиксировано»): иначе десяток пунктов одного документа вытесняет из ленты согласие на созвоне (проект 18, предмет
+    «вариант структуры номенклатуры», 2026-10-09). Реплик больше места, чем осталось, — две первые и последние."""
+    by_doc: dict[int, list[Any]] = {}
+    for a in acts:
+        if _is_doc(a):
+            by_doc.setdefault(a.artifact_id, []).append(a)
+    keep: set[int] = set()
+    for items in by_doc.values():
+        ranked = sorted(range(len(items)), key=lambda i: (DOC_PRIORITY.get(items[i].act, 3), i))
+        keep.update(id(items[i]) for i in ranked[:DOC_LINES_PER_DOC])
+    acts = [a for a in acts if not _is_doc(a) or id(a) in keep]
     if len(acts) <= MAX_LINES:
         return acts
-    return acts[:2] + acts[-(MAX_LINES - 2):]
+    dialog = [a for a in acts if not _is_doc(a)]
+    room = max(4, MAX_LINES - len(keep))
+    if len(dialog) > room:
+        dialog = dialog[:2] + dialog[-(room - 2):]
+    chosen = {id(a) for a in dialog} | keep
+    return [a for a in acts if id(a) in chosen]
 
 
 def build_user(subject: Subject, acts: list[SpeechAct], days: dict[int, str]) -> str:
@@ -126,6 +162,8 @@ def judge_subject(db: Session, settings: Settings, subject: Subject, *, days: di
     acts = list(db.scalars(select(SpeechAct).where(SpeechAct.subject_id == subject.id).order_by(SpeechAct.said_at, SpeechAct.artifact_id, SpeechAct.unit_key)).all())
     if not any(a.act in EVENT_ACTS for a in acts):
         return {"status": "skipped", "reason": "нет предложений и решений"}
+    if not needs_judge(acts):
+        return {"status": "skipped", "reason": "один документ без противоречий: итог — свёртка"}
     shown = timeline_acts(acts)
     days = days or {}
     ask = ask or _ask_default(settings)
@@ -144,6 +182,10 @@ def judge_subject(db: Session, settings: Settings, subject: Subject, *, days: di
                 user += f"\n\nПредыдущий ответ невалиден: {last_error}. Верни только JSON вида {{\"state\": ..., \"basis\": [...], \"summary\": ...}}."
     if verdict is None:
         return {"status": "error", "error": last_error}
+    if verdict["state"] == "documented" and subject.state in SETTLED:
+        # правило владельца (DECISIONS 2026-10-09): документ согласованное и решённое не понижает — остаётся итог свёртки
+        log_event(logger, "subject_judge.documented_refused", subject=subject.id, fold=subject.state)
+        return {"status": "kept", "reason": "документ не понижает решённое", "state": subject.state}
     if not verdict["positions"] and (any(a.act in ("rejected", "cancelled") for a in shown) or sum(a.act == "proposed" for a in shown) >= 2):
         # в ленте есть отказ от варианта или несколько предложений, а позиции не названы: один раз просим перечислить позиции (отклонённый и принятый вариант)
         hint = user + ("\n\nВ ленте несколько вариантов или есть отказ от варианта. Перечисли позиции: какой вариант отклонён или заменён, какой действует. "

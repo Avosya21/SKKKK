@@ -17,16 +17,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.app.db import Base
 
 # Виды событий журнала
-EVENT_KINDS = ("proposed", "agreed", "rejected", "superseded", "implemented", "reopened", "withdrawn")
+EVENT_KINDS = ("proposed", "agreed", "rejected", "superseded", "implemented", "reopened", "withdrawn", "documented")
 EVENT_LABELS = {
     "proposed": "предложено", "agreed": "согласовано", "rejected": "отклонено", "superseded": "заменено",
-    "implemented": "выполнено", "reopened": "возобновлено", "withdrawn": "снято",
+    "implemented": "выполнено", "reopened": "возобновлено", "withdrawn": "снято", "documented": "зафиксировано в документе",
 }
 # Состояния предмета
-STATES = ("open", "proposed", "agreed", "rejected", "superseded", "implemented", "withdrawn")
+# documented — «в документе»: записано в документе, но ни созвон, ни переписка, ни признак утверждения его не подтвердили
+STATES = ("open", "proposed", "documented", "agreed", "rejected", "superseded", "implemented", "withdrawn")
 STATE_LABELS = {
-    "open": "обсуждается", "proposed": "предложено", "agreed": "согласовано", "rejected": "отклонено", "superseded": "заменено",
-    "implemented": "выполнено", "withdrawn": "снято",
+    "open": "обсуждается", "proposed": "предложено", "documented": "в документе", "agreed": "согласовано", "rejected": "отклонено",
+    "superseded": "заменено", "implemented": "выполнено", "withdrawn": "снято",
 }
 DECIDED_BY = ("model", "rule", "human")
 # Состояния позиции внутри предмета (вариант или значение): действует / отклонена / заменена / открыта

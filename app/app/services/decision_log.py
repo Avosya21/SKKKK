@@ -2,6 +2,9 @@
 
 Состояние — свёртка событий по времени (``fold``). Правила:
 - ``proposed`` открывает предложение (в том числе после отказа или снятия: «предложили снова»);
+- ``documented`` — пункт записан в документе: «в документе» (из «обсуждается», «предложено», после отказа, снятия или замены);
+  согласованное и выполненное документ не понижает. Дальше «в документе» ведёт себя как предложение стороны документа:
+  его принимает согласие заказчика или другой стороны, отклоняет отказ;
 - ``agreed`` — согласовано, если согласился заказчик либо сторона, отличная от предложившей («заказчик попросил — исполнитель
   согласился» — обязательство принято); согласие своей же стороны (исполнитель согласился с исполнителем) предложение не
   закрывает, и оно остаётся ``proposed`` с пометкой;
@@ -23,7 +26,9 @@ from app.app.models.decision_memory import DecisionEvent, Subject
 
 SIDE_CUSTOMER = "customer"
 # Какой вид акта речи становится каким событием; остальные виды (вопрос, ответ, отсрочка, препятствие, факт) — контекст
-ACT_TO_EVENT = {"proposed": "proposed", "agreed": "agreed", "rejected": "rejected", "done": "implemented", "cancelled": "withdrawn"}
+ACT_TO_EVENT = {"proposed": "proposed", "agreed": "agreed", "rejected": "rejected", "done": "implemented", "cancelled": "withdrawn",
+                "documented": "documented"}
+OPEN_OFFERS = ("proposed", "documented")  # ждут ответа другой стороны
 
 
 @dataclass
@@ -71,11 +76,16 @@ def fold(events: Iterable[Any], *, as_of: str | None = None) -> FoldResult:
             new = "proposed" if before in ("open", "rejected", "withdrawn", "superseded", "proposed") else before
             if before in ("open", "rejected", "withdrawn", "superseded"):
                 proposer_side = side
+        elif kind == "documented":
+            if before in ("open", "rejected", "withdrawn", "superseded", "proposed", "documented"):
+                new = "documented"
+            if before in ("open", "rejected", "withdrawn", "superseded"):
+                proposer_side = side
         elif kind == "agreed":
             if human or side == SIDE_CUSTOMER or (proposer_side and side and side != proposer_side):
                 new = "agreed"
-            elif before == "proposed":
-                note = "согласие своей же стороны: предложение не закрыто"  # состояние то же — proposed
+            elif before in OPEN_OFFERS:
+                note = "согласие своей же стороны: предложение не закрыто"  # состояние то же
         elif kind == "rejected":
             if human or not (proposer_side and side and side == proposer_side):
                 new = "rejected"
@@ -140,10 +150,10 @@ def normalize_side(side: str | None) -> str | None:
 
 
 def occurred_for_act(act: Any, fallback_day: str | None) -> tuple[str, str]:
-    """(момент, точность) события для речевого акта: время реплики, иначе день материала."""
+    """(момент, точность) события для речевого акта: время реплики, иначе день материала. Только дата (документ) — точность «день»."""
     said = getattr(act, "said_at", None)
     if said:
-        return str(said), "minute"
+        return str(said), ("day" if len(str(said)) <= 10 else "minute")
     return (fallback_day or "0000-00-00"), "day"
 
 

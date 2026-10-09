@@ -186,3 +186,28 @@ def test_positions_requested_once_when_feed_has_rejection_or_several_proposals(w
     db.commit()
     assert len(asked) == 2 and "Перечисли позиции" in asked[1]
     assert [p.label for p in db.query(SubjectPosition).filter(SubjectPosition.subject_id == subject.id).all()] == ["папки по толщине"]
+
+
+def test_timeline_limits_document_lines_so_dialog_is_not_crowded_out():
+    """Десяток пунктов одного документа не вытесняет из ленты согласие на созвоне (проект 18, 2026-10-09)."""
+    from types import SimpleNamespace
+
+    dialog = [SimpleNamespace(id=i, unit_ref=f"T{i}", artifact_id=1, act="agreed" if i == 3 else "proposed") for i in range(1, 6)]
+    doc = [SimpleNamespace(id=100 + i, unit_ref=f"P{i}", artifact_id=2, act="documented") for i in range(12)]
+    doc[7].act = "cancelled"
+    shown = sjg.timeline_acts(dialog + doc)
+    assert all(a in shown for a in dialog)  # все реплики на месте
+    shown_doc = [a for a in shown if a.unit_ref.startswith("P")]
+    assert len(shown_doc) == sjg.DOC_LINES_PER_DOC and doc[7] in shown_doc  # отмена из документа — в первую очередь
+
+
+def test_judge_cannot_downgrade_settled_subject_to_documented(world):
+    db, settings, project, subject, acts = world
+    subject.state, subject.state_source = "agreed", "fold"
+    db.commit()
+
+    def ask(system, user):
+        return json.dumps({"state": "documented", "basis": [f"A{acts[3].id}"], "summary": "Записано в документе."}, ensure_ascii=False)
+
+    result = sjg.judge_subject(db, settings, subject, ask=ask)
+    assert result["status"] == "kept" and subject.state == "agreed" and subject.state_source == "fold"

@@ -3521,6 +3521,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_doc_memory
+    kind: service
+    path: app/app/services/doc_memory.py
+    title: "Документы в памяти решений (docs/plans/DOCUMENT-MEMORY-PLAN.md): документ разбирается как созвон — по единицам."
+    tags: [auto]
+    auto: true
+
+  - id: script_memory_documents
+    kind: file
+    path: scripts/memory_documents.py
+    title: "Документы в память решений (docs/plans/DOCUMENT-MEMORY-PLAN.md): дочитать уже загруженные документы проекта."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

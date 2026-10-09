@@ -5,7 +5,9 @@
 Код всё проверяет: метка реплики должна быть из целевых, вид акта — из списка, цитата — дословно в тексте этой реплики;
 остальное отбрасывается. Автор и сторона берутся из реестра людей проекта (если человек там есть), а не из ответа модели.
 Результат — таблица ``speech_acts`` (``models/speech_act.py``); строки материала заменяются целиком при повторном разборе.
-Промпт — ``docs/prompts/speech_acts.md``. Документы речевых актов не имеют (у них нет говорящих): только ``M<n>`` и ``T<n>``.
+Промпт — ``docs/prompts/speech_acts.md``. Документ (без говорящих) размечается по единицам ``P<n>`` своим промптом
+``docs/prompts/speech_acts_doc.md``: автор — документ, сторона, дата и утверждение — из паспорта (``services/doc_memory.py``);
+вид «зафиксировано в документе» (``documented``) бывает только у единиц документа.
 """
 from __future__ import annotations
 
@@ -41,7 +43,7 @@ MAX_TOKENS = 2048
 
 @dataclass(frozen=True)
 class DUnit:
-    """Реплика переписки (``M<n>``) или созвона (``T<n>``)."""
+    """Реплика переписки (``M<n>``), созвона (``T<n>``) или единица документа (``P<n>``)."""
 
     ref: str
     key: int
@@ -50,6 +52,8 @@ class DUnit:
     said_at: str | None = None
     start_sec: float | None = None
     stamp: str = ""  # время для строки окна
+    section: str = ""  # документ: раздел (последний заголовок)
+    lead: str = ""  # документ: шапка таблицы для строки
 
 
 def _flat(text: str) -> str:
@@ -149,7 +153,7 @@ def parse_acts(raw: str, targets: list[DUnit]) -> tuple[list[dict[str, str]], di
             dropped["unit"] += 1
             continue
         act = str(item.get("act") or "").strip().lower()
-        if act not in ACTS:
+        if act not in ACTS or (act == "documented" and not ref.startswith("P")):  # «в документе» — только у единиц документа
             dropped["act"] += 1
             continue
         quote = _flat(str(item.get("quote") or ""))
@@ -210,14 +214,27 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
     """Разобрать материал: окна -> модель -> проверка -> замена строк ``speech_acts`` материала. ``only_refs`` — только эти реплики
     (для проверок); тогда прежние строки этих реплик заменяются, остальные не трогаются."""
     units = dialog_units(settings, artifact)
+    ask = ask or _ask_default(settings)
+    doc = None
+    if not units:
+        from app.app.services import doc_memory
+
+        doc = doc_memory.prepare(settings, artifact, ask, release=db.commit)
+        units = doc.units if doc is not None else []
     stats: dict[str, Any] = {"artifact_id": artifact.id, "units": len(units), "windows": 0, "acts": 0, "errors": 0,
                              "dropped": {"unit": 0, "act": 0, "quote": 0, "limit": 0, "duplicate": 0},
                              "reviewed": 0, "changed": 0, "review_errors": 0}
+    if doc is not None:
+        stats["document"] = {k: doc.passport.get(k) for k in ("kind", "author_side", "approved", "approved_by", "date")}
     if not units:
         return stats
-    system = _system()
+    if doc is not None:
+        from app.app.services import doc_memory
+
+        system, review = doc_memory.acts_system(), False  # у документа нет реакций на чужие реплики: проверочный проход реплик не нужен
+    else:
+        system = _system()
     review_system = _review_system() if review else ""
-    ask = ask or _ask_default(settings)
     rows: list[SpeechAct] = []
     cache: dict[str, tuple[int | None, str | None]] = {}
     db.commit()  # соединение БД не держим на время ответа модели
@@ -227,7 +244,7 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
             if not targets:
                 continue
         stats["windows"] += 1
-        user = build_user(context, targets)
+        user = doc.build_user(context, targets) if doc is not None else build_user(context, targets)
         acts: list[dict[str, str]] = []
         for attempt in range(2):
             try:
@@ -255,11 +272,17 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
         by_ref = {u.ref: u for u in targets}
         for a in acts:
             unit = by_ref[a["unit"]]
-            person_id, side = _author_card(db, artifact.project_id, unit.author, cache)
+            kind, said_at = a["act"], unit.said_at
+            if doc is not None:
+                person_id = None
+                kind, side = doc.act_and_side(kind)
+                said_at = doc.said_at
+            else:
+                person_id, side = _author_card(db, artifact.project_id, unit.author, cache)
             rows.append(SpeechAct(project_id=artifact.project_id, artifact_id=artifact.id, unit_ref=unit.ref, unit_key=unit.key,
-                                  start_sec=unit.start_sec, said_at=unit.said_at, author=unit.author, person_id=person_id, side=side,
-                                  act=a["act"], quote=a["quote"], about=a["about"] or None, prompt_version=PROMPT_VERSION,
-                                  model=settings.lmstudio_model))
+                                  start_sec=unit.start_sec, said_at=said_at, author=unit.author, person_id=person_id, side=side,
+                                  act=kind, quote=a["quote"], about=a["about"] or None,
+                                  prompt_version=doc_acts_version() if doc is not None else PROMPT_VERSION, model=settings.lmstudio_model))
         db.rollback()  # чтение карточек автора открыло транзакцию: перед следующим ответом модели её закрываем
     old_acts = select(SpeechAct.id).where(SpeechAct.artifact_id == artifact.id)
     if only_refs is not None:
@@ -278,11 +301,19 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
     return stats
 
 
+def doc_acts_version() -> str:
+    from app.app.services.doc_memory import ACTS_PROMPT_VERSION
+
+    return ACTS_PROMPT_VERSION
+
+
 def project_dialog_artifacts(db: Session, settings: Settings, project_id: int) -> list[Artifact]:
-    """Готовые материалы проекта с репликами: созвоны и выгрузки переписки."""
+    """Готовые материалы проекта для памяти решений: созвоны, выгрузки переписки и документы с текстом."""
+    from app.app.services.doc_memory import document_text, is_document
+
     out = []
     for art in db.scalars(select(Artifact).where(Artifact.project_id == project_id, Artifact.status == "done").order_by(Artifact.id)).all():
-        if dialog_units(settings, art):
+        if dialog_units(settings, art) or (is_document(art) and document_text(settings, art).strip()):
             out.append(art)
     return out
 
