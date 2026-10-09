@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.models.decision_memory import DecisionEvent, Subject, SubjectPosition
+from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Subject, SubjectPosition
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 from app.app.services.subjects import TITLE_MAX, _day_of, _sort_key, _Subj, act_text, cosine, pack, unpack
 
@@ -259,6 +259,9 @@ def merge_similar(db: Session, settings: Settings, project_id: int, *, ask: Call
         big.embedding = pack(merged)
         db.execute(delete(DecisionEvent).where(DecisionEvent.subject_id == small.id))
         db.execute(delete(SubjectPosition).where(SubjectPosition.subject_id == small.id))
+        # прочие ссылки на удаляемый предмет переходят на больший: строки сравнения с прежним контуром (пересчитаются) и «заменён предметом»
+        db.execute(update(MemoryShadowReview).where(MemoryShadowReview.subject_id == small.id).values(subject_id=big.id))
+        db.execute(update(Subject).where(Subject.superseded_by == small.id).values(superseded_by=big.id))
         db.delete(small)
         gone.add(small.id)
         stats["merged"] += 1

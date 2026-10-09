@@ -122,6 +122,17 @@ def test_merge_similar_moves_acts_and_deletes_smaller(world):
     db.commit()
     for a, s in zip(acts, [big, big, small, other, other]):
         a.subject_id = s.id
+    from app.app.models.decision_memory import MemoryShadowReview
+    from app.app.models.entity import Entity
+
+    # ссылки на меньший предмет из сравнения с прежним контуром и «заменён предметом»: прежде склейка падала на FOREIGN KEY (worker.log 2026-10-09)
+    item = Entity(artifact_id=acts[0].artifact_id, entity_type="decision", value_json='{"text": "Цена работ"}')
+    db.add(item)
+    db.flush()
+    review = MemoryShadowReview(project_id=project.id, entity_id=item.id, subject_id=small.id, old_state="current", new_state="agreed",
+                                verdict="agree", by="model")
+    db.add(review)
+    other.superseded_by = small.id
     db.commit()
     questions: list[str] = []
 
@@ -133,6 +144,9 @@ def test_merge_similar_moves_acts_and_deletes_smaller(world):
     assert result == {"pairs": 1, "merged": 1, "errors": 0} and len(questions) == 1  # «Оплата» далеко — не спрашиваем
     assert db.get(Subject, small.id) is None
     assert {a.subject_id for a in db.query(SpeechAct).filter(SpeechAct.id.in_([x.id for x in acts[:3]])).all()} == {big.id}
+    db.refresh(review)
+    db.refresh(other)
+    assert review.subject_id == big.id and other.superseded_by == big.id
 
 
 def test_merge_keeps_subjects_when_model_says_different_or_fails(world):
