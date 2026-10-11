@@ -168,14 +168,17 @@ def search_vectors(
     *,
     project_id: int,
     limit: int = 10,
+    artifact_id: int | None = None,
 ) -> list[dict[str, Any]]:
+    """Ближайшие к вопросу фрагменты проекта; ``artifact_id`` — только из одного материала (созвон, о котором вопрос)."""
+    only_artifact = "AND c.artifact_id = :aid" if artifact_id is not None else ""
     sql = text(
-        """
+        f"""
         SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker, c.start_sec, c.end_sec,
                vec_distance_cosine(v.embedding, :q) AS distance
         FROM chunk_vectors v
         JOIN chunks c ON c.id = v.chunk_id
-        WHERE c.project_id = :pid
+        WHERE c.project_id = :pid {only_artifact}
         ORDER BY distance ASC
         LIMIT :lim
         """
@@ -183,7 +186,7 @@ def search_vectors(
     conn = _prepare(db.connection())
     rows = conn.execute(
         sql,
-        {"q": serialize_float32(query_vec), "pid": project_id, "lim": limit},
+        {"q": serialize_float32(query_vec), "pid": project_id, "lim": limit, "aid": artifact_id},
     ).mappings().all()
 
     out = []

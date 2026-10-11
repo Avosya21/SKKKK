@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -26,7 +27,7 @@ from app.app.services.summarize_document import load_document_source_text, load_
 from app.app.services.chunk_fts import init_chunk_fts
 from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import parsed_dir
-from app.app.services.recorded_at import material_date_label
+from app.app.services.recorded_at import LOCAL_TZ, material_date, material_date_label, recorded_moment
 from app.app.services.retrieval import (
     ENTITY_SEARCH_LIMIT,
     chunk_header,
@@ -61,6 +62,18 @@ CHAT_MATERIAL_ENTITIES = 15  # пункты найденных материал�
 # не режется — раньше он стоял в конце и отрезался лимитом (урок 2026-09-28: начинался с 10 764-го знака из 8 000).
 CHAT_SUPPLEMENT_CHARS = 8000
 DOC_DUPLICATE_PROBE = 150  # начало фрагмента поиска, по которому видно, что он уже есть в блоке документа
+# Вопросы о времени («последний созвон», «вчера», «на встрече 09.10», «встреча-192»): поиск по смыслу дат не знает,
+# и модель называла последним самый свежий из найденных созвонов (урок 2026-10-09, пр.36: встреча-192 не попала в выдачу).
+CHAT_MEETING_CATALOG = 10  # созвонов в перечне «по датам» в каждом ответе
+CHAT_FOCUS_MEETINGS = 3  # созвонов, которые вопрос назвал, в контекст целиком
+CHAT_FOCUS_CHUNKS = 6  # фрагментов такого созвона, ближайших к вопросу
+CHAT_FOCUS_SUMMARY_CHARS = 6000
+_MEETING_WORD = r"(?:созвон|встреч|звонк|звонок|разговор|совещан|планерк)"
+_LATEST_MEETING_RE = re.compile(
+    r"(?<!\w)(пред)?(?:последн|прошл|предыдущ|свеж|недавн)\w*\s+(?:[\w-]+\s+){0,2}?" + _MEETING_WORD, re.IGNORECASE
+)
+_DATE_RE = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{1,2})(?:\.(\d{2}|\d{4}))?(?![\d])")
+_RELATIVE_DAYS = {"позавчера": 2, "вчера": 1, "сегодня": 0}
 
 
 def _squash(text: str) -> str:
@@ -600,6 +613,8 @@ def _supplement_context(
     project_id: int,
     artifacts: list[Artifact],
     entities: list[Entity],
+    *,
+    skip_summaries: set[int] | frozenset[int] = frozenset(),
 ) -> str:
     """Дополнительный контекст проекта: изменения решений и противоречия (первыми, без обрезки), карточка проекта,
     пункты найденных материалов, заметки, выжимки релевантных созвонов."""
@@ -638,7 +653,7 @@ def _supplement_context(
 
     summary_lines: list[str] = []
     for art in artifacts:
-        if art.file_type != "audio":
+        if art.file_type != "audio" or art.id in skip_summaries:  # выжимка уже в блоке созвона, о котором вопрос
             continue
         summary_path = parsed_dir(settings, art.project_id, art.source_type) / f"{art.artifact_id}_call_summary.md"
         if not summary_path.is_file():
@@ -653,6 +668,95 @@ def _supplement_context(
 
     rest = "\n\n".join(parts)[:CHAT_SUPPLEMENT_CHARS]
     return "\n\n".join([*head, rest] if rest else head)
+
+
+def _project_meetings(db: Session, project_id: int) -> list[Artifact]:
+    """Готовые созвоны проекта, новые сверху (по дате записи, иначе по дате загрузки)."""
+    rows = db.scalars(
+        select(Artifact).where(Artifact.project_id == project_id, Artifact.file_type == "audio", Artifact.status == "done")
+    ).all()
+
+    def key(art: Artifact) -> tuple[date, datetime]:
+        day = material_date(art)[0] or date.min
+        return day, art.recorded_at or art.upload_date or datetime.min
+
+    return sorted(rows, key=key, reverse=True)
+
+
+def _meeting_line(art: Artifact) -> str:
+    label = material_date_label(art)
+    start = recorded_moment(art)
+    if start is not None:
+        label += f", начало {start.astimezone(LOCAL_TZ):%H:%M}"
+    if art.duration_sec:
+        label += f", {round(art.duration_sec / 60)} мин"
+    return f"- {art.original_filename} — {label} · artifact_id={art.artifact_id}"
+
+
+def _meeting_catalog(meetings: list[Artifact]) -> str:
+    if not meetings:
+        return ""
+    lines = [_meeting_line(a) for a in meetings[:CHAT_MEETING_CATALOG]]
+    return ("Созвоны проекта по датам (новые сверху; «последний созвон» — первый в списке, "
+            "«предыдущий» — второй):\n" + "\n".join(lines))
+
+
+def _meetings_in_question(question: str, meetings: list[Artifact], *, today: date | None = None) -> list[Artifact]:
+    """Созвоны, которые вопрос называет временем или именем: «последний/прошлый/предыдущий созвон», «вчера»,
+    «09.10», «встреча-192». Поиск по смыслу их мог не найти — они идут в контекст обязательно."""
+    if not meetings:
+        return []
+    q = question.lower()
+    picked: list[Artifact] = []
+
+    def add(art: Artifact) -> None:
+        if art not in picked:
+            picked.append(art)
+
+    for m in _LATEST_MEETING_RE.finditer(q):
+        add(meetings[0])
+        if m.group(1) or "предыдущ" in m.group(0):  # «предпоследний», «предыдущий» — и тот, что перед последним
+            if len(meetings) > 1:
+                add(meetings[1])
+    today = today or datetime.now(LOCAL_TZ).date()
+    days: set[date] = set()
+    for word, back in _RELATIVE_DAYS.items():
+        if re.search(rf"(?<!\w){word}(?!\w)", q):
+            days.add(today - timedelta(days=back))
+    for m in _DATE_RE.finditer(q):
+        dd, mm, yy = int(m.group(1)), int(m.group(2)), m.group(3)
+        year = (2000 + int(yy) if len(yy) == 2 else int(yy)) if yy else None
+        for art in meetings:
+            day = material_date(art)[0]
+            if day and day.day == dd and day.month == mm and (year is None or day.year == year):
+                add(art)
+    for art in meetings:
+        day = material_date(art)[0]
+        if day in days:
+            add(art)
+        stem = Path(art.original_filename or "").stem.lower()
+        if len(stem) >= 5 and re.search(rf"(?<![\w-]){re.escape(stem)}(?!\w)", q):
+            add(art)
+    return picked[:CHAT_FOCUS_MEETINGS]
+
+
+def _focus_meeting_block(
+    db: Session, settings: Settings, art: Artifact, query_vec: list[float]
+) -> tuple[str, list[dict[str, Any]]]:
+    """Блок «созвон, о котором вопрос»: выжимка и ближайшие к вопросу фрагменты этого созвона в порядке записи."""
+    label = material_date_label(art)
+    parts = [f"=== Созвон, о котором вопрос: {art.original_filename} ({label}) ==="]
+    summary_path = parsed_dir(settings, art.project_id, art.source_type) / f"{art.artifact_id}_call_summary.md"
+    if summary_path.is_file():
+        summary = summary_path.read_text(encoding="utf-8").strip()
+        if summary:
+            parts.append("Выжимка созвона:\n" + summary[:CHAT_FOCUS_SUMMARY_CHARS])
+    hits = search_vectors(db, query_vec, project_id=art.project_id, limit=CHAT_FOCUS_CHUNKS, artifact_id=art.id)
+    hits = sorted(hits, key=lambda h: (h.get("start_sec") is None, h.get("start_sec") or 0, h.get("chunk_index") or 0))
+    for h in hits:
+        speaker = f"[{h['speaker']}] " if h.get("speaker") and h.get("start_sec") is None else ""
+        parts.append(f"{chunk_header(art, h)}\n{speaker}{h['text']}")
+    return "\n---\n".join(parts), hits
 
 
 def _project_tz_excerpt(settings: Settings, project_id: int, *, max_chars: int = 2500) -> str:
@@ -790,6 +894,30 @@ def _answer_chat_inner(
     seen_artifacts: set[int] = set()
     seen_source_keys: set[tuple[str, str]] = set()
 
+    meetings = _project_meetings(db, project_id)
+    catalog = _meeting_catalog(meetings)
+    focus_chunk_ids: set[int] = set()
+    focus_ids: set[int] = set()
+    for art in _meetings_in_question(question, meetings):
+        block, focus_hits = _focus_meeting_block(db, settings, art, q_vecs[0])
+        context_lines.append(block)
+        focus_chunk_ids.update(h["chunk_id"] for h in focus_hits)
+        focus_ids.add(art.id)
+        key = (art.artifact_id, art.original_filename)
+        seen_source_keys.add(key)
+        sources.append(
+            {
+                "artifact_id": art.artifact_id,
+                "filename": art.original_filename,
+                "score": weighted_score(1.0, art.priority_weight),
+                "priority_weight": art.priority_weight,
+                "url": source_url(art.artifact_id),
+            }
+        )
+        hit_artifact_db_ids.add(art.id)
+        seen_artifacts.add(art.id)
+        hit_artifacts.append(art)
+
     doc_blocks = _document_context_blocks(db, settings, project_id, question)
     # Текст документов уже в контексте: фрагмент поиска из того же документа повторял бы его (пункт ТЗ шёл модели трижды)
     doc_text = {art.id: _squash(block) for art, block in doc_blocks}
@@ -820,7 +948,9 @@ def _answer_chat_inner(
             continue
         # Шапка — откуда и когда фрагмент; у окон реплик имена и таймкоды уже в строках текста.
         speaker = f"[{h['speaker']}] " if h.get("speaker") and h.get("start_sec") is None else ""
-        if not (art.id in doc_text and _squash(h["text"])[:DOC_DUPLICATE_PROBE] in doc_text[art.id]):
+        if h.get("chunk_id") in focus_chunk_ids:  # уже в блоке созвона, о котором вопрос
+            pass
+        elif not (art.id in doc_text and _squash(h["text"])[:DOC_DUPLICATE_PROBE] in doc_text[art.id]):
             context_lines.append(f"{chunk_header(art, h)}\n{speaker}{h['text']}")
         key = (art.artifact_id, art.original_filename)
         if key not in seen_source_keys:
@@ -888,7 +1018,7 @@ def _answer_chat_inner(
         logger.warning("журнал решений для чата не собран", exc_info=True)
         decisions = ""
 
-    if not context_lines and not memory and not tz_excerpt and not decisions:
+    if not context_lines and not memory and not tz_excerpt and not decisions and not catalog:
         answer = "В материалах проекта ответа нет."
         finalize_chat_message(
             db,
@@ -930,7 +1060,7 @@ def _answer_chat_inner(
         )
         entity_ids = [e.id for e in entities] + list(entity_hit_ids)
         graph_part = _graph_snippet(db, project_id, entity_ids)
-        supplement = _supplement_context(db, settings, project_id, hit_artifacts, entities)
+        supplement = _supplement_context(db, settings, project_id, hit_artifacts, entities, skip_summaries=focus_ids)
         context = "\n---\n".join(context_lines)
     else:
         graph_part = ""
@@ -945,6 +1075,8 @@ def _answer_chat_inner(
     user = f"Вопрос: {question}\n\n"
     if memory:
         user += memory + "\n\n"
+    if catalog:
+        user += catalog + "\n\n"
     user += f"Контекст (найденные фрагменты по всему проекту):\n{context}"
     if guidance_texts:
         joined = "\n".join(f"- {line}" for line in guidance_texts[:8])

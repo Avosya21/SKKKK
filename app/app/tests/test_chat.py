@@ -854,3 +854,93 @@ def test_chat_always_injects_tz_excerpt_when_file_exists(client, db_engine, admi
     assert "Актуальная выжимка проекта (current_tz.md)" in prompt
     assert "МАРКЕР-ВЫЖИМКИ-ПРОЕКТА" in prompt
     assert "нет" not in out["answer"].lower()
+
+
+def _meeting(pid: int, uid: int, name: str, day: int):
+    from datetime import datetime
+
+    from app.app.models.artifact import Artifact
+    from app.app.services.recorded_at import SOURCE_MEETING
+
+    return Artifact(
+        project_id=pid,
+        user_id=uid,
+        artifact_id=f"art_meet_{name}",
+        original_filename=f"{name}.wav",
+        stored_filename=f"{name}.wav",
+        file_path=f"{name}.wav",
+        sha256=f"meet{name}",
+        file_type="audio",
+        source_type="call",
+        status="done",
+        priority_weight=1.0,
+        recorded_at=datetime(2026, 10, day, 8, 0),
+        recorded_at_source=SOURCE_MEETING,
+        duration_sec=1200,
+    )
+
+
+def test_meetings_in_question_by_time_and_name():
+    from datetime import date
+
+    from app.app.services.chat import _meetings_in_question
+
+    old, mid, new = _meeting(1, 1, "встреча-176", 5), _meeting(1, 1, "встреча-184", 6), _meeting(1, 1, "встреча-192", 9)
+    meetings = [new, mid, old]  # новые сверху, как _project_meetings
+    today = date(2026, 10, 10)
+    assert _meetings_in_question("задачи на основании последнего созвона?", meetings, today=today) == [new]
+    assert _meetings_in_question("что было на предпоследней встрече", meetings, today=today) == [new, mid]
+    assert _meetings_in_question("что решили вчера", meetings, today=today) == [new]
+    assert _meetings_in_question("итоги встречи 05.10", meetings, today=today) == [old]
+    assert _meetings_in_question("что на встреча-184?", meetings, today=today) == [mid]
+    assert _meetings_in_question("последний документ от заказчика", meetings, today=today) == []
+    assert _meetings_in_question("как дела с прогнозом", meetings, today=today) == []
+
+
+def test_chat_last_meeting_in_context_when_search_misses(client, db_engine, admin_token, tmp_data):
+    """Урок 09.10: поиск по смыслу не нашёл свежий созвон — чат назвал последним старый и ответил «данных нет»."""
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user import User
+    from app.app.services.storage import parsed_dir
+
+    db = SessionLocal()
+    admin = db.scalar(select(User).limit(1))
+    p = Project(name="LastMeetingChat", description="", created_by=admin.id, is_active=True)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    pid, uid = p.id, admin.id
+    db.add_all([_meeting(pid, uid, "встреча-176", 5), _meeting(pid, uid, "встреча-192", 9)])
+    db.commit()
+    db.close()
+
+    settings = get_settings()
+    parsed = parsed_dir(settings, pid, "call")
+    parsed.mkdir(parents=True, exist_ok=True)
+    (parsed / "art_meet_встреча-192_call_summary.md").write_text("МАРКЕР-НОВОГО-СОЗВОНА: план развития", encoding="utf-8")
+    (parsed / "art_meet_встреча-176_call_summary.md").write_text("МАРКЕР-СТАРОГО-СОЗВОНА", encoding="utf-8")
+
+    captured: dict = {}
+
+    def fake_completion(settings, *, system, user, max_tokens, temperature=0.2):
+        captured["user"] = user
+        return "по последнему созвону"
+
+    with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
+        with patch("app.app.services.chat.search_vectors", return_value=[]):
+            with patch("app.app.services.chat._document_context_blocks", return_value=[]):
+                with patch("app.app.services.chat.chat_completion_no_think", side_effect=fake_completion):
+                    db2 = SessionLocal()
+                    settings.dry_run = False
+                    out = answer_chat(db2, settings, pid, uid, "какие задачи на развитие по последнему созвону?")
+                    db2.close()
+
+    prompt = captured["user"]
+    assert "Созвоны проекта по датам" in prompt
+    assert prompt.index("встреча-192.wav — созвон 09.10.2026") < prompt.index("встреча-176.wav — созвон 05.10.2026")
+    assert "Созвон, о котором вопрос: встреча-192.wav" in prompt
+    assert "МАРКЕР-НОВОГО-СОЗВОНА" in prompt
+    assert "МАРКЕР-СТАРОГО-СОЗВОНА" not in prompt
+    assert any(s["filename"] == "встреча-192.wav" for s in out["sources"])
