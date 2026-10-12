@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -344,8 +345,19 @@ def init_resumable_upload(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
+    from app.app.services import exchange_files as xf
+
     project = require_project(db, user, project_id)
-    _reject_unsupported(body.filename)
+    max_bytes = settings.max_upload_bytes
+    if xf.user_upload_kind(body.filename):  # .cf/.dt — в файлы проекта (посылкой), не в материалы; предел и место — свои
+        try:
+            xf.check_user_upload(settings, body.size)
+        except xf.FilesError as exc:
+            code = status.HTTP_507_INSUFFICIENT_STORAGE if exc.code == "disk_full" else status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+            raise HTTPException(status_code=code, detail=str(exc)) from None
+        max_bytes = body.size
+    else:
+        _reject_unsupported(body.filename)
     try:
         session = resumable.create_session(
             settings,
@@ -356,7 +368,7 @@ def init_resumable_upload(
             source_type=body.source_type,
             chunk_size=settings.upload_chunk_size,
             client_key=body.client_key,
-            max_bytes=settings.max_upload_bytes,
+            max_bytes=max_bytes,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -466,6 +478,19 @@ def complete_resumable_upload(
     sha256, size = hash_file(part)
     if size != session.size:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="size mismatch after assemble")
+
+    from app.app.services import exchange_files as xf
+
+    if xf.user_upload_kind(session.filename):
+        bundle = xf.store_user_upload(db, settings, project.id, user, part, filename=session.filename, sha256=sha256, size=size)
+        resumable.cleanup_session(settings, project_id, upload_id)
+        log_activity(db, user_id=user.id, project_id=project.id, block=BLOCK_UPLOAD, action=ACTION_UPLOAD,
+                     title="Загрузил файл в файлы проекта", content=session.filename, target_kind="exchange_bundle",
+                     target_id=str(bundle["bundle_id"]), meta={"kind": bundle["kind"], "duplicate": bundle["duplicate"]})
+        log_event(logger, "upload.exchange", file=session.filename, bytes=size, sha256=sha256[:12], bundle=bundle["bundle_id"],
+                  duplicate=bundle["duplicate"])
+        # не артефакт: в обработку и материалы не идёт; ответ помечен exchange, форма показывает его отдельно
+        return JSONResponse({"exchange": True, "original_filename": session.filename, **bundle})
 
     stored = generate_stored_filename(session.filename)
     dest_dir = raw_input_dir(settings, project_id, session.source_type)

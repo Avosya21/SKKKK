@@ -5,6 +5,7 @@
 - `deepmaps/<путь zip в посылке без первой папки и .zip>/` — дипмап сущности или сценария кнопки (содержимое zip; открывать index.html),
   новая версия заменяет прежнюю; пути на Windows — с префиксом длинных путей (имена шагов длинные);
 - README из посылки — рядом с тем, что описывает: `map/README.md`, `deepmaps/README.md` (из `depmap/`), иначе `README.md`;
+- посылки .cf/.dt (xf.RAW_KINDS) не раскладываются: они нужны агенту как есть и лежат только в архиве;
 - `layout.json` — какие посылки и когда разложены. Посылки накопительные (агент досылает части и описания отдельно): каждая
   раскладка добавляет или заменяет только свои части, остальное остаётся.
 Посылка в data/exchange_files остаётся нетронутой: это архив принятых версий, рабочая копия собирается из неё заново.
@@ -96,6 +97,8 @@ def unpack_bundle(db: Session, settings: Settings, project_id: int, bundle_id: A
     bundle = xf.get_bundle(db, project_id, bundle_id)
     if bundle.status != "complete":
         raise xf.FilesError(f"Посылка {bundle.id} ещё не принята целиком", "not_ready")
+    if bundle.kind in xf.RAW_KINDS:  # .cf/.dt хранятся только в архиве: копия в config/ удвоила бы десятки ГБ
+        return {"bundle_id": bundle.id, "name": bundle.name, "kind": bundle.kind, "skipped": True}
     files = xf._files(db, bundle.id)
     src_root = xf.long_path(xf._bundle_dir(settings, project_id, bundle.id) / "files")
     for f in files:  # файлы посылки не должны были измениться с момента приёма

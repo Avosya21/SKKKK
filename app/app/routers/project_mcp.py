@@ -337,6 +337,37 @@ def exchange_files_list(
     return {"items": xf.list_bundles(db, project_id)}
 
 
+@router.get("/projects/{project_id}/extra-files")
+def extra_files_list(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """Карточка «Дополнительные файлы» (только администратор): посылки агентов и загрузки .cf/.dt пользователями, с файлами."""
+    from app.app.services import exchange_files as xf
+
+    _owned_project(db, user, project_id)
+    return {"items": xf.admin_list(db, project_id)}
+
+
+@router.get("/projects/{project_id}/extra-files/{bundle_id}/data/{path:path}")
+def extra_files_download(
+    project_id: int, bundle_id: int, path: str,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """Скачать файл посылки из карточки «Дополнительные файлы» (только администратор); Range — докачка, X-Sha256 — хеш."""
+    from app.app.services import exchange_files as xf
+
+    _owned_project(db, user, project_id)
+    try:
+        f, target = xf.readable_file(db, settings, project_id, None, bundle_id, path)
+    except xf.FilesError as exc:
+        raise HTTPException(status_code=_FILES_STATUS.get(exc.code, 400), detail=str(exc)) from exc
+    return FileResponse(target, media_type="application/octet-stream", filename=target.name, headers={"X-Sha256": f.sha256})
+
+
 @router.delete("/projects/{project_id}/exchange-files/{bundle_id}")
 def exchange_files_delete(
     project_id: int, bundle_id: int,

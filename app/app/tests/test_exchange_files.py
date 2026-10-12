@@ -299,3 +299,59 @@ def test_new_agent_discovers_files_on_connect(env):
     b = cat["bundles"][0]
     assert b["readme"]["text"].startswith("# Карта") and {f["path"] for f in b["files"]} == {"map/README.md", "map/config_nav.sqlite.gz"}
     assert client.get(f"/mcp/projects/{pid}/files/bundles/{bid}/data/map/config_nav.sqlite.gz", headers=hr).content == nav
+
+
+def _form_upload(client, h, pid, name: str, data: bytes) -> dict:
+    """Загрузка через форму материалов (частями, как браузер)."""
+    s = client.post(f"/projects/{pid}/uploads/init", headers=h, json={"filename": name, "size": len(data), "source_type": "document"})
+    assert s.status_code == 200, s.text
+    s = s.json()
+    for i in range(s["total_chunks"]):
+        part = data[i * s["chunk_size"]:(i + 1) * s["chunk_size"]]
+        assert client.put(f"/projects/{pid}/uploads/{s['upload_id']}/chunks/{i}", headers=h, content=part).status_code == 200
+    r = client.post(f"/projects/{pid}/uploads/{s['upload_id']}/complete", headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_cf_and_dt_from_upload_form_go_to_project_files(env, admin_token):
+    from app.app.models.artifact import Artifact
+    from app.app.services.exchange_unpack import project_config_dir, unpack_bundle
+
+    client, manager_token, _, db, pid, art = env
+    mh, ah = {"Authorization": f"Bearer {manager_token}"}, {"Authorization": f"Bearer {admin_token}"}
+    before = db.query(Artifact).filter(Artifact.project_id == pid).count()
+    cf, dt = b"CF" * 5000, b"DT" * 7000
+    out = _form_upload(client, mh, pid, "Конфигурация УТ «рабочая».cf", cf)
+    assert out["exchange"] and out["kind"] == "config_cf" and not out["duplicate"] and out["status"] == "complete"
+    assert out["files"][0]["sha256"] == _sha(cf) and out["files"][0]["path"].startswith("upload/")
+    assert _form_upload(client, mh, pid, "base.DT", dt)["kind"] == "infobase_dt"
+    again = _form_upload(client, mh, pid, "копия.cf", cf)  # тот же файл второй раз не хранится
+    assert again["duplicate"] and again["bundle_id"] == out["bundle_id"]
+    assert db.query(Artifact).filter(Artifact.project_id == pid).count() == before  # в материалы не попали
+
+    # лежит в том же архиве, что посылки агента: каталог и скачивание по ключу проекта
+    _, h = _key(db, pid, art, "read")
+    cat = client.get(f"/mcp/projects/{pid}/files/catalog", headers=h).json()
+    assert {b["kind"] for b in cat["bundles"]} == {"config_cf", "infobase_dt"}
+    got = client.get(f"/mcp/projects/{pid}/files/bundles/{out['bundle_id']}/data/{out['files'][0]['path']}", headers=h)
+    assert got.content == cf
+
+    # раскладка в рабочую копию пропускает .cf/.dt
+    settings = get_settings()
+    assert unpack_bundle(db, settings, pid, out["bundle_id"])["skipped"]
+    assert not (project_config_dir(settings, pid) / "other").exists()
+
+    # карточку видит только администратор
+    assert client.get(f"/projects/{pid}/extra-files", headers=mh).status_code == 403
+    items = client.get(f"/projects/{pid}/extra-files", headers=ah).json()["items"]
+    assert [i["kind"] for i in items] == ["infobase_dt", "config_cf"] and items[1]["source_label"] == "пользователь: Manager"
+    url = f"/projects/{pid}/extra-files/{out['bundle_id']}/data/{out['files'][0]['path']}"
+    got = client.get(url, headers=ah)
+    assert got.content == cf and got.headers["x-sha256"] == _sha(cf)
+    assert client.get(url, headers=mh).status_code == 403  # скачивание тоже только администратору
+    assert client.get(url, headers={**ah, "Range": "bytes=10-19"}).content == cf[10:20]  # докачка большого файла
+    assert client.get(f"/projects/{pid}/extra-files/{out['bundle_id']}/data/upload/нет.cf", headers=ah).status_code == 404
+
+    # прочие неизвестные форматы по-прежнему отклоняются
+    assert client.post(f"/projects/{pid}/uploads/init", headers=mh, json={"filename": "x.exe", "size": 3, "source_type": "document"}).status_code == 415
