@@ -1361,6 +1361,7 @@ body.meeting-is-live {
 .meetings-card .card-header .meetings-toggle-btn,
 .mcp-access-card .card-header .mcp-toggle-btn,
 .grant-access-card .card-header .grant-toggle-btn,
+.extra-files-card .card-header .extra-files-toggle-btn,
 .px-card .card-header .px-toggle-btn {
   min-height: 36px;
   padding-block: 0.3rem !important;

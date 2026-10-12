@@ -192,7 +192,8 @@
   }
   .mcp-access-card .card-header .mcp-toggle-btn,
   .meetings-card .card-header .meetings-toggle-btn,
-  .grant-access-card .card-header .grant-toggle-btn {
+  .grant-access-card .card-header .grant-toggle-btn,
+  .extra-files-card .card-header .extra-files-toggle-btn {
     border: 0;
     background: transparent;
     color: inherit;
@@ -201,12 +202,14 @@
   }
   .mcp-access-card .card-header .mcp-toggle-btn:hover,
   .meetings-card .card-header .meetings-toggle-btn:hover,
-  .grant-access-card .card-header .grant-toggle-btn:hover {
+  .grant-access-card .card-header .grant-toggle-btn:hover,
+  .extra-files-card .card-header .extra-files-toggle-btn:hover {
     color: #0d6efd;
   }
   .mcp-access-card .mcp-toggle-hint,
   .meetings-card .meetings-toggle-hint,
-  .grant-access-card .grant-toggle-hint {
+  .grant-access-card .grant-toggle-hint,
+  .extra-files-card .extra-files-toggle-hint {
     font-weight: normal;
     color: #6c757d;
   }
@@ -651,7 +654,7 @@
     <div class="col-12 col-md-5">
       <label class="form-label" for="upload-files">Файлы</label>
       <input class="form-control" type="file" name="files" id="upload-files" multiple required
-             accept=".pdf,.docx,.doc,.docm,.dotx,.odt,.rtf,.xlsx,.xlsm,.xltx,.xls,.ods,.csv,.tsv,.pptx,.ppt,.html,.htm,.txt,.md,.markdown,.log,.json,.yaml,.yml,.ini,.text,audio/*,video/*,image/*,.webm,.mkv">    </div>
+             accept=".pdf,.docx,.doc,.docm,.dotx,.odt,.rtf,.xlsx,.xlsm,.xltx,.xls,.ods,.csv,.tsv,.pptx,.ppt,.html,.htm,.txt,.md,.markdown,.log,.json,.yaml,.yml,.ini,.text,.cf,.dt,audio/*,video/*,image/*,.webm,.mkv">    </div>
     <div class="col-12 col-md-3">
       <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="upload-submit" data-idle-label="Загрузить">Загрузить</button>
     </div>
@@ -1018,6 +1021,50 @@
       </div>
     </div>
   </div>
+  </div>
+</div>
+{% endif %}
+
+{% if current_role == 'admin' %}
+<!-- Дополнительные файлы проекта (только администратор): посылки агентов (карта конфигурации, дипмапы) и .cf/.dt от пользователей -->
+<div class="card shadow-sm mb-4 extra-files-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="extra-files-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#extra-files-panel"
+            aria-expanded="false"
+            aria-controls="extra-files-panel">
+      <strong>Дополнительные файлы</strong>
+      <span id="extra-files-toggle-hint" class="small extra-files-toggle-hint">(развернуть)</span>
+    </button>
+    <span class="badge text-bg-secondary flex-shrink-0" id="extra-files-count" title="Видит только администратор">только админ</span>
+  </div>
+  <div id="extra-files-panel" class="collapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Файлы для анализа конфигурации: карты и дипмапы от агентов, файлы .cf и выгрузки .dt, загруженные через «Добавить материалы».
+        В материалы и обработку они не попадают — их забирает агент анализа.
+      </p>
+      <div id="extra-files-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" id="extra-files-table">
+          <thead>
+            <tr>
+              <th>Принято</th>
+              <th>Вид</th>
+              <th>Файлы</th>
+              <th class="text-end">Размер</th>
+              <th>Откуда</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="extra-files-body">
+            <tr><td colspan="6" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 {% endif %}
@@ -2147,6 +2194,12 @@ document.getElementById('upload-files').addEventListener('change', (ev) => {
   if (!files.length || !select) return;
   const kinds = Array.from(new Set(files.map(uploadKindOf)));
   hint.classList.add('d-none');
+  if (files.some((f) => /\.(cf|dt)$/i.test(f.name))) {
+    // .cf/.dt не материалы: сервер кладёт их в файлы проекта для агента анализа конфигурации
+    hint.textContent = 'Файлы .cf и .dt сохранятся в файлы проекта для анализа конфигурации, в материалы и обработку не попадут.';
+    hint.classList.remove('d-none');
+    return;
+  }
   if (kinds.length === 1) {
     if (select.value !== kinds[0] && !(select.value === 'note' && kinds[0] === 'document')) {
       select.value = kinds[0];
@@ -2209,10 +2262,13 @@ document.getElementById('upload-form').onsubmit = async (e) => {
         },
       });
       const dups = arts.filter((a) => a.duplicate).length;
+      const extra = arts.filter((a) => a.exchange).length;
       label.textContent = 'Готово';
-      detail.textContent = dups
+      detail.textContent = (dups
         ? `Принято: ${arts.length}, из них дублей: ${dups}`
-        : `Принято ${SKKKK.count(arts.length, ['файл', 'файла', 'файлов'])}`;
+        : `Принято ${SKKKK.count(arts.length, ['файл', 'файла', 'файлов'])}`)
+        + (extra ? `; в файлы проекта для анализа конфигурации: ${extra}` : '');
+      if (extra && extraFilesPanel?.classList.contains('show')) loadExtraFiles();
       artifactsStatus.dataset.busy = '1';
       artifactsStatus.hidden = false;
       artifactsStatus.textContent = 'Файлы загружены, ожидаю обновление статусов…';
@@ -3063,6 +3119,81 @@ if (mcpAccessPanel && mcpToggleHint) {
   });
   mcpAccessPanel.addEventListener('hide.bs.collapse', () => {
     mcpToggleHint.textContent = '(развернуть)';
+  });
+}
+
+// «Дополнительные файлы» (только админ): посылки агентов и .cf/.dt от пользователей; список грузится при раскрытии
+const extraFilesPanel = document.getElementById('extra-files-panel');
+const EXTRA_KIND_LABELS = {
+  config_map: 'Карта конфигурации',
+  entity_deepmap: 'Дипмапы',
+  config_cf: 'Конфигурация (.cf)',
+  infobase_dt: 'Выгрузка базы (.dt)',
+  other: 'Прочее',
+};
+function extraFmtBytes(n) {
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} КБ`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} МБ`;
+  return `${(n / 1024 ** 3).toFixed(2)} ГБ`;
+}
+function extraFileLink(b, f) {
+  // обычная ссылка: сессия в cookie, браузер сам пишет большой файл на диск; недопринятый файл — без ссылки
+  const name = escapeHtml(f.path.split('/').pop());
+  if (f.status !== 'complete') return `<span class="text-break text-muted">${name}</span>`;
+  const href = `/projects/${projectId}/extra-files/${b.bundle_id}/data/${f.path.split('/').map(encodeURIComponent).join('/')}`;
+  return `<a class="text-break" href="${escapeAttr(href)}" download title="Скачать (${extraFmtBytes(f.size)})">${name}</a>`;
+}
+function extraFilesCell(b) {
+  const files = b.files || [];
+  if (files.length === 1) return extraFileLink(b, files[0]);
+  const list = files.slice(0, 50).map((f) => `<li>${extraFileLink(b, f)}</li>`).join('');
+  const more = files.length > 50 ? `<li class="text-muted">и ещё ${files.length - 50}</li>` : '';
+  return `<details><summary>${SKKKK.count(files.length, ['файл', 'файла', 'файлов'])}</summary><ul class="small mb-0 ps-3">${list}${more}</ul></details>`;
+}
+async function loadExtraFiles() {
+  const body = document.getElementById('extra-files-body');
+  const status = document.getElementById('extra-files-status');
+  if (!body) return;
+  let data;
+  try {
+    data = await SKKKK.apiJson(`/projects/${projectId}/extra-files`);
+  } catch (err) {
+    status.textContent = 'Не удалось загрузить список файлов';
+    return;
+  }
+  const items = data.items || [];
+  document.getElementById('extra-files-count').textContent = items.length ? SKKKK.count(items.length, ['посылка', 'посылки', 'посылок']) : 'только админ';
+  status.textContent = '';
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="6" class="text-muted small">Дополнительных файлов пока нет</td></tr>';
+    return;
+  }
+  body.innerHTML = items.map((b) => {
+    const when = b.completed_at || b.created_at;
+    const state = b.status === 'complete' ? '' : ` <span class="badge text-bg-warning">идёт приём: ${b.files_complete} из ${b.file_count}</span>`;
+    return `<tr>
+      <td class="text-nowrap small">${when ? escapeHtml(new Date(when.endsWith('Z') || when.includes('+') ? when : `${when}Z`).toLocaleString('ru-RU')) : '—'}</td>
+      <td class="small">${escapeHtml(EXTRA_KIND_LABELS[b.kind] || b.kind)}${state}</td>
+      <td class="small">${extraFilesCell(b)}</td>
+      <td class="small text-end text-nowrap">${extraFmtBytes(b.total_bytes || 0)}</td>
+      <td class="small">${escapeHtml(b.source_label || '')}</td>
+      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger extra-files-delete" data-id="${b.bundle_id}" data-name="${escapeAttr(b.name)}" aria-label="Удалить посылку ${escapeAttr(b.name)}">Удалить</button></td>
+    </tr>`;
+  }).join('');
+}
+if (extraFilesPanel) {
+  const hint = document.getElementById('extra-files-toggle-hint');
+  extraFilesPanel.addEventListener('show.bs.collapse', () => { hint.textContent = '(свернуть)'; loadExtraFiles(); });
+  extraFilesPanel.addEventListener('hide.bs.collapse', () => { hint.textContent = '(развернуть)'; });
+  document.getElementById('extra-files-body').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.extra-files-delete');
+    if (!btn) return;
+    if (!window.confirm(`Удалить посылку «${btn.dataset.name}» с диска сервера? Агент анализа её больше не получит.`)) return;
+    btn.disabled = true;
+    const r = await SKKKK.api(`/projects/${projectId}/exchange-files/${btn.dataset.id}`, { method: 'DELETE' });
+    document.getElementById('extra-files-status').textContent = r.ok ? `Удалено: ${btn.dataset.name}` : 'Не удалось удалить';
+    loadExtraFiles();
   });
 }
 
