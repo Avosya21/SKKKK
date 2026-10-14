@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
-from app.app.models.entity import Changelog, Chunk, Entity, UserNote
+from app.app.models.entity import Changelog, Chunk, Entity, Topic, UserNote
 from app.app.services.graph import _cosine
 from app.app.services.llm import chat_completion_no_think
 from app.app.services.ollama_client import embed_texts
@@ -110,6 +110,7 @@ FAST_QUERIES = [
     "Конкретные объекты, термины, номенклатура и реквизиты, обсуждаемые в проекте",
     "Технические детали и уточнения по интеграции, обмену данными и настройкам",
 ]
+FAST_TOPIC_QUERIES = 10  # запросы из названий самых насыщенных тем проекта (PORTAL-ACCURACY-MANAGER-PLAN Ш3)
 _ART_ID_IN_PARENS = re.compile(r"\((art_\d{4}-\d{2}-\d{2}_\d{6}_[a-f0-9]+)\)", re.IGNORECASE)
 
 
@@ -669,12 +670,34 @@ def _fast_quota_chunks(db: Session, project_id: int, chunk_ids: list[int], chunk
     return extra
 
 
-def build_tz_fast_body(db: Session, settings: Settings, project_id: int) -> tuple[str | None, dict]:
+def _topic_queries(db: Session, project_id: int, limit: int = FAST_TOPIC_QUERIES) -> list[str]:
+    """Названия самых насыщенных тем проекта — запросы под его предмет в дополнение к общим FAST_QUERIES."""
+    rows = db.execute(
+        select(Topic.label, func.count(Entity.id))
+        .join(Entity, Entity.topic_id == Topic.id)
+        .where(Topic.project_id == project_id, Entity.is_active.is_(True))
+        .group_by(Topic.id)
+        .order_by(func.count(Entity.id).desc(), Topic.id)
+        .limit(limit)
+    ).all()
+    return [str(label).strip() for label, _n in rows if str(label or "").strip()]
+
+
+def build_tz_fast_body(db: Session, settings: Settings, project_id: int, *, trace: bool = False) -> tuple[str | None, dict]:
     """Только сборка текста (без записи файлов и БД): годится для eval на клиентских проектах.
-    Возвращает (текст или None, статистика покрытия)."""
+    Возвращает (текст или None, статистика покрытия). ``trace`` — положить в статистику материал (eval_tz --trace).
+
+    Проект с памятью решений в режиме live собирается по разделам (``tz_sections``: решения из памяти, задачи из списка
+    задач, вопросы — без модели); остальные — top-K поиском и одним сжатием, как раньше, плюс карточка проекта."""
+    from app.app.services.tz_sections import build_sections_body
+
+    body, stats = build_sections_body(db, settings, project_id, trace=trace)
+    if body:
+        return body, stats
     map_sys, _mu, _ms, _meu, reduce_sys, reduce_user_tmpl = _parse_prompts()
-    stats: dict = {}
-    q_vectors = embed_texts(settings, FAST_QUERIES)
+    stats = {"mode": "fast"}
+    topic_queries = _topic_queries(db, project_id)
+    q_vectors = embed_texts(settings, FAST_QUERIES + topic_queries)
 
     chunk_seen: dict[int, dict] = {}
     ent_seen: dict[int, dict] = {}
@@ -722,6 +745,13 @@ def build_tz_fast_body(db: Session, settings: Settings, project_id: int) -> tupl
     notes = db.scalars(select(UserNote).where(UserNote.project_id == project_id).order_by(UserNote.id)).all()
 
     blocks: list[str] = []
+    from app.app.services.extraction_context import read_project_card
+
+    card, _meta = read_project_card(settings, project_id)
+    if card.strip():
+        blocks.append("## Карточка проекта\n\n" + card.strip())
+    stats.update(topic_queries=len(topic_queries), card=bool(card.strip()))
+    context_blocks = len(blocks)
     for h in hits:
         chunk_text = (h["text"] or "").strip()
         if not chunk_text:
@@ -754,12 +784,15 @@ def build_tz_fast_body(db: Session, settings: Settings, project_id: int) -> tupl
     if questions:
         blocks.append("## Вопросы к заказчику (варианты без выбора)\n\n" + "\n".join(questions))
 
-    if not blocks:
+    if len(blocks) == context_blocks:  # одна карточка без материалов — собирать не из чего
         log_event(logger, "tz.rebuild_fast.empty", project_id=project_id)
         return None, stats  # заглушку «Материалов для сборки пока нет» пишет rebuild_tz_fast
 
     material = "\n\n".join(blocks)
     reduce_user = reduce_user_tmpl.format(drafts=material)
+    stats["material_tokens"] = _estimate_tokens(material)
+    if trace:
+        stats["material"] = material
 
     # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
     db.commit()

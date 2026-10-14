@@ -45,6 +45,8 @@ def main() -> int:
     ap.add_argument("--min-recall", type=float, default=0.0, help="порог recall (0 — только измерить)")
     ap.add_argument("--max-seconds", type=float, default=60.0)
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "eval")
+    ap.add_argument("--trace", action="store_true",
+                    help="у каждого пропущенного факта — где потерялся: не подобран в материал или выпал при сжатии")
     ap.add_argument("--set", action="append", default=[], metavar="ИМЯ=ЗНАЧЕНИЕ",
                     help="временно переопределить константу services/tz.py (эксперименты), напр. FAST_MAX_ENTS=90")
     args = ap.parse_args()
@@ -69,18 +71,23 @@ def main() -> int:
         db = SessionLocal()
         try:
             started = time.time()
-            body, stats = build_tz_fast_body(db, settings, args.project)
+            body, stats = build_tz_fast_body(db, settings, args.project, trace=args.trace)
             seconds = time.time() - started
         finally:
             db.close()
         text = body or ""
         texts.append(text)
         result = evaluate_text(text, spec)
-        result.update(run=i + 1, seconds=round(seconds, 1), chars=len(text), coverage=stats)
+        material = stats.pop("material", None)
+        if material is not None:
+            # Где потерялся факт: «не подобран» — его нет в материале, который ушёл модели; «выпал при сжатии» — был, но не в тексте
+            result["lost"] = {fid: ("выпал при сжатии" if fact_hit(f, material) else "не подобран")
+                              for f in spec["facts"] for fid in [f["id"]] if not result["hits"][fid]}
+        result.update(run=i + 1, seconds=round(seconds, 1), chars=len(text), coverage=stats, text=text)
         runs.append(result)
         print(
             f"run {i + 1}: recall={result['recall']:.2f} contradictions={result['contradictions']} "
-            f"{seconds:.1f}s chars={len(text)} coverage={stats}",
+            f"{seconds:.1f}s chars={len(text)} coverage={stats}" + (f" lost={result['lost']}" if "lost" in result else ""),
             flush=True,
         )
 
