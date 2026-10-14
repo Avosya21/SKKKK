@@ -6,13 +6,15 @@ import hashlib
 import logging
 from collections import defaultdict
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import Link, Resolution, UserNote
+from app.app.models.manual_task import ManualTask
+from app.app.models.project_visit import ProjectVisit
 from app.app.models.person import PeopleLog, Person, UnknownActor
 from app.app.models.project import Project
 from app.app.models.project_mcp_token import ProjectMcpToken
@@ -39,6 +41,8 @@ _USER_ID_COLUMNS: list[tuple[type, str]] = [
     (Link, "created_by"),
     (Resolution, "resolved_by"),
     (Meeting, "created_by"),
+    (ManualTask, "created_by"),
+    (ProjectVisit, "user_id"),
     (MeetingParticipant, "user_id"),
     (SpeakerProfile, "user_id"),
     (Person, "voice_consent_by"),
@@ -85,6 +89,9 @@ def pick_canonical_user(db: Session, users: list[User]) -> User:
 
 
 def _reassign_user_rows(db: Session, *, winner_id: int, loser_id: int) -> None:
+    # Заходы в проект — одна строка на человека и проект: у победителя своя есть — строку проигравшего не переносим
+    winner_projects = select(ProjectVisit.project_id).where(ProjectVisit.user_id == winner_id)
+    db.execute(delete(ProjectVisit).where(ProjectVisit.user_id == loser_id, ProjectVisit.project_id.in_(winner_projects)))
     for model, column in _USER_ID_COLUMNS:
         col = getattr(model, column)
         db.execute(update(model).where(col == loser_id).values({column: winner_id}))

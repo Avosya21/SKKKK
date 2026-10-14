@@ -50,6 +50,7 @@ ACTION_REVIEW = "review"
 ACTION_RESOLVE = "resolve"
 ACTION_REINDEX = "reindex"
 ACTION_REEXTRACT = "reextract"
+ACTION_TASK_EDIT = "task_edit"  # задачи: статус, ответственный, срок, ручная задача (PORTAL-ACCURACY-MANAGER-PLAN Ш4)
 
 BLOCK_LABELS = {
     BLOCK_AUTH: "Вход",

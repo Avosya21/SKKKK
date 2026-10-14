@@ -27,6 +27,8 @@ from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
 from app.app.models.project_mcp_token import ProjectMcpToken
 from app.app.models.project_task import ProjectTask
+from app.app.models.manual_task import ManualTask
+from app.app.models.project_visit import ProjectVisit
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.user_activity_log import UserActivityLog
 from app.app.services.graph import delete_entities_with_deps
@@ -214,6 +216,8 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
 
     db.execute(delete(Topic).where(Topic.project_id == pid))
     db.execute(delete(ProjectTask).where(ProjectTask.project_id == pid))
+    db.execute(delete(ManualTask).where(ManualTask.project_id == pid))  # ручные задачи (Ш4)
+    db.execute(delete(ProjectVisit).where(ProjectVisit.project_id == pid))  # заходы для «Что нового» (Ш5)
     db.execute(delete(ArtifactSpeakerLink).where(ArtifactSpeakerLink.project_id == pid))
     _purge_registry(db, pid)
     db.execute(delete(SpeakerProfile).where(SpeakerProfile.project_id == pid))

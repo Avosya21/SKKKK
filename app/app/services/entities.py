@@ -1494,7 +1494,8 @@ HUMAN_TYPES = ("decision", "task", "open_question")
 
 
 def _human_snapshot(db: Session, artifact: Artifact) -> list[dict]:
-    """Ручные решения по пунктам артефакта до переизвлечения (А10): подтверждение, статус, отказ, проигрыш в конфликте."""
+    """Ручные решения по пунктам артефакта до переизвлечения (А10): подтверждение, статус, отказ, проигрыш в конфликте,
+    правка задачи менеджером (``human_edit``, PORTAL-ACCURACY-MANAGER-PLAN Ш4)."""
     from app.app.models.entity import Resolution
 
     rows = db.scalars(select(Entity).where(Entity.artifact_id == artifact.id, Entity.entity_type.in_(HUMAN_TYPES))).all()
@@ -1508,13 +1509,14 @@ def _human_snapshot(db: Session, artifact: Artifact) -> list[dict]:
         if not isinstance(value, dict):
             continue
         human = value.get("human_review")
-        if not human and ent.id not in lost:
+        edit = value.get("human_edit") if isinstance(value.get("human_edit"), dict) else None  # правка задачи менеджером (Ш4)
+        if not human and not edit and ent.id not in lost:
             continue
-        if not human:
+        if not human and ent.id in lost:
             human = {"action": "reject", "by": "решение по конфликту", "reason": "проиграл в конфликте, решённом человеком"}
         out.append({"id": ent.id, "type": ent.entity_type, "text": str(value.get("text") or value.get("description") or ""),
                     "start_sec": value.get("start_sec"), "human_review": human, "human_status": value.get("human_status"),
-                    "is_active": ent.is_active and ent.id not in lost})
+                    "human_edit": edit, "is_active": ent.is_active and ent.id not in lost})
     return out
 
 
@@ -1545,16 +1547,20 @@ def _transfer_human(rows: list[Entity], snapshot: list[dict]) -> tuple[int, list
             if best is None or score > best[0]:
                 best = (score, ent, value)
         if best is None or best[0] < HUMAN_TRANSFER_MIN_COVERAGE:
-            missing.append({"old_entity_id": snap["id"], "type": snap["type"], "text": snap["text"], "human_review": snap["human_review"]})
+            missing.append({"old_entity_id": snap["id"], "type": snap["type"], "text": snap["text"], "human_review": snap["human_review"],
+                            "human_edit": snap.get("human_edit")})
             continue
         _score, ent, value = best
         taken.add(ent.id)
-        value["human_review"] = {**snap["human_review"], "transferred_from": snap["id"]}
+        if snap.get("human_edit"):  # правка задачи — не подтверждение: needs_review и is_active не трогаем, если решения нет
+            value["human_edit"] = {**snap["human_edit"], "transferred_from": snap["id"]}
+        if snap.get("human_review"):
+            value["human_review"] = {**snap["human_review"], "transferred_from": snap["id"]}
+            ent.needs_review = False
+            ent.is_active = bool(snap["is_active"])
         if snap.get("human_status"):
             value["human_status"] = snap["human_status"]
         ent.value_json = json.dumps(value, ensure_ascii=False)
-        ent.needs_review = False
-        ent.is_active = bool(snap["is_active"])
         moved += 1
     return moved, missing
 

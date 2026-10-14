@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated
@@ -249,12 +250,22 @@ def project_page(
     live_meetings = []
     if role in ("admin", "manager"):
         live_meetings = [ongoing_payload(m, people) for m, people in ongoing_meetings(db, project_id)]
+    # «Что нового с прошлого захода» (PORTAL-ACCURACY-MANAGER-PLAN Ш5): рисуется сервером, как полоска созвона, — без прыжка страницы
+    from app.app.config import get_settings
+    from app.app.services.project_digest import digest_for_page
+
+    try:
+        digest = digest_for_page(db, get_settings(), project, user, role)
+    except Exception:  # полоска не должна ломать страницу проекта
+        logging.getLogger("skkkk.pages").exception("project digest failed project=%s", project_id)
+        digest = {"lines": []}
     return templates.TemplateResponse(
         request,
         "project.html",
         {
             "artifact_count": artifact_count,
             "live_meetings": live_meetings,
+            "digest": digest,
             "title": title,
             "project_id": project_id,
             "project_name": project.name,

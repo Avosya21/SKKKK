@@ -1,0 +1,19 @@
+/* Карточка «Задачи» (px_tasks.js, PORTAL-ACCURACY-MANAGER-PLAN Ш4). Видна всем ролям, поэтому не зависит от px_agent.css. */
+#tasks-board .px-list { display: flex; flex-direction: column; }
+#tasks-board .px-item { border: 1px solid var(--ds-line, #e4e4e7); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: var(--ds-surface, #fff); }
+#tasks-board .px-statement { color: var(--ds-text, #09090b); overflow-wrap: anywhere; white-space: pre-wrap; }
+#tasks-board .px-task-overdue { border-left: 3px solid var(--bs-danger, #dc3545); }
+#tasks-board .px-task-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+#tasks-board .px-task-cell { flex: 0 0 auto; min-width: 0; }
+#tasks-board .px-task-grow { flex: 1 1 180px; }
+#tasks-board .px-task-status { width: auto; min-width: 120px; }
+#tasks-board .px-task-date { width: auto; }
+#tasks-board .px-task-who { width: auto; min-width: 170px; max-width: 100%; }
+#tasks-board .px-form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#tasks-board .px-form-row .form-control { flex: 1 1 180px; min-width: 0; }
+#tasks-board .px-form-row .px-new-desc { flex: 3 1 260px; }
+#tasks-board .badge { font-weight: 500; white-space: normal; text-align: left; }
+@media (max-width: 576px) {
+  #tasks-board .px-task-cell, #tasks-board .px-task-grow { flex: 1 1 100%; }
+  #tasks-board .px-task-status, #tasks-board .px-task-date, #tasks-board .px-task-who { width: 100%; }
+}

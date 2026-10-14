@@ -18,10 +18,12 @@ from app.app.models.entity import (
     UserNote,
 )
 from app.app.models.job import Job
+from app.app.models.manual_task import ManualTask
 from app.app.models.meeting import Meeting, MeetingParticipant
 from app.app.models.person import PeopleLog, Person, PersonAlias, ProjectParty, UnknownActor
 from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
+from app.app.models.project_visit import ProjectVisit
 from app.app.models.project_mcp_token import McpCallStat, ProjectMcpToken
 from app.app.models.project_task import ProjectTask
 from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Subject, SubjectPosition
@@ -32,6 +34,8 @@ from app.app.models.user_activity_log import UserActivityLog
 from app.app.models.user_profile import UserProfile
 
 __all__ = [
+    "ProjectVisit",
+    "ManualTask",
     "AgentQuestion",
     "AgentExchangeLog",
     "ContractItem",
