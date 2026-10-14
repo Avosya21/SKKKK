@@ -7,8 +7,8 @@
 
 Метрики: пустые ответы, доля ответов с источниками, попадание в ожидаемые факты, отказ на «ловушках»
 (вопросы, ответа на которые в проекте нет), среднее время. Код выхода 1 при пустых ответах или провалах.
-Поле набора «sources» — имена файлов, по которым он составлен: если их нет в проекте, скрипт предупреждает и выходит с кодом 1
-(набор устарел — это не регрессия чата).
+Поле набора «sources» — имена файлов, по которым он составлен (нужны все); поле вопроса «sources» — файлы, где есть его факт
+(нужен любой). Нет источника в проекте — скрипт предупреждает и выходит с кодом 1: набор устарел, это не регрессия чата.
 """
 from __future__ import annotations
 
@@ -78,8 +78,12 @@ def main() -> int:
 
     present = {a.original_filename for a in db.query(Artifact).filter(Artifact.project_id == args.project, Artifact.status == "done")}
     missing_sources = [name for name in spec.get("sources") or [] if name not in present]
+    # У вопроса «sources» — файлы, где есть его факт: достаточно любого (факт звучал в нескольких материалах)
+    stale_questions = [q["id"] for q in spec["questions"] if q.get("sources") and not set(q["sources"]) & present]
     if missing_sources:
         print(f"ВНИМАНИЕ: источников набора нет в проекте {args.project}: {missing_sources} — набор устарел, обновите его", flush=True)
+    if stale_questions:
+        print(f"ВНИМАНИЕ: ни одного источника нет у вопросов {stale_questions} — эти вопросы устарели", flush=True)
     rows: list[dict] = []
     for item in spec["questions"]:
         started = time.time()
@@ -116,6 +120,7 @@ def main() -> int:
         "avg_seconds": round(sum(r["seconds"] for r in rows) / max(1, len(rows)), 1),
         "failed": [r["id"] for r in rows if not r["ok"]],
         "missing_sources": missing_sources,
+        "stale_questions": stale_questions,
         "rows": rows,
     }
     args.out.mkdir(parents=True, exist_ok=True)
@@ -123,7 +128,7 @@ def main() -> int:
     out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in summary.items() if k != "rows"}, ensure_ascii=False, indent=2))
     print("отчёт:", out)
-    return 1 if summary["empty_answers"] or summary["errors"] or missing_sources else 0
+    return 1 if summary["empty_answers"] or summary["errors"] or missing_sources or stale_questions else 0
 
 
 if __name__ == "__main__":
