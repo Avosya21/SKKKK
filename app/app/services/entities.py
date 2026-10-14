@@ -53,6 +53,7 @@ UNCLEAR_WORDING_RE = re.compile(
 HUMAN_TRANSFER_MIN_COVERAGE = 0.5
 HUMAN_TRANSFER_TIME_WINDOW = 45.0
 REPLICA_MATCH_WINDOW = 3
+REPLICA_AT_MAX_GAP_SEC = 15.0  # реплика канона ↔ реплика-доказательство дорожки: дальше по времени — не та
 TEXT_OVERLAP_MIN_RATIO = 0.35
 EXTRACT_PART_CHARS = 6000
 # Ответ модели на одну часть: 4096 обрезал плотные ТЗ (~12 тыс. символов JSON); окно фона 56000-22000 вмещает с запасом.
@@ -938,38 +939,61 @@ def _has_span_replicas(replicas: list[dict]) -> bool:
     return any(str(row.get("source_span_id") or "").strip() for row in replicas)
 
 
-def _overlap_score(text: str, replica_text: str) -> float:
-    left, right = _token_set(text), _token_set(replica_text)
-    if not left or not right:
-        return 0.0
-    return len(left & right) / min(len(left), len(right))
+def _replica_turns(replicas: list[dict]) -> list:
+    """Реплики-доказательства дорожек в виде реплик канона — для того же подсчёта, что у загруженных записей."""
+    from types import SimpleNamespace
 
-
-def _best_window_row(text: str, group: list[dict]) -> dict:
-    scored = [(_overlap_score(text, _replica_text(row)), row) for row in group]
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return scored[0][1] if scored else group[0]
+    out = []
+    for pos, row in enumerate(replicas):
+        if _replica_text(row) and row.get("start") is not None:
+            out.append(SimpleNamespace(index=pos, is_speech=True, start_sec=float(row["start"]), text=_replica_text(row)))
+    return out
 
 
 def _match_replica(text: str, replicas: list[dict]) -> dict | None:
-    needle = text.casefold().strip()
-    if not needle:
+    """Реплика-доказательство по совпадению основ слов — лучшая, а не первая подходящая (как ``_match_turn``).
+
+    До 2026-10-15 первой подходила реплика, текст которой «содержится» в тексте пункта: короткие «По», «Ну», «Да»
+    содержатся почти в любой фразе, и все пункты созвона притягивались к ним, а проверка модели выключала их как «не сказано»."""
+    hit = _match_turn(text, _replica_turns(replicas), [])
+    return replicas[hit.index] if hit is not None else None
+
+
+def _replica_at(replicas: list[dict], sec: float | None) -> dict | None:
+    """Реплика-доказательство, звучавшая в момент ``sec``: покрывающая его, иначе ближайшая по началу (до 15 с)."""
+    if sec is None:
         return None
+    timed = [r for r in replicas if r.get("start") is not None]
+    covering = [r for r in timed if float(r["start"]) <= sec <= float(r.get("end") or r["start"])]
+    pool = covering or [r for r in timed if abs(float(r["start"]) - sec) <= REPLICA_AT_MAX_GAP_SEC]
+    return min(pool, key=lambda r: abs(float(r["start"]) - sec)) if pool else None
+
+
+def _replica_for_turn(replicas: list[dict], turn: Any) -> dict | None:
+    """Реплика дорожки для найденной реплики канона: из звучавших в её время — с наибольшим совпадением слов с ней
+    (и того же говорящего). В одно время звучат несколько дорожек — ближайшая по началу бывает чужой вставкой («Да»)."""
+    from app.app.services.contract_text import stems
+
+    if turn is None or turn.start_sec is None:
+        return None
+    lo = float(turn.start_sec) - 1.0
+    hi = float(getattr(turn, "end_sec", None) or turn.start_sec) + 1.0
+    need = stems(turn.text or "")
+    who = str(getattr(turn, "known_speaker", None) or "").casefold()
+    best, best_key = None, None
     for row in replicas:
-        body = _replica_text(row).casefold()
-        if body and (needle in body or body in needle):
-            return row
-    for row in replicas:
-        if _text_overlap(text, _replica_text(row)):
-            return row
-    for index in range(len(replicas)):
-        group = replicas[index : index + REPLICA_MATCH_WINDOW]
-        if len(group) < 2:
+        if row.get("start") is None:
             continue
-        joined = " ".join(_replica_text(row) for row in group)
-        if _text_overlap(text, joined):
-            return _best_window_row(text, group)
-    return None
+        start, end = float(row["start"]), float(row.get("end") or row["start"])
+        if end < lo or start > hi:
+            continue
+        shared = len(need & stems(_replica_text(row)))
+        key = (shared, str(row.get("speaker") or "").casefold() == who, min(end, hi) - max(start, lo))
+        if best_key is None or key > best_key:
+            best, best_key = row, key
+    if best is not None and best_key[0] >= TURN_MATCH_MIN_SHARED:
+        return best
+    return _replica_at(replicas, float(turn.start_sec))
 
 
 def load_meeting_proof(settings: Settings, artifact: Artifact) -> tuple[list[dict], list[dict]]:
@@ -1134,7 +1158,12 @@ def bind_call_source(
         return bound
     anchor = None
     if room:
-        replica = _match_replica(text, replicas)
+        # Сначала реплика канона (номера T<n> от модели и лучшее совпадение основ слов), дорожка — по её времени;
+        # канона нет или реплика не нашлась — лучшая реплика-доказательство по тексту.
+        canon = _match_turn(text, turns, turn_ids) if turns else None
+        replica = _replica_for_turn(replicas, canon) if canon is not None else None
+        if replica is None:
+            replica = _match_replica(text, replicas)
         if replica is None:
             bound["source_span_id"] = None
             bound["needs_review"] = True
@@ -1147,7 +1176,9 @@ def bind_call_source(
             bound["end_sec"] = replica.get("end")
             bound["source_span_id"] = replica.get("source_span_id")
             bound["text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:TEXT_HASH_LEN]
-            if turns:
+            if canon is not None and replica is _replica_for_turn(replicas, canon):
+                anchor = canon  # реплика канона, найденная по тексту, — точнее ближайшей к началу дорожки
+            elif turns:
                 from app.app.services.transcript_turns import turn_at
 
                 anchor = turn_at(turns, replica.get("start"))

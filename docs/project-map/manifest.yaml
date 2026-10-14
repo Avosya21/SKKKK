@@ -3612,6 +3612,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_rebind_room_calls
+    kind: file
+    path: scripts/rebind_room_calls.py
+    title: "Перепривязка пунктов созвонов портала к репликам после исправления сопоставления (2026-10-15)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

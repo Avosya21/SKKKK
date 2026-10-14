@@ -517,3 +517,39 @@ def test_document_entity_still_persists_without_turn(tmp_data, client, admin_tok
         assert db.query(Entity).filter(Entity.artifact_id == art.id, Entity.entity_type == "decision").count() == 1
     finally:
         db.close()
+
+
+def test_room_call_short_replicas_do_not_attract_items(tmp_data, client, admin_token):
+    """15.10.2026: «По», «Ну», «Да» «содержались» в любом пункте — все пункты созвона привязывались к ним."""
+    from app.app.db import SessionLocal
+
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        project, art = _call_art(db)
+        _write_proof(settings, project.id, art.artifact_id, [
+            {"speaker": "Олег", "start": 5.0, "end": 5.5, "text": "По"},
+            {"speaker": "Олег", "start": 6.0, "end": 6.4, "text": "Ну"},
+            {"speaker": "Анна", "start": 7.0, "end": 7.3, "text": "Да."},
+            {"speaker": "Анна", "start": 30.0, "end": 40.0,
+             "text": "Данные Волжского филиала загружаем в отдельную ветку по коду базы G03"},
+        ])
+        persist_entities(db, settings, art, EntitiesPayload(artifact_id=art.artifact_id, source_type="call", decisions=[
+            "Данные Волжского филиала загружаются в отдельную ветку по коду базы G03"]))
+        db.commit()
+        value = json.loads(db.query(Entity).filter(Entity.artifact_id == art.id, Entity.entity_type == "decision").one().value_json)
+        assert value["start_sec"] == 30.0 and value["speaker"] == "Анна" and value["speaker_source"] == "track"
+    finally:
+        db.close()
+
+
+def test_match_replica_picks_best_not_first():
+    from app.app.services.entities import _match_replica, _replica_at
+
+    reps = [{"start": 1.0, "end": 2.0, "text": "По"},
+            {"start": 3.0, "end": 6.0, "text": "обмен заказами идёт раз в сутки"},
+            {"start": 9.0, "end": 12.0, "text": "обмен заказами идёт раз в час по расписанию"}]
+    assert _match_replica("Обмен заказами раз в час по расписанию", reps)["start"] == 9.0
+    assert _match_replica("Совсем другая тема про склад", reps) is None
+    assert _match_replica("По", reps) is None  # одно слово ничего не доказывает
+    assert _replica_at(reps, 10.5)["start"] == 9.0 and _replica_at(reps, 100.0) is None
