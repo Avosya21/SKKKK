@@ -729,7 +729,10 @@ def build_tz_fast_body(db: Session, settings: Settings, project_id: int) -> tupl
         if len(chunk_text) > FAST_CHUNK_TRIM:
             chunk_text = _trim_chunk_lines(chunk_text, FAST_CHUNK_TRIM)
         art = arts.get(h["artifact_id"])
-        title = _source_label(art, f"фрагмент {h['chunk_index']}") if art else f"чанк {h['chunk_id']}"
+        units = h.get("unit_first")
+        detail = (f"сообщения {units}–{h.get('unit_last')}" if units and h.get("unit_last") != units else f"сообщение {units}") if units \
+            else f"фрагмент {h['chunk_index']}"
+        title = _source_label(art, detail) if art else f"чанк {h['chunk_id']}"
         blocks.append(f"## {title}\n\n{chunk_text}")
     if ents:
         lines = [f"- {e.get('line') or '[' + e['entity_type'] + '] ' + e['text']}" for e in ents if e["text"]]

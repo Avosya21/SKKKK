@@ -1,4 +1,4 @@
-"""Нарезка текста на фрагменты для индексации: документы (проза + таблицы), реплики стенограммы, оценка токенов."""
+"""Нарезка текста на фрагменты для индексации: документы (проза + таблицы), реплики стенограммы, сообщения переписки, оценка токенов."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ class TextChunk:
     token_estimate: int
     start_sec: float | None = None
     end_sec: float | None = None
+    unit_first: str | None = None  # адрес первой единицы источника во фрагменте: «M101» — сообщение переписки
+    unit_last: str | None = None
 
 
 def estimate_tokens(text: str) -> int:
@@ -244,3 +246,102 @@ def chunk_transcript(text: str, *, max_tokens: int = CHUNK_TOKENS) -> list[TextC
         if window:
             emit(window)
     return chunks
+
+
+MESSAGE_GAP_SEC = 30 * 60  # пауза дольше — новый фрагмент: другой разговор
+REPLY_PREVIEW_CHARS = 80
+
+
+def _message_lines(msg: dict, by_id: dict, max_chars: int) -> list[str]:
+    """Строка сообщения в том же виде, что текст переписки для контракта («**ЧЧ:ММ Автор:** текст»); у копии чата без
+    времени — только автор. Ответ — номер и начало сообщения, на которое отвечают. Длинное сообщение режется по
+    предложениям, префикс повторяется у каждой части."""
+    from datetime import datetime
+
+    from app.app.services.chat_export import day_only
+
+    at = datetime.fromisoformat(msg["at"])
+    prefix = f"**{msg['author']}:** " if day_only(msg) else f"**{at:%H:%M} {msg['author']}:** "
+    target = by_id.get(msg.get("reply_to"))
+    if target is not None:
+        start = re.sub(r"\s+", " ", target.get("text") or "").strip()
+        cut = start[:REPLY_PREVIEW_CHARS] + ("…" if len(start) > REPLY_PREVIEW_CHARS else "")
+        prefix += f"(в ответ на M{target['id']}, {target['author']}: «{cut}») "
+    text = re.sub(r"\s*\n\s*", " ", msg.get("text") or "").strip()
+    if len(prefix) + len(text) <= max_chars:
+        return [prefix + text]
+    pieces: list[str] = []
+    buf = ""
+    for sent in _split_sentences(text) or [text]:
+        for part in _hard_split(sent, max(1, max_chars - len(prefix))):
+            if buf and len(prefix) + len(buf) + len(part) + 1 > max_chars:
+                pieces.append(prefix + buf)
+                buf = part
+            else:
+                buf = f"{buf} {part}".strip()
+    if buf:
+        pieces.append(prefix + buf)
+    return pieces
+
+
+def chunk_messages(export: dict, *, skip_ids: set[int] | None = None, max_tokens: int = CHUNK_TOKENS) -> list[TextChunk]:
+    """Фрагменты переписки из разметки сообщений (``chat_export``, ``*_messages.json``): соседние сообщения одного дня,
+    пока фрагмент не больше ``max_tokens``; пауза дольше ``MESSAGE_GAP_SEC`` начинает новый фрагмент, если текущий уже
+    наполовину полон.
+
+    Первая строка — «Переписка «название» · день»: дата видна у каждого фрагмента. ``unit_first`` / ``unit_last`` —
+    номера сообщений «M…» (ссылка открывает сообщение). ``speaker`` — автор, если он во фрагменте один. Сообщения из
+    ``skip_ids`` (их источник — более ранняя выгрузка той же переписки, правило Я1) в индекс не идут. Если фрагмент
+    обрезан по размеру, последнее сообщение повторяется в начале следующего — вопрос и ответ не теряют друг друга."""
+    from datetime import datetime
+
+    from app.app.services.chat_export import RU_MONTHS, day_only
+
+    skip = skip_ids or set()
+    all_msgs = export.get("messages") or []
+    by_id = {m.get("id"): m for m in all_msgs if m.get("id") is not None}
+    msgs = [m for m in all_msgs if m.get("id") is not None and m.get("at") and (m.get("text") or "").strip() and int(m["id"]) not in skip]
+    title = re.sub(r"\s+", " ", str(export.get("title") or "")).strip()
+    max_chars = max_tokens * CHARS_PER_TOKEN
+    chunks: list[TextChunk] = []
+
+    def header(at: datetime) -> str:
+        day = f"{at.day} {RU_MONTHS[at.month - 1]} {at.year}"
+        return f"Переписка «{title}» · {day}" if title else f"Переписка · {day}"
+
+    def emit(window: list[tuple[dict, str]]) -> None:
+        first, last = window[0][0], window[-1][0]
+        body = header(datetime.fromisoformat(first["at"])) + "\n" + "\n".join(line for _m, line in window)
+        authors = {m["author"] for m, _line in window}
+        chunks.append(TextChunk(len(chunks), body, next(iter(authors)) if len(authors) == 1 else None, estimate_tokens(body),
+                                unit_first=f"M{first['id']}", unit_last=f"M{last['id']}"))
+
+    head_room = len(header(datetime(2000, 12, 30))) + len(title) // 2 + 2
+    room = max(200, max_chars - head_room)
+    window: list[tuple[dict, str]] = []
+    size = 0
+    prev_at: datetime | None = None
+    for msg in msgs:
+        at = datetime.fromisoformat(msg["at"])
+        # Новый день — всегда новый фрагмент (в шапке одна дата). Пауза режет, только если фрагмент уже наполовину полон:
+        # иначе редкая переписка распадается на одиночные сообщения без контекста.
+        new_talk = prev_at is not None and (
+            at.date() != prev_at.date()
+            or (not day_only(msg) and (at - prev_at).total_seconds() > MESSAGE_GAP_SEC and size >= room // 2))
+        if window and new_talk:
+            emit(window)
+            window, size = [], 0
+        for line in _message_lines(msg, by_id, room):
+            if window and size + len(line) + 1 > room:
+                emit(window)
+                last_msg, last_line = window[-1]
+                fits = len(last_line) + len(line) + 2 <= room
+                window = [(last_msg, last_line)] if len(window) > 1 and len(last_line) < room // 3 and fits else []
+                size = sum(len(x) + 1 for _m, x in window)
+            window.append((msg, line))
+            size += len(line) + 1
+        prev_at = at
+    if window:
+        emit(window)
+    return chunks
+

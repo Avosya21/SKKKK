@@ -117,7 +117,7 @@ def search_chunk_fts(
         rows = conn.execute(
             text(
                 """
-                SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker, c.start_sec, c.end_sec,
+                SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker, c.start_sec, c.end_sec, c.unit_first, c.unit_last,
                        bm25(chunk_fts) AS rank
                 FROM chunk_fts f
                 JOIN chunks c ON c.id = f.rowid
@@ -140,6 +140,8 @@ def search_chunk_fts(
             "speaker": r["speaker"],
             "start_sec": r["start_sec"],
             "end_sec": r["end_sec"],
+            "unit_first": r["unit_first"],
+            "unit_last": r["unit_last"],
             "bm25": float(r["rank"]),
         }
         for r in rows

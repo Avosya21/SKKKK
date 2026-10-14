@@ -180,6 +180,8 @@ def mcp_search_project(
             row["speaker"] = chunk.speaker if chunk else None
             row["occurred_at"] = art.recorded_at.isoformat() if art and art.recorded_at else None
             row["text_truncated"] = len(text) > text_chars
+            if chunk and chunk.unit_first:  # переписка: номера сообщений фрагмента (M101…M108)
+                row["unit_first"], row["unit_last"] = chunk.unit_first, chunk.unit_last
         results.append(row)
     out: dict[str, Any] = {"query": query, "results": results}
     if max_bytes is not None:

@@ -9,7 +9,7 @@ from datetime import datetime as datetime_type
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -315,6 +315,7 @@ def delete_artifact(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
+    background: BackgroundTasks,
 ):
     project = require_project(db, user, project_id)
     art = db.scalar(
@@ -323,7 +324,13 @@ def delete_artifact(
     if not art:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
     filename = art.original_filename
+    from app.app.services.indexing import chat_export_siblings, reindex_artifacts
+
+    siblings = chat_export_siblings(db, settings, art)
     purge_artifact(db, settings, art)
+    if siblings:
+        # Сообщения удалённой выгрузки переписки были источником только у неё (Я1): поздние выгрузки берут их себе
+        background.add_task(reindex_artifacts, settings, siblings)
     log_activity(
         db,
         user_id=user.id,

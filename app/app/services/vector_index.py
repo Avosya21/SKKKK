@@ -174,7 +174,7 @@ def search_vectors(
     only_artifact = "AND c.artifact_id = :aid" if artifact_id is not None else ""
     sql = text(
         f"""
-        SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker, c.start_sec, c.end_sec,
+        SELECT c.id, c.artifact_id, c.chunk_index, c.text, c.speaker, c.start_sec, c.end_sec, c.unit_first, c.unit_last,
                vec_distance_cosine(v.embedding, :q) AS distance
         FROM chunk_vectors v
         JOIN chunks c ON c.id = v.chunk_id
@@ -200,6 +200,8 @@ def search_vectors(
                 "speaker": row["speaker"],
                 "start_sec": row["start_sec"],
                 "end_sec": row["end_sec"],
+                "unit_first": row["unit_first"],
+                "unit_last": row["unit_last"],
                 "score": 1.0 - float(row["distance"]),
             }
         )

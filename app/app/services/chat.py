@@ -21,7 +21,7 @@ from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import Entity, Link, UserNote
 from app.app.services.llm import chat_completion_no_think
-from app.app.services.source_links import source_url
+from app.app.services.source_links import source_url, unit_number
 from app.app.services.artifact_reports import load_document_payload
 from app.app.services.summarize_document import load_document_source_text, load_document_summary_md
 from app.app.services.chunk_fts import init_chunk_fts
@@ -963,8 +963,12 @@ def _answer_chat_inner(
             }
             if h.get("start_sec") is not None:
                 source["start_sec"] = h["start_sec"]
-            # ссылка на место в стенограмме или документе (SOURCE-ANCHORS-PLAN этап 4)
-            source["url"] = source_url(art.artifact_id, start_sec=h.get("start_sec"), quote=(h.get("text") or "")[:120])
+            # ссылка на место в стенограмме, переписке (первое сообщение фрагмента) или документе (SOURCE-ANCHORS-PLAN этап 4)
+            message_id = unit_number(h.get("unit_first"), "M")
+            if message_id is not None:
+                source["message_id"] = message_id
+            source["url"] = source_url(art.artifact_id, start_sec=h.get("start_sec"), message_id=message_id,
+                                       quote=None if message_id is not None else (h.get("text") or "")[:120])
             sources.append(source)
         hit_artifact_db_ids.add(art.id)
         if art.id not in seen_artifacts:
