@@ -7,6 +7,8 @@
 
 Метрики: пустые ответы, доля ответов с источниками, попадание в ожидаемые факты, отказ на «ловушках»
 (вопросы, ответа на которые в проекте нет), среднее время. Код выхода 1 при пустых ответах или провалах.
+Поле набора «sources» — имена файлов, по которым он составлен: если их нет в проекте, скрипт предупреждает и выходит с кодом 1
+(набор устарел — это не регрессия чата).
 """
 from __future__ import annotations
 
@@ -36,6 +38,7 @@ def snapshot_db(src: Path, dst: Path) -> None:
 
 def hit(question: dict, answer: str) -> bool:
     flags = re.IGNORECASE
+    answer = re.sub(r"[*`]+", "", answer or "")  # «**нет** информации» — жирный не должен ломать шаблон отказа
     if "all" in question:
         return all(re.search(p, answer, flags) for p in question["all"])
     return any(re.search(p, answer, flags) for p in question.get("any", []))
@@ -70,6 +73,13 @@ def main() -> int:
 
         memory_mode.set_mode(db, db.get(Project, args.project), "live")  # только в копии БД
     user = db.query(User).order_by(User.id).first()
+    # Набор привязан к файлам проекта («sources»): файл удалили или заменили — провал набора не регрессия чата, а устаревший набор
+    from app.app.models.artifact import Artifact
+
+    present = {a.original_filename for a in db.query(Artifact).filter(Artifact.project_id == args.project, Artifact.status == "done")}
+    missing_sources = [name for name in spec.get("sources") or [] if name not in present]
+    if missing_sources:
+        print(f"ВНИМАНИЕ: источников набора нет в проекте {args.project}: {missing_sources} — набор устарел, обновите его", flush=True)
     rows: list[dict] = []
     for item in spec["questions"]:
         started = time.time()
@@ -87,7 +97,7 @@ def main() -> int:
         rows.append(
             {"id": item["id"], "trap": bool(item.get("trap")), "empty": not answer.strip(), "sources": len(sources),
              "message_links": sum(1 for src in sources if src.get("message_id") is not None),
-             "ok": ok, "seconds": seconds, "error": error, "answer": answer[:400]}
+             "ok": ok, "seconds": seconds, "error": error, "answer": answer[:2000]}
         )
         print(f"{item['id']:>14} ok={ok!s:5} empty={not answer.strip()!s:5} src={len(sources)} {seconds}s", flush=True)
     db.close()
@@ -105,6 +115,7 @@ def main() -> int:
         "trap_refusal_share": round(sum(r["ok"] for r in traps) / max(1, len(traps)), 3),
         "avg_seconds": round(sum(r["seconds"] for r in rows) / max(1, len(rows)), 1),
         "failed": [r["id"] for r in rows if not r["ok"]],
+        "missing_sources": missing_sources,
         "rows": rows,
     }
     args.out.mkdir(parents=True, exist_ok=True)
@@ -112,7 +123,7 @@ def main() -> int:
     out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in summary.items() if k != "rows"}, ensure_ascii=False, indent=2))
     print("отчёт:", out)
-    return 1 if summary["empty_answers"] or summary["errors"] else 0
+    return 1 if summary["empty_answers"] or summary["errors"] or missing_sources else 0
 
 
 if __name__ == "__main__":
