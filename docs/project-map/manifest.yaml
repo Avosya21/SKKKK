@@ -3535,6 +3535,20 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_contract_quality
+    kind: service
+    path: app/app/services/contract_quality.py
+    title: "Точность разбора требований по решениям людей и выборочная проверка (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш1)."
+    tags: [auto]
+    auto: true
+
+  - id: script_eval_contract_labels
+    kind: file
+    path: scripts/eval_contract_labels.py
+    title: "Точность разбора требований по решениям людей (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш1)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

@@ -30,6 +30,7 @@
     <option value="model_rejected">Отклонены моделью</option>
     <option value="human_confirmed">Подтверждены вами</option>
     <option value="extracted">Не проверены никем</option>
+    <option value="spot">Выборочная проверка недели</option>
     <option value="">Все</option>
   </select>
   <select class="form-select form-select-sm px-filter" id="px-rv-status" aria-label="Статус">
@@ -53,6 +54,7 @@
   <span class="small text-muted" id="px-rv-selected"></span>
   <button type="button" class="btn btn-sm btn-primary" id="px-rv-confirm-selected">Подтвердить выбранные</button>
 </div>
+<div class="small text-muted mb-2" id="px-rv-quality" aria-live="polite"></div>
 <div id="px-rv-list" class="px-list"></div>
 <button type="button" class="btn btn-sm btn-outline-secondary mt-2 d-none" id="px-rv-more">Показать ещё</button>
 {% endcall %}

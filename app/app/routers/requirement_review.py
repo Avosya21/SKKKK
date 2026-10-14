@@ -1,6 +1,6 @@
 """Подтверждение требований контракта (карточка «Подтверждение требований» на странице проекта).
 
-Просмотр очереди: admin и manager проекта. Действия (подтвердить, отклонить, сменить статус): только admin."""
+Просмотр очереди и выборочная проверка («Верно» / «Неверно»): admin и manager проекта. Действия (подтвердить, отклонить, сменить статус): только admin."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -29,7 +29,21 @@ def review_list(
 ):
     require_project(db, user, project_id)
     result = rr.review_list(db, settings, project_id, status=status, basis=basis, verification=verification, side=side, q=q, offset=max(0, offset), limit=limit)
-    return {**result, "can_edit": user.role == "admin", "statuses": list(rr.STATUSES)}
+    return {**result, "can_edit": user.role == "admin", "can_spot": True, "statuses": list(rr.STATUSES), "quality": rr.quality(db, project_id)}
+
+
+@router.post("/projects/{project_id}/spot-check/{entity_id}")
+def spot_check(
+    project_id: int, entity_id: int, body: dict,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
+):
+    """Выборочная проверка (Ш1): «Верно» / «Неверно» по пункту — admin и manager; состояние пункта не меняется."""
+    require_project(db, user, project_id)
+    try:
+        return rr.spot_check(db, project_id, entity_id, verdict=str(body.get("verdict") or ""), reason=body.get("reason"), user=user)
+    except rr.ReviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/projects/{project_id}/auto-review/backlog")

@@ -139,14 +139,17 @@
       : (r.verification === 'model_rejected' ? '' : '<div class="small text-muted">Цитаты в источнике не найдено.</div>');
     const hr = r.human_review ? `<div class="small text-muted mt-1">Решение человека: ${esc(r.human_review.by)}, ${esc(fmt(r.human_review.at))}${r.human_review.reason ? ' — ' + esc(r.human_review.reason) : ''}</div>` : '';
     const undo = rv.canEdit && undoable ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-rv="undo" data-id="${esc(r.id)}" data-entity="${esc(r.source_entity_id)}">Вернуть решение модели</button>` : '';
-    const acts = rv.canEdit && r.verification === 'model_rejected' ? `<div class="px-actions">${undo}</div>` : (rv.canEdit ? `<div class="px-actions">
+    const spotActs = r.spot ? `<div class="px-actions">
+        <button type="button" class="btn btn-sm btn-outline-success" data-rv="spot-ok" data-id="${esc(r.id)}" data-entity="${esc(r.source_entity_id)}" title="Пункт извлечён верно: так и было сказано или записано">Верно</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-rv="spot-wrong" data-id="${esc(r.id)}" data-entity="${esc(r.source_entity_id)}" title="Пункт извлечён неверно: такого не говорили или смысл искажён">Неверно</button></div>` : '';
+    const acts = r.spot ? spotActs : rv.canEdit && r.verification === 'model_rejected' ? `<div class="px-actions">${undo}</div>` : (rv.canEdit ? `<div class="px-actions">
         ${ok ? '' : `<button type="button" class="btn btn-sm btn-primary" data-rv="confirm" data-id="${esc(r.id)}" title="Подтверждаю: это действительно было сказано / решено на этой встрече">Подтвердить</button>`}
         ${r.hidden_state && r.source_entity_id ? `<button type="button" class="btn btn-sm btn-outline-success" data-rv="current" data-entity="${esc(r.source_entity_id)}" title="Модель ошиблась: пункт по-прежнему актуален">Это актуально</button>` : ''}
         <button type="button" class="btn btn-sm btn-outline-secondary" data-rv="status" data-id="${esc(r.id)}">Изменить статус</button>
         <button type="button" class="btn btn-sm btn-outline-danger" data-rv="reject" data-id="${esc(r.id)}">Отклонить</button>${undo}</div>` : '');
     return `<div class="px-item" data-item="${esc(r.id)}">
       <div class="d-flex gap-2 align-items-start">
-        ${rv.canEdit && !ok && r.verification !== 'model_rejected' ? `<input type="checkbox" class="form-check-input mt-1 px-rv-check" data-id="${esc(r.id)}" aria-label="Выбрать ${esc(r.id)}">` : ''}
+        ${rv.canEdit && !ok && !r.spot && r.verification !== 'model_rejected' ? `<input type="checkbox" class="form-check-input mt-1 px-rv-check" data-id="${esc(r.id)}" aria-label="Выбрать ${esc(r.id)}">` : ''}
         <div class="flex-grow-1">
           <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
             <code class="small">${esc(r.id)}</code>
@@ -191,6 +194,12 @@
       rv.offset += d.items.length;
       $('px-rv-more').classList.toggle('d-none', rv.offset >= d.total);
       setCount('review', d.counts.needs_human, 'ждут вас');
+      $('px-rv-quality').textContent = d.quality ? d.quality.line : '';
+      if (d.spot) {
+        say('review', `Выборочная проверка недели: отмечено ${d.spot.done} из ${d.spot.size}. Отметка нужна для оценки точности разбора — пункт она не подтверждает и из «Ждут вас» не убирает.`);
+        updateBatch();
+        return;
+      }
       say('review', `Показано ${rv.offset} из ${d.total}. Всего требований: ${d.counts.total}; ждут вас: ${d.counts.needs_human}; без цитаты источника: ${d.counts.unsourced || 0}; подтверждено моделью: ${d.counts.model_confirmed}; отклонено моделью: ${d.counts.model_rejected}; устарело: ${d.counts.superseded || 0}; склеено дублей: ${d.counts.merged || 0}.` + (d.can_edit ? '' : ' Вы можете только смотреть: подтверждает администратор.'));
       updateBatch();
     } catch (e) { say('review', 'Не удалось загрузить требования', true); }
@@ -246,6 +255,19 @@
       });
       return;
     }
+    if (act === 'spot-ok') {
+      await SKKKK.guardButton(btn, async () => {
+        const r = await post(`/spot-check/${encodeURIComponent(btn.dataset.entity)}`, { verdict: 'ok' });
+        if (!r.ok) { say('review', await errText(r), true); return; }
+        await loadReview(false);
+      });
+      return;
+    }
+    if (act === 'spot-wrong') {
+      const el = inlineForm(id, `<div class="px-form-row"><input class="form-control form-control-sm" placeholder="Что не так (необязательно)" maxlength="500"><button type="button" class="btn btn-sm btn-danger" data-do="spot-wrong" data-entity="${esc(btn.dataset.entity)}">Неверно</button><button type="button" class="btn btn-sm btn-link" data-do="cancel">Отмена</button></div>`);
+      el.querySelector('input').focus();
+      return;
+    }
     if (act === 'reject') {
       const el = inlineForm(id, `<div class="px-form-row"><input class="form-control form-control-sm" placeholder="Причина (необязательно)" maxlength="500"><button type="button" class="btn btn-sm btn-danger" data-do="reject">Отклонить</button><button type="button" class="btn btn-sm btn-link" data-do="cancel">Отмена</button></div><div class="form-text">Требование исчезнет из выдачи агентам; данные не удаляются.</div>`);
       el.querySelector('input').focus();
@@ -262,6 +284,14 @@
     const holder = btn.closest('[data-inline]'); const id = holder.dataset.inline;
     if (btn.dataset.do === 'cancel') { holder.classList.add('d-none'); holder.innerHTML = ''; return; }
     const reason = holder.querySelector('input').value.trim();
+    if (btn.dataset.do === 'spot-wrong') {
+      await SKKKK.guardButton(btn, async () => {
+        const r = await post(`/spot-check/${encodeURIComponent(btn.dataset.entity)}`, { verdict: 'wrong', reason });
+        if (!r.ok) { say('review', await errText(r), true); return; }
+        await loadReview(false);
+      });
+      return;
+    }
     await SKKKK.guardButton(btn, async () => {
       const body = btn.dataset.do === 'status' ? { status: holder.querySelector('select').value, reason } : { reason };
       if (await reviewAction(btn.dataset.do, id, body)) { await loadReview(false); loadSummary(); }
