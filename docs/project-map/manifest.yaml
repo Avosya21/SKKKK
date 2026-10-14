@@ -3549,6 +3549,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_reindex_messages
+    kind: file
+    path: scripts/reindex_messages.py
+    title: "Переиндексация переписок по сообщениям (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш2)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

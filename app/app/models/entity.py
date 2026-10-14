@@ -68,6 +68,9 @@ class Chunk(Base):
     # Отрезок созвона, который покрывает фрагмент (секунды от начала записи); у документов и старых чанков — NULL.
     start_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     end_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Адреса единиц источника, которые покрывает фрагмент: переписка — сообщения «M101»…«M108» (ссылка открывает сообщение).
+    unit_first: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    unit_last: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
 
 class AsrRun(Base):

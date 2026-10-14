@@ -1,4 +1,4 @@
-"""Индексация артефакта для поиска по смыслу (фрагменты и векторы в sqlite-vec) и сверка индекса проекта (`audit_project_index`)."""
+"""Индексация артефакта для поиска по смыслу (фрагменты и векторы в sqlite-vec; переписка — по сообщениям) и сверка индекса проекта (`audit_project_index`)."""
 
 from __future__ import annotations
 
@@ -15,9 +15,10 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import Chunk
 from app.app.models.project import Project
 from app.app.services.chunk_fts import upsert_chunk_fts
-from app.app.services.chunking import chunk_document, chunk_transcript
+from app.app.services.chat_export import load_artifact_export, owned_elsewhere
+from app.app.services.chunking import chunk_document, chunk_messages, chunk_transcript
 from app.app.services.ollama_client import embed_texts
-from app.app.services.storage import artifact_knowledge_text
+from app.app.services.storage import artifact_knowledge_text, parsed_dir
 from app.app.services.vector_index import delete_vectors_for_chunks, init_vector_store, upsert_vectors
 
 logger = logging.getLogger("skkkk.index")
@@ -33,6 +34,10 @@ def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: st
         if canon:
             body = canon
         chunks = chunk_transcript(body)
+    elif (export := load_artifact_export(settings, artifact)) and export.get("messages"):
+        # Переписка: фрагменты по сообщениям с номерами M…; сообщения из более ранней выгрузки той же переписки — не здесь (Я1)
+        skip = owned_elsewhere(parsed_dir(settings, artifact.project_id, artifact.source_type), export)
+        chunks = chunk_messages(export, skip_ids=skip)
     else:
         chunks = chunk_document(body)  # таблицы — целыми строками с шапкой, проза — абзацами с разделом
 
@@ -57,6 +62,8 @@ def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: st
             token_estimate=c.token_estimate,
             start_sec=c.start_sec,
             end_sec=c.end_sec,
+            unit_first=c.unit_first,
+            unit_last=c.unit_last,
         )
         db.add(row)
         stored.append(row)
@@ -81,6 +88,45 @@ def index_artifact(db: Session, settings: Settings, artifact: Artifact, text: st
 
         rebind_call_entities(db, settings, artifact)
     return len(stored)
+
+
+def chat_export_siblings(db: Session, settings: Settings, artifact: Artifact) -> list[str]:
+    """Другие выгрузки той же переписки (то же название) в проекте — их индекс зависит от этой (правило Я1).
+    Возвращает ``artifact_id``; у материала без разметки сообщений — пусто."""
+    export = load_artifact_export(settings, artifact)
+    title = (export or {}).get("title") or ""
+    if not title:
+        return []
+    from app.app.services.chat_export import load_export
+
+    out: list[str] = []
+    for src in {artifact.source_type, "document", "note"}:
+        folder = parsed_dir(settings, artifact.project_id, src)
+        for path in folder.glob("*_messages.json") if folder.is_dir() else []:
+            other = load_export(path)
+            if other and other.get("title") == title and other.get("artifact_id") and other["artifact_id"] != artifact.artifact_id:
+                out.append(str(other["artifact_id"]))
+    return sorted(set(out))
+
+
+def reindex_artifacts(settings: Settings, artifact_ids: list[str]) -> int:
+    """Переиндексировать материалы по ``artifact_id`` в своей сессии БД (фоновая задача после ответа HTTP). Текст —
+    тот же, что у материала; модели нет, только эмбеддинги. Возвращает число фрагментов."""
+    from app.app.db import SessionLocal
+
+    total = 0
+    with SessionLocal() as db:
+        for aid in artifact_ids:
+            art = db.scalar(select(Artifact).where(Artifact.artifact_id == aid))
+            if art is None or art.status != "done":
+                continue
+            try:
+                total += index_artifact(db, settings, art, artifact_knowledge_text(settings, art) or art.transcription_text or "")
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("reindex failed for %s", aid)
+    return total
 
 
 def audit_project_index(db: Session, settings: Settings, project_id: int) -> dict:

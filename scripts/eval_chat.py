@@ -86,6 +86,7 @@ def main() -> int:
             ok = hit(item, answer)
         rows.append(
             {"id": item["id"], "trap": bool(item.get("trap")), "empty": not answer.strip(), "sources": len(sources),
+             "message_links": sum(1 for src in sources if src.get("message_id") is not None),
              "ok": ok, "seconds": seconds, "error": error, "answer": answer[:400]}
         )
         print(f"{item['id']:>14} ok={ok!s:5} empty={not answer.strip()!s:5} src={len(sources)} {seconds}s", flush=True)

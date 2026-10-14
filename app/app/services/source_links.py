@@ -23,3 +23,11 @@ def source_url(artifact_id: str | None, *, start_sec: float | None = None, messa
     if message_id is not None:  # якорь сообщения; цитата — запасной путь, если отчёт ещё без якорей
         return f"{base}?{urlencode({'m': int(message_id), **({'q': text} if text else {})})}"
     return f"{base}?{urlencode({'q': text})}" if text else base
+
+
+def unit_number(ref: str | None, prefix: str) -> int | None:
+    """Номер из адреса единицы: ``unit_number("M105", "M")`` → 105; другой вид адреса или пусто — None."""
+    ref = (ref or "").strip()
+    if not ref.startswith(prefix) or not ref[len(prefix):].lstrip("-").isdigit():
+        return None
+    return int(ref[len(prefix):])

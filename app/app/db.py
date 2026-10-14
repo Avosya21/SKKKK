@@ -113,6 +113,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("artifacts", "recorded_at_source", "VARCHAR(16)"),
     ("chunks", "start_sec", "FLOAT"),
     ("chunks", "end_sec", "FLOAT"),
+    ("chunks", "unit_first", "VARCHAR(24)"),
+    ("chunks", "unit_last", "VARCHAR(24)"),
     ("links", "model_review", "TEXT"),
     ("speaker_profiles", "user_id", "INTEGER REFERENCES users(id)"),
     ("entities", "topic_id", "INTEGER"),
