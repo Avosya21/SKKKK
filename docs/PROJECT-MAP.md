@@ -351,7 +351,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/people.py` | `/people`, `/me` | `GET /people/{id}/avatar?size=96|512&v=` (вошедшим; с текущей версией — кеш навсегда, без — 5 мин); `GET|PUT /me/profile` (ФИО, должность; компанию и согласие не меняет — 422), `PUT /me/avatar` |
 | `routers/projects.py` | `/projects` | список, создание, **полное удаление** (`DELETE /{id}`) |
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
-| `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, reextract-entities, conflicts, notes |
+| `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, задачи (`tasks`, `tasks/{entity_id}`, `manual-tasks/{task_id}`), «Что нового» (`digest`, `digest/dismiss`), reextract-entities, conflicts, notes |
 | `routers/project_members.py` | `/projects/{id}/members` | выдача доступа: GET список, POST роль manager/user, DELETE участника |
 | `routers/project_mcp.py` | `/projects/{id}/mcp`, `/mcp` | ключи MCP портала + Streamable HTTP |
 | `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
@@ -411,6 +411,16 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 Тип (`source_type`): `call` | `document` | `note` | `screenshot` — влияет на пайплайн воркера.
 
+#### Полоска «Что нового с прошлого захода» (над «Добавить материалы», с 2026-10-14)
+
+`#project-digest`, рисует сервер (`pages.project_page` → `project_digest.digest_for_page`), переходы и «Скрыть» — `static/px_digest.js`. Первый заход в проект — полоски нет; нечего сказать — тоже нет. Строка ведёт к карточке (панель раскрывается, у задач — нужная вкладка).
+
+| Элемент | API | Кто |
+|---------|-----|-----|
+| Строки: обработано новых материалов (и что из них извлечено), решения по новым материалам (память live), вопросы от агентов, задачи (просрочено / на неделе), нерешённые конфликты | первая отрисовка — с сервера; после тоста «файл обработан» — `GET /projects/{id}/digest` | материалы и задачи — все; решения и вопросы агентов — admin, manager; конфликты (ссылка на `/admin/conflicts`) — admin |
+| «Ждут вашего решения требований: N» | `GET …/agent-exchange/summary` (счёт по контракту тяжёлый — подгружается после открытия страницы, только если полоска уже видна) | admin, manager |
+| **Скрыть** (`#project-digest-hide`) | `POST /projects/{id}/digest/dismiss` | все; полоска вернётся, когда обработается новый материал |
+
 #### Полоска «Идёт созвон» (между загрузкой и материалами)
 
 `#live-meetings` — по строке на идущую встречу: «Идёт созвон · в комнате: имена» (уже 576 px — имена второй строкой) и **Присоединиться** (`/projects/{id}/meetings/{mid}/room`); несколько встреч сразу — с номером «#id». Только **admin/manager** (кто может войти в комнату); у `user` не рендерится. Идущая = статус `live` **и** в комнате есть участник на связи: не вышел, вход или пульс за 10 мин (`services/meetings.ongoing_meetings`, то же правило у `scripts/live_meetings.py` для `restart.ps1`). Забытая `live` без людей полоску не держит.
@@ -461,16 +471,19 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 Enter в textarea — тоже отправка. Отдельная страница `/projects/{id}/chat` — тот же endpoint. Повторный `POST /chat` при активном ответе — **409** (проверка и запись вопроса под одним замком). Обработка созвонов чат **не** блокирует (Р2, 2026-10-05): ответы идут полосой чата строго по очереди (§3.2).
 
-#### Дедлайны (сворачиваемый блок, над MCP)
+#### Задачи (сворачиваемый блок `deadlines-card`, над MCP; до 2026-10-14 — «Дедлайны»)
 
-Поручения **со сроком** из сущностей `entity_type=task` (поля `description`, `assignee`, `deadline`, `status`) по всем артефактам проекта. В API и списке — **только** задачи с непустым `deadline`; дедупликация по описанию + ответственный + срок. Оценки длительности этапа («4–6 нед.») и очередность («перед этапом 2») **не** считаются дедлайном.
+Все задачи проекта (PORTAL-ACCURACY-MANAGER-PLAN Ш4): извлечённые из материалов (`entity_type=task`) с правками менеджера поверх и ручные (`manual_tasks`). Заменённые и склеенные пункты (вердикт актуальности, `task_board.hidden`) не показываются ни в списке, ни в календаре. Правка извлечённой задачи — `value_json.human_edit` `{status, assignee, deadline_at, before, fields, by, at, reason}`: извлечённое остаётся («было» в подсказке), это **не** подтверждение требования (`human_review`, `needs_review` и «Ждут вас» не меняются); при переизвлечении правка переносится на пункт с той же мыслью (`entities._human_snapshot` / `_transfer_human`). Статусы: открыта / в работе / сделано / отменена (`task_board.normalize_status`: `unknown` и прочее — «открыта»).
 
 | Элемент | API | Поведение |
 |---------|-----|-----------|
-| **Список** | `GET /projects/{id}/deadlines` (`knowledge.py` → `list_project_deadlines`) | Только tasks с `deadline`; таблица: задача, ответственный, срок, статус, источник |
-| **Обновить из материалов** | `POST /projects/{id}/reextract-entities` → задача очереди `project_task` (`entities_reextract`) → воркер → `reextract_project_entities` | admin/manager — LLM по lab `_final.txt` / `transcription_text`; пишет `entities`, **не** переиндексирует; 409 если уже ждёт или идёт; в проекте без материалов — `{queued: false}` |
-| **Календарь** | тот же GET | **FullCalendar** — только задачи с распознанной датой (ISO, `DD.MM.YYYY`, «15 марта 2026») |
-| Загрузка | — | При развороте блока; авто-обновление после `done` артефакта, если панель открыта |
+| **Список** (`#tasks-board`, `static/px_tasks.js`, стили `static/px_tasks.css`) | `GET /projects/{id}/tasks?view=&assignee=&offset=&limit=` (`knowledge.py` → `task_board.list_project_tasks`) | вкладки **Открытые / Просрочено / На неделе / Без срока / Сделано / Все** со счётчиками, фильтр по ответственному, «Показать ещё» (по 50); у строки — статус, ответственный, срок, «изменено вручную: кто, когда», источник; `can_edit` — admin и manager проекта. Видна всем ролям |
+| Правка в строке: **статус** (select), **ответственный** (поле с подсказками), **срок** (дата) | `PATCH /projects/{id}/tasks/{entity_id}` `{status?, assignee?, deadline_at?, reason?}` | admin, manager проекта (`require_project_staff`); 422 — неверный статус или дата; журнал `user_activity_log` (`task_edit`) |
+| **+ Задача** (ручная) | `POST /projects/{id}/tasks` `{description, assignee?, deadline_at?, status?}`; правка `PATCH /projects/{id}/manual-tasks/{task_id}`; **убрать** `DELETE /projects/{id}/manual-tasks/{task_id}` (мягко, `is_active=0`) | admin, manager проекта; в контракт агента не уходят |
+| Счётчик в шапке (`#deadlines-count-badge`) и строка статуса | тот же `GET …/tasks` | «N открытых · просрочено M» (красный при просрочке); «Открытых · просрочено · на неделе · без срока · сделано» |
+| **Обновить из материалов** | `POST /projects/{id}/reextract-entities` → задача очереди `project_task` (`entities_reextract`) → воркер → `reextract_project_entities` | admin/manager — LLM по lab `_final.txt` / `transcription_text`; пишет `entities` (правки задач переносятся), **не** переиндексирует; 409 если уже ждёт или идёт; в проекте без материалов — `{queued: false}` |
+| **Календарь** | `GET /projects/{id}/deadlines` (`list_project_deadlines`: задачи со сроком с учётом правок + ручные со сроком; оценки длительности этапа не срок) | **FullCalendar** — только задачи с распознанной датой; после правки в списке (`px:tasks-changed`) календарь берёт свежие данные |
+| Загрузка | — | При развороте блока; после `done` артефакта, если панель открыта |
 
 **UI:** Bootstrap `collapse`, `#deadlines-panel`, по умолчанию **сложен**; переключатель «Список» / «Календарь».
 
@@ -1293,6 +1306,8 @@ data/projects/{project_id}/
 | `decision_memory_view.py` | память решений для чтения: список предметов, предмет с лентой (цитата, автор, сторона, `artifact_id`/`ref` источника) и журналом, состояние на дату — общее для экрана памяти (`routers/project_memory.py`) и MCP `get_decisions` |
 | `mcp_journal.py` | журнал чтения MCP: строка `mcp.call` в api.log (ключ, агент, инструмент, имена параметров, байты, мс, ошибка — без содержимого) и счётчик `mcp_call_stats`; `key_stats` для списка ключей |
 | `mcp_page.py` | порции ответов MCP: бюджет `MCP_PAGE_BYTES` / `page_bytes` на вызов, нарезка текста по строкам и списков по курсору |
+| `task_board.py` | задачи проекта под управлением менеджера (Ш4): действующие значения с правкой `human_edit` (`effective`), скрытие заменённых и склеенных (`hidden`), список с вкладками и счётчиками (`list_project_tasks`, `all_tasks`), правка извлечённой (`edit_extracted`, первое «было» в `before`), ручные задачи (`create_manual`/`edit_manual`/`delete_manual`) |
+| `project_digest.py` | полоска «Что нового с прошлого захода» (Ш5): отсчёт заходов `project_visits` (`touch_visit`: новый заход — пауза > 30 мин, перезагрузка не сбрасывает), строки от материалов, обработанных после отсчёта (`jobs.finished_at` первичной обработки): их пункты, решения памяти по ним (live), новые вопросы агентов, просроченные и недельные задачи, нерешённые конфликты (admin); «Скрыть» (`dismiss`) — до следующего обработанного материала |
 | `project_deadlines.py`, `project_tasks.py` | дедлайны проекта (точный срок `deadline_at` от модели — приоритет над разбором текста, `resolve_due`; исполнитель-метка `speaker_N` → имя после переименования спикера через `assignee_start_sec`, промпт `extract_entities_v4.md`); фоновые задачи API (зависшие помечаются при старте) |
 
 ### Индекс проекта (`services/project_index/`, сентябрь 2026)
@@ -1832,12 +1847,14 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `entity.py` | Модели знаний: сущности, связи, фрагменты, запуски ASR, заметки и ссылки, разрешения конфликтов, журнал изменений ТЗ. |
 | `exchange_file.py` | Модели ExchangeBundle и ExchangeFile — посылки файлов от внешнего агента (карты конфигурации, дипмапы сущностей). |
 | `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
+| `manual_task.py` | Модель ManualTask — задача проекта, которую менеджер добавил вручную (таблица manual_tasks, PORTAL-ACCURACY-MANAGER-PLAN Ш4). |
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
 | `person.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1). |
 | `project.py` | Модель Project — проект и его настройки. |
 | `project_mcp_token.py` | Модели ключа проектного MCP: ProjectMcpToken (хеш, права, отзыв) и McpCallStat (сколько и чего ключ читал по дням). |
 | `project_member.py` | Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал). |
 | `project_task.py` | Модель ProjectTask — фоновая задача проекта со статусом и ошибкой (таблица project_tasks). |
+| `project_visit.py` | Модель ProjectVisit — когда человек заходил в проект (таблица project_visits, PORTAL-ACCURACY-MANAGER-PLAN Ш5). |
 | `speaker_profile.py` | Модели голосов: SpeakerProfile и связь ArtifactSpeakerLink со спикерами артефакта. |
 | `speech_act.py` | Речевые акты реплик (docs/plans/DECISION-MEMORY-PLAN.md, Э2): что делает каждая реплика переписки или созвона в обсуждении решений. |
 | `user.py` | Модель User — пользователь (имя, роль, Telegram). |
@@ -1963,6 +1980,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `pptx_extract.py` | Текст из презентаций .pptx → markdown по слайдам (вход для normalize / knowledge-пайплайна). |
 | `project_access.py` | Доступ к проекту: свои + выданные участники; роль на проекте может отличаться от пароля. |
 | `project_deadlines.py` | Дедлайны проекта: разбор сроков из текста («до пятницы», «на следующей неделе», даты) относительно даты артефакта и сведение задач в единый  |
+| `project_digest.py` | Полоска «Что нового с прошлого захода» на странице проекта (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш5). |
 | `project_jobs.py` | Фоновая работа по проекту: прогресс, постановка, повтор ошибок, остановка (PLATFORM-FOUNDATION-PLAN, ПФ9). |
 | `project_mcp_contract.py` | MCP-инструменты контракта обмена с агентом анализа (только чтение). Формат и смысл полей — docs/agent-exchange/CONTRACT.md. |
 | `project_mcp_data.py` | Данные проектного MCP (только чтение): обзор проекта, материалы целиком порциями, сводка, поиск, сущности, граф, заметки и память решений —  |
@@ -1995,6 +2013,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `subjects.py` | Предметы обсуждения: каждому речевому акту — предмет, о котором идёт речь (docs/plans/DECISION-MEMORY-PLAN.md, Э3). |
 | `summarize_document.py` | Выжимка документа: пути, загрузка исходного текста, промпты, сборка итогового Markdown и запуск (`run_document_summary`). |
 | `table_md.py` | Таблицы документов в markdown: один формат для DOCX, Excel/CSV, PDF и разбор его обратно (нормализация, нарезка). |
+| `task_board.py` | Задачи проекта под управлением менеджера (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш4). |
 | `tesseract_tools.py` | Поиск Tesseract и каталога tessdata, настройка pytesseract. |
 | `tls_cert.py` | Публичный сертификат :777 — проверка при старте и перевыпуск через Caddy :8443. |
 | `topics.py` | Темы проекта (docs/plans/REQUIREMENTS-PLAN.md, этап 5, решение А2): модель раскладывает решения, задачи и открытые |
@@ -2040,6 +2059,9 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `people.js` | Люди и стороны проекта (PLATFORM-FOUNDATION-PLAN, ПФ3): реестр людей, «Кто это?», стороны компаний. |
 | `px_agent.css` | Карточки обмена с агентами (px_agent.js). Только токены дизайн-системы --ds-*: нейтральная палитра, тонкие линии. |
 | `px_agent.js` | Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки. |
+| `px_digest.js` | Полоска «Что нового с прошлого захода» (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш5). |
+| `px_tasks.css` | Карточка «Задачи» (px_tasks.js, PORTAL-ACCURACY-MANAGER-PLAN Ш4). Видна всем ролям, поэтому не зависит от px_agent.css. |
+| `px_tasks.js` | Карточка «Задачи» на странице проекта (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш4). |
 | `report-jump.js` | Переход по ссылке к месту источника на странице отчёта (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4). |
 | `report-theme.css` | Тема отчётов (документ и стенограмма созвона) в единой дизайн-системе. |
 

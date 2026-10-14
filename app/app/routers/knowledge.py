@@ -488,6 +488,133 @@ def project_deadlines(
     return list_project_deadlines(db, project_id)
 
 
+@router.get("/projects/{project_id}/digest")
+def project_digest(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """«Что нового с прошлого захода» (Ш5): строки полоски; страница зовёт после тоста «файл обработан»."""
+    from app.app.services.project_access import staff_ui_role
+    from app.app.services.project_digest import digest_for_page
+
+    project = require_project(db, user, project_id)
+    return digest_for_page(db, settings, project, user, staff_ui_role(db, user, project))
+
+
+@router.post("/projects/{project_id}/digest/dismiss")
+def project_digest_dismiss(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """«Скрыть» полоску до следующего обработанного материала (Ш5)."""
+    from app.app.services.project_digest import dismiss
+
+    require_project(db, user, project_id)
+    dismiss(db, user.id, project_id)
+    return {"dismissed": True}
+
+
+@router.get("/projects/{project_id}/tasks")
+def project_tasks_list(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+    view: str = "open", assignee: str | None = None, offset: int = 0, limit: int = 50,
+):
+    """Карточка «Задачи» (Ш4): все задачи проекта — извлечённые с правками и ручные; вкладки и фильтр по ответственному."""
+    from app.app.services import task_board as tb
+    from app.app.services.project_access import staff_ui_role
+
+    project = require_project(db, user, project_id)
+    try:
+        result = tb.list_project_tasks(db, project_id, view=view, assignee=assignee, offset=max(0, offset), limit=limit)
+    except tb.TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {**result, "can_edit": staff_ui_role(db, user, project) in ("admin", "manager")}
+
+
+def _task_log(db: Session, user: User, project_id: int, title: str, target: str, content: str = "") -> None:
+    from app.app.services.user_activity import ACTION_TASK_EDIT
+
+    log_activity(db, user_id=user.id, project_id=project_id, block=BLOCK_KNOWLEDGE, action=ACTION_TASK_EDIT,
+                 title=title[:200], content=content[:200], target_kind="task", target_id=target)
+
+
+@router.patch("/projects/{project_id}/tasks/{entity_id}")
+def project_task_edit(
+    project_id: int, entity_id: int, body: dict,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Правка извлечённой задачи: статус, ответственный, срок — admin и manager проекта; поверх извлечённого (Ш4)."""
+    from app.app.services import task_board as tb
+
+    require_project_staff(db, user, project_id)
+    try:
+        out = tb.edit_extracted(db, project_id, entity_id, body, user=user)
+    except tb.TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    _task_log(db, user, project_id, f"Задача e{entity_id}: " + ", ".join(sorted(k for k in body if k in tb.EDIT_FIELDS)),
+              f"e{entity_id}", json.dumps({k: body[k] for k in body if k in tb.EDIT_FIELDS}, ensure_ascii=False))
+    return out
+
+
+@router.post("/projects/{project_id}/tasks")
+def project_task_create(
+    project_id: int, body: dict,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Ручная задача (Ш4): admin и manager проекта."""
+    from app.app.services import task_board as tb
+
+    require_project_staff(db, user, project_id)
+    try:
+        out = tb.create_manual(db, project_id, body, user=user)
+    except tb.TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    _task_log(db, user, project_id, "Добавлена задача", out["id"], str(body.get("description") or ""))
+    return out
+
+
+@router.patch("/projects/{project_id}/manual-tasks/{task_id}")
+def project_manual_task_edit(
+    project_id: int, task_id: int, body: dict,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    from app.app.services import task_board as tb
+
+    require_project_staff(db, user, project_id)
+    try:
+        out = tb.edit_manual(db, project_id, task_id, body)
+    except tb.TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    _task_log(db, user, project_id, f"Задача m{task_id} изменена", f"m{task_id}", json.dumps(body, ensure_ascii=False))
+    return out
+
+
+@router.delete("/projects/{project_id}/manual-tasks/{task_id}")
+def project_manual_task_delete(
+    project_id: int, task_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Убрать ручную задачу (мягко: строка остаётся с is_active=0)."""
+    from app.app.services import task_board as tb
+
+    require_project_staff(db, user, project_id)
+    try:
+        out = tb.delete_manual(db, project_id, task_id)
+    except tb.TaskError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    _task_log(db, user, project_id, f"Задача m{task_id} удалена", f"m{task_id}")
+    return out
+
+
 @router.post("/projects/{project_id}/reextract-entities")
 def reextract_entities_endpoint(
     project_id: int,

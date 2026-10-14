@@ -3556,6 +3556,55 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_manual_task
+    kind: model
+    path: app/app/models/manual_task.py
+    title: "Модель ManualTask — задача проекта, которую менеджер добавил вручную (таблица manual_tasks, PORTAL-ACCURACY-MANAGER-PLAN Ш4)."
+    tags: [auto]
+    auto: true
+
+  - id: model_project_visit
+    kind: model
+    path: app/app/models/project_visit.py
+    title: "Модель ProjectVisit — когда человек заходил в проект (таблица project_visits, PORTAL-ACCURACY-MANAGER-PLAN Ш5)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_project_digest
+    kind: service
+    path: app/app/services/project_digest.py
+    title: "Полоска «Что нового с прошлого захода» на странице проекта (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш5)."
+    tags: [auto]
+    auto: true
+
+  - id: svc_task_board
+    kind: service
+    path: app/app/services/task_board.py
+    title: "Задачи проекта под управлением менеджера (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш4)."
+    tags: [auto]
+    auto: true
+
+  - id: static_px_digest
+    kind: file
+    path: app/app/static/px_digest.js
+    title: "Полоска «Что нового с прошлого захода» (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш5)."
+    tags: [auto]
+    auto: true
+
+  - id: static_px_tasks
+    kind: file
+    path: app/app/static/px_tasks.css
+    title: "Карточка «Задачи» (px_tasks.js, PORTAL-ACCURACY-MANAGER-PLAN Ш4). Видна всем ролям, поэтому не зависит от px_agent.css."
+    tags: [auto]
+    auto: true
+
+  - id: static_px_tasks_auto
+    kind: file
+    path: app/app/static/px_tasks.js
+    title: "Карточка «Задачи» на странице проекта (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш4)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

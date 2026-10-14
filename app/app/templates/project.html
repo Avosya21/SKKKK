@@ -159,28 +159,12 @@
   #deadlines-calendar {
     min-height: 420px;
   }
-  #deadlines-table {
-    font-size: 0.85rem;
-  }
-  #deadlines-table th {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #6c757d;
-    white-space: nowrap;
-  }
   .deadline-status-badge {
     font-size: 0.72rem;
   }
   .deadline-overdue {
     color: #dc3545;
     font-weight: 600;
-  }
-  #deadlines-table tbody tr.deadline-row {
-    cursor: pointer;
-  }
-  #deadlines-table tbody tr.deadline-row:hover {
-    background-color: rgba(13, 110, 253, 0.06);
   }
   #deadlines-calendar .fc-event {
     cursor: pointer;
@@ -547,6 +531,15 @@
   }
 
   /* Полоска «Идёт созвон»: мягкий зелёный статус, как у остальных статусов, и главная кнопка входа */
+  .project-digest {
+    padding: 0.6rem 0.9rem;
+    background: var(--ds-surface-2, #f4f4f5);
+    border: 1px solid var(--ds-line, #e4e4e7);
+    border-radius: var(--ds-r-md, 8px);
+  }
+  .project-digest-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+  .project-digest-list { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+  .project-digest-list li { margin: 0.1rem 0; overflow-wrap: anywhere; }
   .live-meetings {
     display: flex;
     flex-direction: column;
@@ -630,6 +623,19 @@
       <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
     </div>
   </div>
+</div>
+
+<!-- Что нового с прошлого захода (PORTAL-ACCURACY-MANAGER-PLAN Ш5): рисует сервер, переходы и «Скрыть» — static/px_digest.js -->
+<div id="project-digest" class="project-digest mb-3 mb-md-4" aria-live="polite"{% if not (digest and digest.lines) %} hidden{% endif %}>
+  <div class="project-digest-head">
+    <strong>Что нового{% if digest and digest.since_label %} с {{ digest.since_label }}{% endif %}</strong>
+    <button type="button" class="btn btn-sm btn-link p-0 project-digest-hide" id="project-digest-hide">Скрыть</button>
+  </div>
+  <ul class="project-digest-list" id="project-digest-list">
+    {%- for line in (digest.lines if digest else []) %}
+    <li><a href="#" data-digest-target="{{ line.target }}" data-digest-view="{{ line.view or '' }}">{{ line.text }}</a></li>
+    {%- endfor %}
+  </ul>
 </div>
 
 <!-- Форма загрузки -->
@@ -796,12 +802,12 @@
             data-bs-target="#deadlines-panel"
             aria-expanded="false"
             aria-controls="deadlines-panel">
-      <strong>Дедлайны</strong>
+      <strong>Задачи</strong>
       <span id="deadlines-toggle-hint" class="small deadlines-toggle-hint">(развернуть)</span>
     </button>
     <div class="d-flex align-items-center gap-2 flex-wrap">
       <span class="badge text-bg-light text-dark border" id="deadlines-count-badge">…</span>
-      <div class="btn-group btn-group-sm" role="group" aria-label="Вид дедлайнов">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Вид задач">
         <button type="button" class="btn btn-outline-secondary active" id="deadlines-view-list" aria-pressed="true">Список</button>
         <button type="button" class="btn btn-outline-secondary" id="deadlines-view-calendar" aria-pressed="false">Календарь</button>
       </div>
@@ -814,28 +820,13 @@
         <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="deadlines-reextract" data-idle-label="Обновить из материалов">Обновить из материалов</button>
       </div>
       <div id="deadlines-list-view">
-        <div class="table-responsive d-none d-md-block">
-          <table class="table table-sm table-hover mb-0" id="deadlines-table">
-            <thead>
-              <tr>
-                <th>Задача</th>
-                <th>Ответственный</th>
-                <th>Срок</th>
-                <th>Статус</th>
-                <th>Источник</th>
-              </tr>
-            </thead>
-            <tbody id="deadlines-table-body">
-              <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div id="deadlines-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
+        {# Список задач с вкладками и правкой: static/px_tasks.js (PORTAL-ACCURACY-MANAGER-PLAN Ш4) #}
+        <div id="tasks-board" aria-live="polite"></div>
       </div>
       <div id="deadlines-calendar-view" class="d-none">
-        <div id="deadlines-calendar" aria-label="Календарь дедлайнов"></div>
+        <div id="deadlines-calendar" aria-label="Календарь сроков задач"></div>
         <div id="deadlines-calendar-empty" class="text-muted small mt-2 d-none">
-          Нет сроков с распознанной датой — откройте список или дождитесь материалов с явными датами.
+          Нет задач с распознанной датой срока — откройте список или задайте срок задаче.
         </div>
       </div>
     </div>
@@ -1069,6 +1060,7 @@
 </div>
 {% endif %}
 
+<link href="/static/px_tasks.css?v=1" rel="stylesheet">
 {% if current_role in ('admin', 'manager') %}
 <link href="/static/px_agent.css?v=1" rel="stylesheet">
 {% include "partials/px_agent_cards.html" %}
@@ -2103,6 +2095,7 @@ async function refreshArtifacts() {
       bsToast.show();
       if (!(await syncTzTaskUi())) await loadTz();
       loadDeadlinesPanel();
+      window.PXDigest?.reload();  // «Что нового»: появился обработанный материал
     }
     _prev[a.artifact_id] = a.status;
   }
@@ -2559,7 +2552,6 @@ loadMcpPanel();
 const deadlinesPanel = document.getElementById('deadlines-panel');
 const deadlinesToggleHint = document.getElementById('deadlines-toggle-hint');
 const deadlinesStatus = document.getElementById('deadlines-status');
-const deadlinesTableBody = document.getElementById('deadlines-table-body');
 const deadlinesCountBadge = document.getElementById('deadlines-count-badge');
 const deadlinesListView = document.getElementById('deadlines-list-view');
 const deadlinesCalendarView = document.getElementById('deadlines-calendar-view');
@@ -2666,47 +2658,6 @@ function openDeadlineDetail(itemOrId) {
   deadlineDetailModal.show();
 }
 
-function renderDeadlinesTable(items) {
-  if (!deadlinesTableBody) return;
-  const cards = document.getElementById('deadlines-cards');
-  if (!items.length) {
-    deadlinesTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Сроков пока нет — они появятся, если в созвонах или документах были названы дедлайны.</td></tr>';
-    if (cards) cards.innerHTML = '<div class="text-muted small">Сроков пока нет — они появятся, если в материалах были названы дедлайны.</div>';
-    return;
-  }
-  deadlinesTableBody.innerHTML = items.map((item) => `
-    <tr class="deadline-row" data-deadline-id="${escapeAttr(String(item.id))}" tabindex="0" role="button" aria-label="Открыть задачу: ${escapeAttr(item.description || 'задача')}">
-      <td>${escapeHtml(item.description || '—')}</td>
-      <td>${escapeHtml(item.assignee || '—')}</td>
-      <td>${renderDeadlineCell(item)}</td>
-      <td>${deadlineStatusBadge(item.status)}</td>
-      <td>${renderDeadlineSource(item)}</td>
-    </tr>`).join('');
-  if (cards) {
-    cards.innerHTML = items.map((item) => `
-      <div class="border rounded p-3 bg-white text-start mobile-data-card" data-deadline-id="${escapeAttr(String(item.id))}" tabindex="0" role="button" aria-label="Открыть задачу: ${escapeAttr(item.description || 'задача')}">
-        <div class="fw-semibold mobile-data-value">${escapeHtml(item.description || '—')}</div>
-        <dl class="row g-1 mb-0 mt-2 small">
-          <dt class="col-5 text-muted">Ответственный</dt><dd class="col-7 mobile-data-value mb-0">${escapeHtml(item.assignee || '—')}</dd>
-          <dt class="col-5 text-muted">Срок</dt><dd class="col-7 mobile-data-value mb-0">${renderDeadlineCell(item)}</dd>
-          <dt class="col-5 text-muted">Статус</dt><dd class="col-7 mobile-data-value mb-0">${deadlineStatusBadge(item.status)}</dd>
-          <dt class="col-5 text-muted">Источник</dt><dd class="col-7 mobile-data-value mb-0">${renderDeadlineSource(item)}</dd>
-        </dl>
-      </div>`).join('');
-    cards.querySelectorAll('[data-deadline-id]').forEach((card) => {
-      card.addEventListener('click', (event) => {
-        if (event.target.closest('a')) return;
-        openDeadlineDetail(card.dataset.deadlineId);
-      });
-      card.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        openDeadlineDetail(card.dataset.deadlineId);
-      });
-    });
-  }
-}
-
 function calendarEventsFromDeadlines(items) {
   return items
     .filter((item) => item.deadline_date)
@@ -2788,44 +2739,25 @@ async function loadDeadlinesPanel() {
     const r = await SKKKK.api(`/projects/${projectId}/deadlines`);
     if (!r.ok) throw new Error('deadlines failed');
     deadlinesData = await r.json();
-    const items = deadlinesData.items || [];
-    const total = deadlinesData.total || items.length;
-    if (deadlinesCountBadge) {
-      deadlinesCountBadge.textContent = SKKKK.count(total, ['срок', 'срока', 'сроков']);
-    }
-    const parsed = deadlinesData.with_parsed_date || 0;
-    const textOnly = deadlinesData.with_text_only_deadline || 0;
-    deadlinesStatus.textContent = total
-      ? `${SKKKK.count(total, ['срок', 'срока', 'сроков'])} · ${parsed} на календаре${textOnly ? ` · ${textOnly} без даты` : ''}`
-      : 'Сроки появятся, когда в материалах будут озвучены дедлайны и поручения со сроком';
-    renderDeadlinesTable(items);
+    // Список задач, счётчик и строку статуса ведёт static/px_tasks.js (вкладки, правка); здесь — данные календаря
+    window.PXTasks?.load();
     if (deadlinesCalendarView && !deadlinesCalendarView.classList.contains('d-none')) {
       setDeadlinesView('calendar');
     }
   } catch (err) {
-    deadlinesStatus.textContent = 'Не удалось загрузить дедлайны';
-    if (deadlinesTableBody) {
-      deadlinesTableBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Ошибка загрузки</td></tr>';
-    }
+    deadlinesStatus.textContent = 'Не удалось загрузить сроки для календаря';
   }
 }
 
+// Правка задачи в списке (px_tasks.js) меняет сроки — календарь берёт свежие данные, список не перезагружается второй раз
+document.addEventListener('px:tasks-changed', async () => {
+  const r = await SKKKK.api(`/projects/${projectId}/deadlines`).catch(() => null);
+  if (!r || !r.ok) return;
+  deadlinesData = await r.json();
+  if (deadlinesCalendarView && !deadlinesCalendarView.classList.contains('d-none')) setDeadlinesView('calendar');
+});
 deadlinesViewListBtn?.addEventListener('click', () => setDeadlinesView('list'));
 deadlinesViewCalendarBtn?.addEventListener('click', () => setDeadlinesView('calendar'));
-deadlinesTableBody?.addEventListener('click', (ev) => {
-  const link = ev.target.closest('a');
-  if (link) return;
-  const row = ev.target.closest('tr.deadline-row');
-  if (!row) return;
-  openDeadlineDetail(row.dataset.deadlineId);
-});
-deadlinesTableBody?.addEventListener('keydown', (ev) => {
-  if (ev.key !== 'Enter' && ev.key !== ' ') return;
-  const row = ev.target.closest('tr.deadline-row');
-  if (!row) return;
-  ev.preventDefault();
-  openDeadlineDetail(row.dataset.deadlineId);
-});
 document.getElementById('deadlines-reextract')?.addEventListener('click', async () => {
   const btn = document.getElementById('deadlines-reextract');
   await SKKKK.guardButton(btn, async () => {
@@ -3297,5 +3229,7 @@ if (grantMembersBody) {
   loadGrantPanel();
 }
 </script>
-{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=3"></script><script src="/static/people.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
+<script src="/static/px_tasks.js?v=1"></script>
+<script src="/static/px_digest.js?v=1"></script>
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=4"></script><script src="/static/people.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
 {% endblock %}

@@ -324,6 +324,11 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
             continue
         if not isinstance(value, dict):
             continue
+        from app.app.services.task_board import effective, hidden
+
+        if hidden(value):  # заменённая или склеенная задача (вердикт актуальности) — не срок
+            continue
+        value = effective(value)  # правка менеджера (статус, ответственный, срок) поверх извлечённого
 
         description = str(value.get("description") or "").strip()
         if not description:
@@ -377,6 +382,9 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
         )
 
     items = _merge_deadline_items(items)
+    from app.app.services.task_board import _manual_rows
+
+    items += [row for row in _manual_rows(db, project_id) if row.get("deadline")]  # ручные задачи со сроком (Ш4)
 
     seen: set[tuple[str, str, str]] = set()
     deduped: list[dict[str, Any]] = []
