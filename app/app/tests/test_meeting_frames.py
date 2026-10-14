@@ -236,3 +236,62 @@ def test_frames_json_contract(tmp_path: Path, monkeypatch):
     assert payload[0]["frame_id"] == "TRone_1000"
     links = json.loads((tmp_path / "speech_screen_links.json").read_text(encoding="utf-8"))
     assert links == []
+
+
+def _screen(path: Path, shade: int, box: tuple[int, int, int, int] | None = None) -> None:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (320, 180), (shade, shade, shade))
+    draw = ImageDraw.Draw(img)
+    for x in range(0, 320, 40):
+        draw.rectangle((x, 20, x + 20, 60), fill=(20, 20, 20))
+    if box:
+        draw.rectangle(box, fill=(250, 250, 250))
+    img.save(path)
+
+
+def test_repeat_frame_reuses_description(tmp_path: Path, monkeypatch):
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"ftypfake")
+    pictures = {
+        0: dict(shade=200),
+        1000: dict(shade=201),
+        2000: dict(shade=60, box=(0, 90, 320, 180)),
+    }
+
+    def fake_grab(src, ts, dest):
+        _screen(dest, **pictures[int(round(ts * 1000))])
+        return True
+
+    calls = []
+
+    def fake_text(settings, path, *, describe):
+        calls.append(path.name)
+        return f"описание {path.name}", "vision"
+
+    class Run:
+        root = tmp_path
+
+        def resolve(self, rel: str) -> Path:
+            return tmp_path / rel
+
+    monkeypatch.setattr(frames, "scene_times", lambda *_a, **_k: [])
+    monkeypatch.setattr(frames, "select_share_frames", lambda *_a, **_k: [0.0, 1.0, 2.0])
+    monkeypatch.setattr(frames, "_grab_frame", fake_grab)
+    monkeypatch.setattr(frames, "_frame_text", fake_text)
+    track = {"src": str(clip), "track_sid": "TR_one", "duration_sec": 3}
+    rows = frames._extract_track(SimpleNamespace(), Run(), track, cap=10, describe=True)
+
+    assert calls == ["0.jpg", "2000.jpg"]
+    assert rows[1]["repeat_of"] == rows[0]["frame_id"]
+    assert rows[1]["text"] == "описание 0.jpg"
+    assert rows[1]["text_source"] == "vision"
+    assert "repeat_of" not in rows[2]
+
+
+def test_find_repeat_threshold():
+    seen = [{"fingerprint": 0, "frame_id": "a"}]
+    assert frames.REPEAT_MAX_BITS == 7
+    assert frames.find_repeat(0b111_1111, seen)["frame_id"] == "a"
+    assert frames.find_repeat(0b1111_1111, seen) is None
+    assert frames.find_repeat(None, seen) is None

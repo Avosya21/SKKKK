@@ -57,6 +57,11 @@ LINKS_JSON = "speech_screen_links.json"
 VIDEO_TRANSCRIPT_JSON = "video_transcript.json"
 VIDEO_TRANSCRIPT_MD = "video_transcript.md"
 FFMPEG_TIMEOUT = 120
+# Повтор кадра: dHash 16×16 (256 бит) отличается от уже описанного не больше чем на 2,95 % (7 бит).
+# Порог выбрал владелец по 1 341 кадру (опыт experiments/embeddinggemma2/dedup_review.py, 14.10.2026).
+REPEAT_HASH_SIZE = 16
+REPEAT_MAX_PERCENT = 2.95
+REPEAT_MAX_BITS = int(REPEAT_HASH_SIZE * REPEAT_HASH_SIZE * REPEAT_MAX_PERCENT / 100)
 logger = logging.getLogger("skkkk.meeting_video")
 
 
@@ -386,6 +391,7 @@ def _extract_track(
         max_n=cap,
     )
     rows = []
+    described: list[dict] = []
     for ts in times:
         ts_ms = int(round(ts * 1000))
         frame_id = f"{safe_sid(sid)}_{ts_ms}"
@@ -402,14 +408,56 @@ def _extract_track(
             "sha256": _sha256(jpg),
             "path": str(jpg.relative_to(run.root)) if hasattr(run, "root") else str(jpg),
         }
-        text, text_source = _frame_text(settings, jpg, describe=describe)
+        fingerprint = frame_fingerprint(jpg)
+        same = find_repeat(fingerprint, described)
+        if same is not None:
+            text, text_source = same["text"], same["text_source"]
+            item["repeat_of"] = same["frame_id"]
+        else:
+            text, text_source = _frame_text(settings, jpg, describe=describe)
+            if text and fingerprint is not None:
+                described.append({"fingerprint": fingerprint, "frame_id": frame_id,
+                                  "text": text, "text_source": text_source})
         if text:
             item["text"] = text
             item["text_source"] = text_source
             md = folder / f"{ts_ms}.md"
             md.write_text(text, encoding="utf-8")
         rows.append(item)
+    repeats = sum(1 for row in rows if row.get("repeat_of"))
+    if repeats:
+        log_event(logger, "meeting.video_frames.repeats", track=sid, frames=len(rows), repeats=repeats)
     return rows
+
+
+def frame_fingerprint(path: Path, size: int = REPEAT_HASH_SIZE) -> int | None:
+    """dHash кадра: соседние пиксели уменьшенной серой копии, бит = «правее светлее»."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            gray = im.convert("L").resize((size + 1, size), Image.Resampling.LANCZOS)
+            px = list(gray.getdata())
+    except Exception:  # noqa: BLE001 — без отпечатка кадр просто описывается заново
+        return None
+    value = 0
+    for y in range(size):
+        line = px[y * (size + 1):(y + 1) * (size + 1)]
+        for x in range(size):
+            value = (value << 1) | (1 if line[x + 1] > line[x] else 0)
+    return value
+
+
+def find_repeat(fingerprint: int | None, described: list[dict], max_bits: int = REPEAT_MAX_BITS) -> dict | None:
+    """Ближайший уже описанный кадр, от которого этот отличается не больше чем на max_bits бит."""
+    if fingerprint is None:
+        return None
+    best, best_bits = None, max_bits + 1
+    for seen in described:
+        bits = (fingerprint ^ seen["fingerprint"]).bit_count()
+        if bits < best_bits:
+            best, best_bits = seen, bits
+    return best
 
 
 def _frame_text(settings: Settings, path: Path, *, describe: bool) -> tuple[str, str]:
