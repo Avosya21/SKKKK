@@ -2429,7 +2429,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-09 02:38: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-14 21:24: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2660,6 +2660,7 @@ _Проверено 2026-10-09 02:38: сущностей 130, не описан�
 | `docs/plans/PERSONAL-PASSWORD-PLAN.md` | Личный пароль пользователя — план реализации |
 | `docs/plans/plan-review.md` | Ревизия планов v4 / v5 относительно кода |
 | `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | SKKKK — Подготовка платформы к памяти решений |
+| `docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md` | План: точность контекста, задачи и «что нового» для менеджера |
 | `docs/plans/PROJECT-INDEX-PLAN.md` | План: индекс проекта, которым можно управлять (поиск по смыслу, коду, связям и истории) |
 | `docs/plans/PROJECTMAP-PLAN.md` | План: инструмент `projectmap` — полная карта любого проекта |
 | `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Просмотрщик projectmap: пробная сборка G6 и Cytoscape |
