@@ -5,6 +5,7 @@
 - reject: сущность выключается мягко (is_active=False), из контракта исчезает (агент видит «removed» в get_changes), данные не удаляются;
 - status: человек задаёт статус (proposed/agreed/agreed_out_of_scope/rejected/implemented), причина обязательна; статус получает status_basis=human_set.
 Каждое действие пишется в журнал активности (кто, когда, что).
+Выборочная проверка («Верно» / «Неверно», admin и manager) — отметка для замера точности, не подтверждение (contract_quality).
 """
 from __future__ import annotations
 
@@ -171,7 +172,7 @@ def _row(r: dict[str, Any], topics: dict[int, str], by_entity: dict[int, dict[st
 def review_list(db: Session, settings: Settings, project_id: int, *, status: str | None = None, basis: str | None = None,
                 verification: str | None = None, side: str | None = None, q: str | None = None, offset: int = 0, limit: int = 50) -> dict[str, Any]:
     """Очередь требований. verification: needs_human (ждут вас) | unsourced (нет цитаты источника) | superseded (устарело) | merged (склеено) | human_confirmed |
-    model_confirmed | extracted | model_rejected. Сортировка — по теме, внутри темы — по порядку в контракте."""
+    model_confirmed | extracted | model_rejected | spot (выборочная проверка недели). Сортировка — по теме, внутри темы — по порядку в контракте."""
     from app.app.services.topics import topic_labels
 
     items = ctr.get_contract(db, settings, project_id).files["requirements"]["items"]
@@ -189,6 +190,8 @@ def review_list(db: Session, settings: Settings, project_id: int, *, status: str
     }
     topics = topic_labels(db, {r.get("topic_id") for r in items if r.get("topic_id")} | {r.get("topic_id") for r in rejected + merged_live if r.get("topic_id")})
     page = max(1, min(limit, 200))
+    if verification == "spot":
+        return _spot_list(db, settings, project_id, items, counts, topics)
     if verification == "model_rejected":
         rows = [{**r, "topic": topics.get(r.get("topic_id"))} for r in rejected if not q or q.lower() in r["statement"].lower()]
         return {"total": len(rows), "counts": counts, "items": rows[offset: offset + page]}
@@ -232,6 +235,61 @@ def review_list(db: Session, settings: Settings, project_id: int, *, status: str
     for row in chunk:
         row["context"] = context.get(row.get("source_entity_id")) or []
     return {"total": total, "counts": counts, "items": chunk}
+
+
+def _spot_list(db: Session, settings: Settings, project_id: int, items: list[dict[str, Any]], counts: dict[str, Any],
+               topics: dict[int, str]) -> dict[str, Any]:
+    """Вкладка «Выборочная проверка» (Ш1, Р1-б): пункты недели, которые человек ещё не проверял, — «Верно» / «Неверно»."""
+    from app.app.services import contract_quality as cq
+
+    candidates = [r for r in items if r["verification"] != "human_confirmed" and hidden_state(r) is None and r.get("source_entity_id")]
+    ids = [r["source_entity_id"] for r in candidates]
+    spots: dict[int, dict[str, Any]] = {}
+    for ent in db.scalars(select(Entity).where(Entity.id.in_(ids))).all() if ids else []:
+        try:
+            spot = (json.loads(ent.value_json or "{}") or {}).get("spot_check")
+        except ValueError:
+            spot = None
+        if isinstance(spot, dict):
+            spots[ent.id] = spot
+    week, done = cq.spot_sample(candidates, spots, project_id)
+    by_entity = {r.get("source_entity_id"): r for r in items}
+    rows = [{**_row(r, topics, by_entity), "spot": True} for r in week]
+    ids = [row["source_entity_id"] for row in rows]
+    context = _context_turns(db, settings, ids)
+    for eid, window in _context_units(db, settings, [i for i in ids if i not in context]).items():
+        context[eid] = window
+    for row in rows:
+        row["context"] = context.get(row.get("source_entity_id")) or []
+    return {"total": len(rows), "counts": counts, "items": rows, "spot": {"week": cq.week_key(), "done": done, "size": cq.SPOT_WEEKLY}}
+
+
+def quality(db: Session, project_id: int) -> dict[str, Any]:
+    """Точность разбора по решениям людей — строка для шапки карточки (Ш1)."""
+    from app.app.services import contract_quality as cq
+
+    q = cq.project_quality(db, project_id)
+    return {"line": cq.summary_line(q), "model_agreement": q["model_agreement"]["all"], "extraction": q["extraction"]["all"],
+            "spot_checked": q["spot_checked"]}
+
+
+def spot_check(db: Session, project_id: int, entity_id: int, *, verdict: str, reason: str | None, user) -> dict[str, Any]:
+    """«Верно» / «Неверно» в выборочной проверке. Не подтверждение: ``needs_review``, ``is_active``, ``human_review`` не меняются."""
+    from app.app.services import contract_quality as cq
+
+    ent = db.get(Entity, entity_id)
+    art = db.get(Artifact, ent.artifact_id) if ent else None
+    if not ent or not art or art.project_id != project_id or ent.entity_type not in cq.KINDS:
+        raise ReviewError("Пункт не найден")
+    try:
+        spot = cq.record_spot(ent, verdict=verdict, reason=reason, user=user)
+    except ValueError as exc:
+        raise ReviewError(str(exc)) from exc
+    db.commit()
+    log_activity(db, user_id=user.id, project_id=project_id, block=BLOCK_KNOWLEDGE, action=ACTION_REVIEW,
+                 title=f"Выборочная проверка пункта #{entity_id}: {'верно' if verdict == 'ok' else 'неверно'}",
+                 content=(reason or "")[:200], target_kind="entity", target_id=entity_id)
+    return {"entity_id": entity_id, "spot_check": spot}
 
 
 def undo_model(db: Session, settings: Settings, project_id: int, entity_id: int, *, user) -> dict[str, Any]:

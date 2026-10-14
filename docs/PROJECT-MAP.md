@@ -354,7 +354,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/project_mcp.py` | `/projects/{id}/mcp`, `/mcp` | ключи MCP портала + Streamable HTTP |
 | `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
 | `routers/project_people.py` | `/projects/{id}/people`, `/parties`, `/people-platform` | реестр людей и стороны проекта, очередь «Кто это?», согласие на голос — полный перечень в §5.14; admin и manager проекта |
-| `routers/requirement_review.py` | `/projects/{id}/requirements` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin |
+| `routers/requirement_review.py` | `/projects/{id}/requirements`, `/projects/{id}/spot-check/{entity_id}` | подтверждение требований человеком: `review`, `confirm`, `/{rid}/{action}`; читают admin и manager, решают только admin; выборочная проверка «Верно / Неверно» — admin и manager (`spot-check` объявлен до `/{rid}/{action}`) |
 | `routers/admin_map.py` | `/admin/map`, `/admin/map/search` | страница «Карта проекта» (только admin): поиск по индексу кода и связей; читает `data/project_map.db`, боевую БД не трогает |
 | `routers/admin_map_graph.py` | `/admin/map/graph`, `/admin/map/graph/summary`, `/admin/map/graph/data`, `/admin/map/overview`, `/admin/map/overview/frame`, `/admin/map/overview/state`, `/admin/map/overview/rebuild` | страница «Граф зависимостей» (только admin): окрестность сущности, подсистема или модульный свод из графа (§16); читает выгрузку `data/project_map_graph.json`, при её отсутствии собирает граф из индекса. «Обзор карты» — просмотрщик инструмента projectmap во фрейме (`services/projectmap_view.py`) |
 | `routers/acme.py` | `/.well-known/acme-challenge` | HTTP-01 → Caddy (Let's Encrypt на IP) |
@@ -563,6 +563,8 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 | Карточка / элемент | API | Кто |
 |--------------------|-----|-----|
 | **Подтверждение требований**: фильтры проверки / статуса / стороны (`#px-rv-verification`, `#px-rv-status`, `#px-rv-side`), **Поиск по тексту** (`#px-rv-q`), **Показать ещё** (`#px-rv-more`) | `GET …/requirements/review` | admin, manager |
+| Строка точности над списком (`#px-rv-quality`): «Модель права в N из M пунктов, проверенных людьми» или «Мало данных…» (меньше 20 пунктов) | тот же GET, поле `quality` (`requirement_review.quality` → `contract_quality`) | admin, manager |
+| Фильтр **Выборочная проверка недели** (`verification=spot`): 10 пунктов недели (порядок — хеш проекта, недели и пункта; отмеченные выходят), кнопки **Верно** / **Неверно** (причина необязательна) | `GET …/requirements/review?verification=spot` (поле `spot`: неделя, отмечено, размер), `POST /projects/{id}/spot-check/{entity_id}` `{verdict: ok\|wrong, reason}` | admin, manager. Отметка пишется в `value_json.spot_check` и не подтверждает пункт: `needs_review`, `is_active`, `human_review` не меняются (PORTAL-ACCURACY-MANAGER-PLAN Ш1) |
 | **Файлы** (select в строке ключа): чтение (по умолчанию) / приём и чтение / закрыты | `POST /projects/{id}/mcp/tokens/{token_id}/files` `{files_access: read|write|blocked}` (по умолчанию `read`: файлы проекта видит любой ключ; `none` — прежнее имя `blocked`; не зависит от прав на вопросы) | admin, manager |
 | **Подтвердить** / **Отклонить** / **Изменить статус** (с причиной) у требования | `POST …/requirements/{rid}/{action}` | admin |
 | **Вернуть решение модели** | `POST …/requirements/entity/{entity_id}/undo-model` | admin |
@@ -1278,6 +1280,7 @@ data/projects/{project_id}/
 |------|------------|
 | `agent_gateway.py` | единая точка входа: белый список, журнал `agent_exchange_log`, идемпотентность по `client_request_id` |
 | `agent_inbox.py` | ящик вопросов агента: очередь, найденные фрагменты, черновик локальной модели, ответ человека |
+| `contract_quality.py` | точность разбора по решениям людей: извлечение верно / неверно (`human_review`, `spot_check`), согласие модели с человеком (`model_review`, «Вернуть»), конфликты, возвращённые скрытые пункты; размер выборки у каждого числа, `MIN_SAMPLE`=20; выборочная проверка недели (`spot_sample`, `record_spot`) |
 | `agent_letters.py` | письма агенту в `docs/agent-exchange/letters/`; читаются через MCP `contract/letters/` |
 | `agent_verdicts.py` | вердикты агента: список, подтверждение / отклонение человеком (только admin) |
 | `agent_settings.py` | настройки проекта для обмена (`Project.settings_json → agent_exchange`): стороны участников, пояс, пакет якорей `data/anchor_packs/*.json`, вкл/выкл обмена |
@@ -1550,6 +1553,7 @@ run_pipeline
 | `collect_ui_copy.py` | Реестр текстов интерфейса → `docs/UI-COPY.md` |
 | `eval_tz.py` | Качество быстрой сводки ТЗ на эталонных фактах (`docs/eval/tz_facts_*.json`): recall/противоречия/стабильность; только чтение |
 | `eval_chat.py` | Оценка чата на копии БД (`docs/eval/chat_questions_*.json`): пустые ответы, источники, отказ на ловушках |
+| `eval_contract_labels.py` | Точность разбора требований по решениям людей и выборочной проверке, по проектам (`services/contract_quality.py`); только чтение, без модели; меньше 20 пунктов — «мало»; отчёт `data/eval/contract_labels_*.json` |
 | `restart.ps1` | Безопасный перезапуск: проверка Ollama/LM Studio/модели/порта → `start.ps1` → ждёт нового воркера и `/health` |
 | `llm_model.py` | Локальная модель по профилю: `status` / `load` / `unload` / `jit-off` (те же функции, что у портала, §3.2) |
 | `mcp_audit.py` | Аудит проектного MCP на живых данных: размер каждого ответа, полнота текста материалов по курсору против файла на диске, память решений, права в инструкции; `--save` → `data/eval/mcp_audit_*.md`, код 1 — провалы (MCP-KB-PLAN) |
@@ -1888,6 +1892,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `conflict_context.py` | Противоречия проекта для LLM чата и ТЗ — хронологией, человеческими строками (CONFLICT-AUTONOMY-PLAN этап 5, Р4). |
 | `conflict_rules.py` | Правила разрешения противоречий без модели — docs/plans/CONFLICT-AUTONOMY-PLAN.md, решение Р1 (DECISIONS 2026-09-25). |
 | `contract.py` | Контракт обмена «база знаний ↔ агент анализа конфигурации» (v1.0). |
+| `contract_quality.py` | Точность разбора требований по решениям людей и выборочная проверка (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш1). |
 | `contract_text.py` | Разбор текста для контракта обмена с агентом анализа: сообщения переписки, дословные цитаты, оценки часов, якоря кода. |
 | `decision_log.py` | Журнал событий и состояние предмета на дату (docs/plans/DECISION-MEMORY-PLAN.md, Э4). Чистый код, модель не вызывается. |
 | `decision_memory_view.py` | Память решений для чтения: список предметов, предмет с лентой и журналом, состояние на дату. |
@@ -2166,6 +2171,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `dev_changelog.py` | Журнал разработки из git: docs/CHANGELOG-DEV.md (генерируется, руками не править). |
 | `eval_auto_review.py` | Замер автопроверки требований (план docs/plans/AUTO-REVIEW-PLAN.md, §9). |
 | `eval_chat.py` | Оценка чата-ассистента (пункт плана 2.9). |
+| `eval_contract_labels.py` | Точность разбора требований по решениям людей (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш1). |
 | `eval_index.py` | Оценка индекса проекта на золотом наборе вопросов (docs/eval/index_questions.json). |
 | `eval_tz.py` | Оценка качества быстрой сводки ТЗ (пункт плана 2.3). |
 | `export_project_graph.py` | Сборка графа зависимостей проекта: полный граф, свод по модулям, атлас для человека, выгрузки для Gephi/yEd. |
