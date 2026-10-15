@@ -25,6 +25,16 @@ def test_project_page_reserves_list_height_and_has_no_broken_cdn_css_or_english_
     assert "EXCHANGE_FILE" in html  # служебные файлы обмена с агентами не показываются как материалы
 
 
+def test_project_materials_collapsed_and_insights_equal_width():
+    html = (TEMPLATES / "project.html").read_text(encoding="utf-8")
+    panel = html.index('<div id="artifacts-panel" class="collapse">')
+    assert panel < html.index('id="artifacts-body"')  # список материалов внутри свёрнутого блока
+    assert 'data-bs-target="#artifacts-panel"' in html and 'id="kpi-done"' in html  # сводка остаётся в шапке
+    assert "col-lg-6 insights-col-summary" in html and "col-lg-6 insights-col-chat" in html
+    assert "col-lg-7" not in html and "col-lg-5" not in html
+    assert "panel: 'artifacts-panel'" in (STATIC / "px_digest.js").read_text(encoding="utf-8")
+
+
 def test_mobile_layout_rules_present():
     css = (STATIC / "app.css").read_text(encoding="utf-8")
     assert ".navbar-skkkk .navbar-actions-row" in css and "flex-wrap: wrap" in css
