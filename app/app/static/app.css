@@ -141,8 +141,7 @@ main.container { max-width: 1180px; }
   background: #fbfcfe;
 }
 .project-insights-row #chat-log {
-  border-radius: 10px !important;
-  background: #f1f4f8;
+  background: transparent;
 }
 
 @media (max-width: 767.98px) {
@@ -1454,4 +1453,114 @@ body.meeting-is-live {
 /* Совсем узкие экраны: имя пользователя не показываем (кнопка «Выйти» остаётся), чтобы строка не ломалась */
 @media (max-width: 479.98px) {
   .navbar-skkkk #nav-user { display: none; }
+}
+
+/* ---- Чат с ассистентом: карточка на странице проекта и отдельная страница /projects/{id}/chat ----
+   Лента без своей рамки (рамка — у карточки), вопрос — пузырь справа, ответ — текст во всю ширину,
+   источники свёрнуты в «Источники (N)». Разметку сообщений строит JS страницы (appendChat). */
+/* Чат «Ассистент»: без рамок вокруг ленты и сообщений, подписи «Вы/ИИ» не нужны — сторону видно по форме */
+.chat-card .chat-panel { padding: 0; }
+.chat-message { margin-bottom: .9rem; }
+.chat-message:last-child { margin-bottom: 0; }
+.chat-message-user {
+  margin-left: auto;
+  max-width: 85%;
+  width: fit-content;
+  padding: .45rem .75rem;
+  border-radius: 12px 12px 4px 12px;
+  background: #e9effa;
+  color: var(--ds-text, #1f2937);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-message-ai { padding-right: .25rem; }
+.chat-message-ai > .chat-answer > :last-child { margin-bottom: 0; }
+.chat-message-ai.is-clarification {
+  border-left: 3px solid #f0ad4e;
+  padding-left: .6rem;
+}
+.chat-message-ai.is-error { color: #b42318; }
+.chat-pending { display: inline-flex; align-items: center; gap: .5rem; color: var(--sk-muted, #6c757d); }
+.chat-sources { margin-top: .4rem; font-size: .75rem; color: var(--sk-muted, #6c757d); }
+.chat-sources summary { cursor: pointer; width: fit-content; list-style: none; }
+.chat-sources summary::-webkit-details-marker { display: none; }
+.chat-sources summary::before { content: '▸ '; }
+.chat-sources[open] summary::before { content: '▾ '; }
+.chat-sources ul { margin: .3rem 0 0; padding-left: 1rem; }
+.chat-sources li { margin-bottom: .15rem; word-break: break-word; }
+.chat-empty { color: var(--sk-muted, #6c757d); font-size: .8125rem; margin: auto 0; text-align: center; padding: 1rem .5rem; }
+.chat-status { font-size: .75rem; color: var(--sk-muted, #6c757d); padding: 0 1rem .35rem; flex: 0 0 auto; }
+.chat-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-card .card-body,
+.chat-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#chat-log {
+  flex: 1 1 auto;
+  min-height: 8rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  padding: .9rem 1rem;
+  line-height: 1.55;
+  font-size: 0.8125rem;
+}
+#chat-log h3 { font-size: 0.95rem; }
+#chat-log h4 { font-size: 0.875rem; }
+#chat-log h5 { font-size: 0.8125rem; }
+#chat-log table { font-size: 0.75rem; }
+#chat-log code { font-size: 0.75rem; }
+.chat-card .card-header {
+  font-size: 0.9rem;
+}
+/* .chat-card .card-body > — сильнее общего «.card-body > :last-child { margin-bottom: 0 }» (design.css):
+   без нижнего отступа рамка поля ложилась на рамку карточки */
+.chat-card .card-body > .chat-composer,
+.chat-composer {
+  display: flex;
+  flex: 0 0 auto;
+  margin: 0 .75rem .75rem;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 12px;
+  padding: 0.4rem 0.4rem 0.4rem 0.75rem;
+  background: #fff;
+}
+.chat-composer:focus-within {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+}
+#chat-question {
+  resize: none;
+  overflow: hidden;
+  min-height: 24px;
+  max-height: 220px;
+  line-height: 1.45;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  padding: 0;
+  background: transparent;
+  flex: 1 1 auto;
+}
+#chat-question:focus {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+#chat-send {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }

@@ -72,15 +72,25 @@
   #tz-content table, #chat-log table {
     background: #fff;
   }
-  .chat-message {
-    border-left: 4px solid transparent;
+  .chat-expand-btn { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0; }
+  .chat-expand-btn .icon-collapse { display: none; }
+  /* «На весь экран»: карточка поверх страницы, страница под ней затемнена и не прокручивается */
+  .project-insights-row > .insights-col-chat .chat-card.chat-card--full {
+    position: fixed !important;
+    inset: 1rem;
+    top: 1rem !important;
+    z-index: 1055;
+    width: auto !important;
+    max-width: 1100px;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 auto;
+    box-shadow: 0 0 0 100vmax rgba(15, 23, 42, .45) !important;
   }
-  .chat-message-user {
-    border-left-color: #0d6efd;
-  }
-  .chat-message-ai {
-    border-left-color: #198754;
-  }
+  .chat-card--full .chat-expand-btn .icon-expand { display: none; }
+  .chat-card--full .chat-expand-btn .icon-collapse { display: inline; }
+  .chat-card--full #chat-log { font-size: .875rem; padding: 1.25rem 1.5rem; }
+  body.chat-full-open { overflow: hidden; }
   .insights-card {
     display: flex;
     flex-direction: column;
@@ -92,51 +102,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-  }
-  .chat-card {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .chat-card .card-body,
-  .chat-panel {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  #chat-log {
-    flex: 1 1 auto;
-    min-height: 8rem;
-    overflow-y: auto;
-    background: #f8f9fa;
-    border: none;
-    margin-bottom: 0.75rem;
-    line-height: 1.55;
-    font-size: 0.8125rem;
-  }
-  #chat-log h3 { font-size: 0.95rem; }
-  #chat-log h4 { font-size: 0.875rem; }
-  #chat-log h5 { font-size: 0.8125rem; }
-  #chat-log table { font-size: 0.75rem; }
-  #chat-log code { font-size: 0.75rem; }
-  .chat-card .card-header {
-    font-size: 0.9rem;
-  }
-  .chat-composer {
-    display: flex;
-    flex: 0 0 auto;
-    margin-top: auto;
-    align-items: flex-end;
-    gap: 0.5rem;
-    border: 1px solid #ced4da;
-    border-radius: 0.375rem;
-    padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-    background: #fff;
-  }
-  .chat-composer:focus-within {
-    border-color: #86b7fe;
-    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
   }
   .mcp-access-card .mcp-toggle-hint {
     font-weight: normal;
@@ -223,31 +188,6 @@
   }
   .mcp-token-row td code {
     font-size: 0.8rem;
-  }
-  #chat-question {
-    resize: none;
-    overflow: hidden;
-    min-height: 24px;
-    max-height: 220px;
-    line-height: 1.45;
-    font-size: 0.8125rem;
-    white-space: pre-wrap;
-    word-break: break-word;
-    border: 0;
-    box-shadow: none;
-    outline: none;
-    padding: 0;
-    background: transparent;
-    flex: 1 1 auto;
-  }
-  #chat-question:focus {
-    border: 0;
-    box-shadow: none;
-    outline: none;
-  }
-  #chat-send {
-    flex: 0 0 auto;
-    white-space: nowrap;
   }
   .artifact-card .file-name {
     word-break: break-word;
@@ -796,13 +736,19 @@
   </div>
   <div class="col-lg-6 insights-col-chat order-1 order-lg-2 d-flex">
     <div class="card shadow-sm h-100 w-100 insights-card chat-card chat-panel-mobile-lift">
-      <div class="card-header">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2">
         <div class="section-title-wrap"><strong>Ассистент</strong><span class="section-title-subtitle">По материалам проекта</span></div>
+        <button type="button" class="btn btn-sm btn-outline-secondary chat-expand-btn" id="chat-expand" aria-pressed="false" aria-label="Развернуть на весь экран" title="Развернуть на весь экран">
+          <svg class="icon-expand" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M1.5 1h4a.5.5 0 0 1 0 1H2.7l3.65 3.65a.5.5 0 1 1-.7.7L2 2.71V5.5a.5.5 0 0 1-1 0v-4a.5.5 0 0 1 .5-.5zm9 0h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V2.7l-3.65 3.65a.5.5 0 1 1-.7-.7L13.29 2H10.5a.5.5 0 0 1 0-1zM5.65 9.65a.5.5 0 1 1 .7.7L2.71 14H5.5a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 1 0v2.79zm4.7 0L14 13.29V10.5a.5.5 0 0 1 1 0v4a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1 0-1h2.79l-3.65-3.65a.5.5 0 1 1 .7-.7z"/></svg>
+          <svg class="icon-collapse" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.5 1a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1 0-1h2.79L.65 1.35a.5.5 0 1 1 .7-.7L5 4.29V1.5a.5.5 0 0 1 .5-.5zm5 0a.5.5 0 0 1 .5.5v2.79l3.65-3.64a.5.5 0 1 1 .7.7L11.71 5h2.79a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5zM1 10.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0v-2.79l-3.65 3.64a.5.5 0 0 1-.7-.7L4.29 11H1.5a.5.5 0 0 1-.5-.5zm9 0a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-2.79l3.64 3.65a.5.5 0 0 1-.7.7L11 11.71v2.79a.5.5 0 0 1-1 0v-4z"/></svg>
+        </button>
       </div>
+      {# Чат без вложенных рамок: лента сообщений — сама карточка, вопрос — пузырь справа, ответ — текст во всю ширину #}
       <div class="card-body d-flex flex-column chat-panel insights-panel">
-        <div class="text-muted small mb-2 flex-shrink-0">Решения, ограничения, участники и требования.</div>
-        <div id="chat-status" class="text-muted small mb-2 d-none flex-shrink-0" aria-live="polite"></div>
-        <div id="chat-log" class="rounded p-2" aria-live="polite"></div>
+        <div id="chat-log" aria-live="polite">
+          <div class="chat-empty" id="chat-empty">Спросите о решениях, ограничениях, участниках и требованиях — ассистент ответит по материалам проекта и покажет источники.</div>
+        </div>
+        <div id="chat-status" class="chat-status d-none" aria-live="polite"></div>
         <div class="chat-composer">
           <textarea id="chat-question" rows="1"
                     placeholder="Задайте вопрос по материалам проекта"
@@ -1279,7 +1225,7 @@ const chatStatus = document.getElementById('chat-status');
 let chatPollTimer = null;
 
 function chatPendingHtml() {
-  return '<strong>ИИ:</strong><div class="text-muted d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом...</span></div>';
+  return '<span class="chat-pending"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом…</span></span>';
 }
 
 function isChatPending(messages) {
@@ -1302,7 +1248,7 @@ function setChatBusy(busy, label) {
 
 function renderChatHistoryMessage(msg) {
   if (msg.role === 'user') {
-    appendChat('q', `<strong>Вы:</strong><div>${escapeHtml(msg.content || '')}</div>`);
+    appendChat('q', escapeHtml(msg.content || ''));
     return;
   }
   if (msg.waiting) {
@@ -1310,11 +1256,7 @@ function renderChatHistoryMessage(msg) {
     return;
   }
   const isClarification = msg.meta && msg.meta.kind === 'clarification';
-  appendChat(
-    'a',
-    `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(msg.content || '')}</div>${renderChatSources(msg.sources)}`,
-    isClarification ? 'border-warning-subtle bg-warning-subtle' : ''
-  );
+  appendChat('a', chatAnswerHtml(msg.content || '', msg.sources), isClarification ? 'is-clarification' : '');
 }
 
 // Место в очереди к модели: ответы чата и черновики агента идут по одному, строго по порядку прихода.
@@ -1334,7 +1276,9 @@ async function reloadChatLog() {
   const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
   if (!r.ok) return null;
   const data = await r.json();
+  const empty = document.getElementById('chat-empty');
   chatLog.innerHTML = '';
+  if (!(data.messages || []).length && empty) chatLog.appendChild(empty);
   (data.messages || []).forEach(renderChatHistoryMessage);
   return data.messages || [];
 }
@@ -1390,7 +1334,7 @@ async function askProjectChat() {
   }
   await SKKKK.guardButton(chatSend, async () => {
     chatQuestion.value = '';
-    appendChat('q', `<strong>Вы:</strong><div>${escapeHtml(question)}</div>`);
+    appendChat('q', escapeHtml(question));
     appendChat('a', chatPendingHtml());
     const pending = chatLog.lastElementChild;
     setChatBusy(true);
@@ -1411,12 +1355,11 @@ async function askProjectChat() {
       }
       if (!r.ok) throw new Error('chat failed');
       const data = await r.json();
-      pending.innerHTML =
-        `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(data.answer || 'Пустой ответ')}</div>` +
-        renderChatSources(data.sources);
+      pending.innerHTML = chatAnswerHtml(data.answer || 'Пустой ответ', data.sources);
       setChatBusy(false);
     } catch (err) {
-      pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
+      pending.classList.add('is-error');
+      pending.textContent = 'Не удалось получить ответ.';
       setChatBusy(false);
       await syncChatUi();
     } finally {
@@ -1717,11 +1660,17 @@ async function rebuildTz() {
 }
 
 function appendChat(kind, html, extraClass) {
+  document.getElementById('chat-empty')?.remove();
   const wrap = document.createElement('div');
-  wrap.className = `mb-2 p-2 border rounded chat-message ${kind === 'q' ? 'bg-white chat-message-user' : 'bg-body chat-message-ai'}${extraClass ? ` ${extraClass}` : ''}`;
+  wrap.className = `chat-message ${kind === 'q' ? 'chat-message-user' : 'chat-message-ai'}${extraClass ? ` ${extraClass}` : ''}`;
   wrap.innerHTML = html;
   chatLog.appendChild(wrap);
   chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+// Ответ ИИ: текст во всю ширину, источники свёрнуты в одну строку «Источники (N)»
+function chatAnswerHtml(markdown, sources) {
+  return `<div class="chat-answer">${renderMarkdown(markdown)}</div>${renderChatSources(sources)}`;
 }
 
 function renderChatSources(sources) {
@@ -1734,8 +1683,33 @@ function renderChatSources(sources) {
     return `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${label}</a>`;
   });
   if (!items.length) return '';
-  return `<div class="small text-muted mt-2">Источники: ${items.join(', ')}</div>`;
+  return `<details class="chat-sources"><summary>Источники (${items.length})</summary><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul></details>`;
 }
+
+// «На весь экран» для ассистента: та же карточка поверх страницы; Esc или повторное нажатие возвращают на место
+(function chatFullscreen() {
+  const btn = document.getElementById('chat-expand');
+  const card = btn && btn.closest('.chat-card');
+  if (!card) return;
+  const set = (on) => {
+    card.classList.toggle('chat-card--full', on);
+    document.body.classList.toggle('chat-full-open', on);
+    btn.setAttribute('aria-pressed', String(on));
+    const label = on ? 'Свернуть' : 'Развернуть на весь экран';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    chatLog.scrollTop = chatLog.scrollHeight;
+    if (on) chatQuestion.focus();
+  };
+  btn.addEventListener('click', () => set(!card.classList.contains('chat-card--full')));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && card.classList.contains('chat-card--full')) set(false);
+  });
+  // клик по затемнению вокруг карточки тоже сворачивает
+  document.addEventListener('mousedown', (e) => {
+    if (card.classList.contains('chat-card--full') && !card.contains(e.target)) set(false);
+  });
+})();
 
 const tzRefreshEl = document.getElementById('tz-refresh');
 if (tzRefreshEl) tzRefreshEl.onclick = rebuildTz;

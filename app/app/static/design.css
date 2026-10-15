@@ -304,8 +304,9 @@ a { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); te
 }
 /* страница входа и гостя: воздух сверху */
 main > .row.justify-content-center { margin-top: clamp(0px, 5vh, 3rem); }
-/* карточка «Ассистент»: плейсхолдер чата в тон системы */
+/* карточка «Ассистент»: лента без своей рамки (рамка — у карточки), отдельная страница чата — в тон системы */
 #chat-log { background: var(--ds-surface-2); border: 1px solid var(--ds-line); border-radius: var(--ds-r-md); }
+.chat-card #chat-log { background: transparent; border: 0; border-radius: 0; }
 .toast.text-bg-success { background: var(--ds-ok) !important; color: #fff !important; border-radius: var(--ds-r-md); }
 /* уважение к настройке «меньше движения» */
 @media (prefers-reduced-motion: reduce) { .btn, .meeting-dock-btn { transition: none; } }

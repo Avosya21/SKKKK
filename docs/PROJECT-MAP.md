@@ -382,7 +382,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `/admin/conflicts` | `/admin/conflicts` | `conflicts.html` | Очередь конфликтов (**admin**, HTML 302→login / 403 не-admin) |
 | `/projects/{id}/graph` | graph | `graph.html` | Cytoscape-граф (GET graph/data) |
 | `/projects/{id}/tz` | tz | `tz.html` | Отдельная страница ТЗ (дублирует rebuild-tz) |
-| `/projects/{id}/chat` | chat | `chat.html` | Отдельный чат (дублирует чат на project) |
+| `/projects/{id}/chat` | chat | `chat.html` | Отдельный чат (дублирует чат на project, тот же вид) |
 
 ### 5.3. Список проектов — `/` (`index.html`)
 
@@ -476,7 +476,9 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Журнал действий** | `GET /projects/{id}/activity` | FastAPI → `user_activity.list_activity()` | API для аудита и памяти чата; **в UI чата не показывается** |
 | **Статус чата** | `GET /projects/{id}/chat/status` | FastAPI → `chat.chat_is_pending()` + `llm_lanes.chat_status()` | `{pending, label, position}`: «В очереди к ИИ: перед вами N», «Загружаю модель…», «ИИ готовит ответ…» |
 
-Enter в textarea — тоже отправка. Отдельная страница `/projects/{id}/chat` — тот же endpoint. Повторный `POST /chat` при активном ответе — **409** (проверка и запись вопроса под одним замком). Обработка созвонов чат **не** блокирует (Р2, 2026-10-05): ответы идут полосой чата строго по очереди (§3.2).
+**Вид** (с 2026-10-15, общие стили — блок «Чат с ассистентом» в конце `static/app.css`): лента `#chat-log` без своей рамки и подложки (рамка — у карточки `chat-card`); вопрос — пузырь справа (`.chat-message-user`), ответ — текст во всю ширину (`.chat-message-ai > .chat-answer`), подписей «Вы/ИИ» нет; уточнение — оранжевая полоска слева (`.is-clarification`), ошибка — `.is-error`; источники свёрнуты в `<details class="chat-sources">` «Источники (N)», у фрагмента созвона — ссылка на момент. Пустой чат — подсказка `#chat-empty` по центру. Статус очереди `#chat-status` — над полем ввода, только пока ИИ отвечает. Поле `.chat-composer` с отступом 0.75rem от краёв карточки (селектор `.chat-card .card-body > .chat-composer` сильнее общего `.card-body > :last-child { margin-bottom: 0 }` из `design.css`). Кнопка **На весь экран** (`#chat-expand`, только на странице проекта): класс `chat-card--full` — карточка поверх страницы до 1100px, фон затемнён, прокрутка страницы снята (`body.chat-full-open`); закрыть — та же кнопка, Esc или клик мимо карточки.
+
+Enter в textarea — тоже отправка, Shift+Enter — новая строка. Отдельная страница `/projects/{id}/chat` (`chat.html`) — тот же endpoint и тот же вид: карточка на высоту окна, кнопка «К проекту». Повторный `POST /chat` при активном ответе — **409** (проверка и запись вопроса под одним замком). Обработка созвонов чат **не** блокирует (Р2, 2026-10-05): ответы идут полосой чата строго по очереди (§3.2).
 
 #### Задачи (сворачиваемый блок `deadlines-card`, над MCP; до 2026-10-14 — «Дедлайны»)
 
@@ -2093,7 +2095,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `admin_memory.html` | Табло памяти решений (/admin/memory): метрики, чек-лист приёмки платформы, история прогонов; доступ — по списку Panel_users.txt |
 | `admin_users.html` | Панель пользователей (/admin/users): таблица учёток и общая лента действий; доступ — по списку Panel_users.txt |
 | `base.html` | Общий каркас страниц портала: шапка (логотип, бейдж LLM, «Нужен перезапуск», пользователь, «Выйти»), блоки для страниц |
-| `chat.html` | Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat) |
+| `chat.html` | Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat): тот же вид, что у карточки «Ассистент» (стили — app.css) |
 | `companies.html` | Список компаний для карточек сотрудников и сторон проектов (админ, /admin/companies; PLATFORM-FOUNDATION-PLAN, ПФ4) |
 | `conflicts.html` | Очередь конфликтов фактов (/admin/conflicts, только admin): выбрать верное утверждение с причиной |
 | `error.html` | Страница ошибки HTML (403/404/500) с понятным текстом на русском |
