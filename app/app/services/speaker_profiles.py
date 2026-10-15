@@ -748,6 +748,7 @@ def enroll_speaker(
                 "status": "merged_duplicate" if lbl != canonical else "confirmed",
             }
         )
+        row.pop("needs_human", None)  # голос проверил человек
         display[lbl] = profile.display_name
     _touch_voice_aliases(
         payload,
@@ -1680,10 +1681,13 @@ def speakers_confirm_status(db: Session, *, project_id: int, artifact_id: str) -
         }
 
     merge_map: dict[str, str] = {}
+    rows: dict = {}
     path = match_json_path(project_id, artifact_id)
     if path.is_file():
         try:
-            merge_map = json.loads(path.read_text(encoding="utf-8")).get("merge_map") or {}
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            merge_map = stored.get("merge_map") or {}
+            rows = stored.get("matches") or {}
         except json.JSONDecodeError:
             merge_map = {}
 
@@ -1700,7 +1704,9 @@ def speakers_confirm_status(db: Session, *, project_id: int, artifact_id: str) -
     for canon in labels:
         aliases = {canon} | {lbl for lbl, tgt in merge_map.items() if tgt == canon}
         link = next((links[a] for a in aliases if a in links), None)
-        if link and link.status == "confirmed" and link.profile_id:
+        # узнан по голосу автоматически, но человек карточку ещё не проверил (speaker_auto, needs_human)
+        unchecked = any(isinstance(rows.get(a), dict) and rows[a].get("needs_human") for a in aliases)
+        if link and link.status == "confirmed" and link.profile_id and not unchecked:
             confirmed.append(canon)
         else:
             pending.append(canon)

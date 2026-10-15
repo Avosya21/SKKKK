@@ -26,6 +26,7 @@ STATUS_BADGE = {
     "suggested": ("bg-warning text-dark", "подсказка"),
     "new": ("bg-secondary", "новый"),
     "merged_duplicate": ("bg-info text-dark", "дубль"),
+    "check": ("bg-warning text-dark", "проверьте"),
 }
 
 BOOTSTRAP = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -244,7 +245,8 @@ def _speaker_cards(
         cs, ce = m.get("clip_start"), m.get("clip_end")
         inp_id = f"name-{sp.replace('_', '-')}"
         headline = html.escape(pname) if pname else html.escape(sp)
-        enroll_btn = "Обновить" if st == "confirmed" else "Запомнить"
+        unchecked = st == "confirmed" and bool(m.get("needs_human"))  # узнан автоматически, ждёт проверки человеком
+        enroll_btn = "Подтвердить" if st != "confirmed" or unchecked else "Обновить"
         labels_txt = html.escape(" · ".join(labels))
         merge_note = (
             f'<p class="speaker-merge mb-2"><span class="badge rounded-pill text-bg-light border">'
@@ -272,7 +274,8 @@ def _speaker_cards(
             score_txt += (
                 f'<p class="small text-muted mb-2">Узнан автоматически по голосу '
                 f'({int(float(auto.get("score") or 0) * 100)}%, отрыв {int(float(auto.get("margin") or 0) * 100)}%). '
-                f"Если это не он — введите имя и нажмите «Обновить».</p>"
+                + ("Проверьте имя, компанию и сторону и нажмите «Подтвердить».</p>" if unchecked
+                   else "Если это не он — введите имя и нажмите «Обновить».</p>")
             )
         hint = m.get("llm_hint") if st == "new" else None
         if hint and not (m.get("profile_name") or "").strip():
@@ -330,7 +333,7 @@ def _speaker_cards(
             f'<div class="flex-grow-1 min-w-0">'
             f'<div class="d-flex justify-content-between align-items-start gap-2">'
             f'<h3 class="speaker-name h6 mb-0">{headline}</h3>'
-            f"{_badge(st)}"
+            f"{_badge('check' if unchecked else st)}"
             f"</div>"
             f"{merge_note}"
             f"{score_txt}"
@@ -368,7 +371,7 @@ def render_html(
     voices_title = "Голоса встречи" if is_lab else "Голоса Sortformer"
     recalc_label = "Пересчитать подсказки" if is_lab else "Обновить и пересчитать"
     recalc_hint = (
-        "неотмеченные ↔ база голосов; «Запомнить» не сбрасывается"
+        "неотмеченные ↔ база голосов; подтверждённые не сбрасываются"
         if is_lab
         else "~20 с · Docker WeSpeaker"
     )
@@ -691,7 +694,7 @@ def render_html(
           <div class="panel-header" id="workflow-heading">Как работать</div>
           <div>
             <div class="workflow-step"><span class="workflow-num">1</span><span>Прослушайте эталонный клип каждого спикера</span></div>
-            <div class="workflow-step"><span class="workflow-num">2</span><span>Введите имя и нажмите «Запомнить»</span></div>
+            <div class="workflow-step"><span class="workflow-num">2</span><span>Проверьте имя, компанию и сторону и нажмите «Подтвердить»</span></div>
             <div class="workflow-step"><span class="workflow-num">3</span><span>{html.escape(workflow_3)}</span></div>
           </div>
         </section>

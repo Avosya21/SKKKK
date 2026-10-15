@@ -3633,6 +3633,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_speaker_cards
+    kind: service
+    path: app/app/services/speaker_cards.py
+    title: "Карточка голоса на странице «Голоса» (/report-speaker-match): имя, компания, сторона и должность сразу."
+    tags: [auto]
+    auto: true
+
+  - id: static_speaker_cards
+    kind: file
+    path: app/app/static/speaker_cards.css
+    title: "Карточки голосов: компания, сторона, должность (static/speaker_cards.js)"
+    tags: [auto]
+    auto: true
+
+  - id: static_speaker_cards_auto
+    kind: file
+    path: app/app/static/speaker_cards.js
+    title: "Карточки голосов (/report-speaker-match): имя, компания, сторона и должность — сразу в «Люди и стороны»."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
