@@ -29,5 +29,7 @@ class ProjectOut(BaseModel):
     created_by: int
     created_at: datetime
     is_active: bool
+    # Кто завёл проект («Фамилия Имя» из карточки, иначе логин) — только в списке для админа.
+    creator_name: str | None = None
 
     model_config = {"from_attributes": True}

@@ -238,3 +238,22 @@ def test_project_name_is_not_mangled_and_empty_rejected(client, manager_token):
     assert ok.status_code in (200, 201) and ok.json()["name"] == "ООО «Ромашка» №1 & Co"
     assert client.post("/projects", json={"name": "   "}, headers=h).status_code == 400
     assert client.post("/projects", json={"name": "x" * 300}, headers=h).status_code == 422
+
+
+def test_list_projects_creator_only_for_admin(client, admin_token, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user_profile import UserProfile
+
+    client.post("/projects", json={"name": "ByManager"}, headers={"Authorization": f"Bearer {manager_token}"})
+    db = SessionLocal()
+    try:
+        owner = db.query(Project).filter(Project.name == "ByManager").one().created_by
+        db.merge(UserProfile(user_id=owner, last_name="Петров", first_name="Олег"))
+        db.commit()
+    finally:
+        db.close()
+    rows = client.get("/projects", headers={"Authorization": f"Bearer {admin_token}"}).json()
+    assert next(p for p in rows if p["name"] == "ByManager")["creator_name"] == "Петров Олег"
+    rows = client.get("/projects", headers={"Authorization": f"Bearer {manager_token}"}).json()
+    assert next(p for p in rows if p["name"] == "ByManager")["creator_name"] is None
