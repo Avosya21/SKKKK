@@ -17,6 +17,16 @@
 .px-tabs .nav-link { color: var(--ds-text-2, #3f3f46); }
 .px-tabs .nav-link.active { color: var(--ds-text, #09090b); font-weight: 600; }
 .px-form .form-text { color: var(--ds-text-3, #71717a); }
+/* Блоки с вкладками «Агенты и MCP» и «О проекте» (tab_hubs.js): вкладки разделов сверху, внутри «Обмена» — компактные подвкладки-«таблетки» */
+.hub-tabs .nav-link { color: var(--ds-text-2, #3f3f46); }
+.hub-tabs .nav-link.active { color: var(--ds-text, #09090b); font-weight: 600; }
+.px-subtabs { gap: 4px; }
+.px-subtabs .nav-link { padding: .25rem .75rem; font-size: .875rem; border-radius: 6px; }
+.px-subtabs .nav-link.active { background: var(--ds-surface-2, #f4f4f5); color: var(--ds-text, #09090b); }
+@media (max-width: 576px) {
+  .hub-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .hub-tabs .nav-link { padding: .4rem .6rem; font-size: .875rem; white-space: nowrap; }
+}
 @media (max-width: 576px) {
   .px-item { padding: 10px 10px; }
   .px-filters .px-filter { flex: 1 1 100%; }

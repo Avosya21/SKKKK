@@ -13,8 +13,8 @@
     materials: { card: '.workspace-card', panel: 'artifacts-panel' },
     tasks: { card: '.deadlines-card', panel: 'deadlines-panel' },
     memory: { card: '#mem-card', panel: 'mem-panel' },
-    exchange: { card: '#px-card-exchange', panel: 'px-panel-exchange' },
-    review: { card: '#px-card-review', panel: 'px-panel-review' },
+    exchange: { card: '#agents-hub-card', hub: 'exchange' },
+    review: { card: '#project-hub-card', hub: 'review' },
     conflicts: { href: '/admin/conflicts' },
   };
 
@@ -24,6 +24,7 @@
     if (t.href) { window.location.href = t.href; return; }
     const card = document.querySelector(t.card);
     if (!card) return;
+    if (t.hub && window.PageHubs) window.PageHubs.open(t.hub);
     const panel = t.panel && document.getElementById(t.panel);
     if (panel && !panel.classList.contains('show')) bootstrap.Collapse.getOrCreateInstance(panel).show();
     if (target === 'review' && view) {

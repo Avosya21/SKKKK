@@ -1369,7 +1369,6 @@ body.meeting-is-live {
 /* Заголовки сворачиваемых блоков: зона нажатия не меньше 36 px (было 22) */
 .deadlines-card .card-header .deadlines-toggle-btn,
 .meetings-card .card-header .meetings-toggle-btn,
-.mcp-access-card .card-header .mcp-toggle-btn,
 .grant-access-card .card-header .grant-toggle-btn,
 .extra-files-card .card-header .extra-files-toggle-btn,
 .px-card .card-header .px-toggle-btn {

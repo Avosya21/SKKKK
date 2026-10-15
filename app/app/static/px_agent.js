@@ -1,8 +1,9 @@
 /* Карточки обмена с агентами на странице проекта: подтверждение требований, обмен (вопросы/вердикты/журнал), настройки.
+   Обмен и настройки — вкладки блока «Агенты и MCP» (partials/agents_hub.html), требования, вопросы к заказчику и карточка проекта — блока «О проекте»
+   (partials/project_hub.html); переключает их static/tab_hubs.js.
    Данные и права приходят с сервера (can_edit); все действия проверяются на сервере. Роль admin — действия, manager — просмотр. */
 (function () {
-  const root = document.querySelector('[data-px-card]');
-  if (!root || !window.PX) return;
+  if (!document.getElementById('project-hub-card') || !window.PX) return;
   const PID = window.PX.projectId;
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,7 +25,6 @@
   const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const fmt = (iso) => { try { return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return iso || ''; } };
   const say = (key, text, bad) => { const el = $('px-status-' + key); if (el) { el.textContent = text || ''; el.classList.toggle('text-danger', !!bad); } };
-  const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* без хранилища работает */ } } };
   const SIDE = { customer: 'заказчик', vendor: 'исполнитель', unknown: 'сторона неизвестна' };
   const STATUS = { agreed: 'согласовано', proposed: 'предложено', implemented: 'реализовано', rejected: 'отклонено', agreed_out_of_scope: 'согласовано вне ТЗ' };
   const BASIS = {
@@ -51,21 +51,19 @@
       const s = await r.json();
       setCount('review', s.requirements_unconfirmed, 'ждут вас');
       setCount('exchange', s.questions_waiting + s.verdicts_waiting, 'ждут вас');
+      const hubCount = $('agents-hub-tabcount-exchange'), waiting = s.questions_waiting + s.verdicts_waiting;
+      if (hubCount) { hubCount.textContent = waiting; hubCount.classList.toggle('d-none', !waiting); }
       const q = $('px-tabcount-questions'), v = $('px-tabcount-verdicts');
       q.textContent = s.questions_waiting; q.classList.toggle('d-none', !s.questions_waiting);
       v.textContent = s.verdicts_waiting; v.classList.toggle('d-none', !s.verdicts_waiting);
     } catch (e) { /* счётчики не критичны */ }
   }
 
-  /* ---------- сворачивание с запоминанием и ленивой загрузкой ---------- */
-  document.querySelectorAll('[data-px-card]').forEach((card) => {
-    const key = card.dataset.pxCard;
-    const panel = $('px-panel-' + key);
-    const hint = card.querySelector('.px-toggle-hint');
-    const onShow = () => { if (hint) hint.textContent = '(свернуть)'; store.set('px_open_' + key, '1'); if (!loaded[key]) { loaded[key] = true; LOADERS[key](); } };
-    panel.addEventListener('shown.bs.collapse', onShow);
-    panel.addEventListener('hidden.bs.collapse', () => { if (hint) hint.textContent = '(развернуть)'; store.set('px_open_' + key, '0'); });
-    if (store.get('px_open_' + key) === '1') { new bootstrap.Collapse(panel, { toggle: true }); }
+  /* ---------- ленивая загрузка вкладок ---------- */
+  // вкладки блоков «Агенты и MCP» и «О проекте» (static/tab_hubs.js): данные грузятся, когда вкладка впервые видна
+  document.addEventListener('hub:show', (ev) => {
+    const key = ev.detail && ev.detail.tab;
+    if (LOADERS[key] && !loaded[key]) { loaded[key] = true; LOADERS[key](); }
   });
 
   /* ---------- Подтверждение требований ---------- */
@@ -331,7 +329,7 @@
     });
   });
   let rvTimer;
-  document.querySelectorAll('#px-panel-review .px-filter').forEach((f) => f.addEventListener(f.tagName === 'INPUT' ? 'input' : 'change', () => { clearTimeout(rvTimer); rvTimer = setTimeout(() => loadReview(false), 250); }));
+  document.querySelectorAll('#px-card-review .px-filter').forEach((f) => f.addEventListener(f.tagName === 'INPUT' ? 'input' : 'change', () => { clearTimeout(rvTimer); rvTimer = setTimeout(() => loadReview(false), 250); }));
 
   /* ---------- Обмен с агентами ---------- */
   let exCanEdit = false;

@@ -1,0 +1,142 @@
+{# О проекте: один сворачиваемый блок с вкладками — подтверждение требований, вопросы к заказчику, карточка проекта, люди и стороны.
+   Переключение и запоминание — static/tab_hubs.js; данные вкладок — static/px_agent.js (требования, вопросы, карточка) и static/people.js (люди) #}
+<div class="card shadow-sm mb-4 px-card hub-card" id="project-hub-card" data-hub="project">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button" class="px-toggle-btn d-flex align-items-center gap-2 p-0" data-bs-toggle="collapse"
+            data-bs-target="#project-hub-panel" aria-expanded="false" aria-controls="project-hub-panel">
+      <strong>О проекте</strong>
+      <span class="small text-muted px-toggle-hint" id="project-hub-hint" data-hub-hint>(развернуть)</span>
+    </button>
+    <span class="d-flex gap-2 flex-wrap">
+      <span class="badge text-bg-secondary flex-shrink-0 d-none px-count" id="px-count-review" aria-live="polite"></span>
+      <span class="badge text-bg-warning flex-shrink-0 d-none" id="pp-badge" aria-live="polite"></span>
+    </span>
+  </div>
+  <div id="project-hub-panel" class="collapse" data-hub-panel>
+    <div class="card-body">
+      <ul class="nav nav-tabs hub-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation"><button class="nav-link active" type="button" role="tab" data-hub-tab="review" aria-controls="px-card-review" aria-selected="true">Подтверждение требований</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="oq" aria-controls="px-card-oq" aria-selected="false">Вопросы к заказчику <span class="badge text-bg-secondary d-none" id="px-count-oq"></span></button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="card" aria-controls="px-card-card" aria-selected="false">Карточка проекта</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="people" aria-controls="pp-card" aria-selected="false">Люди и стороны <span class="badge text-bg-secondary d-none" id="pp-tabcount"></span></button></li>
+      </ul>
+
+      <div class="hub-pane" id="px-card-review" data-hub-pane="review" role="tabpanel">
+        <p class="text-muted small mb-3">Требования, которые система извлекла из материалов проекта, по темам. У каждого — кто сказал и кто утвердил, где и когда, ход обсуждения. «Подтвердить» значит «это действительно было сказано / решено на этой встрече»: если позже от пункта отказались, система сама переведёт его в «Устарело». Устаревшее, дубли и пункты без цитаты источника в «Ждут вас» не попадают — их можно вернуть кнопкой «Это актуально». Подтверждать и возвращать решения модели может только администратор.</p>
+        <div class="px-status small text-muted mb-2" id="px-status-review" aria-live="polite"></div>
+        <div class="px-filters d-flex flex-wrap gap-2 mb-3">
+          <select class="form-select form-select-sm px-filter" id="px-rv-verification" aria-label="Подтверждение">
+            <option value="needs_human">Ждут вас</option>
+            <option value="unsourced">Не подтверждено источником</option>
+            <option value="superseded">Устарело (позже заменено)</option>
+            <option value="merged">Склеено (дубли)</option>
+            <option value="model_confirmed">Подтверждены моделью</option>
+            <option value="model_rejected">Отклонены моделью</option>
+            <option value="human_confirmed">Подтверждены вами</option>
+            <option value="extracted">Не проверены никем</option>
+            <option value="spot">Выборочная проверка недели</option>
+            <option value="">Все</option>
+          </select>
+          <select class="form-select form-select-sm px-filter" id="px-rv-status" aria-label="Статус">
+            <option value="">Любой статус</option>
+            <option value="agreed">Согласовано</option>
+            <option value="proposed">Предложено</option>
+            <option value="implemented">Реализовано</option>
+            <option value="rejected">Отклонено</option>
+          </select>
+          <select class="form-select form-select-sm px-filter" id="px-rv-side" aria-label="Сторона">
+            <option value="">Любая сторона</option>
+            <option value="customer">Заказчик</option>
+            <option value="vendor">Исполнитель</option>
+            <option value="unknown">Неизвестно</option>
+          </select>
+          <input type="search" class="form-control form-control-sm px-filter px-grow" id="px-rv-q" placeholder="Поиск по тексту" aria-label="Поиск">
+          <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="px-rv-reextract" title="Заново разобрать все материалы проекта по новой схеме: с контекстом проекта, видами пунктов, «кто и когда», темами, дублями и устаревшим. Ваши подтверждения переносятся на новые пункты. Идёт фоном.">Переизвлечь требования</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="px-rv-backlog" title="Фоновая проверка локальной моделью всех накопленных требований и конфликтов проекта. Расшифровке не мешает.">Проверить моделью всё накопленное</button>
+        </div>
+        <div class="px-batch d-none align-items-center gap-2 mb-2" id="px-rv-batch">
+          <span class="small text-muted" id="px-rv-selected"></span>
+          <button type="button" class="btn btn-sm btn-primary" id="px-rv-confirm-selected">Подтвердить выбранные</button>
+        </div>
+        <div class="small text-muted mb-2" id="px-rv-quality" aria-live="polite"></div>
+        <div id="px-rv-list" class="px-list"></div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2 d-none" id="px-rv-more">Показать ещё</button>
+      </div>
+
+      <div class="hub-pane d-none" id="px-card-oq" data-hub-pane="oq" role="tabpanel">
+        <p class="text-muted small mb-3">Вопросы без ответа и варианты, между которыми ещё не выбрали, из созвонов и документов. Это не требования: они ждут решения заказчика и попадают в раздел ТЗ «Открытые вопросы и риски».</p>
+        <div class="px-status small text-muted mb-2" id="px-status-oq" aria-live="polite"></div>
+        <div id="px-oq-list" class="px-list"></div>
+      </div>
+
+      <div class="hub-pane d-none" id="px-card-card" data-hub-pane="card" role="tabpanel">
+        <p class="text-muted small mb-3">Цель, системы, этапы, участники со сторонами и термины. Модель видит карточку, когда разбирает каждый созвон и документ, — поэтому требования формулируются в контексте проекта. Черновик собирает модель; правка администратора главнее черновика.</p>
+        <div class="px-status small text-muted mb-2" id="px-status-card" aria-live="polite"></div>
+        <div class="small text-muted mb-2" id="px-card-meta"></div>
+        <textarea class="form-control form-control-sm font-monospace" id="px-card-text" rows="14" maxlength="8000" aria-label="Текст карточки проекта"></textarea>
+        <div class="d-flex flex-wrap gap-2 mt-2" id="px-card-actions">
+          <button type="button" class="btn btn-sm btn-primary" id="px-card-save">Сохранить правку</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="px-card-rebuild">Пересобрать черновик моделью</button>
+        </div>
+      </div>
+
+      <div class="hub-pane d-none" id="pp-card" data-hub-pane="people" role="tabpanel">
+        <p class="text-muted small mb-3">Кто участвует в проекте, из какой компании и на чьей стороне. По этому реестру система понимает,
+          кто предложил и кто согласился: сторону человека определяете вы, а не догадка по тексту. Один человек в разных написаниях
+          («Анна», «Анна Пример») — это один человек: объедините их.</p>
+        <div class="small text-muted mb-2" id="pp-status" aria-live="polite"></div>
+
+        <div class="px-item" id="pp-platform-box">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="pp-platform" disabled>
+            <label class="form-check-label" for="pp-platform">Брать стороны из этого списка в анализе проекта</label>
+          </div>
+          <div class="form-text" id="pp-platform-hint">Пока выключено, стороны определяются по ролям из текста, как раньше. Включает администратор.</div>
+        </div>
+
+        <div class="px-actions">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="pp-seed">Найти людей в материалах</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="pp-toggle-add">Добавить человека</button>
+        </div>
+        <form class="px-form-row d-none" id="pp-add-form" autocomplete="off">
+          <input type="text" class="form-control form-control-sm" id="pp-new-name" placeholder="Имя и фамилия" maxlength="200" required>
+          <input type="text" class="form-control form-control-sm" id="pp-new-company" placeholder="Компания" maxlength="200">
+          <select class="form-select form-select-sm" id="pp-new-side" aria-label="Сторона">
+            <option value="unknown">Сторона не определена</option>
+            <option value="customer">Заказчик</option>
+            <option value="executor">Исполнитель</option>
+          </select>
+          <button type="submit" class="btn btn-sm btn-primary">Добавить</button>
+        </form>
+        <div class="px-form-row d-none" id="pp-members-row">
+          <select class="form-select form-select-sm" id="pp-member-select" aria-label="Сотрудник проекта без записи в списке"></select>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="pp-member-add">Добавить сотрудника</button>
+        </div>
+
+        <h6 class="mt-4 mb-2">Люди проекта</h6>
+        <div class="px-list" id="pp-list"></div>
+
+        <h6 class="mt-4 mb-2">Кто это? <span class="text-muted small fw-normal" id="pp-unknown-count"></span></h6>
+        <div class="px-list" id="pp-unknown"></div>
+
+        <h6 class="mt-4 mb-2">Стороны компаний</h6>
+        <div class="small text-muted mb-2">Какая компания в этом проекте исполнитель, а какая заказчик. Новые люди из этих компаний получают сторону автоматически.
+          {% if current_role == 'admin' %}<a href="/admin/companies">Общий список компаний</a>{% endif %}</div>
+        <div class="px-list" id="pp-parties"></div>
+        <form class="px-form-row" id="pp-party-form" autocomplete="off">
+          <input type="text" class="form-control form-control-sm" id="pp-party-name" placeholder="Название компании" maxlength="200" required>
+          <select class="form-select form-select-sm" id="pp-party-side" aria-label="Сторона компании">
+            <option value="customer">Заказчик</option>
+            <option value="executor">Исполнитель</option>
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Сохранить</button>
+        </form>
+
+        <details class="mt-4" id="pp-log-box">
+          <summary class="small text-muted">Журнал изменений</summary>
+          <div class="table-responsive mt-2"><table class="table table-sm px-journal mb-0"><tbody id="pp-log"></tbody></table></div>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>

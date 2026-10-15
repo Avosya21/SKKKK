@@ -114,5 +114,5 @@ def test_project_page_renders_agent_cards_for_staff(client, manager_token, user_
     pid = client.post("/projects", json={"name": "Страница карточек"}, headers=h).json()["id"]
     r = client.get(f"/projects/{pid}", headers=h)
     assert r.status_code == 200
-    for needle in ("px-card-review", "px-card-exchange", "px-card-settings", "px_agent.js", "px_agent.css", "window.PX"):
+    for needle in ("px-card-review", "agents-hub-card", "px-card-exchange", "px-card-settings", "mcp-access-pane", "project-hub-card", "px-card-oq", "px-card-card", "pp-card", "px_agent.js", "tab_hubs.js", "px_agent.css", "window.PX"):
         assert needle in r.text, needle

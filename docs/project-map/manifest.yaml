@@ -1134,8 +1134,8 @@ nodes:
 
   - id: ui_agent_cards
     kind: ui
-    path: "app/app/templates/partials/px_agent_cards.html"
-    title: "Project page cards - requirements review, agent exchange, agent settings; JS px_agent.js, CSS px_agent.css"
+    path: "app/app/templates/partials/project_hub.html"
+    title: "Project page tab blocks - «О проекте» (requirements review, open questions, project card, people) and «Агенты и MCP» (agents_hub.html); JS px_agent.js, tab_hubs.js, CSS px_agent.css"
     tags: [ui, agent]
 
   - id: mod_bootstrap
@@ -2800,13 +2800,6 @@ nodes:
     tags: [auto]
     auto: true
 
-  - id: ui_people_card
-    kind: file
-    path: app/app/templates/partials/people_card.html
-    title: "Люди и стороны проекта (ПФ3 PLATFORM-FOUNDATION-PLAN): реестр людей, «Кто это?», стороны компаний. Логика: static/people.js"
-    tags: [auto]
-    auto: true
-
   - id: router_companies_admin
     kind: router
     path: app/app/routers/companies_admin.py
@@ -3665,6 +3658,27 @@ nodes:
     kind: file
     path: scripts/voice_review.py
     title: "Разбор базы голосов и людей проектов на слух: локальная страница, решения владельца, применение."
+    tags: [auto]
+    auto: true
+
+  - id: ui_agents_hub
+    kind: file
+    path: app/app/templates/partials/agents_hub.html
+    title: "Агенты и MCP: один сворачиваемый блок с вкладками — удалённый доступ по ключу, обмен с агентами, настройки для агентов. Переключение и запом"
+    tags: [auto]
+    auto: true
+
+  - id: static_tab_hubs
+    kind: file
+    path: app/app/static/tab_hubs.js
+    title: "Сворачиваемые блоки с вкладками на странице проекта: «Агенты и MCP» (partials/agents_hub.html), «О проекте» (partials/project_hub.html)."
+    tags: [auto]
+    auto: true
+
+  - id: ui_project_hub
+    kind: file
+    path: app/app/templates/partials/project_hub.html
+    title: "О проекте: один сворачиваемый блок с вкладками — вопросы к заказчику, карточка проекта, люди и стороны. Переключение и запоминание — static/"
     tags: [auto]
     auto: true
 

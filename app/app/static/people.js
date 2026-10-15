@@ -115,7 +115,8 @@
   function render() {
     renderPeople(); renderUnknown(); renderParties(); renderPlatform(); renderMembers();
     const count = state.people.length;
-    root.querySelector('.px-toggle-hint').textContent = count ? `(${count})` : '(развернуть)';
+    const tabCount = $('pp-tabcount');  // число людей — на вкладке «Люди и стороны» блока «О проекте»
+    if (tabCount) { tabCount.textContent = count; tabCount.classList.toggle('d-none', !count); }
   }
 
   async function loadAll() {

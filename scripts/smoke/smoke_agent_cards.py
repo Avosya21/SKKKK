@@ -34,12 +34,14 @@ try:
         page.goto(f"{BASE}/projects/{PID}")
         for key_ in ("review", "exchange", "settings"):
             check(page.locator(f"#px-card-{key_}").count() == 1, f"карточка «{key_}» есть на странице")
-            page.locator(f"#px-card-{key_} .px-toggle-btn").click()
-            page.wait_for_selector(f"#px-panel-{key_}.show", timeout=8000)
+            # требования — вкладка блока «О проекте», обмен и настройки — блока «Агенты и MCP»
+            page.evaluate(f"PageHubs.open('{key_}')")
+            page.wait_for_selector(f".collapse.show #px-card-{key_}:not(.d-none)", timeout=8000)
         page.wait_for_selector("#px-q-list .px-item, #px-q-list .text-muted", timeout=10000)
         page.wait_for_selector("#px-rv-list .px-item, #px-rv-list .text-muted", timeout=10000)
         check(page.locator("#px-s-pack option").count() >= 2, "настройки: список пакетов подсказок загружен")
         # вопрос агента виден и на него отвечает админ
+        page.evaluate("PageHubs.open('exchange')")
         page.locator("#px-card-exchange [data-px-tab=questions]").click()
         page.wait_for_selector(f"text=Смоук: что решили по тестовому полю?", timeout=10000)
         item = page.locator("#px-q-list .px-item", has_text="Смоук: что решили").first
