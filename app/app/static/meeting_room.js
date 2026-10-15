@@ -454,7 +454,8 @@ const SKKKKMeeting = {
   _heartbeatTimer: 0,
   // Шумодав моего голоса: _denoiseOn — желание человека (кнопка), _dfn3Ok — DFN3 в этом браузере работает
   // (иначе шумоподавление браузера), _dfn3 — запущенный фильтр, _raw — сырая дорожка для записи.
-  _denoiseOn: true,
+  // По умолчанию выключен (2026-10-15): кому нужен — включает у себя кнопкой, DFN3 грузится только тогда.
+  _denoiseOn: false,
   _dfn3Ok: false,
   _dfn3: null,
   _raw: null,
@@ -1807,11 +1808,13 @@ const SKKKKMeeting = {
     }
   },
 
-  // Мой голос под текущее состояние: на компьютере DFN3 стоит на микрофоне всегда (кнопка лишь включает фильтр),
-  // рядом идёт сырая дорожка для записи. DFN3 не завёлся (телефон, нет WASM) — шумоподавление браузера, без сырой.
+  // Мой голос под текущее состояние: на компьютере DFN3 ставится на микрофон при первом включении шумодава и дальше
+  // стоит (кнопка лишь включает фильтр); рядом идёт сырая дорожка для записи. DFN3 не завёлся (телефон, нет WASM) —
+  // шумоподавление браузера, без сырой.
   async _applyVoice() {
     const mic = localMicTrack(this.room);
-    if (mic && this._dfn3Ok && !(await this._startDfn3())) {
+    const wantDfn3 = this._denoiseOn || Boolean(this._dfn3);
+    if (mic && this._dfn3Ok && wantDfn3 && !(await this._startDfn3())) {
       this._dfn3Ok = false;
       this._toast(DFN3_HINT);
       await this._restartMic();
