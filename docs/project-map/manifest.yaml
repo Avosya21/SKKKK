@@ -3654,6 +3654,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_voice_duplicates
+    kind: file
+    path: scripts/voice_duplicates.py
+    title: "Возможные дубли в общей базе голосов — список на проверку человеком; слияние только выбранных пар."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

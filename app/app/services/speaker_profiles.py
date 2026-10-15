@@ -137,8 +137,11 @@ def load_universal_voice_profiles(db: Session, *, auto_backfill: bool = True) ->
     return out
 
 
-def sync_confirmed_to_global(db: Session, profile: SpeakerProfile) -> SpeakerProfile:
-    """Поднять подтверждённый голос в общую базу (scope=global)."""
+def sync_confirmed_to_global(db: Session, profile: SpeakerProfile, *, by_voice: bool = True) -> SpeakerProfile:
+    """Поднять подтверждённый голос в общую базу (scope=global).
+
+    ``by_voice=False`` — человек явно сказал «это новый человек»: сливать только с общим голосом того же имени,
+    а не с похожим по звучанию (иначе голос молча уходит под чужое имя)."""
     if profile.scope == "global":
         return profile
 
@@ -149,7 +152,7 @@ def sync_confirmed_to_global(db: Session, profile: SpeakerProfile) -> SpeakerPro
     best: SpeakerProfile | None = None
     best_score = -1.0
     for row in globals_:
-        score = cosine(vec, unpack_embedding(row.embedding))
+        score = cosine(vec, unpack_embedding(row.embedding)) if by_voice else -1.0
         if row.display_name.strip().lower() == name_key:
             score = max(score, GLOBAL_VOICE_MERGE_THRESHOLD)
         if score > best_score:
@@ -615,7 +618,15 @@ def enroll_speaker(
     display_name: str,
     match_path: Path | None = None,
     rebuild_views: bool = True,
+    profile_id: int | None = None,
+    new_voice: bool = False,
+    rename: bool = False,
 ) -> SpeakerProfile:
+    """Запомнить голос метки ``diar_label`` под именем.
+
+    ``profile_id`` — человек выбрал голос из списка: привязать к нему (имя — его). ``new_voice`` — «новый человек»:
+    не подставлять похожий голос из базы. Другое имя на уже подтверждённой карточке — перепривязка к голосу с этим именем
+    (или новому), прежний голос не переименовывается; переименовать — только ``rename`` (то же ``profile_id``)."""
     import sys
 
     asr = str(ROOT / "asr")
@@ -628,6 +639,13 @@ def enroll_speaker(
     canonical, emb = _resolve_embedding(payload, diar_label)
     match = (payload.get("matches") or {}).get(canonical) or (payload.get("matches") or {}).get(diar_label) or {}
     name = display_name.strip()
+    chosen: SpeakerProfile | None = None
+    if profile_id is not None:
+        chosen = db.get(SpeakerProfile, profile_id)
+        if chosen is None or not (chosen.scope == "global" or chosen.project_id == project_id):
+            raise ValueError("выбранный голос не найден")
+        if not rename:
+            name = chosen.display_name
     best_id, _best_name, best_score = best_profile_match(emb, _load_voice_profiles(db, project_id))
     if not name:
         if best_id and best_score is not None and best_score >= VOICE_AUTO_LINK_THRESHOLD:
@@ -658,35 +676,39 @@ def enroll_speaker(
     was_already_confirmed = bool(
         link is not None and link.profile_id and (link.status or "") == "confirmed"
     )
+    current = db.get(SpeakerProfile, link.profile_id) if link and link.profile_id else None
+    same = fold_speaker_display_name
     profile: SpeakerProfile | None = None
-    if link and link.profile_id:
-        profile = db.get(SpeakerProfile, link.profile_id)
+    if chosen is not None:
+        profile = chosen
+        if rename:
+            if current is None or current.id != chosen.id:
+                raise ValueError("переименовать можно только голос этой карточки")
+            profile.display_name = name
+    elif current is not None and same(current.display_name) == same(name):
+        profile = current
+    else:
+        # другое имя — к голосу с этим именем, иначе новый; прежний голос карточки не переименовываем
+        profile = None if new_voice else _visible_profile_by_name(db, project_id, name)
+        if profile is None and not new_voice and best_id and best_score is not None and best_score >= VOICE_AUTO_LINK_THRESHOLD:
+            best = db.get(SpeakerProfile, best_id)
+            if best is not None and same(best.display_name) == same(name):
+                profile = best
 
     if profile is None:
-        if best_id and best_score is not None and best_score >= VOICE_AUTO_LINK_THRESHOLD:
-            profile = db.get(SpeakerProfile, best_id)
-            if profile:
-                name = profile.display_name
-        if profile is None:
-            profile = SpeakerProfile(
-                scope="project",
-                project_id=project_id,
-                display_name=name,
-                embedding=pack_embedding(emb),
-                embedding_dim=len(emb),
-                source_artifact_id=artifact_id,
-                source_start_sec=match.get("clip_start"),
-                source_end_sec=match.get("clip_end"),
-            )
-            db.add(profile)
-            db.flush()
-        else:
-            _blend_embedding(profile, emb)
-            profile.source_artifact_id = artifact_id
-            profile.source_start_sec = match.get("clip_start")
-            profile.source_end_sec = match.get("clip_end")
+        profile = SpeakerProfile(
+            scope="project",
+            project_id=project_id,
+            display_name=name,
+            embedding=pack_embedding(emb),
+            embedding_dim=len(emb),
+            source_artifact_id=artifact_id,
+            source_start_sec=match.get("clip_start"),
+            source_end_sec=match.get("clip_end"),
+        )
+        db.add(profile)
+        db.flush()
     else:
-        profile.display_name = name
         _blend_embedding(profile, emb)
         profile.source_artifact_id = artifact_id
         profile.source_start_sec = match.get("clip_start")
@@ -713,7 +735,7 @@ def enroll_speaker(
     consolidate_duplicate_name_profiles(db, project_id)
 
     # Голос внешнего человека (заказчик без учётки) остаётся только в проекте (Д5): в общие голоса он не переносится
-    global_prof = profile if external_voice else sync_confirmed_to_global(db, profile)
+    global_prof = profile if external_voice else sync_confirmed_to_global(db, profile, by_voice=not new_voice)
     if global_prof.id != profile.id:
         leftover_id = profile.id
         link.profile_id = global_prof.id
@@ -770,6 +792,18 @@ def enroll_speaker(
                 db, project_id=project_id, artifact_id=artifact_id, payload=payload
             )
     return profile
+
+
+def _visible_profile_by_name(db: Session, project_id: int, name: str) -> SpeakerProfile | None:
+    """Голос с тем же именем (``fold_speaker_display_name``), видимый проекту: сначала общий, затем проекта."""
+    key = fold_speaker_display_name(name)
+    if not key:
+        return None
+    rows = db.query(SpeakerProfile).filter(
+        (SpeakerProfile.scope == "global") | ((SpeakerProfile.scope == "project") & (SpeakerProfile.project_id == project_id))
+    ).all()
+    hits = sorted((r for r in rows if fold_speaker_display_name(r.display_name) == key), key=lambda r: (r.scope != "global", r.id))
+    return hits[0] if hits else None
 
 
 def _upsert_confirmed_link(

@@ -132,3 +132,85 @@ def test_card_api_requires_staff(client, setup, user_token):
                     json={"diar_label": "speaker_0", "display_name": "Елена Соколова", "company": "Пример", "side": "customer"},
                     headers={"Authorization": f"Bearer {user_token}"})
     assert r.status_code in (403, 404)
+
+
+def _global_voice(db, name, vec=(1.0, 0.0, 0.0)):
+    from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.services.speaker_profiles import pack_embedding
+
+    prof = SpeakerProfile(scope="global", display_name=name, embedding=pack_embedding(list(vec)), embedding_dim=3)
+    db.add(prof)
+    db.commit()
+    return prof
+
+
+def test_chosen_voice_links_to_that_profile_not_by_spelling(setup):
+    from app.app.models.speaker_profile import ArtifactSpeakerLink
+    from app.app.services.speaker_cards import confirm_card
+
+    db, art, _match = setup
+    voice = _global_voice(db, "Игорь Пилот")
+    person, profile = confirm_card(db, art, diar_label="speaker_0", name="Игорь", company="Пример Заказчик", side="customer",
+                                   profile_id=voice.id)
+    assert profile.id == voice.id and profile.display_name == "Игорь Пилот"
+    assert person.display_name == "Игорь Пилот"
+    link = db.query(ArtifactSpeakerLink).filter(ArtifactSpeakerLink.diar_label == "speaker_0").one()
+    assert link.profile_id == voice.id
+
+
+def test_other_name_rebinds_without_renaming_old_voice(setup):
+    from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+    from app.app.services.speaker_cards import confirm_card
+
+    db, art, _match = setup
+    first = _global_voice(db, "Игорь Пилот")
+    confirm_card(db, art, diar_label="speaker_0", name="Игорь Пилот", company="Пример Заказчик", side="customer", profile_id=first.id)
+    second = _global_voice(db, "Олег Петров", vec=(0.0, 1.0, 0.0))
+    confirm_card(db, art, diar_label="speaker_0", name="Олег Петров", company="Пример Заказчик", side="customer", profile_id=second.id)
+    assert db.get(SpeakerProfile, first.id).display_name == "Игорь Пилот"  # прежний голос не переименован
+    link = db.query(ArtifactSpeakerLink).filter(ArtifactSpeakerLink.diar_label == "speaker_0").one()
+    assert link.profile_id == second.id
+
+
+def test_new_person_refuses_known_voice_name(setup):
+    from app.app.services.speaker_cards import confirm_card
+
+    db, art, _match = setup
+    _global_voice(db, "Игорь Пилот")
+    with pytest.raises(people.PeopleError, match="уже есть в базе"):
+        confirm_card(db, art, diar_label="speaker_1", name="Игорь (Пилот)", company="Пример", side="customer", new_person=True)
+
+
+def test_new_person_does_not_merge_into_similar_voice(setup):
+    from app.app.services.speaker_cards import confirm_card
+
+    db, art, _match = setup
+    _global_voice(db, "Игорь Пилот", vec=(1.0, 0.0, 0.0))  # голос speaker_0 в фикстуре — тот же вектор
+    person, profile = confirm_card(db, art, diar_label="speaker_0", name="Олег Петров", company="Пример", side="customer",
+                                   new_person=True)
+    assert profile.display_name == "Олег Петров"
+
+
+def test_rename_is_explicit(setup):
+    from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.services.speaker_cards import confirm_card
+
+    db, art, _match = setup
+    voice = _global_voice(db, "Игорь Пилотт")
+    confirm_card(db, art, diar_label="speaker_0", name="Игорь Пилотт", company="Пример", side="customer", profile_id=voice.id)
+    _p, profile = confirm_card(db, art, diar_label="speaker_0", name="Игорь Пилот", company="Пример", side="customer",
+                               profile_id=voice.id, rename=True)
+    assert profile.id == voice.id and db.get(SpeakerProfile, voice.id).display_name == "Игорь Пилот"
+    assert people.resolve(db, art.project_id, "Игорь Пилот") is not None
+
+
+def test_page_lists_voice_candidates(setup):
+    from app.app.services.speaker_cards import page_context
+
+    db, art, match = setup
+    voice = _global_voice(db, "Игорь Пилот")
+    payload = json.loads(match.read_text(encoding="utf-8"))
+    payload["profile_candidates"] = {"speaker_0": [{"profile_id": voice.id, "display_name": "Игорь Пилот", "cosine": 0.873}]}
+    match.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    cands = page_context(db, art)["cards"]["speaker_0"]["candidates"]
+    assert cands[0]["profile_id"] == voice.id and cands[0]["pct"] == 87

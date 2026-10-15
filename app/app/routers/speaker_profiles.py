@@ -169,6 +169,10 @@ class CardBody(BaseModel):
     company: str = Field(min_length=1, max_length=200)
     side: str = Field(min_length=1, max_length=16)
     job_title: str | None = Field(default=None, max_length=200)
+    profile_id: int | None = None  # выбран голос из базы
+    person_id: int | None = None  # выбран человек проекта
+    new_person: bool = False  # «Новый человек»
+    rename: bool = False  # исправить написание голоса этой карточки во всех созвонах
 
 
 @router.post("/artifacts/{artifact_id}/speaker-card")
@@ -187,7 +191,9 @@ def api_confirm_speaker_card(
     try:
         with track_project_task(db, task_type=TASK_SPEAKER_ENROLL, project_id=artifact.project_id, artifact_db_id=artifact.id):
             person, profile = confirm_card(db, artifact, diar_label=body.diar_label, name=body.display_name, company=body.company,
-                                           side=body.side, job_title=body.job_title, by_user_id=user.id)
+                                           side=body.side, job_title=body.job_title, by_user_id=user.id,
+                                           profile_id=body.profile_id, person_id=body.person_id, new_person=body.new_person,
+                                           rename=body.rename)
     except TaskAlreadyRunning as exc:
         raise _task_conflict(exc) from exc
     except FileNotFoundError as exc:
