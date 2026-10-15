@@ -101,6 +101,16 @@ def _people_datalist(db: Session, project_id: int) -> str:
     )
 
 
+def _speaker_cards_html(db: Session, artifact: Artifact) -> str:
+    """Поля компании, стороны и должности на карточках голосов (services/speaker_cards.py, static/speaker_cards.js)."""
+    from app.app.services.speaker_cards import page_context
+
+    ctx = json.dumps(page_context(db, artifact), ensure_ascii=False).replace("</", "<\\/")
+    return (f'<script id="pp-cards" type="application/json">{ctx}</script>'
+            f'<link rel="stylesheet" href="/static/speaker_cards.css?v=1">'
+            f'<script src="/static/speaker_cards.js?v=1"></script>')
+
+
 def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None, people_html: str = "") -> HTMLResponse:
     if people_html and "name-inp" in html and "</body>" in html and "pp-people" not in html:
         html = html.replace("</body>", people_html + "</body>", 1)
@@ -542,8 +552,9 @@ def artifact_speaker_match_page(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
-    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact),
-                         people_html=_people_datalist(db, artifact.project_id) if _artifact_role(db, user, artifact) in ("admin", "manager") else "")
+    staff = _artifact_role(db, user, artifact) in ("admin", "manager")
+    people_html = (_people_datalist(db, artifact.project_id) + _speaker_cards_html(db, artifact)) if staff else ""
+    return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact), people_html=people_html)
 
 
 @router.get("/artifacts/{artifact_id}/report-diar-two-voice", response_class=HTMLResponse)

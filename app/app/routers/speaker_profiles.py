@@ -163,6 +163,45 @@ def api_enroll_speaker(
     return {"id": profile.id, "display_name": profile.display_name, "scope": profile.scope}
 
 
+class CardBody(BaseModel):
+    diar_label: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=200)
+    company: str = Field(min_length=1, max_length=200)
+    side: str = Field(min_length=1, max_length=16)
+    job_title: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/artifacts/{artifact_id}/speaker-card")
+def api_confirm_speaker_card(
+    artifact_id: str,
+    body: CardBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Карточка голоса: человек в «Люди и стороны» (компания, сторона, должность) и голос под его именем (speaker_cards)."""
+    from app.app.services.people import PeopleError
+    from app.app.services.speaker_cards import confirm_card
+
+    artifact = _owned_artifact(db, user, artifact_id)
+    require_project_staff(db, user, artifact.project_id)
+    try:
+        with track_project_task(db, task_type=TASK_SPEAKER_ENROLL, project_id=artifact.project_id, artifact_db_id=artifact.id):
+            person, profile = confirm_card(db, artifact, diar_label=body.diar_label, name=body.display_name, company=body.company,
+                                           side=body.side, job_title=body.job_title, by_user_id=user.id)
+    except TaskAlreadyRunning as exc:
+        raise _task_conflict(exc) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    except (PeopleError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    _log_artifact_action(db, user, artifact, block=BLOCK_SPEAKERS, action=ACTION_ENROLL, title="Подтвердил спикера",
+                         content=f"{person.display_name} · {person.company_name or ''}")
+    return {"id": profile.id, "display_name": profile.display_name, "person_id": person.id,
+            "company": person.company_name, "side": person.side}
+
+
 @router.post("/artifacts/{artifact_id}/speaker-merge")
 def api_merge_speakers(
     artifact_id: str,

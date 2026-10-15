@@ -1,0 +1,11 @@
+/* Карточки голосов: компания, сторона, должность (static/speaker_cards.js) */
+.pc-block { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+.pc-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0.5rem; }
+.pc-field { min-width: 0; }
+.pc-field .form-label { margin-bottom: 0.25rem; }
+.pc-note:empty { display: none; }
+.pc-confirm { align-self: flex-start; }
+.pc-confirm:disabled { opacity: 0.55; }
+@media (max-width: 420px) {
+  .pc-grid { grid-template-columns: 1fr; }
+}
