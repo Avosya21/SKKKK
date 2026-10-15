@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{# Список проектов (/): создание, описание, удаление проекта, кнопка «Исправлено» со списком изменений #}
+{# Список проектов (/): создание, описание, переименование и удаление проекта, кнопка «Исправлено» со списком изменений #}
 {% block nav_changelog %}
 <button type="button" class="btn btn-sm btn-outline-light nav-changelog" data-bs-toggle="modal" data-bs-target="#changelogModal">Исправлено</button>
 {% endblock %}
@@ -53,6 +53,25 @@
         <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-project-confirm" data-idle-label="Удалить" disabled>Удалить</button>
       </div>
     </div>
+  </div>
+</div>
+<div class="modal fade" id="renameProjectModal" tabindex="-1" aria-labelledby="rename-project-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="rename-project-form">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="rename-project-title">Переименовать проект</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small text-muted" for="rename-project-name">Новое название</label>
+        <input class="form-control" id="rename-project-name" name="name" maxlength="255" required autocomplete="off">
+        <div class="alert alert-danger d-none mt-2" id="rename-project-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="submit" class="btn btn-primary skkkk-action-btn" id="rename-project-submit" data-idle-label="Сохранить">Сохранить</button>
+      </div>
+    </form>
   </div>
 </div>
 <div class="modal fade" id="newProjectModal" tabindex="-1">
@@ -197,6 +216,13 @@ async function loadProjects() {
     if (allowDelete) {
       const actions = document.createElement('div');
       actions.className = 'project-desc-actions';
+      const renameBtn = document.createElement('button');
+      renameBtn.type = 'button';
+      renameBtn.className = 'btn btn-sm btn-outline-secondary';
+      renameBtn.textContent = 'Переименовать';
+      renameBtn.setAttribute('aria-label', `Переименовать проект ${p.name}`);
+      renameBtn.addEventListener('click', () => openRename(p));
+      actions.appendChild(renameBtn);
       const delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'btn btn-sm btn-outline-danger';
@@ -268,6 +294,55 @@ deleteConfirmBtn.addEventListener('click', async () => {
     bootstrap.Modal.getOrCreateInstance(deleteModalEl).hide();
     await loadProjects();
   }, { label: 'Удаляю…' });
+});
+
+const renameModalEl = document.getElementById('renameProjectModal');
+const renameForm = document.getElementById('rename-project-form');
+const renameInput = document.getElementById('rename-project-name');
+const renameErr = document.getElementById('rename-project-error');
+let pendingRename = null;
+
+function openRename(p) {
+  pendingRename = { id: p.id, name: p.name };
+  renameInput.value = p.name;
+  renameErr.classList.add('d-none');
+  bootstrap.Modal.getOrCreateInstance(renameModalEl).show();
+}
+
+renameModalEl.addEventListener('shown.bs.modal', () => { renameInput.focus(); renameInput.select(); });
+renameModalEl.addEventListener('hidden.bs.modal', () => { pendingRename = null; });
+
+renameForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!pendingRename) return;
+  const target = pendingRename;
+  const name = renameInput.value.trim();
+  renameErr.classList.add('d-none');
+  if (!name) {
+    renameErr.textContent = 'Введите название';
+    renameErr.classList.remove('d-none');
+    return;
+  }
+  if (name === target.name) {
+    bootstrap.Modal.getOrCreateInstance(renameModalEl).hide();
+    return;
+  }
+  await SKKKK.guardSubmit(renameForm, async () => {
+    const r = await SKKKK.api(`/projects/${target.id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok) {
+      let detail = '';
+      try { detail = (await r.json()).detail; } catch (_) {}
+      renameErr.textContent = r.status === 403 ? 'Переименовать может только автор проекта или администратор' : SKKKKErrors.text(detail, r.status);
+      renameErr.classList.remove('d-none');
+      return;
+    }
+    bootstrap.Modal.getOrCreateInstance(renameModalEl).hide();
+    await loadProjects();
+  }, { busyText: 'Сохраняю…' });
 });
 
 async function fillCompanyList() {

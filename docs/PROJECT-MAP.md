@@ -203,7 +203,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **match**, «Подтвердить спикеров», enroll/merge | да | на своих, если пароль manager | нет (кнопка скрыта, URL 403). Пароль `user` — нет, даже у создателя |
 | «Пересобрать» ТЗ | да | нет (уже admin) | нет |
 | «Пересобрать выжимку» / reindex / «Пересчитать» | да | на своих | нет (403) |
-| Удалить проект | любой | только свой | 403 (роль) |
+| Переименовать / удалить проект | любой | только свой | 403 (роль) |
 | MCP-ключи портала | любой проект | только свой | 403 (роль). Сырой `/mcp/projects/{id}` — по ключу, не JWT |
 
 Роль меняется паролем, список проектов — нет: «свои» считаются по логину (создал, загрузил файл, писал в чат или строка в `project_members`), не по текущей роли. Чужой проект без следа этого логина — 404. Удалить проект может admin или тот, кто его создал. Блок **Выдать доступ** — admin или менеджер проекта; роль в проекте только `manager` / `user`, не `admin`.
@@ -351,7 +351,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/pages.py` | `/` | HTML-страницы, отчёты арtefact, audio stream |
 | `routers/auth.py` | `/auth` | POST login: логин из `Login_up.txt` (без регистра); пароль = роль (`admin`/`manager`/`user`); Telegram ID необязателен (поле на форме скрыто с 2026-09-28, `hide_telegram` в `pages.login_page`): указан — пишется, нет — прежний или заглушка `placeholder_telegram_id`; JWT **и** cookie. При `PERSONAL_PASSWORD=required` login отдаёт `{step: setup|personal, ticket}` (пропуск 5 мин, одноразовый, годится только для своего шага) → `POST /auth/login/setup` (новый + повтор) или `/auth/login/personal`; карточка не заполнена → `{step: profile, ticket}` (15 мин) → `POST /auth/login/profile/options` (компании без стороны, текст уведомления о голосе) и `POST /auth/login/profile` (multipart: ФИО, компания, должность, фото) → сессия. `GET /auth/password/state`, `POST /auth/password/change` (меню в шапке) |
 | `routers/people.py` | `/people`, `/me` | `GET /people/{id}/avatar?size=96|512&v=` (вошедшим; с текущей версией — кеш навсегда, без — 5 мин); `GET|PUT /me/profile` (ФИО, должность; компанию и согласие не меняет — 422), `PUT /me/avatar` |
-| `routers/projects.py` | `/projects` | список, создание, **полное удаление** (`DELETE /{id}`) |
+| `routers/projects.py` | `/projects` | список, создание, **переименование** (`PATCH /{id}` `{name}`), **полное удаление** (`DELETE /{id}`) |
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, задачи (`tasks`, `tasks/{entity_id}`, `manual-tasks/{task_id}`), «Что нового» (`digest`, `digest/dismiss`), reextract-entities, conflicts, notes |
 | `routers/project_members.py` | `/projects/{id}/members` | выдача доступа: GET список, POST роль manager/user, DELETE участника |
@@ -393,7 +393,8 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Отмена** | — | UI | — | Закрыть модалку |
 | **Исправлено** (шапка, слева от бейджа LLM, `nav-changelog`) | — | UI | auth | Модалка `#changelogModal`: список изменений для пользователя, новые сверху. Данные — `app/app/changelog.json`, читает `load_changelog()` в `routers/pages.py` при рендере `/`. Дополнять после каждой правки функционала/качества (правило в `AGENTS.md`) |
 | Клик по проекту | — | navigate | свои или admin | `/projects/{id}`; чужой URL — **404** |
-| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый блок: текст описания слева, **Удалить проект** справа (admin/manager). Без описания стрелка всё равно есть, чтобы открыть удаление |
+| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый блок: текст описания слева, **Переименовать** и **Удалить проект** справа (admin/manager). Без описания стрелка всё равно есть, чтобы открыть действия |
+| **Переименовать** | `PATCH /projects/{id}` `{name}` | FastAPI | admin любой; manager только свой | Модалка `#renameProjectModal` с полем `#rename-project-name` (текущее название выделено). Название чистится `normalize_project_name` (пустое — 400, длиннее 255 — 422); папка проекта по ID не меняется. В журнал действий — `rename` «Переименовал проект: старое → новое» |
 | **Удалить проект** | `GET /projects/{id}/delete-preview` → `DELETE /projects/{id}` | FastAPI | admin любой; manager только свой | Сначала модалка «Подтверждение удаления»: счётчики из `delete-preview` (`#delete-project-counts`: документы, созвоны, встречи, заметки) + чекбокс «Подтверждаю полное удаление» (`#delete-project-ack`); без галочки кнопка «Удалить» неактивна. Затем полное удаление дерева и записей БД |
 | Авто-загрузка | `GET /projects` | FastAPI | auth | admin — все активные; иначе создал / загрузил / чат / `project_members`. Пустой список: «Нет своих проектов.» Кнопка **Новый проект** только admin/manager. Админу у каждого проекта справа серым — кто его завёл (`creator_name` в ответе: «Фамилия Имя» из карточки `user_profiles`, без карточки — логин; остальным ролям поле пустое) |
 
@@ -1679,7 +1680,7 @@ run_pipeline
 | `asr/tests/test_lab_stages.py` | Слова из токенов, покраска, реплики, клипы, бинаризация |
 | `asr/tests/test_lab_voice.py` | Клипы из overlay-слов, lab match.json без Docker |
 | `app/app/tests/test_lab_enroll.py` | Enroll/merge пишет lab match и не трогает прод JSON |
-| `app/app/tests/test_projects.py` | создание проекта, `DELETE /projects/{id}` |
+| `app/app/tests/test_projects.py` | создание проекта, переименование `PATCH /projects/{id}`, `DELETE /projects/{id}` |
 | `app/app/tests/test_artifact_purge.py` | `DELETE` артефакта, FK entities/links, HTML иконки |
 | `app/app/tests/test_user_scenarios.py` | сквозные сценарии портала (в т.ч. s31 purge) |
 | `docs/TESTING.md` | Стратегия, команды pytest |
@@ -1890,7 +1891,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
 | `project_memory.py` | Память решений проекта: предметы, их лента и состояние на дату, решение человека (docs/plans/DECISION-MEMORY-PLAN.md, Э6). |
 | `project_people.py` | Люди и стороны проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ3): реестр людей, «Кто это?», стороны компаний. |
-| `projects.py` | Проекты: список, создание, карточка, предпросмотр и полное удаление. |
+| `projects.py` | Проекты: список, создание, карточка, переименование, предпросмотр и полное удаление. |
 | `requirement_review.py` | Подтверждение требований контракта (карточка «Подтверждение требований» на странице проекта). |
 | `speaker_profiles.py` | Спикеры и голоса: профили, запись голоса, слияние, пересчёт, подтверждение и связанные фоновые задачи. |
 | `upload.py` | Загрузка файлов (в том числе частями с докачкой) и список артефактов проекта, удаление артефакта. |
@@ -2093,7 +2094,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `conflicts.html` | Очередь конфликтов фактов (/admin/conflicts, только admin): выбрать верное утверждение с причиной |
 | `error.html` | Страница ошибки HTML (403/404/500) с понятным текстом на русском |
 | `graph.html` | Граф знаний проекта в Cytoscape (/projects/{id}/graph) |
-| `index.html` | Список проектов (/): создание, описание, удаление проекта, кнопка «Исправлено» со списком изменений |
+| `index.html` | Список проектов (/): создание, описание, переименование и удаление проекта, кнопка «Исправлено» со списком изменений |
 | `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести); шаг 3 — карточка (ФИО, компания |
 | `meeting_lab.html` | Лаборатория созвона (admin): этапы обработки каждой дорожки встречи; пока идёт прогон, страница обновляется сама |
 | `meeting_public.html` | Гостевая страница встречи /m/{token}: лобби, проверка камеры и микрофона, комната без входа в портал |
