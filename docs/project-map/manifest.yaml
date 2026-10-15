@@ -3619,6 +3619,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_backfill_turn_hints
+    kind: file
+    path: scripts/backfill_turn_hints.py
+    title: "Подсказки реплик для пунктов созвонов без источника (2026-10-15, продолжение находки 91)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
