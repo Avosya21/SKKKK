@@ -2582,7 +2582,7 @@ function deadlineStatusBadge(status) {
 }
 
 function isDeadlineOverdue(item) {
-  if (!item.deadline_date) return false;
+  if (!item.deadline_date || item.reference) return false;  // этап плана / положение ТЗ — не поручение
   const key = (item.status || 'unknown').toLowerCase();
   if (key === 'done' || key === 'closed' || key === 'cancelled') return false;
   const today = new Date();
@@ -3229,7 +3229,7 @@ if (grantMembersBody) {
   loadGrantPanel();
 }
 </script>
-<script src="/static/px_tasks.js?v=1"></script>
+<script src="/static/px_tasks.js?v=2"></script>
 <script src="/static/px_digest.js?v=1"></script>
 {% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=4"></script><script src="/static/people.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
 {% endblock %}

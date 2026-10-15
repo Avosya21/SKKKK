@@ -107,7 +107,7 @@ def tasks_section(db: Session, project_id: int, *, today: date | None = None) ->
     """«Актуальные задачи» из списка задач (с правками менеджера): открытые, сначала просроченные и ближайшие."""
     from app.app.services.task_board import all_tasks
 
-    rows = [t for t in all_tasks(db, project_id, today=today) if t["status"] not in ("done", "cancelled")]
+    rows = [t for t in all_tasks(db, project_id, today=today) if t["status"] not in ("done", "cancelled") and not t.get("reference")]
     rows.sort(key=lambda t: (not t.get("overdue"), t.get("deadline_date") is None, t.get("deadline_date") or "", t["description"].casefold()))
     if not rows:
         return ""
