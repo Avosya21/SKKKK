@@ -144,7 +144,7 @@ async function loadProjects() {
     if (p.creator_name) {
       creator = document.createElement('span');
       creator.className = 'project-list-creator text-muted small';
-      creator.textContent = `(${p.creator_name})`;
+      creator.textContent = p.creator_name;
       creator.title = 'Кто завёл проект';
     }
 
