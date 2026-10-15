@@ -80,6 +80,32 @@ def _squash(text: str) -> str:
     return " ".join((text or "").split())
 
 
+# Хвост «Источники: …» в тексте ответа: модель дописывала свой список (с artifact_id) поверх списка ссылок под ответом.
+_SOURCES_HEAD_RE = re.compile(r"^\s*[#*_]*\s*Источник(?:и|ов)?(?:\s+ответа)?\s*[*_]*\s*:", re.IGNORECASE)
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-•*·–—]|\d+[.)])\s+")
+
+
+def strip_sources_tail(answer: str) -> str:
+    """Убирает из конца ответа раздел «Источники:», если после заголовка идут только пункты списка.
+    Источники со ссылками показывает интерфейс под ответом; ссылки на источник внутри текста остаются."""
+    lines = (answer or "").rstrip().split("\n")
+    for i in range(len(lines) - 1, 0, -1):
+        if _SOURCES_HEAD_RE.match(lines[i]):
+            tail = [line for line in lines[i + 1:] if line.strip()]
+            if all(_LIST_ITEM_RE.match(line) for line in tail):
+                return "\n".join(lines[:i]).rstrip()
+            return answer
+    return answer
+
+
+def _with_source_urls(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ссылка у каждого источника: у документов и сущностей её раньше не было (и в сохранённой истории тоже)."""
+    for source in sources:
+        if isinstance(source, dict) and not source.get("url"):
+            source["url"] = source_url(source.get("artifact_id"))
+    return sources
+
+
 class ChatAlreadyPending(RuntimeError):
     """У пользователя в этом проекте уже есть вопрос, ожидающий ответа."""
 
@@ -297,12 +323,15 @@ def list_chat_messages(
                 sources = json.loads(row.sources_json)
             except json.JSONDecodeError:
                 sources = []
+        content = row.content
+        if row.role == "assistant" and not row.waiting:  # старые ответы тоже без дубля источников
+            content = strip_sources_tail(content)
         out.append(
             {
                 "id": row.id,
                 "role": row.role,
-                "content": row.content,
-                "sources": sources,
+                "content": content,
+                "sources": _with_source_urls(sources) if isinstance(sources, list) else [],
                 "waiting": row.waiting,
                 "meta": _parse_meta(row),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -1053,7 +1082,7 @@ def _answer_chat_inner(
                 db,
                 pending,
                 content=answer,
-                sources=sources,
+                sources=_with_source_urls(sources),
                 waiting=False,
                 meta=meta,
             )
@@ -1102,7 +1131,8 @@ def _answer_chat_inner(
         answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
     from app.app.services.plain_text import plainify_llm_markup
 
-    answer = plainify_llm_markup(answer.strip())
+    answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
+    _with_source_urls(sources)
     finalize_chat_message(
         db,
         pending,
