@@ -33,6 +33,10 @@ ITEM_STATES = ("agreed", "implemented", "documented")
 CHECK_STATES = ("agreed", "implemented")  # их код обязательно находит в тексте
 STATE_LABELS = {"agreed": "согласовано", "implemented": "сделано", "documented": "в документе"}
 ITEM_SUMMARY_CHARS = 160
+# Бюджет списка предметов в запросе (~10 тыс. токенов): на проекте 18 (~30 тыс. знаков, укладывается целиком) выжимка держала 10/12 фактов, а
+# ~51 тыс. токенов материала теряли факты при сжатии. Согласованное и сделанное идёт всегда; «в документе» — до бюджета:
+# сначала с итогом судьи (их обсуждали), затем свежие. Проект 40: 640 пунктов ТЗ «в документе» (~26 тыс. токенов).
+ITEMS_MAX_CHARS = 32000
 ESSENCE_QUERY = "Цель проекта, заказчик и исполнитель, периметр работ, конфигурация 1С, системы и интеграции, этапы"
 ESSENCE_CHUNKS = 8
 ESSENCE_CHUNK_CHARS = 500
@@ -70,6 +74,25 @@ def item_line(subj: Any) -> str:
     day = (subj.state_since or "")[:10]
     head = f"#{subj.id} [{STATE_LABELS.get(subj.state, subj.state)}{', ' + day if day else ''}] {subj.title.strip()}"
     return head + (f" — {summary}" if summary else "")
+
+
+def select_items(subjects: list) -> tuple[list, int]:
+    """Предметы для запроса в пределах ``ITEMS_MAX_CHARS`` и сколько «в документе» не вошло."""
+    must = [s for s in subjects if s.state in CHECK_STATES]
+    docs = [s for s in subjects if s.state not in CHECK_STATES]
+    budget = ITEMS_MAX_CHARS - sum(len(item_line(s)) + 1 for s in must)
+    with_summary = [s for s in docs if (s.summary or "").strip()]
+    without = [s for s in docs if not (s.summary or "").strip()]
+    ranked = sorted(with_summary, key=lambda s: s.state_since or "", reverse=True) + sorted(without, key=lambda s: s.state_since or "", reverse=True)
+    picked = []
+    for subj in ranked:
+        size = len(item_line(subj)) + 1
+        if size > budget:
+            continue
+        picked.append(subj)
+        budget -= size
+    chosen = sorted(must + picked, key=lambda s: (s.state_since or "", s.id))
+    return chosen, len(docs) - len(picked)
 
 
 def cited_ids(text: str) -> set[int]:
@@ -167,12 +190,15 @@ def build_sections_body(db: Session, settings: Settings, project_id: int, *, tra
         return None, {}
     system, user_tmpl = _prompts()
     card, _meta = read_project_card(settings, project_id)
+    all_count = len(subjects)
+    subjects, omitted = select_items(subjects)
     items = "\n".join(item_line(s) for s in subjects)
     fragments = _essence_fragments(db, settings, project_id)
     user = user_tmpl.format(card=card.strip() or "—", fragments=fragments, items=items)
     tasks = tasks_section(db, project_id)
     questions = questions_section(db, project_id)
     stats: dict[str, Any] = {"mode": "sections", "prompt_version": PROMPT_VERSION, "subjects": len(subjects),
+                             "subjects_total": all_count, "documented_omitted": omitted,
                              "material_tokens": len(system + user) // 4}
     if trace:
         stats["material"] = user
@@ -187,6 +213,11 @@ def build_sections_body(db: Session, settings: Settings, project_id: int, *, tra
     if missing:
         tail = "; ".join(f"{s.title.strip()} ({STATE_LABELS[s.state]})" for s in missing)
         body += f"\n\nТакже согласовано и сделано: {tail}."
+    if omitted:
+        from app.app.services.project_digest import plural
+
+        body += (f"\n\nНе вошло в резюме: ещё {plural(omitted, ('положение', 'положения', 'положений'))} из документов проекта — "
+                 "полный список в блоке «Память решений» на странице проекта.")
     body = "\n\n".join(part for part in (body, tasks, questions) if part.strip())
     stats.update(missing=len(missing), cited=len(cited_ids(raw)))
     log_event(logger, "tz.sections.done", project_id=project_id, subjects=len(subjects),

@@ -109,3 +109,17 @@ def test_tasks_section_limit_and_overdue_first(client, manager_token, monkeypatc
     lines = [line for line in out.splitlines() if line.startswith("| — ")]
     assert lines[0].startswith("| — | Задача 5 |") and "(просрочено)" in lines[0]
     assert len(lines) == ts.TASKS_IN_SUMMARY and out.rstrip().endswith("в блоке «Задачи» на странице проекта.")
+
+
+def test_select_items_keeps_agreed_and_trims_documented(monkeypatch):
+    monkeypatch.setattr(ts, "ITEMS_MAX_CHARS", 400)
+    must = [_subj(i, f"Согласованное {i}", "agreed") for i in range(3)]
+    judged = _subj(10, "Обсуждалось и записано", "documented", summary="итог судьи", since="2026-01-01")
+    fresh = [_subj(20 + i, f"Положение ТЗ номер {i} про отчёт по лицевым счетам", "documented", since=f"2026-09-{10 + i:02d}") for i in range(10)]
+    chosen, omitted = ts.select_items(must + fresh + [judged])
+    ids = {s.id for s in chosen}
+    assert {0, 1, 2} <= ids and 10 in ids  # согласованное — всегда, с итогом судьи — первым
+    assert omitted == 11 - (len(chosen) - 3) and omitted > 0
+    assert sum(len(ts.item_line(s)) + 1 for s in chosen if s.state == "documented") <= 400
+    kept_fresh = sorted(s.id for s in chosen if s.id >= 20)
+    assert kept_fresh == sorted(kept_fresh, reverse=False) and (not kept_fresh or max(kept_fresh) == 29)  # свежие первыми
