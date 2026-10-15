@@ -103,10 +103,6 @@
     display: flex;
     flex-direction: column;
   }
-  .mcp-access-card .mcp-toggle-hint {
-    font-weight: normal;
-    color: #6c757d;
-  }
   .workspace-card .card-header .materials-toggle-btn {
     border: 0;
     background: transparent;
@@ -153,7 +149,6 @@
       min-height: 360px;
     }
   }
-  .mcp-access-card .card-header .mcp-toggle-btn,
   .meetings-card .card-header .meetings-toggle-btn,
   .grant-access-card .card-header .grant-toggle-btn,
   .extra-files-card .card-header .extra-files-toggle-btn {
@@ -163,13 +158,11 @@
     text-align: left;
     flex: 1 1 auto;
   }
-  .mcp-access-card .card-header .mcp-toggle-btn:hover,
   .meetings-card .card-header .meetings-toggle-btn:hover,
   .grant-access-card .card-header .grant-toggle-btn:hover,
   .extra-files-card .card-header .extra-files-toggle-btn:hover {
     color: #0d6efd;
   }
-  .mcp-access-card .mcp-toggle-hint,
   .meetings-card .meetings-toggle-hint,
   .grant-access-card .grant-toggle-hint,
   .extra-files-card .extra-files-toggle-hint {
@@ -904,90 +897,6 @@
   </div>
 </div>
 
-{% if current_role != 'user' %}
-<div class="card shadow-sm mb-4 mcp-access-card">
-  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
-    <button type="button"
-            class="mcp-toggle-btn d-flex align-items-center gap-2 p-0"
-            data-bs-toggle="collapse"
-            data-bs-target="#mcp-access-panel"
-            aria-expanded="false"
-            aria-controls="mcp-access-panel">
-      <strong>Удалённый доступ (MCP)</strong>
-      <span id="mcp-toggle-hint" class="small mcp-toggle-hint">(развернуть)</span>
-    </button>
-    <span class="badge text-bg-secondary flex-shrink-0" title="Чтение — любому ключу; вопросы, вердикты и приём файлов — по правам ключа">права по ключу</span>
-  </div>
-  <div id="mcp-access-panel" class="collapse">
-  <div class="card-body">
-    <p class="text-muted small mb-3">
-      Подключите Cursor или другой MCP-клиент к знаниям этого проекта: артефакты, выжимка, поиск, сущности, граф, заметки.
-      Доступ по ключу — без пароля портала. URL ниже — для подключения из интернета.
-    </p>
-    <div id="mcp-status" class="text-muted small mb-2" aria-live="polite"></div>
-    <div class="row g-3">
-      <div class="col-lg-6">
-        <div class="ds-section-head"><label class="form-label mb-0" for="mcp-url">URL сервера</label></div>
-        <div class="input-group input-group-sm mb-3">
-          <input id="mcp-url" class="form-control font-monospace" readonly aria-label="MCP URL">
-          <button type="button" class="btn btn-outline-secondary" id="mcp-copy-url" data-idle-label="Копировать">Копировать</button>
-        </div>
-        <div class="ds-section-head"><span class="form-label mb-0">Пример для Cursor (<code>.cursor/mcp.json</code>)</span></div>
-        <pre id="mcp-config" aria-label="Пример конфигурации MCP"></pre>
-        <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="mcp-copy-config" data-idle-label="Копировать JSON">Копировать JSON</button>
-      </div>
-      <div class="col-lg-6">
-        <div class="ds-section-head justify-content-between">
-          <span class="form-label mb-0">Ключи доступа</span>
-          <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="mcp-create-token" data-idle-label="Создать ключ">Создать ключ</button>
-        </div>
-        <p class="text-muted small mb-2">Создавать ключи могут admin и manager. Токен показывается один раз.</p>
-        <fieldset class="mb-2" id="mcp-rights">
-          <legend class="form-label small mb-1">Права нового ключа</legend>
-          <div class="form-check small">
-            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-read" value="read" checked>
-            <label class="form-check-label" for="mcp-rights-read"><strong>Только чтение</strong> — агент читает базу и ответы, ничего не записывает</label>
-          </div>
-          <div class="form-check small">
-            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-questions" value="questions">
-            <label class="form-check-label" for="mcp-rights-questions"><strong>Чтение + вопросы</strong> — агент кладёт вопросы в очередь, но вердикты отправлять не может</label>
-          </div>
-          <div class="form-check small">
-            <input class="form-check-input" type="radio" name="mcp-rights" id="mcp-rights-submit" value="questions_verdicts">
-            <label class="form-check-label" for="mcp-rights-submit"><strong>Чтение + вопросы и вердикты</strong> — агент сам кладёт вопросы и вердикты в очередь (только добавление; вердикты помечаются как непроверенные, ответы одобряет человек)</label>
-          </div>
-          <div class="row g-2 mt-1">
-            <div class="col-7"><input type="text" class="form-control form-control-sm" id="mcp-agent-name" maxlength="64" placeholder="Имя агента (для журнала)" aria-label="Имя агента"></div>
-            <div class="col-5"><input type="number" class="form-control form-control-sm" id="mcp-rate-limit" min="1" max="1000" placeholder="Лимит за 10 мин" aria-label="Лимит обращений за 10 минут"></div>
-          </div>
-        </fieldset>
-        <div id="mcp-new-token" class="alert alert-warning d-none small py-2" role="alert">
-          <strong>Новый ключ:</strong>
-          <code id="mcp-new-token-value" class="user-select-all d-block mt-1 text-break"></code>
-          <div class="mt-2 text-muted">Передайте разработчику адрес сервера и этот ключ. Инструкцию по работе с базой и по обращению к нам агент получит сам: при подключении, через инструмент <code>get_guide</code> и файл <code>contract/GUIDE.md</code>.</div>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-sm table-hover mb-0 mcp-token-row">
-            <thead>
-              <tr>
-                <th>Метка</th>
-                <th>Ключ</th>
-                <th>Права</th>
-                <th>Статус</th>
-              </tr>
-            </thead>
-            <tbody id="mcp-tokens-body">
-              <tr><td colspan="4" class="text-muted small">Загрузка…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-  </div>
-</div>
-{% endif %}
-
 {% if current_role == 'admin' %}
 <!-- Дополнительные файлы проекта (только администратор): посылки агентов (карта конфигурации, дипмапы) и .cf/.dt от пользователей -->
 <div class="card shadow-sm mb-4 extra-files-card">
@@ -1034,9 +943,9 @@
 
 <link href="/static/px_tasks.css?v=1" rel="stylesheet">
 {% if current_role in ('admin', 'manager') %}
-<link href="/static/px_agent.css?v=1" rel="stylesheet">
-{% include "partials/px_agent_cards.html" %}
-{% include "partials/people_card.html" %}
+<link href="/static/px_agent.css?v=4" rel="stylesheet">
+{% include "partials/agents_hub.html" %}
+{% include "partials/project_hub.html" %}
 {% include "partials/background_card.html" %}
 {% include "partials/memory_card.html" %}
 {% endif %}
@@ -2374,11 +2283,7 @@ function mcpCursorConfig(url, tokenPlaceholder) {
 async function loadMcpPanel() {
   if (!mcpStatus) return;
   const role = currentRole || localStorage.getItem('skkkk_role');
-  const card = document.querySelector('.mcp-access-card');
-  if (role === 'user') {
-    if (card) card.classList.add('d-none');
-    return;
-  }
+  if (role === 'user') return;
   try {
     const r = await SKKKK.api(`/projects/${projectId}/mcp/info`);
     if (!r.ok) throw new Error('mcp info failed');
@@ -3052,17 +2957,6 @@ if (meetingsPanel && meetingsToggleHint) {
   });
 }
 
-const mcpAccessPanel = document.getElementById('mcp-access-panel');
-const mcpToggleHint = document.getElementById('mcp-toggle-hint');
-if (mcpAccessPanel && mcpToggleHint) {
-  mcpAccessPanel.addEventListener('show.bs.collapse', () => {
-    mcpToggleHint.textContent = '(свернуть)';
-  });
-  mcpAccessPanel.addEventListener('hide.bs.collapse', () => {
-    mcpToggleHint.textContent = '(развернуть)';
-  });
-}
-
 // «Дополнительные файлы» (только админ): посылки агентов и .cf/.dt от пользователей; список грузится при раскрытии
 const extraFilesPanel = document.getElementById('extra-files-panel');
 const EXTRA_KIND_LABELS = {
@@ -3239,6 +3133,6 @@ if (grantMembersBody) {
 }
 </script>
 <script src="/static/px_tasks.js?v=2"></script>
-<script src="/static/px_digest.js?v=2"></script>
-{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=4"></script><script src="/static/people.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
+<script src="/static/px_digest.js?v=5"></script>
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=7"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
 {% endblock %}
