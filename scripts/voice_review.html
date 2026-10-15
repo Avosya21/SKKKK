@@ -114,7 +114,6 @@ a.jump { color: var(--accent); cursor: pointer; text-decoration: underline; }
   <section id="voices"></section>
   <section id="pairs" class="hidden"></section>
 </main>
-<datalist id="companies"></datalist>
 <script>
 (async function () {
   const data = await (await fetch('data.json', { cache: 'no-store' })).json();
@@ -130,8 +129,8 @@ a.jump { color: var(--accent); cursor: pointer; text-decoration: underline; }
   ];
   const companySide = Object.fromEntries(data.companies.map((c) => [c.name.toLowerCase(), c.side]));
   document.getElementById('built').textContent = `собрано ${data.built}`;
-  const dl = document.getElementById('companies');
-  data.companies.forEach((c) => { const o = document.createElement('option'); o.value = c.name; dl.append(o); });
+  const portalCompanies = data.portal_companies || [];
+  portalCompanies.forEach((c) => { if (c.side) companySide[c.name.toLowerCase()] = c.side; });
 
   // ---- сохранение
   let timer = null;
@@ -257,15 +256,26 @@ a.jump { color: var(--accent); cursor: pointer; text-decoration: underline; }
     box.append(nameRow, mergeRow);
 
     const row = el('div', 'row');
-    const comp = el('input'); comp.type = 'text'; comp.setAttribute('list', 'companies');
+    // компания — только из списка компаний портала; прежнее значение вне списка остаётся видно, пока его не сменят
     const g = groupOf(v);
-    comp.placeholder = g.company || 'Компания';
+    const comp = el('select');
+    comp.append(new Option(g.company ? `не менять (сейчас: ${g.company})` : 'не менять', ''));
+    [['executor', 'Исполнители'], ['customer', 'Заказчики'], ['', 'Сторона не указана']].forEach(([s, title]) => {
+      const list = portalCompanies.filter((c) => (c.side === 'executor' || c.side === 'customer' ? c.side : '') === s);
+      if (!list.length) return;
+      const grp = document.createElement('optgroup'); grp.label = title;
+      list.forEach((c) => grp.append(new Option(c.name, c.name)));
+      comp.append(grp);
+    });
+    if (d.company && !portalCompanies.some((c) => c.name === d.company)) {
+      comp.append(new Option(`${d.company} (нет на портале)`, d.company));
+    }
     comp.value = d.company || '';
     const side = el('select');
     [['', `Сторона${g.side ? ' (сейчас: ' + SIDE[g.side] + ')' : ''}`], ['executor', 'Исполнитель'], ['customer', 'Заказчик']]
       .forEach(([val, t]) => side.append(new Option(t, val)));
     side.value = d.side || '';
-    comp.addEventListener('input', () => {
+    comp.addEventListener('change', () => {
       d.company = comp.value;
       const s = companySide[comp.value.trim().toLowerCase()];
       if (s && !d.side) { side.value = s; d.side = s; }
