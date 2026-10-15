@@ -81,11 +81,20 @@
       <div class="modal-body">
         <input class="form-control mb-2" name="name" placeholder="Название" required>
         <textarea class="form-control" name="description" placeholder="Описание"></textarea>
-        <details class="mt-3" id="project-parties-box">
-          <summary class="small text-muted">Стороны и люди заказчика (необязательно, можно добавить позже)</summary>
-          <input class="form-control form-control-sm mt-2" name="customer_company" placeholder="Компания заказчика" maxlength="200" autocomplete="off">
-          <input class="form-control form-control-sm mt-2" name="executor_company" placeholder="Компания исполнителя (по умолчанию — из вашей карточки)" maxlength="200" list="project-company-list" autocomplete="off">
+        <div class="mt-3" id="project-parties-box">
+          <div class="small text-muted mb-1">Стороны проекта — компании выбираются из справочника портала</div>
+          <input class="form-control form-control-sm" name="customer_company" id="project-customer-company" placeholder="Компания заказчика" maxlength="200" list="project-company-list" autocomplete="off" required aria-describedby="project-customer-hint">
+          <div class="form-text" id="project-customer-hint"></div>
+          <input class="form-control form-control-sm mt-2" name="executor_company" id="project-executor-company" placeholder="Компания исполнителя (по умолчанию — из вашей карточки)" maxlength="200" list="project-company-list" autocomplete="off" aria-describedby="project-executor-hint">
+          <div class="form-text" id="project-executor-hint"></div>
           <datalist id="project-company-list"></datalist>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" id="project-internal">
+            <label class="form-check-label small" for="project-internal">Внутренний проект — без заказчика</label>
+          </div>
+        </div>
+        <details class="mt-2" id="project-people-box">
+          <summary class="small text-muted">Люди заказчика (необязательно, можно добавить позже)</summary>
           <textarea class="form-control form-control-sm mt-2" id="project-customer-people" rows="3" placeholder="Люди заказчика, по одному на строку: Имя Фамилия, должность"></textarea>
           <div class="form-text">Если человек может утверждать решения, добавьте в конец строки «*». Эти люди в портал входить не обязаны.</div>
         </details>
@@ -345,15 +354,43 @@ renameForm.addEventListener('submit', async (e) => {
   }, { busyText: 'Сохраняю…' });
 });
 
+// Стороны проекта (PEOPLE-FLOW-PLAN, ЛГ1): компания выбирается из справочника; новая попадает туда сама со стороной по роли
+let projectCompanies = [];
+const looseCompanyKey = (name) => String(name || '').toLowerCase().replace(/ё/g, 'е')
+  .replace(/(^|[^0-9a-zа-я])(ооо|оао|зао|пао|ао|ип|llc|ltd|inc)(?=$|[^0-9a-zа-я])/g, ' ').replace(/[^0-9a-zа-я]/g, '');
+function companyHint(input, hintId, role) {
+  const hint = document.getElementById(hintId);
+  const value = input.value.trim();
+  if (!value) { hint.textContent = ''; return; }
+  const hit = projectCompanies.find((c) => looseCompanyKey(c.name) === looseCompanyKey(value));
+  hint.textContent = hit
+    ? (hit.name === value ? 'Есть в справочнике.' : `В справочнике: «${hit.name}» — будет записана так.`)
+    : `Новая компания — добавится в справочник как ${role}.`;
+}
 async function fillCompanyList() {
   try {
     const r = await SKKKK.api('/companies');
     if (!r.ok) return;
+    projectCompanies = (await r.json()).items.filter((c) => c.active);
     const list = document.getElementById('project-company-list');
-    list.innerHTML = (await r.json()).items.filter((c) => c.active).map((c) => `<option value="${String(c.name).replace(/"/g, '&quot;')}"></option>`).join('');
+    list.innerHTML = projectCompanies.map((c) => `<option value="${String(c.name).replace(/"/g, '&quot;')}"></option>`).join('');
   } catch (_) { /* подсказки необязательны */ }
 }
-if (newProjectBtn && modal) newProjectBtn.onclick = () => { fillCompanyList(); modal.show(); };
+const customerInput = document.getElementById('project-customer-company');
+const executorInput = document.getElementById('project-executor-company');
+const internalBox = document.getElementById('project-internal');
+customerInput.addEventListener('input', () => companyHint(customerInput, 'project-customer-hint', 'заказчик'));
+executorInput.addEventListener('input', () => companyHint(executorInput, 'project-executor-hint', 'исполнитель'));
+function syncInternal() {
+  const internal = internalBox.checked;
+  customerInput.disabled = internal;
+  customerInput.required = !internal;
+  if (internal) document.getElementById('project-customer-hint').textContent = 'Внутренний проект: заказчика нет, только исполнитель.';
+  else companyHint(customerInput, 'project-customer-hint', 'заказчик');
+  document.getElementById('project-people-box').hidden = internal;
+}
+internalBox.addEventListener('change', syncInternal);
+if (newProjectBtn && modal) newProjectBtn.onclick = () => { fillCompanyList(); syncInternal(); modal.show(); };
 document.getElementById('new-project-form').onsubmit = async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -370,6 +407,8 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
     return name.trim() ? { name: name.trim(), job_title: rest.join(',').trim() || null, can_approve: approve } : null;
   }).filter(Boolean);
   ['customer_company', 'executor_company'].forEach((k) => { if (!String(payload[k] || '').trim()) delete payload[k]; });
+  payload.internal = internalBox.checked;
+  if (payload.internal) { delete payload.customer_company; payload.customer_people = []; }
 
   await SKKKK.guardSubmit(form, async () => {
     const r = await SKKKK.api('/projects', {
@@ -386,6 +425,8 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
     }
     modal.hide();
     form.reset();
+    ["project-customer-hint", "project-executor-hint"].forEach((id) => { document.getElementById(id).textContent = ""; });
+    syncInternal();
     await loadProjects();
   }, { busyText: 'Создаю…' });
 };

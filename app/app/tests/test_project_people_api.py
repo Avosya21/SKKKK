@@ -158,6 +158,37 @@ def test_create_project_without_people_still_works(client, manager_token):
     assert r.status_code == 201
 
 
+def test_form_requires_customer_unless_internal_and_adds_new_company(client, manager_token):
+    """ЛГ1 (Р2, Р3): форма шлёт ``internal``; без заказчика — только внутренний проект; новая компания — в справочник."""
+    h = _auth(manager_token)
+    missing = client.post("/projects", json={"name": "Без заказчика", "internal": False}, headers=h)
+    assert missing.status_code == 400 and "Внутренний проект" in missing.json()["detail"]
+    inner = client.post("/projects", json={"name": "Планёрки", "internal": True, "executor_company": "ACME",
+                                           "customer_company": "Лишняя", "customer_people": [{"name": "Лишний Человек"}]}, headers=h)
+    assert inner.status_code == 201
+    got = client.get(f"/projects/{inner.json()['id']}/people", headers=h).json()
+    assert got["parties"] == [{"company_name": "ACME", "side": "executor"}]
+    assert not any(p["display_name"] == "Лишний Человек" for p in got["people"])
+    made = client.post("/projects", json={"name": "Новый клиент", "internal": False, "customer_company": "ООО «Клиент Новый»"}, headers=h)
+    assert made.status_code == 201
+    names = {c["name"]: c["side"] for c in client.get("/companies", headers=h).json()["items"]}
+    assert names.get("ООО «Клиент Новый»") == "customer"
+    people_view = client.get(f"/projects/{made.json()['id']}/people", headers=h).json()
+    assert any(c["name"] == "ООО «Клиент Новый»" for c in people_view["companies"])  # выбор для сторон проекта
+
+
+def test_internal_project_is_marked_in_settings(client, manager_token, db_engine):
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+
+    pid = client.post("/projects", json={"name": "Внутренний", "internal": True}, headers=_auth(manager_token)).json()["id"]
+    db = SessionLocal()
+    try:
+        assert db.get(Project, pid).settings().get("internal_project") is True
+    finally:
+        db.close()
+
+
 def test_company_names_are_normalized_to_shared_list(client, admin_token, manager_token, tmp_data):
     h_admin = _auth(admin_token)
     added = client.put("/companies", json={"name": "Компания Общая", "side": "customer"}, headers=h_admin)

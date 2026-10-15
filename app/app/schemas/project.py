@@ -20,6 +20,9 @@ class ProjectCreate(BaseModel):
     customer_company: str | None = Field(default=None, max_length=200)
     executor_company: str | None = Field(default=None, max_length=200)
     customer_people: list[NewProjectPerson] = Field(default_factory=list, max_length=30)
+    # Р3 (PEOPLE-FLOW-PLAN): форма шлёт явно — True «внутренний проект» (только исполнитель), False — заказчик обязателен.
+    # None — прежние вызовы API без формы: заказчик по желанию.
+    internal: bool | None = None
 
 
 class ProjectRename(BaseModel):

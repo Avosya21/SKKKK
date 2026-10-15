@@ -69,6 +69,12 @@ def create_project(
     from app.app.services import agent_settings, people
 
     agent_settings.init_new_project(project)  # новый проект: без якорей 1С и без названий компаний в правилах сторон
+    if body.internal:
+        project.set_settings({**project.settings(), "internal_project": True})
+        body = body.model_copy(update={"customer_company": None, "customer_people": []})
+    elif body.internal is False and not (body.customer_company or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Укажите компанию заказчика или отметьте «Внутренний проект»")
     names = [people.alias_key(p.name) for p in body.customer_people]
     if any(not n for n in names) or len(set(names)) != len(names):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Имена людей заказчика должны быть непустыми и не повторяться")

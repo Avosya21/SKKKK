@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -116,12 +117,46 @@ def write_companies_file(lines: list[CompanyLine], path: Path | None = None) -> 
     path.write_text("\n".join(head + body) + "\n", encoding="utf-8")
 
 
+_LEGAL_FORMS = re.compile(r"\b(ооо|оао|зао|пао|ао|ип|llc|ltd|inc)\b")
+
+
+def loose_key(name: str | None) -> str:
+    """Ключ одной компании под разными написаниями: без регистра, кавычек, пробелов и формы собственности
+    («ООО «Пример-Альфа»» = «пример альфа» = «ПРИМЕР АЛЬФА ООО»)."""
+    text = _LEGAL_FORMS.sub(" ", (name or "").casefold().replace("ё", "е"))
+    return re.sub(r"[^0-9a-zа-я]", "", text)
+
+
 def canonical_company(db: Session, name: str | None) -> Company | None:
-    """Компания списка по названию без учёта регистра и лишних пробелов (активная или скрытая)."""
+    """Компания списка по названию (активная или скрытая): сначала точное написание без учёта регистра и лишних
+    пробелов, затем то же название без кавычек и формы собственности — если такая компания в списке одна."""
     key = name_key(name or "")
     if not key:
         return None
-    return db.scalar(select(Company).where(Company.name_key == key))
+    row = db.scalar(select(Company).where(Company.name_key == key))
+    if row is not None:
+        return row
+    loose = loose_key(name)
+    if not loose:
+        return None
+    hits = [c for c in db.scalars(select(Company)).all() if loose_key(c.name) == loose]
+    active = [c for c in hits if c.active]
+    hits = active or hits
+    return hits[0] if len(hits) == 1 else None
+
+
+def ensure_company(db: Session, name: str, side: str) -> Company:
+    """Компания списка для стороны проекта (решение Р2, PEOPLE-FLOW-PLAN ЛГ1): найденная по названию, а новая —
+    сразу в общий список со стороной по роли в проекте. Скрытая админом компания, снова выбранная в проекте, возвращается
+    в список со своей прежней стороной. Сначала таблица сверяется с файлом: компания, уже записанная в файл, не должна
+    добавиться заново со стороной этого проекта."""
+    sync_companies(db)
+    row = canonical_company(db, name)
+    if row is None:
+        return save_company(db, name, side)
+    if not row.active:
+        return save_company(db, row.name, row.side or side)
+    return row
 
 
 def save_company(db: Session, name: str, side: str, *, active: bool = True, path: Path | None = None) -> Company:

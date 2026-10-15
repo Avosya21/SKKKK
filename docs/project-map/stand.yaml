@@ -79,6 +79,7 @@ items:
   - {path: "scripts/SKKKK-3-Запуск-LM-Studio.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с локальной моделью (LM Studio)"}
   - {path: "scripts/index_config.yaml", kind: "конфиг", purpose: "что индексировать: файлы, исключения, версия схемы, маскирование секретов"}
   - {path: "scripts/index_glossary.yaml", kind: "конфиг", purpose: "словарь синонимов для поиска по карте"}
+  - {path: "scripts/voice_review.html", kind: "шаблон", purpose: "страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/"}
   - {path: "scripts/requirements_lock", kind: "заглушка", purpose: "пустой файл блокировки версий (не используется)"}
   - {path: "scripts/qa_data_speech_a.wav", kind: "фикстура", purpose: "синтезированная русская реплика A для сквозных проверок (qa_analysis, qa_media_path)"}
   - {path: "scripts/qa_data_speech_b.wav", kind: "фикстура", purpose: "синтезированная русская реплика B для сквозных проверок"}

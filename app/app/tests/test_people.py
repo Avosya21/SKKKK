@@ -144,6 +144,25 @@ def test_project_party_side(db, project):
     assert people.party_side(db, project.id, "Другая") is None
 
 
+def test_party_always_points_to_directory_company(db, project):
+    """ЛГ1: сторона проекта хранит компанию справочника; новая компания попадает туда со стороной по роли (Р2)."""
+    from app.app.models.company import Company
+    from app.app.services.companies import canonical_company, load_companies_file, loose_key
+
+    known = people.set_party(db, project.id, "acme", "executor")  # в справочнике «ACME»
+    acme = canonical_company(db, "ACME")
+    assert (known.company_id, known.company_name) == (acme.id, "ACME")
+    fresh = people.set_party(db, project.id, "ООО «Новый Пример»", "customer")
+    added = db.get(Company, fresh.company_id)
+    assert added.name == "ООО «Новый Пример»" and added.side == "customer" and added.active
+    assert any(line.name == "ООО «Новый Пример»" for line in load_companies_file())  # и в файле-источнике
+    again = people.set_party(db, project.id, "Новый Пример", "executor")  # то же название без формы и кавычек
+    assert again.id == fresh.id and again.side == "executor" and again.company_id == added.id
+    assert db.get(Company, added.id).side == "customer"  # сторона в справочнике — только по умолчанию (Д1)
+    assert people.party_side(db, project.id, "новый пример ооо") == "executor"
+    assert loose_key("ООО «Пример-Альфа»") == loose_key("ПРИМЕР АЛЬФА ООО") != loose_key("Пример Бета")
+
+
 def test_contract_uses_registry_only_when_platform_enabled(db, project, monkeypatch):
     from app.app.services import contract
 
