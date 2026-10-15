@@ -10,6 +10,11 @@
 
 Сведения о людях других проектов не используются (ПФ8): подсказка — только из реестра этого проекта и карточек
 сотрудников исполнителя.
+
+«Кто это» выбирается из списка (решение 2026-10-15): похожие голоса базы с процентом сходства, люди проекта, сотрудники;
+«Новый человек» — только если в списке его нет. Выбор привязывает голос к той самой записи (``profile_id`` / ``person_id``),
+а не к совпадению написания. Другое имя на подтверждённой карточке — перепривязка; переименовать голос во всех созвонах —
+только явно (``rename``).
 """
 from __future__ import annotations
 
@@ -24,6 +29,9 @@ from app.app.models.person import SIDE_CUSTOMER, SIDE_EXECUTOR, PeopleLog, Perso
 from app.app.services import people
 
 CARD_SIDES = (SIDE_EXECUTOR, SIDE_CUSTOMER)
+CANDIDATES_PER_CARD = 5
+# Ниже — не тот же человек, а шум: на проекте 40 у незнакомых голосов лучшие совпадения 45–50 %, у узнанных 78–91 %.
+CANDIDATE_MIN_COSINE = 0.55
 CONSENT_BASIS = "договор (подтверждение голоса на странице «Голоса»)"
 SOURCE_REGISTRY = "Люди и стороны"
 SOURCE_STAFF = "карточка сотрудника"
@@ -126,6 +134,7 @@ def page_context(db: Session, artifact: Artifact) -> dict[str, Any]:
             companies.setdefault(people.alias_key(p.company_name), p.company_name)
     payload = _match_payload(artifact)
     merge_map = payload.get("merge_map") or {}
+    aliases = payload.get("voice_aliases") or {}
     cards: dict[str, Any] = {}
     for label, row in (payload.get("matches") or {}).items():
         if not isinstance(row, dict) or merge_map.get(label, label) != label:
@@ -133,10 +142,21 @@ def page_context(db: Session, artifact: Artifact) -> dict[str, Any]:
         status = row.get("status") or "new"
         name = (row.get("profile_name") or "").strip() if status == "confirmed" else ""
         hint = suggest(db, project_id, name, profile_id=row.get("profile_id") if status == "confirmed" else None, staff=staff) if name else None
-        cards[label] = {"status": status, "needs_human": bool(row.get("needs_human")), "suggestion": hint}
+        current = {"profile_id": row.get("profile_id"), "name": name} if status == "confirmed" and row.get("profile_id") else None
+        cards[label] = {"status": status, "needs_human": bool(row.get("needs_human")), "suggestion": hint, "current": current,
+                        "candidates": _candidates(db, project_id, (payload.get("profile_candidates") or {}).get(label) or [],
+                                                  aliases, staff)}
+    for label, target in merge_map.items():
+        if label != target and target in cards and label in (payload.get("matches") or {}):
+            cards[label] = cards[target]  # склеенный по голосу (можно разделить) — варианты основного голоса
+    rows = []
+    for p in persons:
+        row = _person_row(p, sorted(set(keys.get(p.id, [])) | {people.alias_key(p.display_name)}))
+        row["profile_id"] = voice_of(db, p)
+        rows.append(row)
     return {
         "artifact_id": artifact.artifact_id,
-        "people": [_person_row(p, sorted(set(keys.get(p.id, [])) | {people.alias_key(p.display_name)})) for p in persons],
+        "people": rows,
         "staff": [{k: s[k] for k in ("name", "keys", "company", "side", "job_title")} for s in staff],
         "companies": sorted(companies.values(), key=str.casefold),
         "company_sides": sides,
@@ -144,12 +164,48 @@ def page_context(db: Session, artifact: Artifact) -> dict[str, Any]:
     }
 
 
+def _candidates(db: Session, project_id: int, raw: list, aliases: dict, staff: list[dict]) -> list[dict[str, Any]]:
+    """Похожие голоса карточки (``profile_candidates`` match): имя (служебное — через ``voice_aliases``), %, кто это."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for cand in raw:
+        if not isinstance(cand, dict) or not cand.get("profile_id") or cand.get("cosine") is None:
+            continue
+        if float(cand["cosine"]) < CANDIDATE_MIN_COSINE:
+            continue
+        name = str(aliases.get(cand.get("display_name")) or cand.get("display_name") or "").strip()
+        key = people.alias_key(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append({"profile_id": int(cand["profile_id"]), "name": name, "pct": int(round(float(cand["cosine"]) * 100)),
+                    "info": suggest(db, project_id, name, profile_id=int(cand["profile_id"]), staff=staff)})
+        if len(out) >= CANDIDATES_PER_CARD:
+            break
+    return out
+
+
+def voice_of(db: Session, person: Person) -> int | None:
+    """Голос человека проекта: свой слепок проекта, общий голос его учётки, иначе общий голос с тем же именем."""
+    from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.services.speaker_profiles import _visible_profile_by_name
+
+    own = db.scalar(select(SpeakerProfile.id).where(SpeakerProfile.person_id == person.id).limit(1))
+    if own is None and person.user_id is not None:
+        own = db.scalar(select(SpeakerProfile.id).where(SpeakerProfile.user_id == person.user_id, SpeakerProfile.scope == "global").limit(1))
+    if own is None:
+        hit = _visible_profile_by_name(db, person.project_id, person.display_name)
+        own = hit.id if hit is not None else None
+    return own
+
+
 def _consent_withdrawn(db: Session, person_id: int) -> bool:
     return db.scalar(select(PeopleLog.id).where(PeopleLog.person_id == person_id, PeopleLog.action == "voice_withdraw").limit(1)) is not None
 
 
-def _upsert_person(db: Session, project_id: int, *, name: str, company: str, side: str, job_title: str | None,
-                   by_user_id: int | None) -> Person:
+def _person_by_name(db: Session, project_id: int, name: str, *, company: str, side: str, job_title: str | None,
+                    by_user_id: int | None) -> Person:
+    """Человек проекта по имени (или по написанию); сотрудник — из его карточки; иначе новый."""
     match = people.resolve(db, project_id, name)
     if match is None:
         hit = next((s for s in _staff(db) if people.alias_key(name) in s["keys"]), None)
@@ -165,8 +221,21 @@ def _upsert_person(db: Session, project_id: int, *, name: str, company: str, sid
                                         job_title=job_title or None, by_user_id=by_user_id)
     else:
         person = match.person
-        if people.alias_key(name) != people.alias_key(person.display_name):
+        _alias(db, project_id, person, name, by_user_id)
+    return person
+
+
+def _alias(db: Session, project_id: int, person: Person, name: str, by_user_id: int | None) -> None:
+    """Запомнить написание (имя голоса) у человека, если оно другое и не занято другим человеком."""
+    if people.alias_key(name) and people.alias_key(name) != people.alias_key(person.display_name):
+        try:
             people.add_alias(db, project_id, person.id, name, source="voice", by_user_id=by_user_id)
+        except people.PeopleError:
+            pass
+
+
+def _apply_fields(db: Session, project_id: int, person: Person, *, company: str, side: str, job_title: str | None,
+                  by_user_id: int | None) -> Person:
     changes: dict[str, Any] = {}
     if people.alias_key(company) != people.alias_key(person.company_name):
         changes["company_name"] = company
@@ -180,10 +249,14 @@ def _upsert_person(db: Session, project_id: int, *, name: str, company: str, sid
 
 
 def confirm_card(db: Session, artifact: Artifact, *, diar_label: str, name: str, company: str, side: str,
-                 job_title: str | None = None, by_user_id: int | None = None):
-    """Подтвердить голос человеком: реестр проекта (человек, сторона компании, согласие) → запомнить голос под его именем."""
+                 job_title: str | None = None, by_user_id: int | None = None, profile_id: int | None = None,
+                 person_id: int | None = None, new_person: bool = False, rename: bool = False):
+    """Подтвердить голос человеком: реестр проекта (человек, сторона компании, согласие) → запомнить голос под его именем.
+
+    ``profile_id`` — выбран голос из базы; ``person_id`` — человек проекта; ``new_person`` — «новый человек» (имя не должно
+    совпадать с уже известным); ``rename`` — исправить написание голоса этой карточки во всех созвонах."""
     from app.app.models.speaker_profile import SpeakerProfile
-    from app.app.services.speaker_profiles import enroll_speaker
+    from app.app.services.speaker_profiles import _visible_profile_by_name, enroll_speaker
 
     name, company = " ".join((name or "").split()), " ".join((company or "").split())
     job_title = " ".join((job_title or "").split()) or None
@@ -194,8 +267,46 @@ def confirm_card(db: Session, artifact: Artifact, *, diar_label: str, name: str,
     if side not in CARD_SIDES:
         raise people.PeopleError("Укажите сторону: исполнитель или заказчик")
     project_id = artifact.project_id
+    fields = {"company": company, "side": side, "job_title": job_title, "by_user_id": by_user_id}
+    voice_name = name
     try:
-        person = _upsert_person(db, project_id, name=name, company=company, side=side, job_title=job_title, by_user_id=by_user_id)
+        chosen = db.get(SpeakerProfile, profile_id) if profile_id else None
+        if profile_id and (chosen is None or not (chosen.scope == "global" or chosen.project_id == project_id)):
+            raise people.PeopleError("Выбранный голос не найден — обновите страницу")
+        if rename:
+            if chosen is None:
+                raise people.PeopleError("Переименовать можно только голос этой карточки")
+            old = people.resolve(db, project_id, chosen.display_name)
+            if old is not None and people.alias_key(old.person.display_name) != people.alias_key(name):
+                person = people.update_person(db, project_id, old.person.id, by_user_id=by_user_id, display_name=name)
+            else:
+                person = _person_by_name(db, project_id, name, **fields)
+        elif chosen is not None:
+            voice_name = chosen.display_name
+            if person_id:
+                person = people.get(db, project_id, person_id)
+            else:
+                hit = suggest(db, project_id, voice_name, profile_id=chosen.id)
+                person = _person_by_name(db, project_id, (hit or {}).get("name") or voice_name, **fields)
+            _alias(db, project_id, person, voice_name, by_user_id)  # имя голоса — написание этого человека
+        elif person_id:
+            person = people.get(db, project_id, person_id)
+            voice_name = person.display_name
+            profile_id = voice_of(db, person)
+        elif new_person:
+            taken = people.resolve(db, project_id, name, allow_first_name=False)
+            if taken is not None:
+                raise people.PeopleError(f"«{taken.person.display_name}» уже есть среди людей проекта — выберите его в списке.")
+            twin = _visible_profile_by_name(db, project_id, name)
+            if twin is not None:
+                raise people.PeopleError(f"Голос «{twin.display_name}» уже есть в базе — выберите его в списке или уточните имя "
+                                         "(например, фамилией).")
+            person = _person_by_name(db, project_id, name, **fields)
+        else:
+            person = _person_by_name(db, project_id, name, **fields)
+        if not rename and person_id is None and chosen is None:
+            voice_name = person.display_name
+        person = _apply_fields(db, project_id, person, **fields)
         if people.party_side(db, project_id, company) is None:
             company_id, company_name = people.normalize_company(db, company)
             people.set_party(db, project_id, company_name or company, side, company_id=company_id, by_user_id=by_user_id)
@@ -212,7 +323,8 @@ def confirm_card(db: Session, artifact: Artifact, *, diar_label: str, name: str,
         db.rollback()
         raise
     profile = enroll_speaker(db, project_id=project_id, artifact_id=artifact.artifact_id, diar_label=diar_label,
-                             display_name=person.display_name)
+                             display_name=name if rename else voice_name, profile_id=profile_id, new_voice=new_person,
+                             rename=rename)
     if profile.scope == "project" and profile.project_id == project_id and profile.person_id is None:
         prof = db.get(SpeakerProfile, profile.id)
         prof.person_id = person.id

@@ -107,8 +107,8 @@ def _speaker_cards_html(db: Session, artifact: Artifact) -> str:
 
     ctx = json.dumps(page_context(db, artifact), ensure_ascii=False).replace("</", "<\\/")
     return (f'<script id="pp-cards" type="application/json">{ctx}</script>'
-            f'<link rel="stylesheet" href="/static/speaker_cards.css?v=1">'
-            f'<script src="/static/speaker_cards.js?v=1"></script>')
+            f'<link rel="stylesheet" href="/static/speaker_cards.css?v=2">'
+            f'<script src="/static/speaker_cards.js?v=2"></script>')
 
 
 def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None, people_html: str = "") -> HTMLResponse:
@@ -553,7 +553,7 @@ def artifact_speaker_match_page(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     html = report_path.read_text(encoding="utf-8")
     staff = _artifact_role(db, user, artifact) in ("admin", "manager")
-    people_html = (_people_datalist(db, artifact.project_id) + _speaker_cards_html(db, artifact)) if staff else ""
+    people_html = _speaker_cards_html(db, artifact) if staff else ""  # список «Кто это» вместо datalist имён
     return _serve_report(html, user, embed=embed, kind="audio", role=_artifact_role(db, user, artifact), people_html=people_html)
 
 

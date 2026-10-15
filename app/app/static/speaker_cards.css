@@ -1,11 +1,17 @@
-/* Карточки голосов: компания, сторона, должность (static/speaker_cards.js) */
+/* Карточки голосов: «Кто это» из списка, компания, сторона, должность (static/speaker_cards.js) */
 .pc-block { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
 .pc-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0.5rem; }
 .pc-field { min-width: 0; }
 .pc-field .form-label { margin-bottom: 0.25rem; }
-.pc-note:empty { display: none; }
-.pc-confirm { align-self: flex-start; }
+.pc-note:empty, .pc-chip:empty { display: none; }
+.pc-chip-known { color: var(--bs-success-text-emphasis, #146c43); }
+.pc-chip-new { color: var(--bs-warning-text-emphasis, #997404); }
+.pc-confirm, .pc-rename { align-self: flex-start; }
 .pc-confirm:disabled { opacity: 0.55; }
+.pc-menu { width: 100%; max-height: 300px; overflow-y: auto; top: 100%; left: 0; margin-top: 2px; }
+.pc-opt { display: flex; flex-direction: column; align-items: flex-start; white-space: normal; line-height: 1.25; }
+.pc-opt-meta { font-size: 0.78rem; }
+.pc-opt-new .pc-opt-name { font-weight: 500; }
 @media (max-width: 420px) {
   .pc-grid { grid-template-columns: 1fr; }
 }
