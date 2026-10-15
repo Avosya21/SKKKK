@@ -142,6 +142,20 @@
     font-weight: normal;
     color: #6c757d;
   }
+  .workspace-card .card-header .materials-toggle-btn {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    min-height: 36px;
+  }
+  .workspace-card .card-header .materials-toggle-btn:hover {
+    color: #0d6efd;
+  }
+  .workspace-card .materials-toggle-hint {
+    font-weight: normal;
+    color: #6c757d;
+  }
   .deadlines-card .card-header .deadlines-toggle-btn {
     border: 0;
     background: transparent;
@@ -427,26 +441,24 @@
       align-items: stretch;
       --bs-gutter-x: 1.25rem;
     }
-    .project-insights-row > .col-lg-7 {
-      flex: 0 0 58.333333%;
-      width: 58.333333%;
-    }
-    .project-insights-row > .col-lg-5 {
-      flex: 0 0 41.666667%;
-      width: 41.666667%;
+    /* Резюме и ассистент — поровну */
+    .project-insights-row > .insights-col-summary,
+    .project-insights-row > .insights-col-chat {
+      flex: 0 0 50%;
+      width: 50%;
     }
     .project-insights-row .insights-card {
       height: min(70vh, 720px);
       max-height: min(70vh, 720px);
       min-height: 0;
     }
-    .project-insights-row > .col-lg-5 .insights-card {
+    .project-insights-row > .insights-col-chat .insights-card {
       position: sticky;
       top: 0.75rem;
       height: min(70vh, 720px);
       max-height: min(70vh, 720px);
     }
-    .project-insights-row > .col-lg-7 #tz-content {
+    .project-insights-row > .insights-col-summary #tz-content {
       overflow-y: auto;
       overscroll-behavior: contain;
       padding-right: .35rem;
@@ -488,15 +500,15 @@
     }
     .project-insights-row { --bs-gutter-y: 1rem; }
     .project-insights-row .insights-card,
-    .project-insights-row > .col-lg-5 .insights-card {
+    .project-insights-row > .insights-col-chat .insights-card {
       min-height: 0;
       height: auto;
       max-height: none;
       position: relative;
       top: auto;
     }
-    .project-insights-row > .col-lg-7 { order: 1 !important; }
-    .project-insights-row > .col-lg-5 { order: 2 !important; }
+    .project-insights-row > .insights-col-summary { order: 1 !important; }
+    .project-insights-row > .insights-col-chat { order: 2 !important; }
   }
 
   .download-banner {
@@ -693,7 +705,15 @@
 <div class="card shadow-sm mb-3 mb-md-4 workspace-card">
   <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
     <div class="me-sm-auto min-w-0">
-     <div class="section-title-wrap"><strong>Материалы проекта</strong><span class="section-title-subtitle">Файлы и обработка</span></div>
+      <button type="button"
+              class="materials-toggle-btn d-flex align-items-center gap-2 p-0"
+              data-bs-toggle="collapse"
+              data-bs-target="#artifacts-panel"
+              aria-expanded="false"
+              aria-controls="artifacts-panel">
+        <span class="section-title-wrap"><strong>Материалы проекта</strong><span class="section-title-subtitle">Файлы и обработка</span></span>
+        <span id="artifacts-toggle-hint" class="small materials-toggle-hint">(развернуть)</span>
+      </button>
       <div class="small text-muted" id="artifacts-status" hidden aria-live="polite"></div>
     </div>
     <div class="project-kpis" id="project-kpis" aria-label="Сводка по артефактам">
@@ -711,6 +731,7 @@
       </div>
     </div>
   </div>
+  <div id="artifacts-panel" class="collapse">
   <div class="card-body" id="artifacts-body" data-count="{{ artifact_count|default(0) }}" style="--artifact-n: {{ artifact_count|default(0) }}">
     <div id="pipeline-live" class="d-none" aria-live="polite" aria-atomic="true"></div>
     <div class="table-responsive d-none d-md-block">
@@ -731,6 +752,7 @@
     <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
     <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
 <div id="artifacts-nodate-note" class="small text-warning-emphasis mt-2 d-none"></div>
+  </div>
   </div>
 </div>
 
@@ -758,7 +780,7 @@
 </div>
 
 <div class="row g-3 mb-4 align-items-stretch project-insights-row">
-  <div class="col-lg-7 order-2 order-lg-1 d-flex">
+  <div class="col-lg-6 insights-col-summary order-2 order-lg-1 d-flex">
     <div class="card shadow-sm h-100 w-100 insights-card">
       <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
         <div class="section-title-wrap"><strong>Резюме проекта</strong></div>
@@ -772,7 +794,7 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-5 order-1 order-lg-2 d-flex">
+  <div class="col-lg-6 insights-col-chat order-1 order-lg-2 d-flex">
     <div class="card shadow-sm h-100 w-100 insights-card chat-card chat-panel-mobile-lift">
       <div class="card-header">
         <div class="section-title-wrap"><strong>Ассистент</strong><span class="section-title-subtitle">По материалам проекта</span></div>
@@ -2110,7 +2132,8 @@ async function refreshArtifacts() {
   const listBody = document.getElementById('artifacts-body');
   if (listBody) {
     listBody.style.minHeight = '0';  // запас больше не нужен (список пришёл); 0 перекрывает и CSS-запас, чтобы после удаления файлов не оставалось пустоты
-    try {
+    // в свёрнутом блоке высота 0 — не запоминаем её
+    if (listBody.offsetParent !== null) try {
       localStorage.setItem('skkkk_artifacts_h_' + projectId, String(Math.round(listBody.getBoundingClientRect().height)));
     } catch (_) { /* не критично */ }
   }
@@ -2206,6 +2229,12 @@ document.getElementById('upload-files').addEventListener('change', (ev) => {
 });
 
 // --- загрузка (chunked / resume) ---
+// «Материалы проекта» свёрнуты по умолчанию, сводка (Готово / Док. / Созвоны) видна в шапке
+const artifactsPanel = document.getElementById('artifacts-panel');
+const artifactsToggleHint = document.getElementById('artifacts-toggle-hint');
+artifactsPanel.addEventListener('show.bs.collapse', () => { artifactsToggleHint.textContent = '(свернуть)'; });
+artifactsPanel.addEventListener('hide.bs.collapse', () => { artifactsToggleHint.textContent = '(развернуть)'; });
+
 document.getElementById('upload-form').onsubmit = async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -2266,6 +2295,8 @@ document.getElementById('upload-form').onsubmit = async (e) => {
       artifactsStatus.hidden = false;
       artifactsStatus.textContent = 'Файлы загружены, ожидаю обновление статусов…';
       form.reset();
+      // новые файлы видны сразу: раскрываем свёрнутый список материалов
+      if (!artifactsPanel.classList.contains('show')) bootstrap.Collapse.getOrCreateInstance(artifactsPanel).show();
       refreshArtifacts();
       setTimeout(() => {
         delete artifactsStatus.dataset.busy;
@@ -3230,6 +3261,6 @@ if (grantMembersBody) {
 }
 </script>
 <script src="/static/px_tasks.js?v=2"></script>
-<script src="/static/px_digest.js?v=1"></script>
+<script src="/static/px_digest.js?v=2"></script>
 {% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=4"></script><script src="/static/people.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
 {% endblock %}

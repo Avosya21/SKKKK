@@ -10,7 +10,7 @@
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // куда ведёт строка: карточка (её панель раскрывается) или страница
   const TARGETS = {
-    materials: { card: '.workspace-card' },
+    materials: { card: '.workspace-card', panel: 'artifacts-panel' },
     tasks: { card: '.deadlines-card', panel: 'deadlines-panel' },
     memory: { card: '#mem-card', panel: 'mem-panel' },
     exchange: { card: '#px-card-exchange', panel: 'px-panel-exchange' },

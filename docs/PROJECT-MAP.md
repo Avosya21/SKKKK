@@ -402,7 +402,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 #### Макет: выжимка и чат (строка `project-insights-row`)
 
-На **lg+** (≥992px) левая колонка «Итоговая выжимка по проекту» и правая «Чат с ИИ» — **одинаковая высота**: `min(70vh, 720px)`, `position: sticky; top: 0.75rem`. Карточки — flex-колонки (`insights-card`, `chat-card`); контент (**`#tz-content`**, **`#chat-log`**) скроллится **внутри** панели, поле ввода чата прижато к низу (`chat-composer`, `margin-top: auto`). Страница при длинной переписке не растягивается.
+На **lg+** (≥992px) левая колонка «Резюме проекта» (`insights-col-summary`) и правая «Ассистент» (`insights-col-chat`) — **одинаковая ширина** (`col-lg-6`, по 50%, с 2026-10-15) и **одинаковая высота**: `min(70vh, 720px)`, `position: sticky; top: 0.75rem`. Карточки — flex-колонки (`insights-card`, `chat-card`); контент (**`#tz-content`**, **`#chat-log`**) скроллится **внутри** панели, поле ввода чата прижато к низу (`chat-composer`, `margin-top: auto`). Страница при длинной переписке не растягивается.
 
 На **мобильном** (<768px): `#tz-content` до `50vh`, `#chat-log` до `40vh`, отдельный внутренний скролл.
 
@@ -413,6 +413,10 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Загрузить** | `POST …/uploads/init` → `PUT …/chunks/{n}` → `POST …/complete` | FastAPI + **GPU worker** (job) | Файл в `raw_inputs/`, job `queued`, воркер гонит ASR/knowledge |
 
 Тип (`source_type`): `call` | `document` | `note` | `screenshot` — влияет на пайплайн воркера.
+
+#### Блок «Материалы проекта» (`workspace-card`)
+
+Сворачиваемый, **свёрнут по умолчанию** (с 2026-10-15): заголовок — кнопка `.materials-toggle-btn` с подсказкой `#artifacts-toggle-hint` («(развернуть)» / «(свернуть)»), список — внутри `#artifacts-panel` (`collapse`). В шапке всегда видны сводка `#project-kpis` (Готово / Док. / Созвоны) и строка `#artifacts-status`. После успешной загрузки файлов блок раскрывается сам; строка полоски «Что нового» про материалы тоже его раскрывает (`px_digest.js`, `panel: 'artifacts-panel'`). Высота списка для резерва (`skkkk_artifacts_h_{id}`) запоминается только у раскрытого блока.
 
 #### Полоска «Что нового с прошлого захода» (над «Добавить материалы», с 2026-10-14)
 
