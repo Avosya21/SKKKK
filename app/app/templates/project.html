@@ -150,8 +150,7 @@
     }
   }
   .meetings-card .card-header .meetings-toggle-btn,
-  .grant-access-card .card-header .grant-toggle-btn,
-  .extra-files-card .card-header .extra-files-toggle-btn {
+  .grant-access-card .card-header .grant-toggle-btn {
     border: 0;
     background: transparent;
     color: inherit;
@@ -159,13 +158,11 @@
     flex: 1 1 auto;
   }
   .meetings-card .card-header .meetings-toggle-btn:hover,
-  .grant-access-card .card-header .grant-toggle-btn:hover,
-  .extra-files-card .card-header .extra-files-toggle-btn:hover {
+  .grant-access-card .card-header .grant-toggle-btn:hover {
     color: #0d6efd;
   }
   .meetings-card .meetings-toggle-hint,
-  .grant-access-card .grant-toggle-hint,
-  .extra-files-card .extra-files-toggle-hint {
+  .grant-access-card .grant-toggle-hint {
     font-weight: normal;
     color: #6c757d;
   }
@@ -239,6 +236,58 @@
     overflow: hidden;
     text-overflow: ellipsis;
     margin-bottom: 0;
+  }
+  /* Строка очереди обработки (partials/background_progress.html) под ходом расшифровки, раскрывается по нажатию */
+  .bg-inline {
+    border: 1px solid #e4e4e7;
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .bg-inline-summary {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    padding: 0.2rem 0;
+    user-select: none;
+  }
+  .bg-inline-summary::-webkit-details-marker {
+    display: none;
+  }
+  .bg-inline-summary .pip-toggle {
+    flex: 0 0 auto;
+    width: 0.85rem;
+    color: #6c757d;
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+  }
+  .bg-inline[open] .pip-toggle {
+    transform: rotate(90deg);
+  }
+  .bg-inline-title {
+    font-weight: 600;
+    flex: 0 0 auto;
+  }
+  .bg-inline-state {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: #6c757d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bg-inline-state.is-active {
+    color: #0d6efd;
+  }
+  .bg-inline-state.is-error {
+    color: #dc3545;
+  }
+  .bg-inline-body {
+    padding: 0.5rem 0 0.35rem 1.1rem;
   }
   .pipeline-live-body {
     padding: 0 0 0.5rem 1.1rem;
@@ -649,6 +698,7 @@
       </button>
       <div class="small text-muted" id="artifacts-status" hidden aria-live="polite"></div>
     </div>
+    {% if current_role in ('admin', 'manager') %}<span class="badge text-bg-info flex-shrink-0 d-none" id="bg-badge" aria-live="polite" title="Дальнейшая обработка — в «Материалах проекта», под ходом расшифровки"></span>{% endif %}
     <div class="project-kpis" id="project-kpis" aria-label="Сводка по артефактам">
       <div class="project-kpi">
         <span class="label">Готово</span>
@@ -667,6 +717,7 @@
   <div id="artifacts-panel" class="collapse">
   <div class="card-body" id="artifacts-body" data-count="{{ artifact_count|default(0) }}" style="--artifact-n: {{ artifact_count|default(0) }}">
     <div id="pipeline-live" class="d-none" aria-live="polite" aria-atomic="true"></div>
+    {% if current_role in ('admin', 'manager') %}{% include "partials/background_progress.html" %}{% endif %}
     <div class="table-responsive d-none d-md-block">
       <table class="table table-sm table-hover mb-0" id="artifacts-table">
         <thead>
@@ -685,6 +736,40 @@
     <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
     <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
 <div id="artifacts-nodate-note" class="small text-warning-emphasis mt-2 d-none"></div>
+    {% if current_role == 'admin' %}
+    {# Дополнительные файлы (только администратор): посылки агентов (карта конфигурации, дипмапы) и .cf/.dt от пользователей; список грузится при раскрытии #}
+    <details class="bg-inline extra-inline mt-3 mb-0" id="extra-files-box">
+      <summary class="bg-inline-summary">
+        <span class="pip-toggle" aria-hidden="true">▶</span>
+        <span class="bg-inline-title">Дополнительные файлы</span>
+        <span class="bg-inline-state" id="extra-files-count" title="Видит только администратор">для анализа конфигурации · только админ</span>
+      </summary>
+      <div class="bg-inline-body">
+        <p class="text-muted small mb-2">
+          Файлы для анализа конфигурации: карты и дипмапы от агентов, файлы .cf и выгрузки .dt, загруженные через «Добавить материалы».
+          В материалы и обработку они не попадают — их забирает агент анализа.
+        </p>
+      <div id="extra-files-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" id="extra-files-table">
+          <thead>
+            <tr>
+              <th>Принято</th>
+              <th>Вид</th>
+              <th>Файлы</th>
+              <th class="text-end">Размер</th>
+              <th>Откуда</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="extra-files-body">
+            <tr><td colspan="6" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </details>
+    {% endif %}
   </div>
   </div>
 </div>
@@ -897,57 +982,11 @@
   </div>
 </div>
 
-{% if current_role == 'admin' %}
-<!-- Дополнительные файлы проекта (только администратор): посылки агентов (карта конфигурации, дипмапы) и .cf/.dt от пользователей -->
-<div class="card shadow-sm mb-4 extra-files-card">
-  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
-    <button type="button"
-            class="extra-files-toggle-btn d-flex align-items-center gap-2 p-0"
-            data-bs-toggle="collapse"
-            data-bs-target="#extra-files-panel"
-            aria-expanded="false"
-            aria-controls="extra-files-panel">
-      <strong>Дополнительные файлы</strong>
-      <span id="extra-files-toggle-hint" class="small extra-files-toggle-hint">(развернуть)</span>
-    </button>
-    <span class="badge text-bg-secondary flex-shrink-0" id="extra-files-count" title="Видит только администратор">только админ</span>
-  </div>
-  <div id="extra-files-panel" class="collapse">
-    <div class="card-body">
-      <p class="text-muted small mb-3">
-        Файлы для анализа конфигурации: карты и дипмапы от агентов, файлы .cf и выгрузки .dt, загруженные через «Добавить материалы».
-        В материалы и обработку они не попадают — их забирает агент анализа.
-      </p>
-      <div id="extra-files-status" class="text-muted small mb-2" aria-live="polite"></div>
-      <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0" id="extra-files-table">
-          <thead>
-            <tr>
-              <th>Принято</th>
-              <th>Вид</th>
-              <th>Файлы</th>
-              <th class="text-end">Размер</th>
-              <th>Откуда</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="extra-files-body">
-            <tr><td colspan="6" class="text-muted small">Загрузка…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-{% endif %}
-
 <link href="/static/px_tasks.css?v=1" rel="stylesheet">
 {% if current_role in ('admin', 'manager') %}
 <link href="/static/px_agent.css?v=4" rel="stylesheet">
 {% include "partials/agents_hub.html" %}
 {% include "partials/project_hub.html" %}
-{% include "partials/background_card.html" %}
-{% include "partials/memory_card.html" %}
 {% endif %}
 
 {% if can_grant_access %}
@@ -2177,7 +2216,7 @@ document.getElementById('upload-form').onsubmit = async (e) => {
         ? `Принято: ${arts.length}, из них дублей: ${dups}`
         : `Принято ${SKKKK.count(arts.length, ['файл', 'файла', 'файлов'])}`)
         + (extra ? `; в файлы проекта для анализа конфигурации: ${extra}` : '');
-      if (extra && extraFilesPanel?.classList.contains('show')) loadExtraFiles();
+      if (extra && extraFilesBox?.open) loadExtraFiles();
       artifactsStatus.dataset.busy = '1';
       artifactsStatus.hidden = false;
       artifactsStatus.textContent = 'Файлы загружены, ожидаю обновление статусов…';
@@ -2958,7 +2997,7 @@ if (meetingsPanel && meetingsToggleHint) {
 }
 
 // «Дополнительные файлы» (только админ): посылки агентов и .cf/.dt от пользователей; список грузится при раскрытии
-const extraFilesPanel = document.getElementById('extra-files-panel');
+const extraFilesBox = document.getElementById('extra-files-box');
 const EXTRA_KIND_LABELS = {
   config_map: 'Карта конфигурации',
   entity_deepmap: 'Дипмапы',
@@ -2998,7 +3037,7 @@ async function loadExtraFiles() {
     return;
   }
   const items = data.items || [];
-  document.getElementById('extra-files-count').textContent = items.length ? SKKKK.count(items.length, ['посылка', 'посылки', 'посылок']) : 'только админ';
+  document.getElementById('extra-files-count').textContent = items.length ? SKKKK.count(items.length, ['посылка', 'посылки', 'посылок']) : 'пока нет · только админ';
   status.textContent = '';
   if (!items.length) {
     body.innerHTML = '<tr><td colspan="6" class="text-muted small">Дополнительных файлов пока нет</td></tr>';
@@ -3017,10 +3056,13 @@ async function loadExtraFiles() {
     </tr>`;
   }).join('');
 }
-if (extraFilesPanel) {
-  const hint = document.getElementById('extra-files-toggle-hint');
-  extraFilesPanel.addEventListener('show.bs.collapse', () => { hint.textContent = '(свернуть)'; loadExtraFiles(); });
-  extraFilesPanel.addEventListener('hide.bs.collapse', () => { hint.textContent = '(развернуть)'; });
+if (extraFilesBox) {
+  // строка в «Материалах проекта»: открытость помним, список грузим при раскрытии
+  extraFilesBox.addEventListener('toggle', () => {
+    try { localStorage.setItem('extra_inline_open', extraFilesBox.open ? '1' : '0'); } catch (e) { /* без хранилища работает */ }
+    if (extraFilesBox.open) loadExtraFiles();
+  });
+  try { if (localStorage.getItem('extra_inline_open') === '1') extraFilesBox.open = true; } catch (e) { /* без хранилища работает */ }
   document.getElementById('extra-files-body').addEventListener('click', async (ev) => {
     const btn = ev.target.closest('.extra-files-delete');
     if (!btn) return;
@@ -3133,6 +3175,6 @@ if (grantMembersBody) {
 }
 </script>
 <script src="/static/px_tasks.js?v=2"></script>
-<script src="/static/px_digest.js?v=5"></script>
-{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=7"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=2"></script><script src="/static/background.js?v=2"></script><script src="/static/memory.js?v=2"></script>{% endif %}
+<script src="/static/px_digest.js?v=6"></script>
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=7"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=3"></script><script src="/static/background.js?v=3"></script><script src="/static/memory.js?v=3"></script>{% endif %}
 {% endblock %}

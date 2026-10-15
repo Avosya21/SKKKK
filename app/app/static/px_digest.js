@@ -12,7 +12,7 @@
   const TARGETS = {
     materials: { card: '.workspace-card', panel: 'artifacts-panel' },
     tasks: { card: '.deadlines-card', panel: 'deadlines-panel' },
-    memory: { card: '#mem-card', panel: 'mem-panel' },
+    memory: { card: '#project-hub-card', hub: 'memory' },
     exchange: { card: '#agents-hub-card', hub: 'exchange' },
     review: { card: '#project-hub-card', hub: 'review' },
     conflicts: { href: '/admin/conflicts' },

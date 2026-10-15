@@ -279,6 +279,6 @@ def test_api_refuses_to_start_without_worker(client, admin_token, api_project, m
 
 def test_project_page_has_background_card_for_staff_only(client, manager_token, user_token, api_project):
     pid = api_project
-    assert "Фоновая работа" in client.get(f"/projects/{pid}", headers=_auth(manager_token)).text
+    assert "Дальнейшая обработка" in client.get(f"/projects/{pid}", headers=_auth(manager_token)).text
     page = client.get(f"/projects/{pid}", headers=_auth(user_token)).text
-    assert "Фоновая работа" not in page and "/static/background.js" not in page
+    assert "Дальнейшая обработка" not in page and "/static/background.js" not in page

@@ -49,8 +49,9 @@
   async function loadSummary() {
     const d = await api('/summary');
     if (!d) return false;
-    if (d.hidden) { root.classList.add('d-none'); return false; }
-    root.classList.remove('d-none');
+    // память — вкладка блока «О проекте» (partials/project_hub.html): скрытую для проекта прячем вместе с кнопкой вкладки
+    if (d.hidden) { if (window.PageHubs) PageHubs.setTabVisible('memory', false); return false; }
+    if (window.PageHubs) PageHubs.setTabVisible('memory', true);
     isAdmin = !!d.is_admin;
     const total = Object.values(d.counts || {}).reduce((a, b) => a + b, 0);
     $('mem-mode').innerHTML = esc(MODE_TEXT[d.mode] || '') + (isAdmin ? ` <span class="ms-1">${['off', 'shadow', 'live'].filter((m) => m !== d.mode).map((m) =>
@@ -59,7 +60,8 @@
     badge.classList.toggle('d-none', !d.needs_attention);
     badge.textContent = d.needs_attention ? `Зависло: ${d.needs_attention}` : '';
     badge.title = 'Предметы, по которым предложили, но давно нет ответа';
-    root.querySelector('.px-toggle-hint').textContent = total ? `(предметов: ${total})` : '(развернуть)';
+    const tabCount = $('mem-tabcount');
+    tabCount.textContent = total; tabCount.classList.toggle('d-none', !total);
     renderCounts(d.counts || {}, d.labels || {});
     const building = d.building || 0;
     $('mem-empty').classList.toggle('d-none', total > 0 || building > 0);
@@ -200,6 +202,6 @@
     const has = await loadSummary();
     if (has) { await loadList(); loaded = true; }
   }
-  root.querySelector('[data-bs-target="#mem-panel"]').addEventListener('click', () => { if (!loaded) init(); });
+  document.addEventListener('hub:show', (ev) => { if (ev.detail && ev.detail.tab === 'memory' && !loaded) init(); });
   init();
 })();
