@@ -230,6 +230,41 @@ def test_seed_links_portal_account_by_exact_name_even_if_not_project_member(db, 
     assert next(m for m in mentions if m.name == "Анна Пример").company_name  # компания из карточки
 
 
+def test_seed_takes_people_only_from_chats_and_fully_processed_calls(db, project, admin, monkeypatch):
+    """Документы и недоразобранные созвоны людей не дают: ни спикеров, ни участников из извлечения."""
+    from types import SimpleNamespace
+
+    from app.app.config import get_settings
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Entity
+    from app.app.services import chat_export, people_seed, speaker_profiles, transcript_turns
+
+    def art(key, file_type, source_type, status="done"):
+        row = Artifact(artifact_id=key, project_id=project.id, user_id=admin.id, original_filename=key, stored_filename=key,
+                       file_path=key, file_type=file_type, source_type=source_type, status=status, sha256=key)
+        db.add(row)
+        db.flush()
+        db.add(Entity(artifact_id=row.id, entity_type="participant", value_json=json.dumps({"name": "Участник " + key})))
+        return row
+
+    chat, doc = art("chat", "txt", "document"), art("doc", "docx", "document")
+    call_ok, call_pending = art("call-ok", "audio", "call"), art("call-pending", "audio", "call")
+    call_running = art("call-running", "audio", "call", status="asr_running")
+    db.commit()
+    monkeypatch.setattr(chat_export, "artifact_messages_path", lambda _s, a: a.artifact_id)
+    monkeypatch.setattr(chat_export, "load_export", lambda key: {"messages": [{"author": "Автор Переписки"}]} if key == "chat" else None)
+    monkeypatch.setattr(speaker_profiles, "speakers_confirm_status",
+                        lambda _db, project_id, artifact_id: {"reason": "speakers_unconfirmed" if artifact_id == "call-pending" else None})
+    monkeypatch.setattr(transcript_turns, "load_turns",
+                        lambda _s, a: [SimpleNamespace(known_speaker="Спикер " + a.artifact_id)])
+
+    names = people_seed._mentioned_names(db, get_settings(), project.id)
+    assert names == {"Автор Переписки", "Участник chat", "Спикер call-ok", "Участник call-ok"}
+    assert {m.where for m in people_seed.collect_mentions(db, get_settings(), project.id)} >= {"chat", "speaker", "participant"}
+    assert not any(a.artifact_id in " ".join(names) for a in (doc, call_pending, call_running))
+    assert chat.id and call_ok.id
+
+
 def test_merging_accounts_moves_registry_people(db, project, admin):
     from app.app.models.project import Project
     from app.app.models.user import User

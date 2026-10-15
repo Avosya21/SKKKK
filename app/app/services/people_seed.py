@@ -1,7 +1,8 @@
 """Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2).
 
 Источники имён: сотрудники проекта с карточкой (``card``), явный список сторон в настройках проекта
-(``project_party``), участники и роли из извлечения, авторы переписки, спикеры созвонов (``model``).
+(``project_party``), участники и роли из извлечения, авторы переписки, спикеры созвонов (``model``). Из материалов —
+только загруженная переписка и полностью обработанные созвоны (``_people_sources``).
 Один человек в разных написаниях склеивается только там, где это безопасно: то же имя, «Фамилия Имя» наоборот,
 одиночное имя, которое подходит ровно одному полному имени. Остальное остаётся отдельными людьми или вопросами
 «Кто это?» — окончательно решает человек. Сторону даёт самый сильный источник: карточка, затем список проекта,
@@ -181,33 +182,68 @@ def cluster_side(cluster: Cluster) -> tuple[str, str]:
     return top, source
 
 
-def _mentioned_names(db: Session, settings: Settings, project_id: int) -> set[str]:
-    """Имена из участников извлечения, авторов переписки и спикеров созвонов проекта (без сторон и без учёток)."""
-    import json
+@dataclass
+class _Source:
+    """Материал, из которого можно брать людей, и имена, которые он даёт."""
+    artifact: Artifact
+    where: str  # chat | speaker
+    names: set[str]
 
+
+def _people_sources(db: Session, settings: Settings, project_id: int) -> list[_Source]:
+    """Людей ищем только в загруженной переписке и полностью обработанных созвонах (решение владельца 2026-10-16):
+    обработка завершена, а у записи с разметкой голосов все спикеры подтверждены человеком. Документы, ТЗ, заметки
+    и недоразобранные созвоны людей не дают — там имена угаданы моделью или только упомянуты."""
     from app.app.services.chat_export import artifact_messages_path, load_export
+    from app.app.services.speaker_profiles import speakers_confirm_status
     from app.app.services.transcript_turns import load_turns
 
-    names: set[str] = set()
-    for ent in db.scalars(select(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
-                          .where(Artifact.project_id == project_id, Entity.entity_type == "participant", Entity.is_active.is_(True))).all():
-        try:
-            n = str(json.loads(ent.value_json or "{}").get("name") or "").strip()
-        except ValueError:
-            continue
-        if n:
-            names.add(n)
+    out: list[_Source] = []
     for art in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all():
         if art.file_type != "audio" and art.source_type == "document":
             export = load_export(artifact_messages_path(settings, art))
             if export:
-                names |= {m["author"] for m in export["messages"] if m.get("author")}
+                out.append(_Source(art, "chat", {m["author"] for m in export["messages"] if m.get("author")}))
+            continue
+        if art.source_type != "call" or art.status != "done":
+            continue
+        if art.file_type == "audio":
+            check = speakers_confirm_status(db, project_id=project_id, artifact_id=art.artifact_id)
+            if check["reason"] == "speakers_unconfirmed":
                 continue
-        if art.source_type == "call":
-            try:
-                names |= {t.known_speaker for t in load_turns(settings, art) if getattr(t, "known_speaker", None)}
-            except Exception:  # noqa: BLE001 - нет стенограммы: материал пропускаем
-                continue
+        try:
+            turns = load_turns(settings, art)
+        except Exception:  # noqa: BLE001 - нет стенограммы: материал пропускаем
+            continue
+        out.append(_Source(art, "speaker", {t.known_speaker for t in turns if getattr(t, "known_speaker", None)}))
+    return out
+
+
+def _participant_names(db: Session, artifact_ids: list[int]) -> list[tuple[str, Any]]:
+    """(имя, роль) участников из извлечения — только по разрешённым материалам."""
+    import json
+
+    if not artifact_ids:
+        return []
+    out: list[tuple[str, Any]] = []
+    for ent in db.scalars(select(Entity).where(Entity.artifact_id.in_(artifact_ids), Entity.entity_type == "participant",
+                                               Entity.is_active.is_(True))).all():
+        try:
+            value = json.loads(ent.value_json or "{}")
+        except ValueError:
+            continue
+        name = str(value.get("name") or "").strip()
+        if name:
+            out.append((name, value.get("role")))
+    return out
+
+
+def _mentioned_names(db: Session, settings: Settings, project_id: int, sources: list[_Source] | None = None) -> set[str]:
+    """Имена из участников извлечения, авторов переписки и спикеров созвонов проекта (без сторон и без учёток)."""
+    if sources is None:
+        sources = _people_sources(db, settings, project_id)
+    names = {n for src in sources for n in src.names}
+    names |= {n for n, _role in _participant_names(db, [src.artifact.id for src in sources])}
     return {cleaned for n in names if (cleaned := clean_name(n))}
 
 
@@ -239,7 +275,8 @@ def collect_mentions(db: Session, settings: Settings, project_id: int) -> list[M
         company = db.get(Company, card.company_id) if card.company_id else None
         for variant in (f"{card.first_name} {card.last_name}", f"{card.last_name} {card.first_name}"):
             by_name[alias_key(variant)].append((card, company))
-    mentioned = _mentioned_names(db, settings, project_id)
+    sources = _people_sources(db, settings, project_id)
+    mentioned = _mentioned_names(db, settings, project_id, sources)
     for name in mentioned:
         owners = {c.user_id: (c, co) for c, co in by_name.get(alias_key(name), [])}
         if len(owners) != 1:
@@ -254,38 +291,14 @@ def collect_mentions(db: Session, settings: Settings, project_id: int) -> list[M
         name, side = str(row.get("name", "")).strip(), side_from_contract(row.get("side"))
         if name:
             out.append(Mention(name, "project_party", None if side == SIDE_UNKNOWN else side, where="settings"))
-    # 3. участники и роли из извлечения
+    # 3. участники и роли из извлечения — только по переписке и полностью обработанным созвонам
     hints = cfg.get("side_hints")
-    for ent in db.scalars(select(Entity).join(Artifact, Artifact.id == Entity.artifact_id)
-                          .where(Artifact.project_id == project_id, Entity.entity_type == "participant", Entity.is_active.is_(True))).all():
-        import json
-
-        try:
-            value = json.loads(ent.value_json or "{}")
-        except ValueError:
-            continue
-        name = str(value.get("name") or "").strip()
-        if name:
-            role = value.get("role")
-            out.append(Mention(name, "model", side_from_contract(ct.side_from_role(role, hints)) if role else None, where="participant"))
+    for name, role in _participant_names(db, [src.artifact.id for src in sources]):
+        out.append(Mention(name, "model", side_from_contract(ct.side_from_role(role, hints)) if role else None, where="participant"))
     # 4. авторы переписки и 5. спикеры созвонов
-    from app.app.services.chat_export import artifact_messages_path, load_export
-    from app.app.services.transcript_turns import load_turns
-
-    for art in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all():
-        if art.file_type != "audio" and art.source_type == "document":
-            export = load_export(artifact_messages_path(settings, art))
-            if export:
-                for author in {m["author"] for m in export["messages"] if m.get("author")}:
-                    out.append(Mention(author, "model", None, where="chat"))
-                continue
-        if art.source_type == "call":
-            try:
-                turns = load_turns(settings, art)
-            except Exception:  # noqa: BLE001 - нет стенограммы: пропускаем материал, отчёт покажет остальное
-                continue
-            for name in {t.known_speaker for t in turns if getattr(t, "known_speaker", None)}:
-                out.append(Mention(name, "model", None, where="speaker"))
+    for src in sources:
+        for name in src.names:
+            out.append(Mention(name, "model", None, where=src.where))
     return out
 
 
