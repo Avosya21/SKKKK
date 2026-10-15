@@ -3661,6 +3661,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_voice_review
+    kind: file
+    path: scripts/voice_review.py
+    title: "Разбор базы голосов и людей проектов на слух: локальная страница, решения владельца, применение."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
