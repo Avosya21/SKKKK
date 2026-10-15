@@ -141,3 +141,33 @@ def test_audit_empty_project_is_ok(tmp_data, db_engine, client, admin_token):
     assert report["ok"] is True
     assert report["chunks"] == 0
     assert report["artifacts"] == 0
+
+
+SCREEN_FINAL = (
+    "[00:10 - 00:20] Анна Петрова: Код базы храним в отдельном поле.\n"
+    "[00:10 - 00:30] Экран (показывал Анна Петрова): " + "Окно браузера, таблица справочника. " * 40 + "\n"
+    "[00:10 - 00:30] Речь на экране: Анна Петрова: Код Олег: базы храним Анна Петрова: в отдельном\n"
+    "[00:31 - 00:40] Олег Смирнов: Согласен.\n"
+)
+
+
+def test_screen_speech_duplicate_not_indexed():
+    chunks = chunk_transcript(SCREEN_FINAL)
+    body = "\n".join(c.text for c in chunks)
+    assert "Речь на экране" not in body
+    assert "Код базы храним в отдельном поле." in body and "Окно браузера" in body
+
+
+def test_extraction_parts_skip_screen_speech_and_trim_frames(tmp_data, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.app.services import entities
+    from app.app.services.transcript_turns import parse_final_turns
+
+    monkeypatch.setattr("app.app.services.transcript_turns.load_turns", lambda _s, _a: parse_final_turns(SCREEN_FINAL))
+    parts = entities._numbered_turn_parts(None, SimpleNamespace(source_type="call"))
+    text = "\n".join(parts)
+    assert "Речь на экране" not in text
+    assert "T0 " in text and "T1 " in text and "T3 " in text and "T2 " not in text  # номера реплик не сдвинулись
+    frame = next(line for line in text.splitlines() if line.startswith("T1 "))
+    assert len(frame) < entities.SCREEN_LINE_EXTRACT_CHARS + 80 and frame.endswith("…")

@@ -56,6 +56,7 @@ REPLICA_MATCH_WINDOW = 3
 REPLICA_AT_MAX_GAP_SEC = 15.0  # реплика канона ↔ реплика-доказательство дорожки: дальше по времени — не та
 TEXT_OVERLAP_MIN_RATIO = 0.35
 EXTRACT_PART_CHARS = 6000
+SCREEN_LINE_EXTRACT_CHARS = 600  # описание кадра в тексте для извлечения: дальше — подробности окна, решений в них нет
 # Ответ модели на одну часть: 4096 обрезал плотные ТЗ (~12 тыс. символов JSON); окно фона 56000-22000 вмещает с запасом.
 EXTRACT_MAX_TOKENS = 6144
 # «Утвердил» принимается, только если реплика согласия не дальше стольких реплик от реплики решения.
@@ -755,10 +756,15 @@ def _turns_header() -> str:
 
 
 def _numbered_turn_parts(settings: Settings, artifact: Artifact, max_chars: int = EXTRACT_PART_CHARS) -> list[str]:
-    """Созвон: реплики канона с номерами ``T<n>``, нарезанные на части по целым репликам. Не созвон — []."""
+    """Созвон: реплики канона с номерами ``T<n>``, нарезанные на части по целым репликам. Не созвон — [].
+
+    Без «Речи на экране» (дубль речи), описание кадра — до ``SCREEN_LINE_EXTRACT_CHARS``: на созвоне с показом экрана
+    описания кадров занимали до 90 % текста (встреча 75 мин — 784 тыс. знаков, извлечение 48 мин)."""
     if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL:
         return []
     from app.app.services.transcript_turns import format_timecode, load_turns
+
+    from app.app.services.transcript_turns import KIND_SCREEN, KIND_SCREEN_SPEECH
 
     turns = load_turns(settings, artifact)
     if not turns or all(t.start_sec is None for t in turns):
@@ -767,9 +773,14 @@ def _numbered_turn_parts(settings: Settings, artifact: Artifact, max_chars: int 
     buf: list[str] = []
     size = 0
     for turn in turns:
+        if turn.kind == KIND_SCREEN_SPEECH:
+            continue  # «Речь на экране» — дубль речи по отрезку кадра; номера остальных реплик не меняются
+        text = turn.text
+        if turn.kind == KIND_SCREEN and len(text) > SCREEN_LINE_EXTRACT_CHARS:
+            text = text[:SCREEN_LINE_EXTRACT_CHARS].rsplit(" ", 1)[0] + "…"
         stamp = f"[{format_timecode(turn.start_sec)}] " if turn.start_sec is not None else ""
         who = f"{turn.speaker}: " if turn.speaker else ""
-        line = f"T{turn.index} {stamp}{who}{turn.text}"
+        line = f"T{turn.index} {stamp}{who}{text}"
         if buf and size + len(line) + 1 > max_chars:
             out.append("\n".join(buf))
             buf, size = [], 0

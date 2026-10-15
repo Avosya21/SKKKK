@@ -197,12 +197,13 @@ def chunk_transcript(text: str, *, max_tokens: int = CHUNK_TOKENS) -> list[TextC
     """Чанки-окна из подряд идущих реплик канона (``[таймкод] Имя: текст``) с перекрытием в одну реплику.
 
     Строки чанка — дословно строки ``_final.txt``: таймкод и имя видны LLM, вопрос и ответ «да» попадают
-    в одно окно. Экранные блоки (``Экран …``, ``Речь на экране``) идут отдельными окнами, не смешиваясь с речью.
+    в одно окно. Экранные блоки (``Экран …``) идут отдельными окнами, не смешиваясь с речью; ``Речь на экране`` в индекс
+    не идёт — это та же речь, нарезанная по отрезку кадра и перемешанная по словам (дубль, 2026-10-15).
     ``speaker`` — имя, если в окне говорит один человек, иначе ``None``.
     """
-    from app.app.services.transcript_turns import parse_final_turns
+    from app.app.services.transcript_turns import KIND_SCREEN_SPEECH, parse_final_turns
 
-    turns = parse_final_turns(text)
+    turns = [t for t in parse_final_turns(text) if t.kind != KIND_SCREEN_SPEECH]
     if not turns:
         return chunk_plain_text(text, max_tokens=max_tokens, overlap_tokens=0)
     max_chars = max_tokens * CHARS_PER_TOKEN

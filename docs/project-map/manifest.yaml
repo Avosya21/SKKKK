@@ -3626,6 +3626,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_reindex_screen_calls
+    kind: file
+    path: scripts/reindex_screen_calls.py
+    title: "Переиндексация созвонов с показом экрана без дублей «Речь на экране» (2026-10-15)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
