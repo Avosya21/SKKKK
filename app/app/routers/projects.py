@@ -30,7 +30,24 @@ def list_projects(
     q = select(Project).where(Project.is_active.is_(True))
     if user.role != "admin":
         q = q.where(Project.id.in_(user_project_ids(db, user) or {-1}))
-    return db.scalars(q.order_by(Project.id.desc())).all()
+        return db.scalars(q.order_by(Project.id.desc())).all()
+    rows = db.scalars(q.order_by(Project.id.desc())).all()
+    names = creator_names(db, {p.created_by for p in rows})
+    return [ProjectOut.model_validate(p).model_copy(update={"creator_name": names.get(p.created_by)}) for p in rows]
+
+
+def creator_names(db: Session, user_ids: set[int]) -> dict[int, str]:
+    """Автор проекта для админа: «Фамилия Имя» из карточки, без карточки — логин."""
+    from app.app.models.user_profile import UserProfile
+
+    if not user_ids:
+        return {}
+    rows = db.execute(
+        select(User.id, User.name, UserProfile.last_name, UserProfile.first_name)
+        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+        .where(User.id.in_(user_ids))
+    ).all()
+    return {uid: " ".join(x for x in (last or "", first or "") if x.strip()).strip() or login for uid, login, last, first in rows}
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)

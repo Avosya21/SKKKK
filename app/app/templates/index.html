@@ -139,9 +139,26 @@ async function loadProjects() {
     title.href = `/projects/${p.id}`;
     title.textContent = p.name;
 
+    // Кто завёл проект — поле приходит только админу
+    let creator = null;
+    if (p.creator_name) {
+      creator = document.createElement('span');
+      creator.className = 'project-list-creator text-muted small';
+      creator.textContent = `(${p.creator_name})`;
+      creator.title = 'Кто завёл проект';
+    }
+
     const showPanel = Boolean(desc) || allowDelete;
     if (!showPanel) {
-      item.appendChild(title);
+      if (creator) {
+        const row = document.createElement('div');
+        row.className = 'project-list-header';
+        row.appendChild(title);
+        row.appendChild(creator);
+        item.appendChild(row);
+      } else {
+        item.appendChild(title);
+      }
       list.appendChild(item);
       continue;
     }
@@ -161,6 +178,7 @@ async function loadProjects() {
     toggle.innerHTML = chevronSvg();
 
     header.appendChild(title);
+    if (creator) header.appendChild(creator);
     header.appendChild(toggle);
     item.appendChild(header);
 
