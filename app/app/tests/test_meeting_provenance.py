@@ -598,3 +598,35 @@ def test_hint_on_screen_block_moves_to_speech_in_its_span():
     ]
     hit = _match_turn("Код базы госсектора хранить в поле", turns, [2])
     assert hit is not None and hit.index == 1
+
+
+def test_rebind_names_label_assignee_by_confirmed_speaker(tmp_data, client, admin_token):
+    """Ответственный — метка голоса, а стенограмма уже с именами: имя берётся из подтверждённых спикеров созвона."""
+    from app.app.db import SessionLocal
+    from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+    from app.app.services.entities import rebind_call_entities
+
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        project, art = _call_art(db)
+        _write_final(settings, art, UPLOADED_FINAL)
+        persist_entities(
+            db, settings, art,
+            EntitiesPayload(artifact_id=art.artifact_id, source_type="call",
+                            tasks=[TaskItem(description="подготовить описание к пятнице", assignee="speaker_3")]),
+        )
+        db.commit()
+        ent = db.query(Entity).filter(Entity.artifact_id == art.id, Entity.entity_type == "task").one()
+        assert json.loads(ent.value_json)["assignee"] == "speaker_3"
+        profile = SpeakerProfile(display_name="Елена Соколова", project_id=project.id, embedding=bytes(1024))
+        db.add(profile)
+        db.flush()
+        db.add(ArtifactSpeakerLink(artifact_id=art.artifact_id, project_id=project.id, diar_label="speaker_3",
+                                   profile_id=profile.id, status="confirmed"))
+        db.commit()
+        assert rebind_call_entities(db, settings, art) == 1
+        db.commit()
+        assert json.loads(db.get(Entity, ent.id).value_json)["assignee"] == "Елена Соколова"
+    finally:
+        db.close()
