@@ -22,6 +22,10 @@ class ProjectCreate(BaseModel):
     customer_people: list[NewProjectPerson] = Field(default_factory=list, max_length=30)
 
 
+class ProjectRename(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
 class ProjectOut(BaseModel):
     id: int
     name: str

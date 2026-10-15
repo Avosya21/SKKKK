@@ -1,4 +1,4 @@
-"""Проекты: список, создание, карточка, предпросмотр и полное удаление."""
+"""Проекты: список, создание, карточка, переименование, предпросмотр и полное удаление."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from app.app.db import get_db
 from app.app.dependencies import get_current_user, require_role
 from app.app.models.project import Project
 from app.app.models.user import User
-from app.app.schemas.project import ProjectCreate, ProjectOut
+from app.app.schemas.project import ProjectCreate, ProjectOut, ProjectRename
 from app.app.services.project_access import is_project_owner, require_project, user_project_ids
 from app.app.services.project_purge import purge_project
 from app.app.services.storage import create_project_tree, normalize_project_name
-from app.app.services.user_activity import ACTION_CREATE, ACTION_DELETE, BLOCK_PROJECT, log_activity
+from app.app.services.user_activity import ACTION_CREATE, ACTION_DELETE, ACTION_RENAME, BLOCK_PROJECT, log_activity
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -132,6 +132,39 @@ def get_project(
     user: Annotated[User, Depends(get_current_user)],
 ):
     return require_project(db, user, project_id)
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+def rename_project(
+    project_id: int,
+    body: ProjectRename,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_role("admin", "manager"))],
+):
+    """Новое название проекта из списка проектов; права — как на удаление (автор или админ)."""
+    project = require_project(db, user, project_id)
+    if not is_project_owner(user, project):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    name = normalize_project_name(body.name)
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project name required")
+    old = project.name
+    if name != old:
+        project.name = name
+        db.commit()
+        db.refresh(project)
+        log_activity(
+            db,
+            user_id=user.id,
+            project_id=project.id,
+            block=BLOCK_PROJECT,
+            action=ACTION_RENAME,
+            title="Переименовал проект",
+            content=f"{old} → {name}",
+            target_kind="project",
+            target_id=project.id,
+        )
+    return project
 
 
 @router.get("/{project_id}/delete-preview")

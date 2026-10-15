@@ -240,6 +240,21 @@ def test_project_name_is_not_mangled_and_empty_rejected(client, manager_token):
     assert client.post("/projects", json={"name": "x" * 300}, headers=h).status_code == 422
 
 
+def test_rename_project(client, admin_token, manager_token, user_token):
+    h = {"Authorization": f"Bearer {manager_token}"}
+    pid = client.post("/projects", json={"name": "Старое"}, headers=h).json()["id"]
+    r = client.patch(f"/projects/{pid}", json={"name": "  Новое «имя»  "}, headers=h)
+    assert r.status_code == 200 and r.json()["name"] == "Новое «имя»"
+    assert next(p for p in client.get("/projects", headers=h).json() if p["id"] == pid)["name"] == "Новое «имя»"
+    assert client.patch(f"/projects/{pid}", json={"name": "   "}, headers=h).status_code == 400
+    assert client.patch(f"/projects/{pid}", json={"name": "x" * 300}, headers=h).status_code == 422
+    assert client.patch(f"/projects/{pid}", json={"name": "Чужое"}, headers={"Authorization": f"Bearer {user_token}"}).status_code == 403
+    ra = client.patch(f"/projects/{pid}", json={"name": "От админа"}, headers={"Authorization": f"Bearer {admin_token}"})
+    assert ra.status_code == 200 and ra.json()["name"] == "От админа"
+    page = client.get("/", headers=h).text
+    assert 'id="renameProjectModal"' in page
+
+
 def test_list_projects_creator_only_for_admin(client, admin_token, manager_token):
     from app.app.db import SessionLocal
     from app.app.models.project import Project
