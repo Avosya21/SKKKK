@@ -12,7 +12,7 @@
 
 Решения по голосу: «всё верно», «переименовать», «это тот же человек, что …» (слить), «в голосе смешаны разные люди»,
 «удалить голос» (привязки в созвонах снимаются — голос снова «новый»), «не уверен»; компания и сторона — людям проекта под
-этим голосом. Решение по паре: один человек (какой оставить) / разные / не уверен.
+этим голосом (компания — из списка компаний портала). Решение по паре: один человек (какой оставить) / разные / не уверен.
 """
 from __future__ import annotations
 
@@ -105,6 +105,7 @@ def build() -> Path:
             p = db.get(Person, a.person_id)
             if p is not None:
                 by_alias[(a.project_id, a.alias_key)] = people.canonical(db, p)
+        portal = db.scalars(select(Company).where(Company.active.is_(True))).all()  # выбор компании на странице
         companies = {c.name: c.side for c in db.scalars(select(Company))}
         for party in db.scalars(select(ProjectParty)):
             companies.setdefault(party.company_name, party.side)
@@ -176,7 +177,8 @@ def build() -> Path:
                  for p in candidate_pairs(db)]
         data = {"built": datetime.now().strftime("%d.%m.%Y %H:%M"), "voices": voices, "pairs": pairs,
                 "projects": {str(k): v for k, v in projects.items()},
-                "companies": [{"name": n, "side": s or ""} for n, s in sorted(companies.items(), key=lambda x: x[0].casefold())]}
+                "companies": [{"name": n, "side": s or ""} for n, s in sorted(companies.items(), key=lambda x: x[0].casefold())],
+                "portal_companies": [{"name": c.name, "side": c.side or ""} for c in sorted(portal, key=lambda c: c.name.casefold())]}
         (OUT / "data.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         shutil.copy2(PAGE, OUT / "index.html")
         print(f"голосов: {len(voices)}, фрагментов: {len(jobs) - len(missing)} (не вырезано {len(missing)}), "
