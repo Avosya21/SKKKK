@@ -545,6 +545,9 @@ def test_meeting_room_js_waits_for_ice_tcp():
     # DFN3 — процессор livekit-client на моём микрофоне; кнопка лишь включает фильтр; рядом сырая дорожка для записи
     assert "await track.setProcessor(filter);" in js
     assert "await this._dfn3.filter.setEnabled(this._denoiseOn);" in js
+    # шумодав по умолчанию выключен; DFN3 грузится, только когда человек его включил
+    assert "_denoiseOn: false," in js
+    assert "const wantDfn3 = this._denoiseOn || Boolean(this._dfn3);" in js
     assert 'const RAW_TRACK_NAME = "skkkk-raw";' in js
     assert "mic._mediaStreamTrack || mic.mediaStreamTrack" in js
     assert "source: LK.Track.Source.Unknown, dtx: false, red: false" in js
