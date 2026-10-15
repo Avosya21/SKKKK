@@ -134,6 +134,7 @@ def test_user_password_hides_staff_blocks_on_own_project(client, manager_token):
     html = client.get(f"/projects/{pid}", headers=_auth(r.json()["access_token"])).text
     assert "Выдать доступ" not in html
     assert "Удалённый доступ (MCP)" not in html
+    assert 'id="mcp-access-pane"' not in html
     assert "currentRole = \"user\"" in html
 
 
