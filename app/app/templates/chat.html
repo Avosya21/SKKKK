@@ -1,32 +1,35 @@
 {% extends "base.html" %}
-{# Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat) #}
+{# Отдельная страница чата с ИИ по материалам проекта (/projects/{id}/chat): тот же вид, что у карточки «Ассистент» (стили — app.css) #}
 
 {% block content %}
 
-<h1 class="h4 mb-3">Чат по проекту {{ project_id }}</h1>
-
 <style>
-  #log {
-    max-height: min(55vh, 480px);
-    overflow-y: auto;
-    border: 1px solid #dee2e6;
-    border-radius: 0.375rem;
-    padding: 0.5rem;
-    background: #f8f9fa;
-    font-size: 0.8125rem;
-    line-height: 1.55;
-  }
-  #q {
-    font-size: 0.8125rem;
+  /* Карточка на всю высоту окна: лента прокручивается внутри, поле ввода всегда видно */
+  .chat-page-card {
+    height: calc(100vh - 9rem);
+    min-height: 22rem;
   }
 </style>
 
-<div id="chat-status" class="text-muted small mb-2 d-none" aria-live="polite"></div>
-<div id="log" class="mb-3"></div>
-
-<div class="input-group">
-  <input id="q" class="form-control" placeholder="Вопрос по материалам проекта" enterkeyhint="send"/>
-  <button id="send" class="btn btn-primary skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+<div class="card shadow-sm chat-card chat-page-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2">
+    <div class="section-title-wrap"><strong>Ассистент</strong><span class="section-title-subtitle">Проект {{ project_id }}, по материалам проекта</span></div>
+    <a class="btn btn-sm btn-outline-secondary" href="/projects/{{ project_id }}">К проекту</a>
+  </div>
+  <div class="card-body d-flex flex-column chat-panel">
+    <div id="chat-log" aria-live="polite">
+      <div class="chat-empty" id="chat-empty">Спросите о решениях, ограничениях, участниках и требованиях — ассистент ответит по материалам проекта и покажет источники.</div>
+    </div>
+    <div id="chat-status" class="chat-status d-none" aria-live="polite"></div>
+    <div class="chat-composer">
+      <textarea id="chat-question" rows="1"
+                placeholder="Задайте вопрос по материалам проекта"
+                aria-label="Вопрос по материалам проекта"
+                enterkeyhint="send"
+                autocomplete="off"></textarea>
+      <button id="chat-send" class="btn btn-primary btn-sm skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+    </div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -34,14 +37,18 @@
 if (!SKKKK.requireAuth()) throw new Error('auth');
 
 const projectId = {{ project_id }};
-const log = document.getElementById('log');
-const sendBtn = document.getElementById('send');
+const chatLog = document.getElementById('chat-log');
+const sendBtn = document.getElementById('chat-send');
 const chatStatus = document.getElementById('chat-status');
-const qInput = document.getElementById('q');
+const qInput = document.getElementById('chat-question');
 let chatPollTimer = null;
 
 function escapeHtml(text) {
   return (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 function renderMarkdown(text) {
@@ -52,19 +59,34 @@ function renderMarkdown(text) {
   return safe;
 }
 
+// Источники свёрнуты в «Источники (N)»; у фрагмента созвона — ссылка на момент в стенограмме
 function renderSources(sources) {
-  const names = (sources || []).map(s => s.filename).filter(Boolean);
-  if (!names.length) return '';
-  return `<div class="small text-muted mt-2">Источники: ${escapeHtml(names.join(', '))}</div>`;
+  const clock = (sec) => { const s = Math.floor(sec); const two = (n) => String(n).padStart(2, '0'); return `${two(Math.floor(s / 60))}:${two(s % 60)}`; };
+  const items = (sources || []).filter((s) => s.filename).map((s) => {
+    const name = escapeHtml(s.filename);
+    if (!s.url) return name;
+    const label = s.start_sec != null ? `${name} ▶ ${clock(s.start_sec)}` : name;
+    return `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${label}</a>`;
+  });
+  if (!items.length) return '';
+  return `<details class="chat-sources"><summary>Источники (${items.length})</summary><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul></details>`;
+}
+
+function chatAnswerHtml(markdown, sources) {
+  return `<div class="chat-answer">${renderMarkdown(markdown)}</div>${renderSources(sources)}`;
 }
 
 function chatPendingHtml() {
-  return `<strong>ИИ:</strong><div class="text-muted d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом...</span></div>`;
+  return '<span class="chat-pending"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Думаю над ответом…</span></span>';
 }
 
 function appendMessage(kind, html, extraClass) {
-  log.innerHTML += `<div class="border rounded p-2 mb-2 ${kind === 'q' ? 'bg-white' : 'bg-body'}${extraClass ? ` ${extraClass}` : ''}">${html}</div>`;
-  log.scrollTop = log.scrollHeight;
+  document.getElementById('chat-empty')?.remove();
+  const wrap = document.createElement('div');
+  wrap.className = `chat-message ${kind === 'q' ? 'chat-message-user' : 'chat-message-ai'}${extraClass ? ` ${extraClass}` : ''}`;
+  wrap.innerHTML = html;
+  chatLog.appendChild(wrap);
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 function isChatPending(messages) {
@@ -74,7 +96,7 @@ function isChatPending(messages) {
 function setChatBusy(busy) {
   SKKKK.setButtonBusy(sendBtn, busy, { label: busy ? 'Думаю…' : undefined });
   qInput.disabled = busy;
-  qInput.placeholder = busy ? 'ИИ готовит ответ…' : 'Вопрос по материалам проекта';
+  qInput.placeholder = busy ? 'ИИ готовит ответ…' : 'Задайте вопрос по материалам проекта';
   if (!chatStatus) return;
   chatStatus.classList.toggle('d-none', !busy);
   chatStatus.textContent = busy ? 'ИИ готовит ответ… подождите' : '';
@@ -82,7 +104,7 @@ function setChatBusy(busy) {
 
 function renderHistoryMessage(msg) {
   if (msg.role === 'user') {
-    appendMessage('q', `<strong>Вы:</strong><div>${escapeHtml(msg.content || '')}</div>`);
+    appendMessage('q', escapeHtml(msg.content || ''));
     return;
   }
   if (msg.waiting) {
@@ -90,11 +112,7 @@ function renderHistoryMessage(msg) {
     return;
   }
   const isClarification = msg.meta && msg.meta.kind === 'clarification';
-  appendMessage(
-    'a',
-    `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(msg.content || '')}</div>${renderSources(msg.sources)}`,
-    isClarification ? 'border-warning-subtle bg-warning-subtle' : ''
-  );
+  appendMessage('a', chatAnswerHtml(msg.content || '', msg.sources), isClarification ? 'is-clarification' : '');
 }
 
 // Место в очереди к модели: ответы чата и черновики агента идут по одному, строго по порядку прихода.
@@ -114,7 +132,9 @@ async function reloadChatLog() {
   const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
   if (!r.ok) return null;
   const data = await r.json();
-  log.innerHTML = '';
+  const empty = document.getElementById('chat-empty');
+  chatLog.innerHTML = '';
+  if (!(data.messages || []).length && empty) chatLog.appendChild(empty);
   (data.messages || []).forEach(renderHistoryMessage);
   return data.messages || [];
 }
@@ -150,7 +170,14 @@ async function loadChatHistory() {
   }
 }
 
-sendBtn.onclick = async () => {
+// Поле вопроса растёт по тексту (до max-height из стилей)
+function growQuestion() {
+  qInput.style.height = 'auto';
+  qInput.style.height = `${qInput.scrollHeight}px`;
+}
+qInput.addEventListener('input', growQuestion);
+
+async function askChat() {
   const question = qInput.value.trim();
   if (!question) return;
   if (await syncChatUi()) {
@@ -159,9 +186,10 @@ sendBtn.onclick = async () => {
   }
   await SKKKK.guardButton(sendBtn, async () => {
     qInput.value = '';
-    appendMessage('q', `<strong>Вы:</strong><div>${escapeHtml(question)}</div>`);
+    growQuestion();
+    appendMessage('q', escapeHtml(question));
     appendMessage('a', chatPendingHtml());
-    const pending = log.lastElementChild;
+    const pending = chatLog.lastElementChild;
     setChatBusy(true);
     const labelTimer = setInterval(refreshChatLabel, 3000);
     try {
@@ -178,17 +206,27 @@ sendBtn.onclick = async () => {
       }
       if (!r.ok) throw new Error('chat failed');
       const data = await r.json();
-      pending.innerHTML = `<strong>ИИ:</strong><div class="mt-2">${renderMarkdown(data.answer || '')}</div>${renderSources(data.sources)}`;
+      pending.innerHTML = chatAnswerHtml(data.answer || 'Пустой ответ', data.sources);
       setChatBusy(false);
     } catch (err) {
-      pending.innerHTML = `<strong>ИИ:</strong><div class="text-danger">Не удалось получить ответ.</div>`;
+      pending.classList.add('is-error');
+      pending.textContent = 'Не удалось получить ответ.';
       setChatBusy(false);
       await syncChatUi();
     } finally {
       clearInterval(labelTimer);
     }
   }, { label: 'Отправка…' });
-};
+}
+
+sendBtn.onclick = askChat;
+// Enter — отправить, Shift+Enter — новая строка
+qInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    askChat();
+  }
+});
 
 loadChatHistory();
 </script>

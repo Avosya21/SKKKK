@@ -35,6 +35,19 @@ def test_project_materials_collapsed_and_insights_equal_width():
     assert "panel: 'artifacts-panel'" in (STATIC / "px_digest.js").read_text(encoding="utf-8")
 
 
+def test_chat_same_look_on_project_and_chat_pages():
+    """Чат без вложенных рамок и подписей «Вы/ИИ», источники свёрнуты; стили общие, вид один на обеих страницах."""
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    assert ".chat-message-user {" in css and ".chat-sources summary" in css
+    assert ".chat-card .card-body > .chat-composer" in css  # нижний отступ поля не съедает «.card-body > :last-child»
+    for name in ("project", "chat"):
+        html = (TEMPLATES / name).with_suffix(".html").read_text(encoding="utf-8")
+        assert "chat-card" in html and 'id="chat-log"' in html and 'id="chat-empty"' in html, name
+        assert 'class="chat-sources"' in html and "<strong>Вы:</strong>" not in html and "<strong>ИИ:</strong>" not in html, name
+    project = (TEMPLATES / "project.html").read_text(encoding="utf-8")
+    assert 'id="chat-expand"' in project and "chat-card--full" in project
+
+
 def test_mobile_layout_rules_present():
     css = (STATIC / "app.css").read_text(encoding="utf-8")
     assert ".navbar-skkkk .navbar-actions-row" in css and "flex-wrap: wrap" in css
