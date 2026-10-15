@@ -696,6 +696,79 @@
   </div>
 </div>
 
+{# Встречи — сразу под материалами: созвоны тоже материалы проекта #}
+{% if current_role != 'user' %}
+<div class="card shadow-sm mb-4 meetings-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <button type="button"
+            class="meetings-toggle-btn d-flex align-items-center gap-2 p-0"
+            data-bs-toggle="collapse"
+            data-bs-target="#meetings-panel"
+            aria-expanded="false"
+            aria-controls="meetings-panel">
+      <strong>Встречи</strong>
+      <span id="meetings-toggle-hint" class="small meetings-toggle-hint">(развернуть)</span>
+    </button>
+  </div>
+  <div id="meetings-panel" class="collapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Гостевая ссылка ведёт на отдельную страницу без доступа к проекту.
+        Ссылку можно отозвать. Камера у гостя выключена; записываются голос и экран.
+      </p>
+      <div id="meetings-status" class="text-muted small mb-2" aria-live="polite"></div>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="meetings-create" data-idle-label="Создать встречу">Создать встречу</button>
+      </div>
+      <div id="meetings-new-link" class="alert alert-warning d-none small py-2" role="alert">
+        <strong>Гостевая ссылка (один раз):</strong>
+        <code id="meetings-new-link-value" class="user-select-all d-block mt-1 text-break"></code>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="meetings-copy-link" data-idle-label="Копировать ссылку">Копировать ссылку</button>
+      </div>
+      <div class="table-responsive d-none d-md-block">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Статус</th>
+              <th>Ссылка</th>
+              <th>Проанализировать</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="meetings-body">
+            <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
+          </tbody>
+          </table>
+      </div>
+      <div id="meetings-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="deleteMeetingModal" tabindex="-1" aria-labelledby="delete-meeting-title" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="delete-meeting-title">Подтверждение удаления</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Удалить созвон «<strong id="delete-meeting-name"></strong>»?</p>
+        <p class="text-muted small mb-3">Будут стёрты запись комнаты, расшифровка и задания в очереди. Отменить нельзя.</p>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="delete-meeting-ack">
+          <label class="form-check-label" for="delete-meeting-ack">Подтверждаю полное удаление созвона</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-meeting-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="modal fade" id="deleteArtifactModal" tabindex="-1" aria-labelledby="delete-artifact-title" aria-hidden="true" data-bs-backdrop="static">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -832,75 +905,6 @@
 </div>
 
 {% if current_role != 'user' %}
-<div class="card shadow-sm mb-4 meetings-card">
-  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
-    <button type="button"
-            class="meetings-toggle-btn d-flex align-items-center gap-2 p-0"
-            data-bs-toggle="collapse"
-            data-bs-target="#meetings-panel"
-            aria-expanded="false"
-            aria-controls="meetings-panel">
-      <strong>Встречи</strong>
-      <span id="meetings-toggle-hint" class="small meetings-toggle-hint">(развернуть)</span>
-    </button>
-  </div>
-  <div id="meetings-panel" class="collapse">
-    <div class="card-body">
-      <p class="text-muted small mb-3">
-        Гостевая ссылка ведёт на отдельную страницу без доступа к проекту.
-        Ссылку можно отозвать. Камера у гостя выключена; записываются голос и экран.
-      </p>
-      <div id="meetings-status" class="text-muted small mb-2" aria-live="polite"></div>
-      <div class="d-flex flex-wrap gap-2 mb-3">
-        <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="meetings-create" data-idle-label="Создать встречу">Создать встречу</button>
-      </div>
-      <div id="meetings-new-link" class="alert alert-warning d-none small py-2" role="alert">
-        <strong>Гостевая ссылка (один раз):</strong>
-        <code id="meetings-new-link-value" class="user-select-all d-block mt-1 text-break"></code>
-        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="meetings-copy-link" data-idle-label="Копировать ссылку">Копировать ссылку</button>
-      </div>
-      <div class="table-responsive d-none d-md-block">
-        <table class="table table-sm table-hover mb-0">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Статус</th>
-              <th>Ссылка</th>
-              <th>Проанализировать</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="meetings-body">
-            <tr><td colspan="5" class="text-muted small">Загрузка…</td></tr>
-          </tbody>
-          </table>
-      </div>
-      <div id="meetings-cards" class="d-md-none vstack gap-2" aria-live="polite"></div>
-    </div>
-  </div>
-</div>
-<div class="modal fade" id="deleteMeetingModal" tabindex="-1" aria-labelledby="delete-meeting-title" aria-hidden="true" data-bs-backdrop="static">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 class="modal-title fs-5" id="delete-meeting-title">Подтверждение удаления</h2>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
-      </div>
-      <div class="modal-body">
-        <p class="mb-3">Удалить созвон «<strong id="delete-meeting-name"></strong>»?</p>
-        <p class="text-muted small mb-3">Будут стёрты запись комнаты, расшифровка и задания в очереди. Отменить нельзя.</p>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="delete-meeting-ack">
-          <label class="form-check-label" for="delete-meeting-ack">Подтверждаю полное удаление созвона</label>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-meeting-confirm" data-idle-label="Удалить" disabled>Удалить</button>
-      </div>
-    </div>
-  </div>
-</div>
 <div class="card shadow-sm mb-4 mcp-access-card">
   <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
     <button type="button"
