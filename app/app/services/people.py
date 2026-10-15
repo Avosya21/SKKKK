@@ -278,26 +278,47 @@ def merge(db: Session, project_id: int, keep_id: int, drop_id: int, *, by_user_i
 
 def party_side(db: Session, project_id: int, company_name: str | None) -> str | None:
     """Сторона компании в этом проекте (Д1): ``executor`` / ``customer`` или None, если компания не задана."""
-    key = alias_key(company_name)
-    if not key:
-        return None
-    row = db.scalar(select(ProjectParty).where(ProjectParty.project_id == project_id, ProjectParty.company_key == key))
+    row = find_party(db, project_id, company_name)
     return row.side if row is not None else None
 
 
-def set_party(db: Session, project_id: int, company_name: str, side: str, *, company_id: int | None = None, by_user_id: int | None = None) -> ProjectParty:
-    if side not in (SIDE_EXECUTOR, SIDE_CUSTOMER):
-        raise PeopleError("Сторона компании: исполнитель или заказчик")
+def find_party(db: Session, project_id: int, company_name: str | None) -> ProjectParty | None:
+    """Сторона проекта по названию компании: то же написание, иначе та же компания списка («acme» и «ООО ACME»)."""
+    from app.app.services.companies import canonical_company, loose_key
+
     key = alias_key(company_name)
     if not key:
+        return None
+    rows = db.scalars(select(ProjectParty).where(ProjectParty.project_id == project_id)).all()
+    hit = next((r for r in rows if r.company_key == key), None)
+    if hit is not None:
+        return hit
+    company = canonical_company(db, company_name)
+    loose = loose_key(company_name)
+    return next((r for r in rows if (company is not None and r.company_id == company.id) or (loose and loose_key(r.company_name) == loose)), None)
+
+
+def set_party(db: Session, project_id: int, company_name: str, side: str, *, company_id: int | None = None, by_user_id: int | None = None) -> ProjectParty:
+    """Сторона компании в проекте (Д1). Компания всегда из общего списка: новая попадает туда со стороной по роли (Р2),
+    сторона проекта хранит её ``company_id`` и написание из списка. ``company_id`` вызывающего больше не нужен."""
+    from app.app.services.companies import CompanyError, ensure_company
+
+    if side not in (SIDE_EXECUTOR, SIDE_CUSTOMER):
+        raise PeopleError("Сторона компании: исполнитель или заказчик")
+    if not alias_key(company_name):
         raise PeopleError("Пустое название компании")
-    row = db.scalar(select(ProjectParty).where(ProjectParty.project_id == project_id, ProjectParty.company_key == key))
+    try:
+        company = ensure_company(db, company_name, side)
+    except CompanyError as exc:
+        raise PeopleError(str(exc)) from exc
+    row = find_party(db, project_id, company.name) or find_party(db, project_id, company_name)
     before = None if row is None else {"company": row.company_name, "side": row.side}
     if row is None:
-        row = ProjectParty(project_id=project_id, company_id=company_id, company_name=" ".join(company_name.split()), company_key=key, side=side)
+        row = ProjectParty(project_id=project_id, company_id=company.id, company_name=company.name,
+                           company_key=alias_key(company.name), side=side)
         db.add(row)
     else:
-        row.side, row.company_id = side, company_id or row.company_id
+        row.side, row.company_id, row.company_name, row.company_key = side, company.id, company.name, alias_key(company.name)
     _log(db, project_id, None, by_user_id, "set_party", before, {"company": row.company_name, "side": side})
     db.flush()
     return row

@@ -31,6 +31,30 @@ def test_company_key_ignores_case_quotes_and_legal_form():
     assert company_key("Пример Альфа") != company_key("Пример Бета")
 
 
+def test_link_parties_ties_old_text_parties_to_directory(db):
+    """ЛГ1: старые стороны (только текст) связываются со справочником; новая компания добавляется; повтор ничего не меняет."""
+    from app.app.models.person import ProjectParty
+    from app.app.models.project import Project
+    from scripts.link_project_parties import apply, plan
+
+    admin = _user(db, "link-admin")
+    project = Project(name="Пример сведения", created_by=admin.id, is_active=True)
+    db.add(project)
+    db.commit()
+    db.add_all([ProjectParty(project_id=project.id, company_name="acme", company_key="acme", side="executor"),
+                ProjectParty(project_id=project.id, company_name="Клиент Старый", company_key="клиент старый", side="customer")])
+    people.create_person(db, project.id, "Вера Пример", company_name="acme", side="executor", side_source="human")
+    db.commit()
+
+    steps = [s for s in plan(db) if s["project_id"] == project.id]
+    assert {(s["party"], s["company"]) for s in steps} == {("acme", "ACME"), ("Клиент Старый", None)}
+    apply(db, steps)
+    rows = db.query(ProjectParty).filter_by(project_id=project.id).all()
+    assert all(r.company_id for r in rows) and {r.company_name for r in rows} == {"ACME", "Клиент Старый"}
+    assert people.resolve(db, project.id, "Вера Пример").person.company_name == "ACME"
+    assert [s for s in plan(db) if s["project_id"] == project.id] == []
+
+
 def test_report_finds_each_kind_of_gap(db):
     from app.app.config import get_settings
     from app.app.models.company import Company
@@ -45,8 +69,13 @@ def test_report_finds_each_kind_of_gap(db):
     bare = Project(name="Пример без сторон", created_by=admin.id, is_active=True)
     db.add_all([project, bare])
     db.commit()
-    people.set_party(db, project.id, "пример исполнитель", "executor")  # есть в справочнике, но без company_id
-    people.set_party(db, project.id, "ООО «Заказчик Пример»", "customer")  # нет в справочнике
+    from app.app.models.person import ProjectParty
+
+    # стороны, записанные до ЛГ1 только текстом: одна совпадает со справочником по написанию, другой там нет
+    db.add_all([ProjectParty(project_id=project.id, company_name="пример исполнитель", company_key="пример исполнитель", side="executor"),
+                ProjectParty(project_id=project.id, company_name="ООО «Заказчик Пример»", company_key="ооо заказчик пример",
+                             side="customer")])
+    db.flush()
     people.create_person(db, project.id, "Анна Пример", company_name="ООО «Заказчик Пример»", side="executor", side_source="human")
     people.create_person(db, project.id, "Борис Пример")
     db.add(ProjectMember(project_id=project.id, user_id=member.id, role="user", granted_by=admin.id))

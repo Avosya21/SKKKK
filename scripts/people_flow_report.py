@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -26,13 +25,13 @@ if str(ROOT) not in sys.path:
 OUT = ROOT / "data" / "people"  # вне git: имена людей и компаний
 SIDES = ("executor", "customer")
 SIDE_RU = {"executor": "исполнитель", "customer": "заказчик"}
-_LEGAL = re.compile(r"\b(ооо|оао|зао|пао|ао|ип|llc|ltd|inc)\b")
 
 
 def company_key(name: str | None) -> str:
-    """Ключ для поиска одной компании под разными написаниями: без регистра, кавычек, пробелов и формы собственности."""
-    text = _LEGAL.sub(" ", (name or "").casefold().replace("ё", "е"))
-    return re.sub(r"[^0-9a-zа-я]", "", text)
+    """Ключ одной компании под разными написаниями — тот же, что у справочника (``companies.loose_key``)."""
+    from app.app.services.companies import loose_key
+
+    return loose_key(name)
 
 
 def collect(db, settings, project_id: int | None = None) -> dict:
@@ -91,6 +90,7 @@ def collect(db, settings, project_id: int | None = None) -> dict:
             "id": pid,
             "name": project.name,
             "platform": memory_platform.enabled(settings, project),
+            "internal": bool(project.settings().get("internal_project")),
             "parties": [{"company": p.company_name, "side": p.side, "in_directory": company_key(p.company_name) in directory,
                          "company_id": p.company_id} for p in parties],
             "has_customer": any(p.side == "customer" for p in parties),
@@ -152,7 +152,8 @@ def totals(report: dict) -> dict[str, int]:
         "проектов": len(rows),
         "с платформой": sum(1 for r in rows if r["platform"]),
         "без сторон": sum(1 for r in rows if not r["parties"]),
-        "без заказчика (есть исполнитель)": sum(1 for r in rows if r["has_executor"] and not r["has_customer"]),
+        "внутренних (только исполнитель)": sum(1 for r in rows if r["internal"]),
+        "без заказчика (не внутренние)": sum(1 for r in rows if r["parties"] and not r["has_customer"] and not r["internal"]),
         "сторон без company_id": sum(len(r["parties_without_company_id"]) for r in rows),
         "компаний сторон вне справочника": len(portal["parties_outside_directory"]),
         "компаний в разных написаниях": len(portal["company_variants"]),

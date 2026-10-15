@@ -21,6 +21,7 @@ from app.app.models.project_member import ProjectMember
 from app.app.models.speaker_profile import SpeakerProfile
 from app.app.models.user import User
 from app.app.services import memory_platform, people, voice_link
+from app.app.services.companies import active_companies
 from app.app.services.project_access import require_project, require_project_staff
 
 router = APIRouter(prefix="/projects", tags=["project-people"])
@@ -111,6 +112,8 @@ def _payload(db: Session, settings: Settings, project) -> dict[str, Any]:
         "unknown_open": len(people.open_unknown(db, pid)),
         "parties": [{"company_name": r.company_name, "side": r.side} for r in parties],
         "members_without_person": free_members,
+        # выбор компании для сторон проекта — из общего справочника (PEOPLE-FLOW-PLAN, ЛГ1)
+        "companies": [{"name": c.name, "side": c.side} for c in active_companies(db)],
     }
 
 

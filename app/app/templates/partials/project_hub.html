@@ -126,13 +126,15 @@
           {% if current_role == 'admin' %}<a href="/admin/companies">Общий список компаний</a>{% endif %}</div>
         <div class="px-list" id="pp-parties"></div>
         <form class="px-form-row" id="pp-party-form" autocomplete="off">
-          <input type="text" class="form-control form-control-sm" id="pp-party-name" placeholder="Название компании" maxlength="200" required>
+          <input type="text" class="form-control form-control-sm" id="pp-party-name" placeholder="Компания из справочника" maxlength="200" list="pp-companies" required aria-describedby="pp-party-hint">
+          <datalist id="pp-companies"></datalist>
           <select class="form-select form-select-sm" id="pp-party-side" aria-label="Сторона компании">
             <option value="customer">Заказчик</option>
             <option value="executor">Исполнитель</option>
           </select>
           <button type="submit" class="btn btn-sm btn-outline-secondary">Сохранить</button>
         </form>
+        <div class="form-text" id="pp-party-hint"></div>
 
         <details class="mt-4" id="pp-log-box">
           <summary class="small text-muted">Журнал изменений</summary>

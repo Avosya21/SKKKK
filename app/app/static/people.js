@@ -91,7 +91,19 @@
       </div></div>`).join('');
   }
 
+  // Компания стороны — из справочника портала; новая добавится туда сама (PEOPLE-FLOW-PLAN, ЛГ1)
+  const looseCompanyKey = (name) => String(name || '').toLowerCase().replace(/ё/g, 'е')
+    .replace(/(^|[^0-9a-zа-я])(ооо|оао|зао|пао|ао|ип|llc|ltd|inc)(?=$|[^0-9a-zа-я])/g, ' ').replace(/[^0-9a-zа-я]/g, '');
+  function partyHint() {
+    const value = $('pp-party-name').value.trim();
+    const hit = (state.companies || []).find((c) => looseCompanyKey(c.name) === looseCompanyKey(value));
+    $('pp-party-hint').textContent = !value ? '' : hit
+      ? (hit.name === value ? 'Есть в справочнике.' : `В справочнике: «${hit.name}» — будет записана так.`)
+      : 'Новая компания — добавится в справочник портала с выбранной стороной.';
+  }
+
   function renderParties() {
+    $('pp-companies').innerHTML = (state.companies || []).map((c) => `<option value="${esc(c.name)}"></option>`).join('');
     $('pp-parties').innerHTML = state.parties.length
       ? state.parties.map((p) => `<div class="px-item d-flex justify-content-between"><span>${esc(p.company_name)}</span><span class="text-muted">${esc(SIDE[p.side] || p.side)}</span></div>`).join('')
       : '<div class="text-muted small">Стороны компаний не заданы.</div>';
@@ -159,8 +171,9 @@
   $('pp-party-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const r = await call('/parties', 'PUT', { company_name: $('pp-party-name').value.trim(), side: $('pp-party-side').value });
-    if (r) { apply(r); e.target.reset(); say('Сохранено.'); }
+    if (r) { apply(r); e.target.reset(); partyHint(); say('Сохранено.'); }
   });
+  $('pp-party-name').addEventListener('input', partyHint);
   $('pp-platform').addEventListener('change', async (e) => {
     const r = await call('/people-platform', 'PUT', { enabled: e.target.checked });
     if (r) apply(r); else e.target.checked = !e.target.checked;

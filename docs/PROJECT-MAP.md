@@ -389,7 +389,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Кнопка / элемент | API | Кто | Роль | Результат |
 |------------------|-----|-----|------|-----------|
 | **Новый проект** | — | UI | admin, manager | Открывает модалку |
-| **Создать** | `POST /projects` | FastAPI | admin, manager | Проект + `data/projects/{id}/` tree |
+| **Создать** | `POST /projects` | FastAPI | admin, manager | Проект + `data/projects/{id}/` tree; стороны из `customer_company` / `executor_company` — компании справочника, новая добавляется туда (Р2); `internal` из формы: `false` — заказчик обязателен, `true` — внутренний проект без заказчика (`settings_json.internal_project`), не передан — как раньше (Р3, PEOPLE-FLOW-PLAN ЛГ1) |
 | **Отмена** | — | UI | — | Закрыть модалку |
 | **Исправлено** (шапка, слева от бейджа LLM, `nav-changelog`) | — | UI | auth | Модалка `#changelogModal`: список изменений для пользователя, новые сверху. Данные — `app/app/changelog.json`, читает `load_changelog()` в `routers/pages.py` при рендере `/`. Дополнять после каждой правки функционала/качества (правило в `AGENTS.md`) |
 | Клик по проекту | — | navigate | свои или admin | `/projects/{id}`; чужой URL — **404** |
@@ -1054,7 +1054,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | **Привязать голос** (предложение по точному имени сотрудника с согласием) | `POST /projects/{id}/people/{person_id}/voices/{profile_id}/link` | слепок `speaker_profiles` привязывается к учётке; привязывает только человек, не автоматика (`services/voice_link.py`) |
 | **Удалить** человека (кнопка видна только админу) | `DELETE /projects/{id}/people/{person_id}` | необратимо: стираются написания (и объединённые записи), голосовые слепки проекта, ссылки из встреч и вопросов, имена в журнале правок; учётка и общие голоса сотрудника остаются; **только admin** (`people.forget_person`, ПФ8) |
 | Справочник людей для любого участника проекта | `GET /projects/{id}/people/directory` | имя, компания, должность, сторона — без написаний, голосов, согласий и учёток (ПФ8); в карточке на странице не показывается |
-| Блок «Стороны компаний»: название + Заказчик/Исполнитель, **Сохранить** | `PUT /projects/{id}/parties` `{company_name, side}` | сторона компании в этом проекте (`project_parties`) |
+| Блок «Стороны компаний»: компания из справочника (подсказки `#pp-companies`, «новая — добавится в справочник») + Заказчик/Исполнитель, **Сохранить** | `PUT /projects/{id}/parties` `{company_name, side}` | сторона компании в этом проекте (`project_parties`) всегда с `company_id` справочника: `people.set_party` → `companies.ensure_company` (то же название без регистра, кавычек и формы собственности — `loose_key`; нет — компания добавляется в справочник со стороной по роли, Р2); `GET …/people` отдаёт `companies` для подсказок |
 | Флажок «Брать стороны из этого списка в анализе проекта» (`#pp-platform`) | `PUT /projects/{id}/people-platform` `{enabled}` | **только admin** (403 иначе): включает реестр как источник сторон в контракте; выключено — прежняя логика по ролям из текста; настройка проекта `memory_platform` главнее `MEMORY_PLATFORM` из `.env` (`services/memory_platform.py`) |
 | Раскрывающийся «Журнал» (`#pp-log-box`) | `GET /projects/{id}/people/log?limit=30` | последние правки реестра: кто, когда, что было и что стало (`people_log`, до 200 записей) |
 
@@ -1635,6 +1635,7 @@ run_pipeline
 | `kb_inbox.py` | ящик вопросов внешнего агента из командной строки (`list`, ответ), без входа по паролю |
 | `personal_password.py` | личные пароли без PyCharm: `list`, `reset <логин|номер> [--yes]` (база `credentials.db` напрямую) |
 | `user_profile.py` | карточки без PyCharm: `list`, `set-company`, `withdraw-voice`, `restore-voice`, `reset` (`--yes`) |
+| `link_project_parties.py` | стороны проектов, записанные до ЛГ1 текстом, → компании справочника (новые добавляются); без `--apply` — только план, с `--apply` — копия БД в `data/backups/`; компании людей проекта приводятся к справочнику |
 | `link_voice_profiles.py` | слепки голоса ↔ карточки: `list`, `link` (на каждое — подтверждение), `unlink <id>` |
 | `live_meetings.py` | печатает идущие встречи; код выхода 3, если есть люди на связи (для безопасного перезапуска). Правило — `services/meetings.ongoing_meetings`, общее с полоской «Идёт созвон» |
 | `watch_server.py` | наблюдение за сервером, очередью и ошибками конвейера |
@@ -2244,6 +2245,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lightrag_index.py` | Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline. |
 | `lightrag_query.py` | Запрос к LightRAG по карте SKKKK. |
 | `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
+| `link_project_parties.py` | Свести стороны проектов со справочником компаний (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ1). |
 | `link_voice_profiles.py` | Привязка слепков голоса к карточкам сотрудников — только по подтверждению, ничего не привязывается само. |
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |
 | `llm_model.py` | Локальная модель по профилю tools/lmstudio/qwen-profile.json — те же функции, что у портала (services/llm_keeper.py). |
@@ -2454,7 +2456,7 @@ MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `modul
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-14 21:24: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-10-16 01:58: сущностей 131, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2621,6 +2623,7 @@ _Проверено 2026-10-14 21:24: сущностей 130, не описан�
 | `scripts/SKKKK-3-Запуск-LM-Studio.bat` | лаунчер | двойной щелчок: запуск с локальной моделью (LM Studio) | да |
 | `scripts/index_config.yaml` | конфиг | что индексировать: файлы, исключения, версия схемы, маскирование секретов | да |
 | `scripts/index_glossary.yaml` | конфиг | словарь синонимов для поиска по карте | да |
+| `scripts/voice_review.html` | шаблон | страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/ | да |
 | `scripts/requirements_lock` | заглушка | пустой файл блокировки версий (не используется) | да |
 | `scripts/qa_data_speech_a.wav` | фикстура | синтезированная русская реплика A для сквозных проверок (qa_analysis, qa_media_path) | да |
 | `scripts/qa_data_speech_b.wav` | фикстура | синтезированная русская реплика B для сквозных проверок | да |
@@ -2668,6 +2671,7 @@ _Проверено 2026-10-14 21:24: сущностей 130, не описан�
 | `docs/prompts/subject_merge.md` | Промпт: один ли это вопрос у двух предметов (Э3, склейка дублей) |
 | `docs/prompts/subject_window.md` | Промпт: раскладка окна реплик по предметам (Э3, вариант «один проход по окну») |
 | `docs/prompts/suggest_speaker_names.md` | Промпт: подсказка имени неизвестного голоса (автопроверка, этап 3) |
+| `docs/prompts/tz_sections.md` | Промпт: итоговое резюме по разделам из памяти решений |
 | `docs/plans/AUTO-REVIEW-PLAN.md` | SKKKK — Автопроверка локальной моделью: меньше ручных подтверждений |
 | `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | SKKKK — Автономное разрешение противоречий: созвоны и документы без ручного разбора |
 | `docs/plans/DECISION-MEMORY-PLAN.md` | SKKKK — Память решений: что решено, что отклонено, что заменено |
@@ -2682,6 +2686,7 @@ _Проверено 2026-10-14 21:24: сущностей 130, не описан�
 | `docs/plans/meeting-room-plan.md` | SKKKK: страница созвона — план доработки по тестовому созвону 12 |
 | `docs/plans/MEETING-SCREEN-PLAN.md` | SKKKK — Запись экрана: полный план (C1–C4) |
 | `docs/plans/NEMOTRON-DIARIZATION-PLAN.md` | Диаризация на Nemotron 3 (8 спикеров) вместо Sortformer 4spk — план |
+| `docs/plans/PEOPLE-FLOW-PLAN.md` | SKKKK — Люди, компании, учётки и голоса: сквозной путь |
 | `docs/plans/PERSONAL-PASSWORD-PLAN.md` | Личный пароль пользователя — план реализации |
 | `docs/plans/plan-review.md` | Ревизия планов v4 / v5 относительно кода |
 | `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | SKKKK — Подготовка платформы к памяти решений |
