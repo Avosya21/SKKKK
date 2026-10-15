@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Разбор голосов</title>
+<!-- Страница scripts/voice_review.py: данные — data.json, решения — /decisions (сохраняются сами). -->
+<style>
+:root {
+  --bg: #f4f5f7; --surface: #fff; --surface-2: #f0f2f5; --line: #dde1e7; --text: #1d2330; --muted: #657084;
+  --accent: #2f5fd0; --accent-soft: #e6edfb; --ok: #1f7a4d; --ok-soft: #e3f4ea; --warn: #9a6400; --warn-soft: #fbf0d9;
+  --bad: #b3261e; --bad-soft: #fbe5e3; --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c; --surface: #1c2027; --surface-2: #242a33; --line: #323a46; --text: #e6e9ef; --muted: #9aa4b5;
+    --accent: #7ea2ff; --accent-soft: #23314f; --ok: #6fd3a0; --ok-soft: #1d3a2c; --warn: #f0c05a; --warn-soft: #3b3120;
+    --bad: #ff8a80; --bad-soft: #43221f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); padding: 10px 16px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; max-width: 1280px; margin: 0 auto; }
+h1 { font-size: 17px; margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.tabs { display: flex; gap: 4px; }
+button, select, input, textarea { font: inherit; color: inherit; }
+.tab, .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.btn:hover, .tab:hover { border-color: var(--accent); }
+input[type="search"], input[type="text"], select, textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 5px 8px; }
+textarea { width: 100%; min-height: 34px; resize: vertical; }
+main { max-width: 1280px; margin: 0 auto; padding: 14px 16px 80px; }
+.progress { display: flex; gap: 12px; align-items: center; }
+.meter { width: 140px; height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--ok); }
+.saved { font-size: 12px; }
+.group { margin: 18px 0 8px; display: flex; align-items: baseline; gap: 8px; }
+.group h2 { font-size: 15px; margin: 0; }
+.voice { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; scroll-margin-top: 90px; }
+.voice.flash { box-shadow: 0 0 0 3px var(--accent); }
+.voice.done { border-left: 4px solid var(--ok); }
+.voice.unsure { border-left: 4px solid var(--warn); }
+.voice h3 { margin: 0 0 2px; font-size: 15px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+.badge { font-size: 11.5px; border-radius: 999px; padding: 1px 8px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.badge.acc { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.badge.exec { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.badge.cust { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.people { margin: 0 0 8px; padding: 0; list-style: none; }
+.people li { font-size: 13px; padding: 2px 0; }
+.sample { display: grid; grid-template-columns: 1fr; gap: 2px; padding: 6px 0; border-top: 1px dashed var(--line); }
+.sample:first-of-type { border-top: 0; }
+.sample audio { width: 100%; }
+.quote { font-size: 12.5px; color: var(--muted); font-style: italic; }
+.near { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 2px 9px; font-size: 12.5px; cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
+.decide { background: var(--surface-2); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; align-self: start; }
+.verdicts { display: flex; flex-wrap: wrap; gap: 4px; }
+.verdicts button { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 4px 8px; cursor: pointer; font-size: 13px; }
+.verdicts button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.verdicts button[data-v="ok"][aria-pressed="true"] { background: var(--ok); border-color: var(--ok); }
+.verdicts button[data-v="delete"][aria-pressed="true"] { background: var(--bad); border-color: var(--bad); }
+.verdicts button[data-v="unsure"][aria-pressed="true"], .verdicts button[data-v="mixed"][aria-pressed="true"] { background: var(--warn); border-color: var(--warn); }
+.row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 6px; }
+.row > *, .decide input, .decide select { min-width: 0; width: 100%; }
+label.lbl { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+.hidden { display: none !important; }
+.pair { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; padding: 12px 14px; }
+.pair.done { border-left: 4px solid var(--ok); }
+.pair-grid { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr); gap: 12px; align-items: start; }
+.pair-mid { text-align: center; padding-top: 8px; }
+.pct { font-size: 22px; font-weight: 700; }
+.pair-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; justify-content: center; }
+.pair-actions button { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+.pair-actions button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.empty { text-align: center; padding: 40px; color: var(--muted); }
+a.jump { color: var(--accent); cursor: pointer; text-decoration: underline; }
+@media (max-width: 860px) {
+  .voice { grid-template-columns: 1fr; }
+  .pair-grid { grid-template-columns: 1fr; }
+  .pair-mid { text-align: left; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Разбор голосов</h1>
+    <span class="muted small" id="built"></span>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="voices" aria-selected="true">Голоса</button>
+      <button class="tab" role="tab" data-tab="pairs" aria-selected="false">Возможные дубли</button>
+    </div>
+    <select id="filter" aria-label="Фильтр">
+      <option value="all">Все</option>
+      <option value="todo">Без решения</option>
+      <option value="unsure">Не уверен / смешаны</option>
+      <option value="done">С решением</option>
+    </select>
+    <input type="search" id="q" placeholder="Поиск по имени, компании, id" aria-label="Поиск">
+    <div class="progress">
+      <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+      <span class="small" id="progress"></span>
+      <span class="saved muted" id="saved"></span>
+    </div>
+  </div>
+</header>
+<main>
+  <section id="voices"></section>
+  <section id="pairs" class="hidden"></section>
+</main>
+<datalist id="companies"></datalist>
+<script>
+(async function () {
+  const data = await (await fetch('data.json', { cache: 'no-store' })).json();
+  let dec = {};
+  try { dec = await (await fetch('/decisions', { cache: 'no-store' })).json(); } catch (_) { dec = {}; }
+  dec.voices = dec.voices || {};
+  dec.pairs = dec.pairs || {};
+  const byId = new Map(data.voices.map((v) => [v.id, v]));
+  const SIDE = { executor: 'исполнитель', customer: 'заказчик', unknown: 'сторона ?', '': 'сторона ?' };
+  const VERDICTS = [
+    ['ok', 'Всё верно'], ['rename', 'Переименовать'], ['merge', 'Тот же, что…'],
+    ['mixed', 'Смешаны люди'], ['delete', 'Удалить голос'], ['unsure', 'Не уверен'],
+  ];
+  const companySide = Object.fromEntries(data.companies.map((c) => [c.name.toLowerCase(), c.side]));
+  document.getElementById('built').textContent = `собрано ${data.built}`;
+  const dl = document.getElementById('companies');
+  data.companies.forEach((c) => { const o = document.createElement('option'); o.value = c.name; dl.append(o); });
+
+  // ---- сохранение
+  let timer = null;
+  const savedEl = document.getElementById('saved');
+  function save() {
+    try { localStorage.setItem('voice_review_backup', JSON.stringify(dec)); } catch (_) { /* копия в браузере необязательна */ }
+    savedEl.textContent = 'сохраняю…';
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        const r = await fetch('/decisions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dec) });
+        savedEl.textContent = r.ok ? `сохранено ${new Date().toLocaleTimeString().slice(0, 5)}` : 'не сохранилось!';
+      } catch (_) { savedEl.textContent = 'нет связи с сервером — решения в браузере'; }
+    }, 500);
+    progress();
+  }
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+  const mmss = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+  // одна дорожка за раз
+  document.addEventListener('play', (e) => {
+    document.querySelectorAll('audio').forEach((a) => { if (a !== e.target) a.pause(); });
+  }, true);
+
+  // ---- группа голоса: компания и сторона людей под ним
+  function groupOf(v) {
+    const d = dec.voices[v.id] || {};
+    const counts = {};
+    v.people.forEach((p) => { if (p.company) counts[p.company] = (counts[p.company] || 0) + 1; });
+    const company = (d.company || '').trim() || Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || '';
+    const sides = v.people.map((p) => p.side).filter((s) => s === 'executor' || s === 'customer');
+    const side = d.side || companySide[company.toLowerCase()] || sides[0] || '';
+    // людей под голосом нет — группа по проекту, где он звучит (проект обычно назван по заказчику)
+    const project = !company && v.projects.length ? `пр. ${v.projects[0]} · ${data.projects[v.projects[0]] || ''}` : '';
+    return { company, side, project };
+  }
+
+  function status(v) {
+    const d = dec.voices[v.id];
+    if (!d || !d.verdict) return 'todo';
+    return (d.verdict === 'unsure' || d.verdict === 'mixed') ? 'unsure' : 'done';
+  }
+
+  function samplesBlock(v, limit) {
+    const box = el('div');
+    v.samples.slice(0, limit || 99).forEach((s) => {
+      const row = el('div', 'sample');
+      const where = s.kind === 'эталон' ? 'Эталон' : `Созвон · пр. ${s.project} · ${mmss(s.at)}`;
+      row.append(el('span', 'small muted', `${where}${s.call ? ' · ' + s.call : ''}${s.label ? ' · ' + s.label : ''}`));
+      const a = document.createElement('audio');
+      a.controls = true; a.preload = 'none'; a.src = s.src;
+      row.append(a);
+      if (s.text) row.append(el('span', 'quote', `«${s.text}»`));
+      box.append(row);
+    });
+    if (!v.samples.length) box.append(el('p', 'small muted', 'Фрагментов нет — файла созвона нет на диске.'));
+    return box;
+  }
+
+  function peopleBlock(v) {
+    const ul = el('ul', 'people');
+    if (!v.people.length) ul.append(el('li', 'muted', 'В «Люди и стороны» проектов этот голос не найден.'));
+    v.people.forEach((p) => {
+      const li = el('li');
+      li.append(el('span', '', `пр. ${p.project} · ${p.name}`));
+      li.append(el('span', 'muted', ` · ${p.company || 'компания ?'} · ${SIDE[p.side] || p.side}${p.job ? ' · ' + p.job : ''}${p.account ? ' · учётка' : ''}`));
+      ul.append(li);
+    });
+    return ul;
+  }
+
+  function jump(id) {
+    setTab('voices');
+    document.getElementById('filter').value = 'all';
+    document.getElementById('q').value = '';
+    renderVoices();
+    const card = document.getElementById(`v${id}`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 1600);
+  }
+
+  function decideBlock(v, card) {
+    const d = dec.voices[v.id] = dec.voices[v.id] || {};
+    const box = el('div', 'decide');
+    const vs = el('div', 'verdicts');
+    const nameRow = el('div', 'hidden');
+    const mergeRow = el('div', 'hidden');
+    VERDICTS.forEach(([key, label]) => {
+      const b = el('button', '', label);
+      b.type = 'button'; b.dataset.v = key;
+      b.setAttribute('aria-pressed', String(d.verdict === key));
+      b.addEventListener('click', () => {
+        d.verdict = d.verdict === key ? '' : key;
+        vs.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === d.verdict)));
+        show(); mark(); save();
+      });
+      vs.append(b);
+    });
+    box.append(vs);
+
+    const nameInp = el('input'); nameInp.type = 'text'; nameInp.value = d.name || v.name;
+    nameInp.addEventListener('input', () => { d.name = nameInp.value; save(); });
+    nameRow.append(el('label', 'lbl', 'Правильное имя (Имя Фамилия)'), nameInp);
+    const sel = el('select');
+    sel.append(new Option('— с каким голосом слить —', ''));
+    const nearIds = v.near.map((n) => n.id);
+    v.near.forEach((n) => { const o = byId.get(n.id); if (o) sel.append(new Option(`${o.name} · ${n.pct}% · #${o.id}`, o.id)); });
+    data.voices.filter((o) => o.id !== v.id && !nearIds.includes(o.id)).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+      .forEach((o) => sel.append(new Option(`${o.name} · #${o.id}`, o.id)));
+    sel.value = d.merge_into || '';
+    sel.addEventListener('change', () => { d.merge_into = sel.value ? Number(sel.value) : null; save(); });
+    const go = el('a', 'jump small', 'открыть выбранный');
+    go.addEventListener('click', () => { if (sel.value) jump(Number(sel.value)); });
+    mergeRow.append(el('label', 'lbl', 'Этот голос — тот же человек, что (останется выбранный, этот вольётся в него)'), sel, go);
+    box.append(nameRow, mergeRow);
+
+    const row = el('div', 'row');
+    const comp = el('input'); comp.type = 'text'; comp.setAttribute('list', 'companies');
+    const g = groupOf(v);
+    comp.placeholder = g.company || 'Компания';
+    comp.value = d.company || '';
+    const side = el('select');
+    [['', `Сторона${g.side ? ' (сейчас: ' + SIDE[g.side] + ')' : ''}`], ['executor', 'Исполнитель'], ['customer', 'Заказчик']]
+      .forEach(([val, t]) => side.append(new Option(t, val)));
+    side.value = d.side || '';
+    comp.addEventListener('input', () => {
+      d.company = comp.value;
+      const s = companySide[comp.value.trim().toLowerCase()];
+      if (s && !d.side) { side.value = s; d.side = s; }
+      save();
+    });
+    side.addEventListener('change', () => { d.side = side.value; save(); });
+    const c1 = el('div'); c1.append(el('label', 'lbl', 'Компания (если надо поправить)'), comp);
+    const c2 = el('div'); c2.append(el('label', 'lbl', 'Сторона'), side);
+    row.append(c1, c2);
+    box.append(row);
+    const note = el('textarea'); note.placeholder = 'Заметка (необязательно)'; note.value = d.note || '';
+    note.addEventListener('input', () => { d.note = note.value; save(); });
+    box.append(note);
+
+    function show() {
+      nameRow.classList.toggle('hidden', d.verdict !== 'rename');
+      mergeRow.classList.toggle('hidden', d.verdict !== 'merge');
+    }
+    function mark() {
+      card.classList.toggle('done', status(v) === 'done');
+      card.classList.toggle('unsure', status(v) === 'unsure');
+    }
+    show(); mark();
+    return box;
+  }
+
+  function voiceCard(v) {
+    const card = el('article', 'voice');
+    card.id = `v${v.id}`;
+    const left = el('div');
+    const h = el('h3', '', v.name);
+    h.append(el('span', 'muted small', `  #${v.id}`));
+    left.append(h);
+    const b = el('div', 'badges');
+    b.append(el('span', 'badge', v.scope === 'global' ? 'общий голос' : 'голос проекта'));
+    if (v.account) b.append(el('span', 'badge acc', `учётка: ${v.account}`));
+    b.append(el('span', 'badge', `созвонов: ${v.calls}`));
+    v.projects.forEach((p) => b.append(el('span', 'badge', `пр. ${p} · ${data.projects[p] || ''}`)));
+    left.append(b, peopleBlock(v), samplesBlock(v));
+    if (v.near.length) {
+      left.append(el('div', 'small muted', 'Похожие голоса (нажмите — перейти):'));
+      const near = el('div', 'near');
+      v.near.forEach((n) => {
+        const o = byId.get(n.id);
+        if (!o) return;
+        const c = el('button', 'chip', `${o.name} · ${n.pct}%`);
+        c.type = 'button';
+        c.addEventListener('click', () => jump(o.id));
+        near.append(c);
+      });
+      left.append(near);
+    }
+    card.append(left, decideBlock(v, card));
+    return card;
+  }
+
+  function matches(v, q) {
+    if (!q) return true;
+    const hay = [v.name, `#${v.id}`, String(v.id), ...v.people.map((p) => `${p.name} ${p.company}`)].join(' ').toLowerCase();
+    return hay.includes(q);
+  }
+
+  function renderVoices() {
+    const root = document.getElementById('voices');
+    root.textContent = '';
+    const f = document.getElementById('filter').value;
+    const q = document.getElementById('q').value.trim().toLowerCase();
+    const list = data.voices.filter((v) => (f === 'all' || status(v) === f) && matches(v, q));
+    if (!list.length) { root.append(el('p', 'empty', 'Ничего не найдено.')); return; }
+    const groups = new Map();
+    list.forEach((v) => {
+      const g = groupOf(v);
+      const key = `${g.side === 'executor' ? 0 : g.side === 'customer' ? 1 : 2}|${g.company || '~' + g.project}`;
+      if (!groups.has(key)) groups.set(key, { g, items: [] });
+      groups.get(key).items.push(v);
+    });
+    [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru')).forEach(([, { g, items }]) => {
+      const head = el('div', 'group');
+      head.append(el('h2', '', `${g.side === 'executor' ? 'Исполнитель' : g.side === 'customer' ? 'Заказчик' : 'Сторона не указана'} — ${g.company || (g.project ? `компания не указана, ${g.project}` : 'компания не указана')}`));
+      head.append(el('span', 'muted small', `${items.length}`));
+      document.getElementById('voices').append(head);
+      items.sort((a, b) => a.name.localeCompare(b.name, 'ru')).forEach((v) => root.append(voiceCard(v)));
+    });
+  }
+
+  function pairSide(v) {
+    const box = el('div');
+    const h = el('h3', '', v.name);
+    h.append(el('span', 'muted small', `  #${v.id} · созвонов ${v.calls}`));
+    const go = el('a', 'jump small', 'карточка голоса');
+    go.addEventListener('click', () => jump(v.id));
+    box.append(h, peopleBlock(v), samplesBlock(v, 2), go);
+    return box;
+  }
+
+  function renderPairs() {
+    const root = document.getElementById('pairs');
+    root.textContent = '';
+    const f = document.getElementById('filter').value;
+    const q = document.getElementById('q').value.trim().toLowerCase();
+    root.append(el('p', 'small muted', 'Сначала — пары с самым похожим голосом. Тёзки с непохожим голосом — обычно разные люди. '
+      + '«Один человек» сливает голоса: остаётся выбранный, второй вливается в него.'));
+    const list = data.pairs.filter((p) => {
+      const a = byId.get(p.a), b = byId.get(p.b);
+      if (!a || !b) return false;
+      const v = dec.pairs[`${p.a}:${p.b}`];
+      const st = !v ? 'todo' : v === 'unsure' ? 'unsure' : 'done';
+      return (f === 'all' || st === f) && (matches(a, q) || matches(b, q));
+    });
+    if (!list.length) { root.append(el('p', 'empty', 'Ничего не найдено.')); return; }
+    list.forEach((p) => {
+      const a = byId.get(p.a), b = byId.get(p.b);
+      const key = `${p.a}:${p.b}`;
+      const box = el('div', 'pair');
+      const grid = el('div', 'pair-grid');
+      const mid = el('div', 'pair-mid');
+      mid.append(el('div', 'pct', `${p.pct}%`), el('div', 'small muted', 'сходство голоса'));
+      if (p.names && p.names !== '—') mid.append(el('div', 'small', `имена: ${p.names}`));
+      grid.append(pairSide(a), mid, pairSide(b));
+      const acts = el('div', 'pair-actions');
+      [['keep_a', `Один человек — оставить «${a.name}»`], ['keep_b', `Один человек — оставить «${b.name}»`],
+        ['different', 'Разные люди'], ['unsure', 'Не уверен']].forEach(([val, label]) => {
+        const btn = el('button', '', label);
+        btn.type = 'button';
+        btn.setAttribute('aria-pressed', String(dec.pairs[key] === val));
+        btn.addEventListener('click', () => {
+          dec.pairs[key] = dec.pairs[key] === val ? '' : val;
+          acts.querySelectorAll('button').forEach((x, i) => x.setAttribute('aria-pressed', String(['keep_a', 'keep_b', 'different', 'unsure'][i] === dec.pairs[key])));
+          box.classList.toggle('done', !!dec.pairs[key] && dec.pairs[key] !== 'unsure');
+          save();
+        });
+        acts.append(btn);
+      });
+      box.classList.toggle('done', !!dec.pairs[key] && dec.pairs[key] !== 'unsure');
+      box.append(grid, acts);
+      root.append(box);
+    });
+  }
+
+  function progress() {
+    const done = data.voices.filter((v) => status(v) !== 'todo').length;
+    const pdone = data.pairs.filter((p) => dec.pairs[`${p.a}:${p.b}`]).length;
+    const total = data.voices.length + data.pairs.length;
+    document.getElementById('progress').textContent = `голоса ${done} из ${data.voices.length} · пары ${pdone} из ${data.pairs.length}`;
+    document.getElementById('meter').style.width = `${Math.round(100 * (done + pdone) / (total || 1))}%`;
+  }
+
+  let tab = 'voices';
+  function setTab(t) {
+    tab = t;
+    document.querySelectorAll('.tab').forEach((x) => x.setAttribute('aria-selected', String(x.dataset.tab === t)));
+    document.getElementById('voices').classList.toggle('hidden', t !== 'voices');
+    document.getElementById('pairs').classList.toggle('hidden', t !== 'pairs');
+  }
+  function render() { if (tab === 'voices') renderVoices(); else renderPairs(); }
+  document.querySelectorAll('.tab').forEach((x) => x.addEventListener('click', () => { setTab(x.dataset.tab); render(); }));
+  document.getElementById('filter').addEventListener('change', render);
+  let qTimer = null;
+  document.getElementById('q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(render, 200); });
+  render();
+  progress();
+})();
+</script>
+</body>
+</html>

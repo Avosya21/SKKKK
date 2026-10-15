@@ -930,6 +930,8 @@ flowchart TB
 
 **Скрипт дедупликации голосов:** `scripts/dedupe_speaker_profiles.py` → `cleanup_voice_profile_pool()` (точные имена, `Игорь (Пилот)`/`Игорь Пилот`, cosine ≥ 0.95, сироты project).
 
+**Разбор голосов на слух (владелец):** `scripts/voice_review.py build` собирает локальную страницу `data/people/voice_review/` (вне git: имена и голоса) по шаблону `scripts/voice_review.html` — карточка на каждый голос (эталон и реплики из разных созвонов с текстом, проекты, люди проектов под голосом, похожие голоса с %), вкладка возможных дублей (`voice_duplicates.candidate_pairs`), группы по компаниям: исполнители, заказчики, без компании — по проекту. `serve` — http://127.0.0.1:8770, решения сохраняются сами в `decisions.json`. `apply` показывает план (слить, переименовать, компания и сторона людям проектов под голосом, удалить голос — привязки снимаются), `apply --yes` применяет с копией БД в `data/backups/`, обновляет страницы созвонов и перепривязывает пункты (`rebind_call_entities`).
+
 ### 5.13. Прод-созвон: кнопка → API → функция (актуально 2026-08-27)
 
 Канон стенограммы — **lab proof** (`lab/runs/{run_id}/proof/transcript.json`), метки `speaker_N`. Имена — из `reports/sortformer_speaker_match.json`. HTML/JSON для `/report` пишет **`write_prod_view`**. Скрипт `asr/build_transcript_view.py` на lab-артефакте **запрещён**: он нарезает Sortformer `SPEAKER_00` поверх proof и сбрасывает имена.
@@ -2288,6 +2290,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `verify_backup.py` | Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить. |
 | `voice_duplicates.py` | Возможные дубли в общей базе голосов — список на проверку человеком; слияние только выбранных пар. |
 | `voice_people_report.py` | Отчёт: чьи голоса уже есть в общей базе и как они соотносятся с реестром людей проекта (PLATFORM-FOUNDATION-PLAN, ПФ5). |
+| `voice_review.py` | Разбор базы голосов и людей проектов на слух: локальная страница, решения владельца, применение. |
 | `watch_server.py` | Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log). |
 
 **`scripts/smoke/`**
