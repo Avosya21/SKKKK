@@ -1191,6 +1191,7 @@ def bind_call_source(
     *,
     turns: list | None = None,
     recorded_at: str | None = None,
+    label_names: dict[str, str] | None = None,
 ) -> dict | None:
     """Привязать decision/task/fact созвона к реплике: кто сказал, когда, (для решения) кто утвердил.
 
@@ -1257,13 +1258,27 @@ def bind_call_source(
     if recorded_at and bound.get("start_sec") is not None:
         bound["recorded_at"] = recorded_at
     if turns:
-        _bind_assignee_label(bound, turns, anchor)
+        _bind_assignee_label(bound, turns, anchor, label_names)
     if raw_decided is not None and turns:
         bound["decided_by"] = _validated_decided_by(raw_decided, turns, anchor, artifact)
     return bound
 
 
-def _bind_assignee_label(bound: dict, turns: list, anchor: Any) -> None:
+def speaker_label_names(db: Session, artifact: Artifact) -> dict[str, str]:
+    """Метка голоса созвона (``speaker_2``) → имя подтверждённого спикера (``artifact_speaker_links`` + профиль).
+
+    Нужна, когда модель записала ответственным метку, а в стенограмме метки уже нет — голоса названы."""
+    from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+
+    rows = db.execute(
+        select(ArtifactSpeakerLink.diar_label, SpeakerProfile.display_name)
+        .join(SpeakerProfile, SpeakerProfile.id == ArtifactSpeakerLink.profile_id)
+        .where(ArtifactSpeakerLink.artifact_id == artifact.artifact_id, ArtifactSpeakerLink.status == "confirmed")
+    ).all()
+    return {str(label).strip().casefold(): str(name).strip() for label, name in rows if label and str(name or "").strip()}
+
+
+def _bind_assignee_label(bound: dict, turns: list, anchor: Any, label_names: dict[str, str] | None = None) -> None:
     """Исполнитель — метка неназванного голоса (speaker_4): запомнить реплику этого голоса, чтобы после
     переименования спикера (rebind_call_entities) подставить имя. Голос уже назван — имя сразу."""
     label = str(bound.get("assignee") or "").strip()
@@ -1271,6 +1286,10 @@ def _bind_assignee_label(bound: dict, turns: list, anchor: Any) -> None:
         return
     own = [t for t in turns if (t.speaker or "").strip().casefold() == label.casefold() and t.start_sec is not None]
     if not own:
+        # Голоса уже названы — меток в стенограмме нет; имя по подтверждённым спикерам созвона
+        name = (label_names or {}).get(label.casefold())
+        if name:
+            bound["assignee"] = name
         return
     near = getattr(anchor, "start_sec", None)
     turn = min(own, key=lambda t: abs(t.start_sec - near)) if near is not None else own[0]
@@ -1684,6 +1703,7 @@ def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) ->
     rows = db.scalars(
         select(Entity).where(Entity.artifact_id == artifact.id, Entity.entity_type.in_(CALL_BOUND_TYPES))
     ).all()
+    label_names = speaker_label_names(db, artifact)
     changed = 0
     for ent in rows:
         try:
@@ -1697,6 +1717,10 @@ def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) ->
             owner = turn_at(turns, value["assignee_start_sec"])
             if owner is not None and owner.known_speaker:
                 value["assignee"] = owner.known_speaker
+        elif _SPEAKER_LABEL.match(str(value.get("assignee") or "").strip()):
+            name = label_names.get(str(value["assignee"]).strip().casefold())
+            if name:
+                value["assignee"] = name
         if value.get("speaker_source") != SPEAKER_SOURCE_VOICE:
             if json.dumps(value, ensure_ascii=False, sort_keys=True) != before:
                 ent.value_json = json.dumps(value, ensure_ascii=False)
@@ -1733,6 +1757,7 @@ def persist_entities(
     replicas, leaks = ([], [])
     turns: list = []
     recorded_at = None
+    label_names: dict[str, str] = {}
     if getattr(artifact, "source_type", "") == SOURCE_TYPE_CALL:
         from app.app.services.transcript_turns import load_turns
 
@@ -1740,6 +1765,7 @@ def persist_entities(
         turns = load_turns(settings, artifact)
         stamp = _material_timestamp(artifact)
         recorded_at = stamp or None
+        label_names = speaker_label_names(db, artifact)
         if _has_span_replicas(replicas):
             payload = filter_call_payload(payload, artifact, replicas, leaks)
     chat_messages: list[dict] = []
@@ -1770,7 +1796,7 @@ def persist_entities(
             if item is None:
                 return
         elif entity_type in CALL_BOUND_TYPES:
-            item = bind_call_source(value, artifact, replicas, leaks, turns=turns, recorded_at=recorded_at)
+            item = bind_call_source(value, artifact, replicas, leaks, turns=turns, recorded_at=recorded_at, label_names=label_names)
             if item is None:
                 return
         if isinstance(item, dict):

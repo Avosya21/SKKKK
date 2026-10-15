@@ -377,3 +377,6 @@ def test_assignee_label_bound_and_rebound():
     bound = {"assignee": "speaker_4"}
     _bind_assignee_label(bound, [turn("Иван")], None)
     assert bound == {"assignee": "speaker_4"}
+    bound = {"assignee": "speaker_4"}
+    _bind_assignee_label(bound, [turn("Иван")], None, {"speaker_4": "Олег Петров"})
+    assert bound == {"assignee": "Олег Петров"}
