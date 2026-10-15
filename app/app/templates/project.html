@@ -179,6 +179,48 @@
   .mcp-token-row td code {
     font-size: 0.8rem;
   }
+  /* Вкладка «Удалённый доступ (MCP)»: подключение, новый ключ, таблица ключей — отдельными секциями */
+  .mcp-section {
+    border: 1px solid #e4e4e7;
+    border-radius: 0.5rem;
+    padding: 0.75rem 0.9rem;
+    margin-bottom: 0.9rem;
+  }
+  .mcp-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    margin-bottom: 0.6rem;
+  }
+  .mcp-section-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .mcp-tokens th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #6c757d;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .mcp-tokens .form-select {
+    min-width: 12.5rem;
+  }
+  .mcp-tokens .mcp-files {
+    min-width: 9.5rem;
+  }
+  .mcp-token-label {
+    min-width: 9rem;
+  }
+  .mcp-token-label code {
+    font-size: 0.72rem;
+  }
+  .mcp-token-revoked td {
+    color: #6c757d;
+  }
   .artifact-card .file-name {
     word-break: break-word;
   }
@@ -2347,23 +2389,39 @@ async function loadMcpTokens() {
   try {
     const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`);
     if (r.status === 403) {
-      mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Список ключей доступен admin/manager</td></tr>';
+      mcpTokensBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Список ключей доступен admin/manager</td></tr>';
       document.getElementById('mcp-create-token')?.classList.add('d-none');
       return;
     }
     if (!r.ok) throw new Error('tokens failed');
     const rows = (await r.json()).tokens || [];
     if (!rows.length) {
-      mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Ключей пока нет</td></tr>';
+      mcpTokensBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Ключей пока нет</td></tr>';
       return;
     }
-    mcpTokensBody.innerHTML = rows.map((t) => `
-      <tr>
-        <td>${escapeHtml(t.label)}${t.agent_name ? `<div class="small text-muted">агент: ${escapeHtml(t.agent_name)}</div>` : ''}</td>
-        <td><code>${escapeHtml(t.token_prefix)}</code></td>
-        <td>${t.scope === 'read' ? '<span class="badge text-bg-light border">только чтение</span>' : `<span class="badge text-bg-warning">${escapeHtml(t.scope_title || t.scope)}</span>`}${t.rate_limit ? `<div class="small text-muted">до ${t.rate_limit} обращений / 10 мин</div>` : ''}${t.usage_7d && t.usage_7d.calls ? `<div class="small text-muted" title="Чаще всего: ${escapeHtml((t.usage_7d.top_tools || []).join(', '))}">за 7 дней: ${t.usage_7d.calls} обращ., ${Math.round(t.usage_7d.bytes / 1024)} КБ${t.usage_7d.errors ? `, ошибок ${t.usage_7d.errors}` : ''}</div>` : ''}${t.is_active ? `<div><select class="form-select form-select form-select-sm w-auto mcp-scope mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа"><option value="read"${t.scope === 'read' ? ' selected' : ''}>Только чтение</option><option value="questions"${t.scope === 'questions' ? ' selected' : ''}>+ вопросы</option><option value="questions_verdicts"${t.scope === 'questions_verdicts' ? ' selected' : ''}>+ вопросы и вердикты</option></select></div>` : ''}${t.is_active ? `<div><select class="form-select form-select-sm w-auto mcp-files mt-1" style="max-width:12rem" data-id="${t.id}" data-cur="${escapeHtml(t.files_access || 'read')}" aria-label="Право ключа на файлы"><option value="read"${(t.files_access || 'read') === 'read' ? ' selected' : ''}>Файлы: чтение</option><option value="write"${t.files_access === 'write' ? ' selected' : ''}>Файлы: приём и чтение</option><option value="blocked"${t.files_access === 'blocked' ? ' selected' : ''}>Файлы: закрыты</option></select></div>` : ''}</td>
-        <td>${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}${t.is_active ? `<div class="mt-1"><button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button></div>` : ''}</td>
-      </tr>`).join('');
+    const opt = (v, cur, text) => `<option value="${v}"${v === cur ? ' selected' : ''}>${text}</option>`;
+    mcpTokensBody.innerHTML = rows.map((t) => {
+      const files = t.files_access || 'read';
+      const u = t.usage_7d;
+      const usage = u && u.calls
+        ? `<span title="Чаще всего: ${escapeHtml((u.top_tools || []).join(', '))}">${u.calls} обращ. · ${Math.round(u.bytes / 1024)} КБ</span>${u.errors ? `<div class="text-danger">ошибок ${u.errors}</div>` : ''}`
+        : '<span class="text-muted">—</span>';
+      const limit = t.rate_limit ? `<div class="text-muted">лимит ${t.rate_limit} / 10 мин</div>` : '';
+      const scope = t.is_active
+        ? `<select class="form-select form-select-sm mcp-scope" data-id="${t.id}" data-cur="${escapeHtml(t.scope)}" aria-label="Права ключа">${opt('read', t.scope, 'Только чтение')}${opt('questions', t.scope, '+ вопросы')}${opt('questions_verdicts', t.scope, '+ вопросы и вердикты')}</select>`
+        : `<span class="small text-muted">${escapeHtml(t.scope === 'read' ? 'только чтение' : (t.scope_title || t.scope))}</span>`;
+      const filesCell = t.is_active
+        ? `<select class="form-select form-select-sm mcp-files" data-id="${t.id}" data-cur="${escapeHtml(files)}" aria-label="Право ключа на файлы">${opt('read', files, 'Чтение')}${opt('write', files, 'Приём и чтение')}${opt('blocked', files, 'Закрыты')}</select>`
+        : '<span class="small text-muted">—</span>';
+      return `
+      <tr class="${t.is_active ? '' : 'mcp-token-revoked'}">
+        <td class="mcp-token-label"><div class="fw-semibold">${escapeHtml(t.label)}</div><code>${escapeHtml(t.token_prefix)}</code>${t.agent_name ? `<div class="small text-muted">агент: ${escapeHtml(t.agent_name)}</div>` : ''}</td>
+        <td>${scope}</td>
+        <td>${filesCell}</td>
+        <td class="small text-nowrap">${usage}${limit}</td>
+        <td><div class="d-flex flex-wrap align-items-center gap-2">${t.is_active ? '<span class="badge text-bg-success">активен</span>' : '<span class="badge text-bg-secondary">отозван</span>'}${t.is_active ? `<button type="button" class="btn btn-sm btn-outline-danger mcp-revoke" data-id="${t.id}">Отозвать</button>` : ''}</div></td>
+      </tr>`;
+    }).join('');
     mcpTokensBody.querySelectorAll('.mcp-scope').forEach((sel) => {
       sel.addEventListener('change', () => changeMcpScope(Number(sel.dataset.id), sel.value, sel));
     });
@@ -2374,7 +2432,7 @@ async function loadMcpTokens() {
       btn.addEventListener('click', () => revokeMcpToken(Number(btn.dataset.id)));
     });
   } catch (err) {
-    mcpTokensBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Не удалось загрузить ключи</td></tr>';
+    mcpTokensBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Не удалось загрузить ключи</td></tr>';
   }
 }
 
@@ -2461,11 +2519,24 @@ document.getElementById('mcp-copy-url')?.addEventListener('click', async () => {
     const r = await SKKKK.api(`/projects/${projectId}/agent-settings`);
     if (!r.ok) return;
     const scope = (await r.json()).settings?.default_key_scope || 'read';
-    const ids = { read: 'mcp-rights-read', questions: 'mcp-rights-questions', questions_verdicts: 'mcp-rights-submit' };
-    const el = document.getElementById(ids[scope]);
-    if (el) el.checked = true;
+    const sel = document.getElementById('mcp-rights-select');
+    if (sel && [...sel.options].some((o) => o.value === scope)) { sel.value = scope; showMcpRightsHint(); }
   } catch (e) { /* остаётся «только чтение» */ }
 })();
+
+// Под выбором прав нового ключа — что именно агент сможет делать
+const MCP_RIGHTS_HINT = {
+  read: 'Агент читает базу и ответы, ничего не записывает.',
+  questions: 'Агент кладёт вопросы в очередь, но вердикты отправлять не может.',
+  questions_verdicts: 'Агент сам кладёт вопросы и вердикты в очередь: только добавление, вердикты помечаются как непроверенные, ответы одобряет человек.',
+};
+function showMcpRightsHint() {
+  const sel = document.getElementById('mcp-rights-select');
+  const hint = document.getElementById('mcp-rights-hint');
+  if (sel && hint) hint.textContent = MCP_RIGHTS_HINT[sel.value] || '';
+}
+document.getElementById('mcp-rights-select')?.addEventListener('change', showMcpRightsHint);
+showMcpRightsHint();
 
 document.getElementById('mcp-copy-config')?.addEventListener('click', async () => {
   if (!mcpConfigPre?.textContent) return;
@@ -2475,14 +2546,15 @@ document.getElementById('mcp-copy-config')?.addEventListener('click', async () =
 
 document.getElementById('mcp-create-token')?.addEventListener('click', async () => {
   const btn = document.getElementById('mcp-create-token');
-  const label = prompt('Метка ключа (например Cursor на ноутбуке):', 'Cursor') || 'Cursor';
+  const labelInput = document.getElementById('mcp-label');
+  const label = labelInput?.value.trim() || 'Cursor';
   await SKKKK.guardButton(btn, async () => {
     const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         label,
-        scope: document.querySelector('input[name="mcp-rights"]:checked')?.value || 'read',
+        scope: document.getElementById('mcp-rights-select')?.value || 'read',
         agent_name: document.getElementById('mcp-agent-name')?.value.trim() || null,
         rate_limit: Number(document.getElementById('mcp-rate-limit')?.value) || null,
       }),
@@ -2491,6 +2563,7 @@ document.getElementById('mcp-create-token')?.addEventListener('click', async () 
     const data = await r.json();
     mcpNewTokenValue.textContent = data.token;
     mcpNewTokenBox.classList.remove('d-none');
+    if (labelInput) labelInput.value = '';
     mcpConfigPre.textContent = JSON.stringify(
       mcpCursorConfig(mcpInfo?.mcp_url || mcpUrlInput.value, data.token),
       null,
