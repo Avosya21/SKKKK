@@ -64,6 +64,36 @@ SPEAKER_SOURCE_TRACK = "track"  # комната: имя по дорожке м�
 SPEAKER_SOURCE_VOICE = "voice"  # загруженная запись: имя по сопоставлению голоса — вывод
 
 
+TURN_HINT_MAX = 5  # моментов подсказанных реплик в пункте
+TURN_HINT_TOLERANCE_SEC = 1.0  # момент ↔ реплика текущей стенограммы
+
+
+def turn_hint_seconds(turn_ids: list[int], turns: list) -> list[float]:
+    """Номера реплик от модели → моменты их начала. Номера после «Слить» перенумеровываются, моменты — нет."""
+    by_index = {t.index: t for t in turns}
+    out: list[float] = []
+    for idx in turn_ids:
+        turn = by_index.get(idx)
+        if turn is not None and turn.start_sec is not None and float(turn.start_sec) not in out:
+            out.append(float(turn.start_sec))
+    return out[:TURN_HINT_MAX]
+
+
+def turn_ids_from_hint(hint: Any, turns: list) -> list[int]:
+    """Моменты подсказанных реплик → номера реплик текущей стенограммы (ближайшее начало в пределах допуска)."""
+    out: list[int] = []
+    timed = [t for t in turns if t.start_sec is not None]
+    for sec in hint if isinstance(hint, list) else []:
+        try:
+            sec = float(sec)
+        except (TypeError, ValueError):
+            continue
+        near = min(timed, key=lambda t: abs(float(t.start_sec) - sec), default=None)
+        if near is not None and abs(float(near.start_sec) - sec) <= TURN_HINT_TOLERANCE_SEC and near.index not in out:
+            out.append(near.index)
+    return out
+
+
 def _turn_ids(raw: Any) -> list[int]:
     """Номера реплик от LLM: 12, "12", "T12" → 12."""
     if raw is None:
@@ -1084,7 +1114,20 @@ def _match_turn(text: str, turns: list, turn_ids: list[int]):
                 best = (key, window)
         return _best_in_window(need, best[1]) if best else None
 
-    hinted = [w for idx in turn_ids if idx in position for w in windows_from(position[idx])]
+    # Модель ссылается и на экранные блоки («Речь на экране» — та же речь за отрезок кадра): их подсказка переносится на
+    # реплики речи, начавшиеся в этом отрезке
+    by_index = {t.index: t for t in turns}
+    hinted_pos: list[int] = []
+    for idx in turn_ids:
+        if idx in position:
+            hinted_pos.append(position[idx])
+            continue
+        block = by_index.get(idx)
+        if block is None or block.start_sec is None:
+            continue
+        end = block.end_sec if getattr(block, "end_sec", None) is not None else block.start_sec
+        hinted_pos += [pos for pos, t in enumerate(speech) if block.start_sec <= t.start_sec <= end]
+    hinted = [w for pos in dict.fromkeys(hinted_pos) for w in windows_from(pos)]
     found = pick(hinted, TURN_MATCH_HINTED_COVERAGE) if hinted else None
     if found is not None:
         return found
@@ -1151,7 +1194,11 @@ def bind_call_source(
         return None
     turns = turns or []
     bound = dict(value)
-    turn_ids = _turn_ids(bound.pop("turns", None))
+    # Номера реплик от модели (или моменты, сохранённые при прошлой привязке) — подсказка для поиска источника
+    turn_ids = _turn_ids(bound.pop("turns", None)) or turn_ids_from_hint(bound.get("turn_hint_sec"), turns)
+    hint = turn_hint_seconds(turn_ids, turns)
+    if hint:
+        bound["turn_hint_sec"] = hint
     raw_decided = bound.pop("decided_by", None)
     room = _has_span_replicas(replicas)
     if not room and not turns:
@@ -1717,7 +1764,7 @@ def persist_entities(
                 return
         if isinstance(item, dict):
             item = dict(item)
-            item.pop("turns", None)  # номера реплик нестабильны (после «Слить»); якорь — start_sec
+            item.pop("turns", None)  # номера реплик нестабильны (после «Слить»); якорь — start_sec, подсказка — turn_hint_sec
             item.pop("messages", None)  # переписка: якорь — message_id
             if entity_type in HUMAN_TYPES and doc_text:
                 item = bind_document_source(item, doc_units, doc_text)

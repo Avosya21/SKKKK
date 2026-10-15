@@ -553,3 +553,48 @@ def test_match_replica_picks_best_not_first():
     assert _match_replica("Совсем другая тема про склад", reps) is None
     assert _match_replica("По", reps) is None  # одно слово ничего не доказывает
     assert _replica_at(reps, 10.5)["start"] == 9.0 and _replica_at(reps, 100.0) is None
+
+
+def test_turn_hint_seconds_survive_and_guide_rebind():
+    """Номера реплик от модели сохраняются как моменты (turn_hint_sec): после «Слить» номера меняются, моменты — нет."""
+    from types import SimpleNamespace
+
+    from app.app.services.entities import turn_hint_seconds, turn_ids_from_hint
+
+    turns = [SimpleNamespace(index=1, start_sec=10.0), SimpleNamespace(index=2, start_sec=21.0), SimpleNamespace(index=3, start_sec=None)]
+    assert turn_hint_seconds([2, 3, 99], turns) == [21.0]
+    renumbered = [SimpleNamespace(index=7, start_sec=10.0), SimpleNamespace(index=8, start_sec=21.4)]  # после «Слить»
+    assert turn_ids_from_hint([21.0], renumbered) == [8]
+    assert turn_ids_from_hint([50.0, "x"], renumbered) == []
+
+
+def test_uploaded_call_keeps_turn_hint(tmp_data, client, admin_token):
+    from app.app.db import SessionLocal
+
+    settings = get_settings()
+    db = SessionLocal()
+    try:
+        project, art = _call_art(db)
+        _write_final(settings, art, UPLOADED_FINAL)
+        persist_entities(db, settings, art, EntitiesPayload(artifact_id=art.artifact_id, source_type="call",
+                                                            tasks=[TaskItem(description="Подготовить описание к пятнице", turns=[3])]))
+        db.commit()
+        value = json.loads(db.query(Entity).filter(Entity.artifact_id == art.id, Entity.entity_type == "task").one().value_json)
+        assert value["turn_hint_sec"] == [31.0] and "turns" not in value and value["start_sec"] == 31.0
+    finally:
+        db.close()
+
+
+def test_hint_on_screen_block_moves_to_speech_in_its_span():
+    """Модель ссылается на блок «Речь на экране» — подсказка переносится на реплики речи из его отрезка."""
+    from types import SimpleNamespace
+
+    from app.app.services.entities import _match_turn
+
+    turns = [
+        SimpleNamespace(index=0, is_speech=True, start_sec=5.0, end_sec=8.0, text="Добрый день, начинаем"),
+        SimpleNamespace(index=1, is_speech=True, start_sec=40.0, end_sec=50.0, text="код базы для госсектора добавляем отдельным полем"),
+        SimpleNamespace(index=2, is_speech=False, start_sec=38.0, end_sec=55.0, text="Речь на экране: перемешанные слова"),
+    ]
+    hit = _match_turn("Код базы госсектора хранить в поле", turns, [2])
+    assert hit is not None and hit.index == 1
