@@ -8,7 +8,7 @@
   const PID = window.PX.projectId;
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const VIEWS = [
-    ['open', 'Открытые'], ['overdue', 'Просрочено'], ['week', 'На неделе'], ['no_deadline', 'Без срока'], ['done', 'Сделано'], ['all', 'Все'],
+    ['open', 'Открытые'], ['overdue', 'Просрочено'], ['week', 'На неделе'], ['no_deadline', 'Без срока'], ['reference', 'ТЗ и план'], ['done', 'Сделано'], ['all', 'Все'],
   ];
   const FIELD = { status: 'статус', assignee: 'ответственный', deadline_at: 'срок' };
   let STATUS_LABEL = {};
@@ -42,11 +42,12 @@
 
   function editedHtml(t) {
     if (t.source_kind === 'manual') return '<span class="badge text-bg-light border">добавлена вручную</span>';
-    if (!t.edited) return '';
+    const origin = t.origin_label ? `<span class="badge text-bg-light border" title="Положение документа или этап плана, а не поручение: не входит в открытые и просроченные">${esc(t.origin_label)}</span>` : '';
+    if (!t.edited) return origin;
     const label = (k, v) => (k === 'status' ? (STATUS_LABEL[v] || v) : v);
     const was = Object.entries(t.edited.before || {}).filter(([k]) => FIELD[k])
       .map(([k, v]) => `${FIELD[k]}: ${v === null || v === undefined || v === '' ? '—' : label(k, v)}`).join('; ');
-    return `<span class="badge text-bg-light border" title="${esc(was ? 'Было: ' + was : '')}">изменено вручную: ${esc(t.edited.by || '')}, ${esc(fmtAt(t.edited.at))}</span>`;
+    return origin + `<span class="badge text-bg-light border" title="${esc(was ? 'Было: ' + was : '')}">изменено вручную: ${esc(t.edited.by || '')}, ${esc(fmtAt(t.edited.at))}</span>`;
   }
 
   function sourceHtml(t) {
@@ -115,7 +116,7 @@
       badge.className = `badge border ${d.counts.overdue ? 'text-bg-danger' : 'text-bg-light text-dark'}`;
     }
     say(d.counts.all
-      ? `Открытых ${d.counts.open} · просрочено ${d.counts.overdue} · на ближайшей неделе ${d.counts.week} · без срока ${d.counts.no_deadline} · сделано и отменено ${d.counts.done}`
+      ? `Открытых ${d.counts.open} · просрочено ${d.counts.overdue} · на ближайшей неделе ${d.counts.week} · без срока ${d.counts.no_deadline} · из ТЗ и плана ${d.counts.reference} · сделано и отменено ${d.counts.done}`
       : 'Задачи появятся, когда в материалах прозвучат поручения' + (d.can_edit ? ', или добавьте задачу вручную.' : '.'));
   }
 

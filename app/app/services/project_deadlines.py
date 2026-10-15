@@ -316,6 +316,7 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
 
     seen: set[tuple[str, str, str]] = set()
     items: list[dict[str, Any]] = []
+    doc_kinds: dict[int, str | None] = {}
 
     for ent, art in rows:
         try:
@@ -324,7 +325,7 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
             continue
         if not isinstance(value, dict):
             continue
-        from app.app.services.task_board import effective, hidden
+        from app.app.services.task_board import REFERENCE_ORIGINS, effective, hidden, task_origin
 
         if hidden(value):  # заменённая или склеенная задача (вердикт актуальности) — не срок
             continue
@@ -375,6 +376,7 @@ def list_project_deadlines(db: Session, project_id: int) -> dict[str, Any]:
                 "reference_date": ref.isoformat() if ref else None,
                 "date_approximate": approximate,
                 "status": status,
+                "reference": task_origin(art, doc_kinds) in REFERENCE_ORIGINS,  # положение ТЗ / этап плана — не красим просрочку
                 "artifact_id": art.artifact_id,
                 "filename": art.original_filename,
                 "transcript_html_url": art.transcript_html_url if art.status == "done" else None,

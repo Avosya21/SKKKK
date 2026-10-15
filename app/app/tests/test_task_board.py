@@ -58,7 +58,7 @@ def test_views_counts_and_hidden(client, manager_token):
     out = tb.list_project_tasks(db, pid, view="all", today=TODAY)
     texts = {t["description"] for t in out["items"]}
     assert "Старая задача про склад" not in texts and len(texts) == 4
-    assert out["counts"] == {"open": 3, "overdue": 1, "week": 1, "no_deadline": 1, "done": 1, "all": 4}
+    assert out["counts"] == {"open": 3, "overdue": 1, "week": 1, "no_deadline": 1, "reference": 0, "done": 1, "all": 4}
     assert [t["entity_id"] for t in tb.list_project_tasks(db, pid, view="overdue", today=TODAY)["items"]] == [ids["overdue"]]
     assert [t["entity_id"] for t in tb.list_project_tasks(db, pid, view="no_deadline", today=TODAY)["items"]] == [ids["nodeadline"]]
     assert tb.list_project_tasks(db, pid, view="open", assignee="анна петрова", today=TODAY)["total"] == 1
@@ -144,3 +144,40 @@ def test_routes_roles(client, manager_token, user_token, admin_token):
     assert client.delete(f"/projects/{pid}/manual-tasks/{tid}", headers=hm).status_code == 404
     other = client.post("/projects", json={"name": "Чужой"}, headers={"Authorization": f"Bearer {admin_token}"}).json()["id"]
     assert client.patch(f"/projects/{other}/tasks/{ids['week']}", json={"status": "done"}, headers={"Authorization": f"Bearer {admin_token}"}).status_code == 422
+
+
+def test_tz_and_plan_tasks_go_to_reference_tab(client, manager_token):
+    """Положения ТЗ и этапы плана — не поручения: своя вкладка, не просрочены, не в «Открытых» (паспорт документа)."""
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Entity
+    from app.app.services.project_deadlines import list_project_deadlines
+    from app.app.services.storage import parsed_dir
+
+    pid = client.post("/projects", json={"name": "ТЗ и план"}, headers={"Authorization": f"Bearer {manager_token}"}).json()["id"]
+    settings = get_settings()
+    db = SessionLocal()
+    arts = {}
+    for name, kind in (("tz", "tz"), ("plan", "plan"), ("report", "status_report")):
+        tag = uuid.uuid4().hex[:8]
+        art = Artifact(artifact_id=f"art_2026-10-01_100000_{tag}", project_id=pid, user_id=1, original_filename=f"{name}.pdf",
+                       stored_filename=f"{name}.pdf", file_path="x", file_type="pdf", source_type="document", sha256=tag.ljust(64, "0"), status="done")
+        db.add(art)
+        db.flush()
+        folder = parsed_dir(settings, pid, "document")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{art.artifact_id}_passport.json").write_text(json.dumps({"kind": kind}), encoding="utf-8")
+        db.add(Entity(artifact_id=art.id, entity_type="task", value_json=json.dumps(
+            {"description": f"Пункт из {name}", "deadline": "01.03.2025", "status": "open"}, ensure_ascii=False)))
+        arts[name] = art
+    db.commit()
+    out = tb.list_project_tasks(db, pid, view="all", today=TODAY)
+    by = {t["description"]: t for t in out["items"]}
+    assert by["Пункт из tz"]["origin"] == "spec" and by["Пункт из plan"]["origin"] == "plan" and by["Пункт из report"]["origin"] == "document"
+    assert out["counts"]["reference"] == 2 and out["counts"]["overdue"] == 1 and out["counts"]["open"] == 1
+    assert [t["description"] for t in tb.list_project_tasks(db, pid, view="overdue", today=TODAY)["items"]] == ["Пункт из report"]
+    assert by["Пункт из plan"]["origin_label"] == "из плана"
+    cal = {i["description"]: i["reference"] for i in list_project_deadlines(db, pid)["items"]}
+    assert cal == {"Пункт из tz": True, "Пункт из plan": True, "Пункт из report": False}
+    db.close()

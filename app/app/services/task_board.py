@@ -4,6 +4,10 @@
 (извлечённое остаётся, видно «было → стало»). Это не подтверждение требования: ``human_review`` и очередь «Ждут вас» правка не
 трогает. При переизвлечении правка переносится на новый пункт с той же мыслью (``entities._transfer_human``). Ручные задачи —
 таблица ``manual_tasks``. Устаревшие и склеенные пункты (вердикт актуальности) в списке не показываются.
+
+Задачи из ТЗ, описаний и договоров (положения: «сформировать отчёт…») и из планов (этапы графика «до февраля») — не
+поручения людям: они на вкладке «ТЗ и план» и не входят в открытые, просроченные, недельные и «Что нового». Вид документа —
+из его паспорта (``<artifact_id>_passport.json``, ``doc_memory``). Протоколы, отчёты о статусе, переписка, созвоны — обычные задачи.
 """
 from __future__ import annotations
 
@@ -21,7 +25,11 @@ from app.app.models.manual_task import ManualTask
 STATUSES = ("open", "in_progress", "done", "cancelled")
 STATUS_LABELS = {"open": "открыта", "in_progress": "в работе", "done": "сделано", "cancelled": "отменена"}
 CLOSED = ("done", "cancelled")
-VIEWS = ("open", "overdue", "week", "no_deadline", "done", "all")
+VIEWS = ("open", "overdue", "week", "no_deadline", "reference", "done", "all")
+SPEC_DOC_KINDS = ("tz", "spec", "contract")  # положения документа
+PLAN_DOC_KINDS = ("plan",)  # этапы плана
+REFERENCE_ORIGINS = ("spec", "plan")
+ORIGIN_LABELS = {"spec": "из ТЗ", "plan": "из плана"}
 EDIT_FIELDS = ("status", "assignee", "deadline_at")
 HIDDEN_RELEVANCE = ("superseded", "duplicate")
 MAX_TEXT = 500
@@ -103,6 +111,36 @@ def _row_dates(row: dict[str, Any], ref: date | None) -> None:
     row["deadline_time"] = due_time
 
 
+def _doc_kind(art: Artifact, cache: dict[int, str | None]) -> str | None:
+    """Вид документа из паспорта (tz / plan / status_report / …); нет паспорта — None."""
+    if art.id in cache:
+        return cache[art.id]
+    kind = None
+    if art.source_type != "call":
+        from app.app.config import get_settings
+        from app.app.services.storage import parsed_dir
+
+        path = parsed_dir(get_settings(), art.project_id, art.source_type) / f"{art.artifact_id}_passport.json"
+        try:
+            kind = (json.loads(path.read_text(encoding="utf-8")) or {}).get("kind") if path.is_file() else None
+        except (OSError, ValueError):
+            kind = None
+    cache[art.id] = kind
+    return kind
+
+
+def task_origin(art: Artifact, cache: dict[int, str | None]) -> str:
+    """Откуда задача: call / document / spec (положение ТЗ) / plan (этап плана)."""
+    if art.source_type == "call":
+        return "call"
+    kind = _doc_kind(art, cache)
+    if kind in SPEC_DOC_KINDS:
+        return "spec"
+    if kind in PLAN_DOC_KINDS:
+        return "plan"
+    return "document"
+
+
 def _extracted_rows(db: Session, project_id: int) -> list[dict[str, Any]]:
     from app.app.services.project_deadlines import (
         _deadline_is_empty,
@@ -117,6 +155,7 @@ def _extracted_rows(db: Session, project_id: int) -> list[dict[str, Any]]:
         .order_by(Entity.id)
     ).all()
     out: list[dict[str, Any]] = []
+    kinds: dict[int, str | None] = {}
     for ent, art in rows:
         try:
             raw = json.loads(ent.value_json or "{}")
@@ -142,6 +181,7 @@ def _extracted_rows(db: Session, project_id: int) -> list[dict[str, Any]]:
             "artifact_id": art.artifact_id, "filename": art.original_filename,
             "transcript_html_url": art.transcript_html_url if art.status == "done" else None,
             "task_kind": value.get("kind"),
+            "origin": task_origin(art, kinds),
             "edited": {"by": edit.get("by"), "at": edit.get("at"), "fields": edit.get("fields") or [],
                        "before": edit.get("before") or {}} if edit else None,
         }
@@ -157,7 +197,7 @@ def _manual_rows(db: Session, project_id: int) -> list[dict[str, Any]]:
         row = {"id": f"m{t.id}", "manual_id": t.id, "source_kind": "manual", "description": t.description, "assignee": t.assignee,
                "deadline": _deadline_text(t.deadline_at), "deadline_at": t.deadline_at, "status": normalize_status(t.status),
                "date_approximate": False, "artifact_id": None, "filename": None, "transcript_html_url": None, "task_kind": None,
-               "edited": None}
+               "origin": "manual", "edited": None}
         _row_dates(row, None)
         out.append(row)
     return out
@@ -179,10 +219,12 @@ def _dedupe(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _bucket(row: dict[str, Any], today: date) -> dict[str, bool]:
     closed = row["status"] in CLOSED
+    if row.get("origin") in REFERENCE_ORIGINS:  # положение ТЗ или этап плана — не поручение: только своя вкладка
+        return {"closed": closed, "overdue": False, "week": False, "no_deadline": False, "reference": not closed}
     due = date.fromisoformat(row["deadline_date"]) if row.get("deadline_date") else None
     return {"closed": closed, "overdue": bool(due and not closed and due < today),
             "week": bool(due and not closed and today <= due <= today + timedelta(days=7)),
-            "no_deadline": not closed and not row.get("deadline")}
+            "no_deadline": not closed and not row.get("deadline"), "reference": False}
 
 
 def all_tasks(db: Session, project_id: int, *, today: date | None = None) -> list[dict[str, Any]]:
@@ -191,7 +233,8 @@ def all_tasks(db: Session, project_id: int, *, today: date | None = None) -> lis
     rows = _dedupe(_extracted_rows(db, project_id) + _manual_rows(db, project_id))
     for row in rows:
         flags = _bucket(row, today)
-        row.update(overdue=flags["overdue"], this_week=flags["week"], status_label=STATUS_LABELS[row["status"]])
+        row.update(overdue=flags["overdue"], this_week=flags["week"], reference=flags["reference"] or row.get("origin") in REFERENCE_ORIGINS,
+                   origin_label=ORIGIN_LABELS.get(row.get("origin"), ""), status_label=STATUS_LABELS[row["status"]])
     return rows
 
 
@@ -203,16 +246,18 @@ def list_project_tasks(db: Session, project_id: int, *, view: str = "open", assi
     rows = all_tasks(db, project_id, today=today)
     flags = {row["id"]: _bucket(row, today) for row in rows}
     counts = {
-        "open": sum(1 for r in rows if not flags[r["id"]]["closed"]),
+        "open": sum(1 for r in rows if not flags[r["id"]]["closed"] and not flags[r["id"]]["reference"]),
         "overdue": sum(1 for r in rows if flags[r["id"]]["overdue"]),
         "week": sum(1 for r in rows if flags[r["id"]]["week"]),
         "no_deadline": sum(1 for r in rows if flags[r["id"]]["no_deadline"]),
+        "reference": sum(1 for r in rows if flags[r["id"]]["reference"]),
         "done": sum(1 for r in rows if flags[r["id"]]["closed"]),
         "all": len(rows),
     }
     pick = {
-        "open": lambda r: not flags[r["id"]]["closed"], "overdue": lambda r: flags[r["id"]]["overdue"],
+        "open": lambda r: not flags[r["id"]]["closed"] and not flags[r["id"]]["reference"], "overdue": lambda r: flags[r["id"]]["overdue"],
         "week": lambda r: flags[r["id"]]["week"], "no_deadline": lambda r: flags[r["id"]]["no_deadline"],
+        "reference": lambda r: flags[r["id"]]["reference"],
         "done": lambda r: flags[r["id"]]["closed"], "all": lambda r: True,
     }[view]
     chosen = [r for r in rows if pick(r)]
