@@ -2926,13 +2926,6 @@ nodes:
     tags: [auto]
     auto: true
 
-  - id: ui_background_card
-    kind: file
-    path: app/app/templates/partials/background_card.html
-    title: "Фоновая работа по проекту (ПФ9 PLATFORM-FOUNDATION-PLAN): ход разбора, перепроверка, переизвлечение, повтор ошибок. Логика: static/backgroun"
-    tags: [auto]
-    auto: true
-
   - id: script_check_map_commit_msg
     kind: file
     path: scripts/check_map_commit_msg.py
@@ -3444,13 +3437,6 @@ nodes:
     tags: [auto]
     auto: true
 
-  - id: ui_memory_card
-    kind: file
-    path: app/app/templates/partials/memory_card.html
-    title: "Память решений проекта (docs/plans/DECISION-MEMORY-STAGES-6-8.md): о чём решали, чем закончилось, кто и когда сказал. Логика: static/memory."
-    tags: [auto]
-    auto: true
-
   - id: script_compare_memory_vs_review
     kind: file
     path: scripts/compare_memory_vs_review.py
@@ -3679,6 +3665,13 @@ nodes:
     kind: file
     path: app/app/templates/partials/project_hub.html
     title: "О проекте: один сворачиваемый блок с вкладками — вопросы к заказчику, карточка проекта, люди и стороны. Переключение и запоминание — static/"
+    tags: [auto]
+    auto: true
+
+  - id: ui_background_progress
+    kind: file
+    path: app/app/templates/partials/background_progress.html
+    title: "Дальнейшая обработка проекта (бывшая карточка «Фоновая работа», ПФ9 PLATFORM-FOUNDATION-PLAN) — внутри «Материалов проекта», под ходом расши"
     tags: [auto]
     auto: true
 

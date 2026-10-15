@@ -1,7 +1,8 @@
 /* Сворачиваемые блоки с вкладками на странице проекта: «Агенты и MCP» (partials/agents_hub.html), «О проекте» (partials/project_hub.html).
    Разметка: карточка [data-hub="имя"], панель [data-hub-panel], подсказка [data-hub-hint], кнопки [data-hub-tab], вкладки [data-hub-pane].
    Открытость и вкладку помнит localStorage (<имя>_hub_open, <имя>_hub_tab). Когда вкладка становится видна, шлёт событие
-   hub:show {hub, tab} — по нему px_agent.js лениво грузит данные. PageHubs.open(tab) раскрывает нужный блок на вкладке (переходы из «Что нового»). */
+   hub:show {hub, tab} — по нему px_agent.js и memory.js лениво грузят данные. PageHubs.open(tab) раскрывает нужный блок на вкладке (переходы из «Что нового»);
+   PageHubs.setTabVisible(tab, on) прячет вкладку, которой для проекта нет (память решений в режиме «выключена»). */
 (function () {
   const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* без хранилища работает */ } } };
   const hubs = [];
@@ -47,7 +48,17 @@
       store.set(name + '_hub_open', '0');
     });
 
-    hubs.push({ has, select, show });
+    function setVisible(tab, on) {
+      const b = buttons.find((x) => x.dataset.hubTab === tab);
+      if (!b) return;
+      (b.closest('li') || b).classList.toggle('d-none', !on);
+      if (!on && current === tab) {
+        const first = buttons.find((x) => !(x.closest('li') || x).classList.contains('d-none'));
+        if (first) select(first.dataset.hubTab);
+      }
+    }
+
+    hubs.push({ has, select, show, setVisible });
     select(current);
     if (store.get(name + '_hub_open') === '1') show();
   });
@@ -59,6 +70,10 @@
       hub.select(tab);
       hub.show();
       return true;
+    },
+    setTabVisible(tab, on) {
+      const hub = hubs.find((h) => h.has(tab));
+      if (hub) hub.setVisible(tab, on);
     },
   };
 })();

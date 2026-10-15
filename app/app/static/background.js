@@ -1,4 +1,5 @@
-/* Фоновая работа по проекту (ПФ9): ход разбора, перепроверка, переизвлечение, повтор ошибок.
+/* Дальнейшая обработка проекта (ПФ9, бывшая карточка «Фоновая работа»): ход разбора, перепроверка, переизвлечение, повтор ошибок.
+   Живёт строкой-<details> в «Материалах проекта» под ходом расшифровки (partials/background_progress.html), значок — в шапке «Материалов».
    Смотрят админ и менеджер, запускает и останавливает только админ — сервер проверяет это сам. */
 (function () {
   const root = document.getElementById('bg-card');
@@ -27,7 +28,12 @@
     badge.classList.toggle('d-none', !d.active && !d.errors_total);
     badge.className = 'badge flex-shrink-0 ' + (d.active ? 'text-bg-info' : 'text-bg-danger') + (d.active || d.errors_total ? '' : ' d-none');
     badge.textContent = d.active ? `Идёт разбор: ${d.pending}` : (d.errors_total ? `Ошибок: ${d.errors_total}` : '');
-    root.querySelector('.px-toggle-hint').textContent = d.active ? `(идёт, осталось ${d.pending})` : '(развернуть)';
+    const state = $('bg-summary');
+    state.textContent = d.active
+      ? `идёт, осталось задач: ${d.pending}` + (d.percent == null ? '' : ` (${d.percent}%)`) + (d.estimate_minutes ? `, ~${d.estimate_minutes} мин.` : '')
+      : (d.errors_total ? `не удалось выполнить: ${d.errors_total}` : 'ничего не выполняется');
+    state.classList.toggle('is-active', !!d.active);
+    state.classList.toggle('is-error', !d.active && !!d.errors_total);
     $('bg-idle').classList.toggle('d-none', d.active);
     $('bg-active').classList.toggle('d-none', !d.active);
     if (d.active) {
@@ -90,5 +96,8 @@
     const r = await api('/cancel', 'POST');
     if (r) { say(`Убрано из очереди: ${r.cancelled}.`); load(); }
   });
+  // открытость строки помним, как у остальных сворачиваемых блоков
+  try { if (localStorage.getItem('bg_inline_open') === '1') root.open = true; } catch (e) { /* без хранилища работает */ }
+  root.addEventListener('toggle', () => { try { localStorage.setItem('bg_inline_open', root.open ? '1' : '0'); } catch (e) { /* без хранилища работает */ } });
   load();
 })();

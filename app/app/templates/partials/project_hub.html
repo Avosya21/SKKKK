@@ -1,5 +1,5 @@
-{# О проекте: один сворачиваемый блок с вкладками — подтверждение требований, вопросы к заказчику, карточка проекта, люди и стороны.
-   Переключение и запоминание — static/tab_hubs.js; данные вкладок — static/px_agent.js (требования, вопросы, карточка) и static/people.js (люди) #}
+{# О проекте: один сворачиваемый блок с вкладками — подтверждение требований, вопросы к заказчику, карточка проекта, люди и стороны, память решений.
+   Переключение и запоминание — static/tab_hubs.js; данные вкладок — static/px_agent.js (требования, вопросы, карточка) static/people.js (люди) и static/memory.js (память решений; вкладку прячет, если память для проекта скрыта) #}
 <div class="card shadow-sm mb-4 px-card hub-card" id="project-hub-card" data-hub="project">
   <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
     <button type="button" class="px-toggle-btn d-flex align-items-center gap-2 p-0" data-bs-toggle="collapse"
@@ -10,15 +10,17 @@
     <span class="d-flex gap-2 flex-wrap">
       <span class="badge text-bg-secondary flex-shrink-0 d-none px-count" id="px-count-review" aria-live="polite"></span>
       <span class="badge text-bg-warning flex-shrink-0 d-none" id="pp-badge" aria-live="polite"></span>
+      <span class="badge text-bg-warning flex-shrink-0 d-none" id="mem-badge" aria-live="polite"></span>
     </span>
   </div>
   <div id="project-hub-panel" class="collapse" data-hub-panel>
     <div class="card-body">
       <ul class="nav nav-tabs hub-tabs mb-3" role="tablist">
-        <li class="nav-item" role="presentation"><button class="nav-link active" type="button" role="tab" data-hub-tab="review" aria-controls="px-card-review" aria-selected="true">Подтверждение требований</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link active" type="button" role="tab" data-hub-tab="review" aria-controls="px-card-review" aria-selected="true">Требования</button></li>
         <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="oq" aria-controls="px-card-oq" aria-selected="false">Вопросы к заказчику <span class="badge text-bg-secondary d-none" id="px-count-oq"></span></button></li>
         <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="card" aria-controls="px-card-card" aria-selected="false">Карточка проекта</button></li>
         <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="people" aria-controls="pp-card" aria-selected="false">Люди и стороны <span class="badge text-bg-secondary d-none" id="pp-tabcount"></span></button></li>
+        <li class="nav-item d-none" role="presentation"><button class="nav-link" type="button" role="tab" data-hub-tab="memory" aria-controls="mem-card" aria-selected="false">Память решений <span class="badge text-bg-secondary d-none" id="mem-tabcount"></span></button></li>
       </ul>
 
       <div class="hub-pane" id="px-card-review" data-hub-pane="review" role="tabpanel">
@@ -135,6 +137,39 @@
         <details class="mt-4" id="pp-log-box">
           <summary class="small text-muted">Журнал изменений</summary>
           <div class="table-responsive mt-2"><table class="table table-sm px-journal mb-0"><tbody id="pp-log"></tbody></table></div>
+        </details>
+      </div>
+
+      <div class="hub-pane d-none" id="mem-card" data-hub-pane="memory" role="tabpanel">
+        <p class="text-muted small mb-2">Что решили по проекту, чем закончилось и кто это сказал. Строится автоматически из переписки и созвонов; у каждой реплики есть ссылка на источник.
+          Вручную нужно только поправить итог, если он неверен.</p>
+        <div class="small mb-2" id="mem-mode"></div>
+        <div class="small text-muted mb-2" id="mem-status" aria-live="polite"></div>
+        <div class="d-flex flex-wrap gap-2 mb-3" id="mem-counts"></div>
+
+        <div class="row g-2 mb-3" id="mem-filters">
+          <div class="col-12 col-md-5"><input type="search" class="form-control form-control-sm" id="mem-q" placeholder="Найти по названию или итогу" aria-label="Найти по названию или итогу"></div>
+          <div class="col-6 col-md-3">
+            <select class="form-select form-select-sm" id="mem-state" aria-label="Состояние">
+              <option value="">Любое состояние</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-4"><input type="date" class="form-control form-control-sm" id="mem-date" aria-label="Состояние на дату" title="Состояние на дату"></div>
+        </div>
+
+        <div id="mem-asof" class="d-none mb-3"></div>
+        <div id="mem-empty" class="text-muted small d-none mb-2">Память решений для проекта ещё не построена: она появится после разбора материалов.
+          <button type="button" class="btn btn-sm btn-outline-secondary ms-2 d-none" id="mem-build">Построить сейчас</button></div>
+        <div class="vstack gap-2" id="mem-list"></div>
+        <div class="d-flex justify-content-between align-items-center mt-3 d-none" id="mem-pager">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="mem-prev">Назад</button>
+          <span class="small text-muted" id="mem-page"></span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="mem-next">Дальше</button>
+        </div>
+
+        <details class="mt-3 d-none" id="mem-ready-box">
+          <summary class="small text-muted">Готовность к показу менеджерам и чату</summary>
+          <ul class="small mt-2 mb-0 ps-3" id="mem-ready"></ul>
         </details>
       </div>
     </div>
