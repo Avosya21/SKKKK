@@ -329,7 +329,8 @@ def test_chat_includes_director_document_when_vector_search_misses(client, db_en
 
     def fake_completion(settings, *, system, user, max_tokens, temperature=0.2):
         captured["user"] = user
-        return "Ответ по документу директора"
+        # модель дописывает свой список источников — в ответе его быть не должно (он есть под ответом со ссылками)
+        return "Ответ по документу директора\n\n**Источники:**\n- art_dir_q (Вопрос 19 08 2026.txt)"
 
     call_hit = {
         "chunk_id": 1,
@@ -366,6 +367,57 @@ def test_chat_includes_director_document_when_vector_search_misses(client, db_en
     assert "Вопрос 19 08 2026.txt" in captured["user"]
     assert "Загруженные документы проекта" in captured["user"]
     assert any(s["filename"] == "Вопрос 19 08 2026.txt" for s in out["sources"])
+    assert out["answer"] == "Ответ по документу директора"
+    doc_source = next(s for s in out["sources"] if s["filename"] == "Вопрос 19 08 2026.txt")
+    assert doc_source["url"] == "/artifacts/art_dir_q/report"  # у документа тоже ссылка
+
+
+def test_strip_sources_tail_only_trailing_list():
+    from app.app.services.chat import strip_sources_tail
+
+    body = "Сроки сдвинули на 20.10 (созвон 09.10.2026, 17:21)."
+    assert strip_sources_tail(f"{body}\n\nИсточники:\n- art_1 (встреча-191.wav)\n- Актуальная выжимка") == body
+    assert strip_sources_tail(f"{body}\n\n**Источники:**\n\n1. art_1\n2. art_2\n") == body
+    assert strip_sources_tail(f"{body}\nИсточник: art_1 (встреча-191.wav)") == body
+    # заголовок, после которого обычный текст, а не список, — не трогаем
+    kept = f"{body}\nИсточники: в ТЗ и в переписке.\nДальше ответ продолжается."
+    assert strip_sources_tail(kept) == kept
+    assert strip_sources_tail("Источники: только это") == "Источники: только это"  # весь ответ не стирается
+
+
+def test_chat_history_hides_old_sources_tail_and_adds_links(client, db_engine, admin_token, tmp_data):
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user import User
+
+    db = SessionLocal()
+    admin = db.scalar(select(User).where(User.role == "admin").limit(1))
+    p = Project(name="OldAnswers", description="", created_by=admin.id, is_active=True)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    db.add_all([
+        ChatMessage(project_id=p.id, user_id=admin.id, role="user", content="Что со сроками?", waiting=False),
+        ChatMessage(project_id=p.id, user_id=admin.id, role="assistant", waiting=False,
+                    content="Сроки сдвинули.\n\nИсточники:\n- art_old (встреча-106.wav)",
+                    sources_json=json.dumps([{"artifact_id": "art_old", "filename": "встреча-106.wav", "kind": "entity"}])),
+    ])
+    db.commit()
+    pid = p.id
+    db.close()
+
+    messages = client.get(f"/projects/{pid}/chat/history", headers={"Authorization": f"Bearer {admin_token}"}).json()["messages"]
+    answer = messages[-1]
+    assert answer["content"] == "Сроки сдвинули."
+    assert answer["sources"][0]["url"] == "/artifacts/art_old/report"
+
+
+def test_chat_prompt_asks_no_sources_list():
+    from app.app.services import chat
+
+    prompt = chat._load_prompt()
+    assert "Отдельный список источников в конце не пиши" in prompt
+    assert "перечисли источники" not in prompt
 
 
 def test_chat_prompt_includes_document_summary_file(client, db_engine, admin_token, tmp_data):
