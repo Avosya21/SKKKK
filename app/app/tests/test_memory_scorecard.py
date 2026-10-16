@@ -224,3 +224,29 @@ def test_acts_metrics_coverage_and_kind(env):
     assert got["found"] == 3 and got["total"] == 4 and got["right"] == 2  # M4 — акта нет; M3 — вид не тот
     assert got["a1"] == pytest.approx(0.75) and got["a2"] == pytest.approx(2 / 3)
     assert got["wrong"] == [{"source": f"a{art.id}:M3", "gold": "отклонил", "got": ["agreed"]}]
+
+
+def test_people_flow_tiles_on_board(client, admin_token, manager_token, panel_file):
+    """ЛГ8: блок «Люди и голоса» — только владельцу табло, только числа (без имён), цели плана."""
+    from app.app.db import SessionLocal
+    from app.app.services import people
+
+    panel_file.write_text("Admin\n", encoding="utf-8")
+    h = _auth(admin_token)
+    assert client.get("/admin/memory/people", headers=_auth(manager_token)).status_code == 404
+    pid = client.post("/projects", json={"name": "Путь людей", "internal": False, "customer_company": "Заказчик Тест"},
+                      headers=h).json()["id"]
+    db = SessionLocal()
+    try:
+        people.create_person(db, pid, "Ольга Пример", company_name="Заказчик Тест", side="customer", side_source="human")
+        fresh = people.create_person(db, pid, "Ник Пример")
+        fresh.needs_review = True
+        db.commit()
+    finally:
+        db.close()
+    r = client.get("/admin/memory/people", headers=h)
+    assert r.status_code == 200 and "Ольга" not in r.text
+    tiles = {t["key"]: t for t in r.json()["tiles"]}
+    assert tiles["parties"]["value"] == 1.0 and tiles["parties"]["ok"] is True
+    assert tiles["people"]["value"] < 1 and tiles["people"]["ok"] is False  # «Ник Пример» без компании и стороны
+    assert tiles["review"]["value"] == 1 and tiles["review"]["ok"] is None

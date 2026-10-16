@@ -18,6 +18,14 @@
 <div class="row g-2 mb-4" id="mm-metrics"></div>
 
 <div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between"><strong>Люди и голоса: сквозной путь</strong>
+    <span class="small text-muted" id="mm-people-summary"></span></div>
+  <div class="card-body py-2"><div class="small text-muted mb-2">Компания → сторона → человек → учётка → голос по всем проектам с платформой: у каждого
+    слова и голоса должна быть карточка человека. Цели — из плана PEOPLE-FLOW-PLAN.</div>
+    <div class="row g-2" id="mm-people"></div></div>
+</div>
+
+<div class="card shadow-sm mb-4">
   <div class="card-header d-flex justify-content-between"><strong>Приёмка платформы</strong><span class="small text-muted" id="mm-check-summary"></span></div>
   <ul class="list-group list-group-flush" id="mm-checklist"></ul>
 </div>
@@ -86,6 +94,19 @@
     $('mm-history').innerHTML = rows.map((r) => `<tr><td class="text-nowrap small">${esc(r['дата'])}</td><td class="small">${esc(r['этап'])}</td><td class="small">${esc(r['промпт'])}</td>
       ${['M1', 'M2', 'M3', 'M7', 'M8', 'M9', 'A1', 'A2'].map((k) => `<td class="text-end">${pct(r[k])}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="11" class="text-muted small">Прогонов пока нет.</td></tr>';
   }
+  function renderPeople(d) {
+    const tiles = (d && d.tiles) || [];
+    $('mm-people').innerHTML = tiles.map((t) => {
+      const share = t.target !== null && t.target !== 0;  // доля — в процентах, счётчик — числом
+      const value = share ? pct(t.value) : (t.value === null || t.value === undefined ? '—' : String(t.value));
+      const goal = t.target === null ? '' : `цель: ${t.target === 0 ? '0' : pct(t.target)}`;
+      const cls = t.ok === false ? 'text-danger' : (t.ok ? 'text-success' : '');
+      return `<div class="col-6 col-md-4 col-xl"><div class="card h-100"><div class="card-body py-2">
+        <div class="h5 mb-0 ${cls}">${esc(value)}</div><div class="small">${esc(t.title)}</div><div class="small text-muted">${goal}</div></div></div></div>`;
+    }).join('');
+    const goals = tiles.filter((t) => t.ok !== null);
+    $('mm-people-summary').textContent = goals.length ? `целей выполнено: ${goals.filter((t) => t.ok).length} из ${goals.length}` : '';
+  }
   async function load(id) {
     say('Считаю…');
     const base = await getJson('/admin/memory/data' + (id ? '?project_id=' + id : ''));
@@ -106,6 +127,7 @@
     if (r) { await load(projectId); say('Строка записана в историю.'); }
   });
   load(null);
+  getJson('/admin/memory/people').then(renderPeople);
 })();
 </script>
 {% endblock %}

@@ -32,6 +32,7 @@ from app.app.services.speaker_profiles import (
     enroll_speaker,
     list_profiles,
     merge_speakers,
+    split_speaker,
     recalculate_speaker_match,
     refresh_artifact_project_index,
     speakers_confirm_status,
@@ -105,6 +106,10 @@ class EnrollBody(BaseModel):
 class MergeBody(BaseModel):
     source_diar_label: str = Field(min_length=1, max_length=64)
     target_diar_label: str = Field(min_length=1, max_length=64)
+
+
+class SplitBody(BaseModel):
+    diar_label: str = Field(min_length=1, max_length=64)
 
 
 @router.get("/projects/{project_id}/speaker-profiles")
@@ -241,6 +246,30 @@ def api_merge_speakers(
         title="Слил спикеров",
         content=f"{body.source_diar_label} → {body.target_diar_label}",
     )
+    return result
+
+
+@router.post("/artifacts/{artifact_id}/speaker-split")
+def api_split_speaker(
+    artifact_id: str,
+    body: SplitBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """«Отделить» присоединённую метку: снова отдельная карточка без имени."""
+    from app.app.services.speaker_profiles import rebuild_match_report_html
+
+    artifact = _owned_artifact(db, user, artifact_id)
+    require_project_staff(db, user, artifact.project_id)
+    try:
+        result = split_speaker(db, project_id=artifact.project_id, artifact_id=artifact_id, diar_label=body.diar_label)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rebuild_match_report_html(db, project_id=artifact.project_id, artifact_id=artifact_id)
+    _log_artifact_action(db, user, artifact, block=BLOCK_SPEAKERS, action=ACTION_MERGE, title="Отделил спикера",
+                         content=f"{body.diar_label} ← {result['from']}")
     return result
 
 

@@ -89,6 +89,19 @@ def memory_live(
     return _payload(sc.compute(db, settings, project_id))
 
 
+@router.get("/admin/memory/people")
+def memory_people(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Блок «Люди и голоса» (PEOPLE-FLOW-PLAN, ЛГ8): сквозной путь по проектам с платформой — только числа, без имён."""
+    from app.app.services import people_flow
+
+    _owner(user)
+    return {"tiles": people_flow.board(db, people_flow.collect(db, settings))}
+
+
 @router.post("/admin/memory/run")
 def memory_run(
     body: RunIn,

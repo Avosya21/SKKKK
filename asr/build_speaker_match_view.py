@@ -164,18 +164,23 @@ def _badge(status: str) -> str:
 
 
 def _speaker_card_groups(matches: dict, merge_map: dict) -> list[dict]:
-    """Одна карточка на каждый speaker_N диаризации — не скрывать voice-merge alias."""
-    groups: list[dict] = []
+    """Одна карточка на человека созвона: основная метка и присоединённые к ней (``merge_map``, вручную или по голосу).
+    Присоединённые перечислены в карточке с кнопкой «Отделить» (``speaker-split``) — если голоса склеились ошибочно."""
+    by_canon: dict[str, list[str]] = {}
     for sp in sorted(matches.keys()):
-        m = matches.get(sp) or {}
-        canon = merge_map.get(sp, sp)
+        by_canon.setdefault(merge_map.get(sp, sp), []).append(sp)
+    groups: list[dict] = []
+    for canon in sorted(by_canon):
+        labels = sorted(by_canon[canon], key=lambda lbl: (lbl != canon, lbl))
+        primary = labels[0]
+        m = matches.get(primary) or {}
         groups.append(
             {
-                "primary": sp,
-                "labels": [sp],
+                "primary": primary,
+                "labels": labels,
                 "match": m,
                 "profile_id": m.get("profile_id"),
-                "voice_merge_target": canon if canon != sp else None,
+                "voice_merge_target": None,
             }
         )
     return groups
@@ -228,7 +233,8 @@ def _speaker_cards(
         ck = f"p{pid}" if pid else _resolve_color_key(sp, matches, merge_map)
         color = palette.get(ck, TOKENS["muted_fg"])
         st = m.get("status") or "new"
-        spoken = speech.get(sp)
+        spoken_parts = [speech[lbl] for lbl in labels if lbl in speech]
+        spoken = sum(spoken_parts) if spoken_parts else None
         clip_len = float(m.get("clip_duration") or 0.0)
         low_speech = (spoken is not None and spoken < LOW_SPEECH_SEC) or (0 < clip_len < SHORT_CLIP_SEC)
         pname = (m.get("profile_name") or "").strip()
@@ -254,6 +260,15 @@ def _speaker_cards(
             if len(labels) > 1
             else f'<p class="speaker-id mb-2 font-monospace">{labels_txt}</p>'
         )
+        for alias in labels[1:]:
+            alias_spoken = speech.get(alias)
+            alias_speech = f" · {html.escape(_speech_text(alias_spoken, total_speech))}" if alias_spoken is not None else ""
+            merge_note += (
+                f'<p class="small text-muted mb-2">{html.escape(alias)}{alias_speech} — '
+                f'<button type="button" class="btn btn-link btn-sm p-0 align-baseline split-btn" '
+                f'data-label="{html.escape(alias, quote=True)}" title="Голоса склеились ошибочно — вернуть отдельной карточкой">'
+                f"Отделить</button></p>"
+            )
         if voice_merge_target:
             merge_note += (
                 f'<p class="small text-muted mb-2">Голос похож на '
@@ -782,6 +797,31 @@ document.querySelectorAll(".speaker-card .enroll").forEach(btn => {{
       showToast("Ошибка: " + err.message);
       btn.disabled = false;
       btn.innerHTML = prev;
+    }}
+  }});
+}});
+
+document.querySelectorAll(".speaker-card .split-btn").forEach(btn => {{
+  btn.addEventListener("click", async () => {{
+    const label = btn.dataset.label;
+    if (!confirm(`Отделить ${{label}}? Метка станет отдельной карточкой без имени — подпишите её заново.`)) return;
+    btn.disabled = true;
+    try {{
+      const res = await fetch(`/api/artifacts/${{data.artifact_id}}/speaker-split`, {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json;charset=utf-8" }},
+        body: JSON.stringify({{ diar_label: label }}),
+      }});
+      if (!res.ok) {{
+        const text = await res.text();
+        let detail = text;
+        try {{ detail = JSON.parse(text).detail || text; }} catch (_) {{}}
+        throw new Error(detail);
+      }}
+      location.reload();
+    }} catch (err) {{
+      showToast("Ошибка: " + err.message);
+      btn.disabled = false;
     }}
   }});
 }});
