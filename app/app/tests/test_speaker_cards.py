@@ -40,7 +40,7 @@ def test_card_creates_person_party_and_consent(setup):
     person, profile = confirm_card(db, art, diar_label="speaker_0", name="Елена Соколова", company="Пример Заказчик",
                                    side="customer", job_title="главный бухгалтер")
     row = db.get(Person, person.id)
-    assert (row.company_name, row.side, row.side_source, row.job_title) == ("Пример Заказчик", "customer", "human", "главный бухгалтер")
+    assert (row.company_name, row.side, row.side_source, row.job_title) == ("Пример Заказчик", "customer", "project_party", "главный бухгалтер")
     assert row.voice_consent_at is not None  # внешний человек: согласие по договору ставится само
     assert people.party_side(db, art.project_id, "пример заказчик") == "customer"
     assert profile.display_name == "Елена Соколова" and profile.scope == "project" and profile.person_id == person.id

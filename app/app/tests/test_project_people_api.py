@@ -24,9 +24,16 @@ def test_staff_creates_edits_and_merges_people(client, manager_token):
     dup = client.post(f"/projects/{pid}/people", json={"display_name": "ольга  пример"}, headers=h)
     assert dup.status_code == 400 and "уже есть" in dup.json()["detail"]
 
-    upd = client.put(f"/projects/{pid}/people/{a_id}", json={"side": "executor", "authority": "approver", "job_title": "Директор"}, headers=h)
+    # Р1: у человека с компанией сторона — от компании в проекте; поменять её у человека нельзя
+    refused = client.put(f"/projects/{pid}/people/{a_id}", json={"side": "executor"}, headers=h)
+    assert refused.status_code == 400 and "Стороны компаний" in refused.json()["detail"]
+    upd = client.put(f"/projects/{pid}/people/{a_id}", json={"authority": "approver", "job_title": "Директор"}, headers=h)
     row = next(p for p in upd.json()["people"] if p["id"] == a_id)
-    assert row["side"] == "executor" and row["side_source"] == "human" and row["authority"] == "approver" and row["job_title"] == "Директор"
+    assert row["side"] == "customer" and row["side_source"] == "project_party" and row["authority"] == "approver" and row["job_title"] == "Директор"
+    moved = client.put(f"/projects/{pid}/parties", json={"company_name": "ООО Пример", "side": "executor"}, headers=h).json()
+    assert next(p for p in moved["people"] if p["id"] == a_id)["side"] == "executor"  # сторона компании — всем её людям
+    no_company = client.put(f"/projects/{pid}/people/{b}", json={"side": "customer"}, headers=h).json()
+    assert next(p for p in no_company["people"] if p["id"] == b)["side"] == "customer"  # без компании — как раньше
     cleared = client.put(f"/projects/{pid}/people/{a_id}", json={"clear_authority": True}, headers=h).json()
     assert next(p for p in cleared["people"] if p["id"] == a_id)["authority"] is None
     assert client.put(f"/projects/{pid}/people/{a_id}", json={"side": "чужая"}, headers=h).status_code == 400
@@ -35,7 +42,7 @@ def test_staff_creates_edits_and_merges_people(client, manager_token):
     assert b not in [p["id"] for p in merged["people"]] and a_id in [p["id"] for p in merged["people"]]
     assert "Olga P" in next(p for p in merged["people"] if p["id"] == a_id)["aliases"]
     log = client.get(f"/projects/{pid}/people/log", headers=h).json()["items"]
-    assert {"create", "set_side", "update", "merge"} <= {r["action"] for r in log}
+    assert {"create", "set_side", "update", "merge", "side_from_party"} <= {r["action"] for r in log}
 
 
 def test_unknown_queue_resolves_to_person_new_person_or_ignore(client, manager_token, db_engine):
@@ -194,7 +201,11 @@ def test_company_names_are_normalized_to_shared_list(client, admin_token, manage
     added = client.put("/companies", json={"name": "Компания Общая", "side": "customer"}, headers=h_admin)
     assert added.status_code == 200 and any(c["name"] == "Компания Общая" and c["side"] == "customer" for c in added.json()["items"])
     pid = _project(client, admin_token, "Нормализация")
-    p = client.post(f"/projects/{pid}/people", json={"display_name": "Анна Пример", "company_name": "  компания   общая "}, headers=h_admin).json()
+    unknown_side = client.post(f"/projects/{pid}/people", json={"display_name": "Анна Пример", "company_name": "  компания   общая "}, headers=h_admin)
+    assert unknown_side.status_code == 400 and "нет в сторонах проекта" in unknown_side.json()["detail"]  # Р1: сначала сторона
+    p = client.post(f"/projects/{pid}/people", json={"display_name": "Анна Пример", "company_name": "  компания   общая ", "side": "customer"},
+                    headers=h_admin).json()
+    assert {"company_name": "Компания Общая", "side": "customer"} in p["parties"]
     assert next(x for x in p["people"] if x["display_name"] == "Анна Пример")["company_name"] == "Компания Общая"
 
 

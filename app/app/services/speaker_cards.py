@@ -267,6 +267,10 @@ def confirm_card(db: Session, artifact: Artifact, *, diar_label: str, name: str,
     if side not in CARD_SIDES:
         raise people.PeopleError("Укажите сторону: исполнитель или заказчик")
     project_id = artifact.project_id
+    party = people.find_party(db, project_id, company)
+    if party is not None and party.side != side:  # Р1: сторона — у компании в проекте
+        raise people.PeopleError(f"«{party.company_name}» в этом проекте — {people.SIDE_RU.get(party.side, party.side)}. "
+                                 "Выберите эту сторону или поменяйте её у компании в «Стороны компаний».")
     fields = {"company": company, "side": side, "job_title": job_title, "by_user_id": by_user_id}
     voice_name = name
     try:

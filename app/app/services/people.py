@@ -31,6 +31,7 @@ from app.app.models.person import (
 
 # Сила источника стороны: человек главнее карточки, карточка и список проекта главнее догадки модели.
 SIDE_RANK = {"model": 0, "project_party": 1, "card": 2, "human": 3}
+SIDE_RU = {SIDE_EXECUTOR: "исполнитель", SIDE_CUSTOMER: "заказчик"}
 
 
 class PeopleError(ValueError):
@@ -158,6 +159,7 @@ def create_person(
     db.add(PersonAlias(project_id=project_id, person_id=person.id, alias=name, alias_key=alias_key(name), source=alias_source))
     _log(db, project_id, person.id, by_user_id, "create", None, _snapshot(person))
     db.flush()
+    align_to_company(db, project_id, person, by_user_id=by_user_id)
     return person
 
 
@@ -205,6 +207,16 @@ def set_side(db: Session, project_id: int, person_id: int, side: str, *, source:
     if side not in SIDES:
         raise PeopleError("Неизвестная сторона")
     person = get(db, project_id, person_id)
+    # Р1: у человека с компанией сторону задаёт компания в проекте
+    party = find_party(db, project_id, person.company_name) if (person.company_name or "").strip() else None
+    if party is not None:
+        if side != party.side and source == "human":
+            raise PeopleError(f"«{party.company_name}» в этом проекте — {SIDE_RU.get(party.side, party.side)}. "
+                              "Сторону меняют у компании в блоке «Стороны компаний».")
+        return align_to_company(db, project_id, person, by_user_id=by_user_id)
+    if (person.company_name or "").strip() and side in (SIDE_EXECUTOR, SIDE_CUSTOMER) and source == "human":
+        set_party(db, project_id, person.company_name, side, by_user_id=by_user_id)  # компания входит в проект с этой стороной
+        return align_to_company(db, project_id, person, by_user_id=by_user_id)
     if not force and SIDE_RANK.get(source, 0) < SIDE_RANK.get(person.side_source, 0) and person.side != SIDE_UNKNOWN:
         return person
     before = _snapshot(person)
@@ -237,6 +249,8 @@ def update_person(db: Session, project_id: int, person_id: int, *, by_user_id: i
         add_alias(db, project_id, person.id, fields["display_name"], source="human", by_user_id=by_user_id)
     _log(db, project_id, person.id, by_user_id, "update", before, _snapshot(person))
     db.flush()
+    if "company_name" in fields:
+        align_to_company(db, project_id, person, by_user_id=by_user_id)
     return person
 
 
@@ -271,7 +285,7 @@ def merge(db: Session, project_id: int, keep_id: int, drop_id: int, *, by_user_i
         row.person_id = keep.id
     _log(db, project_id, keep.id, by_user_id, "merge", before, {"keep": _snapshot(keep), "drop_id": drop.id})
     db.flush()
-    return keep
+    return align_to_company(db, project_id, keep, by_user_id=by_user_id)
 
 
 # ---------------------------------------------------------------- стороны проекта
@@ -321,7 +335,37 @@ def set_party(db: Session, project_id: int, company_name: str, side: str, *, com
         row.side, row.company_id, row.company_name, row.company_key = side, company.id, company.name, alias_key(company.name)
     _log(db, project_id, None, by_user_id, "set_party", before, {"company": row.company_name, "side": side})
     db.flush()
+    for person in list_people(db, project_id):  # Р1: люди компании получают её сторону
+        if (person.company_name or "").strip() and find_party(db, project_id, person.company_name) is row:
+            _take_party(db, project_id, person, row, by_user_id)
+    db.flush()
     return row
+
+
+def _take_party(db: Session, project_id: int, person: Person, party: ProjectParty, by_user_id: int | None) -> Person:
+    """Сторона и написание компании человека — как у стороны проекта; запись в журнал, если что-то изменилось."""
+    if (person.side, person.side_source, person.company_name, person.company_id) == (party.side, "project_party", party.company_name, party.company_id):
+        return person
+    before = _snapshot(person)
+    person.side, person.side_source = party.side, "project_party"
+    person.company_name, person.company_id = party.company_name, party.company_id
+    _log(db, project_id, person.id, by_user_id, "side_from_party", before, _snapshot(person))
+    db.flush()
+    return person
+
+
+def align_to_company(db: Session, project_id: int, person: Person, *, by_user_id: int | None = None) -> Person:
+    """Р1 (PEOPLE-FLOW-PLAN, ЛГ2): сторона человека равна стороне его компании в проекте. Компании ещё нет в сторонах
+    проекта, а сторона человека известна — компания входит в проект с этой стороной; сторона неизвестна — ждём человека."""
+    if not (person.company_name or "").strip():
+        return person
+    party = find_party(db, project_id, person.company_name)
+    if party is None:
+        if person.side not in (SIDE_EXECUTOR, SIDE_CUSTOMER):
+            return person
+        set_party(db, project_id, person.company_name, person.side, by_user_id=by_user_id)  # сама выровняет людей компании
+        return person
+    return _take_party(db, project_id, person, party, by_user_id)
 
 
 # ---------------------------------------------------------------- вопросы «Кто это?»

@@ -32,6 +32,9 @@
   const apply = (data) => { if (!data) return; state = { ...state, ...data }; render(); };
   const opts = (map, cur) => Object.entries(map).map(([k, v]) => `<option value="${esc(k)}"${k === (cur ?? '') ? ' selected' : ''}>${esc(v)}</option>`).join('');
 
+  // Р1 (PEOPLE-FLOW-PLAN, ЛГ2): сторона человека — от его компании в проекте; у человека её правят, только пока компании нет в сторонах
+  const partyOf = (company) => (company ? state.parties.find((x) => looseCompanyKey(x.company_name) === looseCompanyKey(company)) : null);
+
   function renderPeople() {
     const list = $('pp-list');
     if (!state.people.length) { list.innerHTML = '<div class="text-muted small">Пока никого. Нажмите «Найти людей в материалах» или добавьте вручную.</div>'; return; }
@@ -46,11 +49,11 @@
             ${extra.length ? `<div class="small text-muted">Также пишут: ${extra.map(esc).join(', ')}</div>` : ''}</div>
         </div>
         <div class="px-form-row">
-          <select class="form-select form-select-sm" data-act="side" aria-label="Сторона">${opts(SIDE, p.side)}</select>
+          <select class="form-select form-select-sm" data-act="side" aria-label="Сторона"${partyOf(p.company_name) ? ' disabled title="Сторона берётся от компании; меняется в «Стороны компаний»"' : ''}>${opts(SIDE, p.side)}</select>
           <select class="form-select form-select-sm" data-act="authority" aria-label="Право утверждать">${opts(AUTH, p.authority || '')}</select>
-          <input type="text" class="form-control form-control-sm" data-act="company" placeholder="Компания" value="${esc(p.company_name || '')}" maxlength="200">
+          <input type="text" class="form-control form-control-sm" data-act="company" placeholder="Компания из сторон проекта" list="pp-party-companies" value="${esc(p.company_name || '')}" maxlength="200">
         </div>
-        <div class="small text-muted mt-1">Сторона: ${esc(SOURCE[p.side_source] || p.side_source)}</div>
+        <div class="small text-muted mt-1">${partyOf(p.company_name) ? `Сторона — от компании «${esc(partyOf(p.company_name).company_name)}» в проекте` : `Сторона: ${esc(SOURCE[p.side_source] || p.side_source)}`}</div>
         ${!p.external && (p.voice_suggestions || []).length ? `<div class="px-form-row"><span class="small text-muted">Найден голос с таким именем:</span>${p.voice_suggestions.map((v) =>
           `<button type="button" class="btn btn-sm btn-outline-secondary" data-act="link-voice" data-profile="${v.id}">Привязать к учётке: ${esc(v.name)}</button>`).join('')}</div>` : ''}
         ${p.external ? `<div class="px-form-row">${p.voice_consent_at
@@ -104,6 +107,7 @@
 
   function renderParties() {
     $('pp-companies').innerHTML = (state.companies || []).map((c) => `<option value="${esc(c.name)}"></option>`).join('');
+    $('pp-party-companies').innerHTML = state.parties.map((p) => `<option value="${esc(p.company_name)}"></option>`).join('');
     $('pp-parties').innerHTML = state.parties.length
       ? state.parties.map((p) => `<div class="px-item d-flex justify-content-between"><span>${esc(p.company_name)}</span><span class="text-muted">${esc(SIDE[p.side] || p.side)}</span></div>`).join('')
       : '<div class="text-muted small">Стороны компаний не заданы.</div>';
@@ -157,10 +161,15 @@
     if (r) { apply(r); await reloadUnknown(); say([r.created ? `Добавлено людей: ${r.created}. Проверьте стороны.` : 'Новых людей не найдено.', r.pruned ? `Убрано лишних записей (метки спикеров, роли): ${r.pruned}.` : ''].filter(Boolean).join(' ')); }
   });
   $('pp-toggle-add').addEventListener('click', () => $('pp-add-form').classList.toggle('d-none'));
+  $('pp-new-company').addEventListener('input', () => {  // компания из сторон проекта — сторона подставляется и не правится
+    const party = partyOf($('pp-new-company').value.trim());
+    if (party) $('pp-new-side').value = party.side;
+    $('pp-new-side').disabled = Boolean(party);
+  });
   $('pp-add-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const r = await call('/people', 'POST', { display_name: $('pp-new-name').value.trim(), company_name: $('pp-new-company').value.trim() || null, side: $('pp-new-side').value });
-    if (r) { apply(r); e.target.reset(); e.target.classList.add('d-none'); say('Добавлен.'); }
+    if (r) { apply(r); e.target.reset(); $('pp-new-side').disabled = false; e.target.classList.add('d-none'); say('Добавлен.'); }
   });
   $('pp-member-add').addEventListener('click', async () => {
     const id = Number($('pp-member-select').value);

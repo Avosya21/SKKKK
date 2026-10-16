@@ -163,6 +163,23 @@ def test_party_always_points_to_directory_company(db, project):
     assert loose_key("ООО «Пример-Альфа»") == loose_key("ПРИМЕР АЛЬФА ООО") != loose_key("Пример Бета")
 
 
+def test_person_side_follows_company_side_in_project(db, project):
+    """ЛГ2 (Р1): сторона человека — от его компании в проекте; правка стороны — только у компании."""
+    people.set_party(db, project.id, "Заказчик Тест", "customer")
+    anna = people.create_person(db, project.id, "Анна Пример", company_name="заказчик тест", side="executor", side_source="human")
+    assert (anna.side, anna.side_source, anna.company_name) == ("customer", "project_party", "Заказчик Тест")
+    with pytest.raises(people.PeopleError, match="Стороны компаний"):
+        people.set_side(db, project.id, anna.id, "executor", source="human", force=True)
+    assert people.set_side(db, project.id, anna.id, "executor", source="model").side == "customer"  # догадка не спорит
+    boris = people.create_person(db, project.id, "Борис Пример", company_name="Новая Компания Пример")
+    assert boris.side == "unknown" and people.party_side(db, project.id, "Новая Компания Пример") is None
+    people.set_side(db, project.id, boris.id, "executor", source="human")  # сторона человека вводит его компанию в проект
+    assert people.party_side(db, project.id, "Новая Компания Пример") == "executor" and boris.side == "executor"
+    people.set_party(db, project.id, "Заказчик Тест", "executor")
+    db.expire_all()
+    assert people.get(db, project.id, anna.id).side == "executor"  # смена стороны компании — всем её людям
+
+
 def test_contract_uses_registry_only_when_platform_enabled(db, project, monkeypatch):
     from app.app.services import contract
 

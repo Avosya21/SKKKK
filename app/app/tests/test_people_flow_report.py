@@ -55,6 +55,32 @@ def test_link_parties_ties_old_text_parties_to_directory(db):
     assert [s for s in plan(db) if s["project_id"] == project.id] == []
 
 
+def test_align_people_sides_plans_only_clear_cases(db):
+    """ЛГ2: сторона от компании, компания единственной стороны; без компании и стороны — «нужно решение»."""
+    from app.app.models.person import Person
+    from app.app.models.project import Project
+    from scripts.align_people_sides import apply, plan
+
+    admin = _user(db, "align-admin")
+    project = Project(name="Пример выравнивания", created_by=admin.id, is_active=True)
+    db.add(project)
+    db.commit()
+    people.set_party(db, project.id, "Заказчик Тест", "customer")
+    vera = people.create_person(db, project.id, "Вера Пример", company_name="Заказчик Тест")
+    db.query(Person).filter_by(id=vera.id).update({"side": "unknown", "side_source": "model"})  # данные до ЛГ2
+    gleb = people.create_person(db, project.id, "Глеб Пример", side="customer", side_source="model")
+    nobody = people.create_person(db, project.id, "Никто Пример")
+    db.commit()
+
+    steps = {s["person_id"]: s["kind"] for s in plan(db) if s["project_id"] == project.id}
+    assert steps[vera.id] == "side_from_party" and steps[gleb.id] == "company_by_side" and steps[nobody.id] == "decide"
+    apply(db, [s for s in plan(db) if s["project_id"] == project.id and s["kind"] != "decide"])
+    db.expire_all()
+    assert people.get(db, project.id, vera.id).side == "customer"
+    assert people.get(db, project.id, gleb.id).company_name == "Заказчик Тест"
+    assert [s["kind"] for s in plan(db) if s["project_id"] == project.id] == ["decide"]
+
+
 def test_report_finds_each_kind_of_gap(db):
     from app.app.config import get_settings
     from app.app.models.company import Company
@@ -76,7 +102,10 @@ def test_report_finds_each_kind_of_gap(db):
                 ProjectParty(project_id=project.id, company_name="ООО «Заказчик Пример»", company_key="ооо заказчик пример",
                              side="customer")])
     db.flush()
-    people.create_person(db, project.id, "Анна Пример", company_name="ООО «Заказчик Пример»", side="executor", side_source="human")
+    from app.app.models.person import Person
+
+    anna = people.create_person(db, project.id, "Анна Пример", company_name="ООО «Заказчик Пример»", side="customer", side_source="human")
+    db.query(Person).filter_by(id=anna.id).update({"side": "executor"})  # расхождение из данных до ЛГ2
     people.create_person(db, project.id, "Борис Пример")
     db.add(ProjectMember(project_id=project.id, user_id=member.id, role="user", granted_by=admin.id))
     voice = SpeakerProfile(scope="global", display_name="Голос Пример", embedding=b"\0" * 8, embedding_dim=2)

@@ -139,6 +139,9 @@ def create_person(
     try:
         row = people.create_person(db, project_id, body.display_name, user_id=body.user_id, company_name=body.company_name,
                                    side=body.side, side_source="human", job_title=body.job_title, authority=body.authority, by_user_id=user.id)
+        if (row.company_name or "").strip() and people.find_party(db, project_id, row.company_name) is None:
+            raise people.PeopleError(f"Компании «{row.company_name}» нет в сторонах проекта. Укажите сторону — "
+                                     "компания добавится в «Стороны компаний» с этой стороной.")
         db.commit()
     except people.PeopleError as exc:
         db.rollback()
@@ -183,6 +186,11 @@ def update_person(
             people.update_person(db, project_id, person_id, by_user_id=user.id, **fields)
         if body.side is not None:
             people.set_side(db, project_id, person_id, body.side, source="human", by_user_id=user.id, force=True)
+        person = people.get(db, project_id, person_id)
+        if (person.company_name or "").strip() and people.find_party(db, project_id, person.company_name) is None:
+            # Р1: компания человека — из сторон проекта; новая входит в проект только с известной стороной
+            raise people.PeopleError(f"Компании «{person.company_name}» нет в сторонах проекта. Укажите сторону человека — "
+                                     "компания добавится в «Стороны компаний» с этой стороной.")
         db.commit()
     except people.PeopleError as exc:
         db.rollback()
