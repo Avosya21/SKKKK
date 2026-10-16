@@ -3731,6 +3731,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_people_flow
+    kind: service
+    path: app/app/services/people_flow.py
+    title: "Сквозной путь «компания → сторона → человек → учётка → голос»: расхождения по проектам и порталу"
+    tags: [auto]
+    auto: true
+
   - id: svc_act_authors
     kind: service
     path: app/app/services/act_authors.py
