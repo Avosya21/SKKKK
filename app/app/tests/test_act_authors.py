@@ -121,3 +121,22 @@ def test_refined_voice_name_keeps_person(call):
     assert stats["acts"] == 2
     t0 = db.get(SpeechAct, acts["T0"].id)
     assert (t0.author, t0.person_id, t0.side) == ("Ольга Примерова (отдел)", olga_id, "customer")
+
+
+def test_judge_verdict_survives_rebind(call):
+    """Имена голосов пришли в акты после вердикта судьи: события получают людей, а итог судьи не заменяется свёрткой."""
+    from app.app.models.decision_memory import Subject
+    from app.app.services.act_authors import rebind_call_authors
+
+    db, settings, art = call
+    subject, _ = _memory(db, settings, art)
+    subject.state, subject.state_since, subject.state_source = "rejected", "2026-02-01", "judge"
+    db.commit()
+
+    _write_final(settings, art, UNNAMED.replace("speaker_0", "Ольга Примерова").replace("speaker_1", "Павел Тестов"))
+    stats = rebind_call_authors(db, settings, art)
+    db.commit()
+    db.expire_all()
+    assert stats["events"] == 3 and stats["subjects"] == 1
+    s = db.get(Subject, subject.id)
+    assert (s.state, s.state_since, s.state_source) == ("rejected", "2026-02-01", "judge")
