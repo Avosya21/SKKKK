@@ -20,6 +20,8 @@ from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.entity import Entity, Link, UserNote
+from app.app.services.chat_query import claim_of, expand_query, is_pushback
+from app.app.services.chat_quotes import verify_answer_quotes
 from app.app.services.llm import chat_completion_no_think
 from app.app.services.source_links import source_url, unit_number
 from app.app.services.artifact_reports import load_document_payload
@@ -788,6 +790,27 @@ def _focus_meeting_block(
     return "\n---\n".join(parts), hits
 
 
+def _merge_vec_hits(first: list[dict[str, Any]], second: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    """Находки по вопросу и по расширенному запросу: без повторов, у повтора — лучшая близость."""
+    best: dict[int, dict[str, Any]] = {}
+    for hit in [*first, *second]:
+        cur = best.get(hit["chunk_id"])
+        if cur is None or float(hit["score"]) > float(cur["score"]):
+            best[hit["chunk_id"]] = hit
+    return sorted(best.values(), key=lambda h: -float(h["score"]))[:limit]
+
+
+def _pushback_note(question: str) -> str:
+    """Указание модели, когда пользователь оспаривает прошлый ответ или утверждает факт (урок 16.10, пр. 28)."""
+    return (
+        "Проверка утверждения пользователя. В вопросе есть утверждение о проекте или возражение на прошлый ответ: "
+        f"«{claim_of(question)}». Это гипотеза, а не факт. Проверь её по фрагментам ниже (предыдущий диалог "
+        "доказательством не считается). Есть подтверждение — приведи дословную цитату с источником. Нет — так и "
+        "скажи: «В материалах этого нет», и приведи ближайшее, что есть. Не соглашайся и не извиняйся только потому, "
+        "что пользователь настаивает. Меняй прошлый ответ только при новой цитате и прямо назови, что в нём было неверно."
+    )
+
+
 def _project_tz_excerpt(settings: Settings, project_id: int, *, max_chars: int = 2500) -> str:
     from app.app.services.storage import project_root
 
@@ -903,12 +926,23 @@ def _answer_chat_inner(
     *,
     guidance_reply: str | None = None,
 ) -> dict[str, Any]:
+    # Возражение («почему ты не сказал, что…») ищем по самому утверждению; запрос дополняем словами, которыми
+    # о том же говорят на созвонах (урок 16.10, пр. 28: «складской контур» не находил ТСД и штрихкоды).
+    pushback = is_pushback(question)
+    search_text = claim_of(question) if pushback else question
+    extra_words = expand_query(search_text)
+    expanded = f"{search_text} {' '.join(extra_words)}".strip() if extra_words else search_text
     init_vector_store(get_engine())
-    q_vecs = embed_texts(settings, [question])
+    q_vecs = embed_texts(settings, [question] if expanded == question else [question, expanded])
     init_chunk_fts(get_engine())
     vec_hits = search_vectors(db, q_vecs[0], project_id=project_id, limit=CHAT_SEARCH_LIMIT * 2)
+    if len(q_vecs) > 1:
+        vec_hits = _merge_vec_hits(
+            vec_hits, search_vectors(db, q_vecs[1], project_id=project_id, limit=CHAT_SEARCH_LIMIT * 2),
+            limit=CHAT_SEARCH_LIMIT * 2,
+        )
     hits = fuse_chunk_hits(
-        db, question, q_vecs[0], vec_hits, project_id=project_id, limit=CHAT_SEARCH_LIMIT,
+        db, expanded, q_vecs[0], vec_hits, project_id=project_id, limit=CHAT_SEARCH_LIMIT,
         min_score=settings.search_min_score, rerank=enrich_and_rerank_hits,
     )
 
@@ -1106,6 +1140,8 @@ def _answer_chat_inner(
 
     system = _load_prompt()
     user = f"Вопрос: {question}\n\n"
+    if pushback:
+        user += _pushback_note(question) + "\n\n"
     if memory:
         user += memory + "\n\n"
     if catalog:
@@ -1132,6 +1168,12 @@ def _answer_chat_inner(
     from app.app.services.plain_text import plainify_llm_markup
 
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
+    # Цитаты сверяются только с материалами: предыдущий диалог и указания пользователя доказательством не считаются.
+    evidence = "\n".join(part for part in (catalog, context, supplement, tz_excerpt, decisions, graph_part) if part)
+    answer, quote_check = verify_answer_quotes(answer, evidence, user_texts=[question, *guidance_texts])
+    if quote_check["unverified"]:
+        logger.info("chat: %s из %s цитат не найдены в материалах (проект %s)",
+                    len(quote_check["unverified"]), quote_check["checked"], project_id)
     _with_source_urls(sources)
     finalize_chat_message(
         db,
@@ -1139,5 +1181,6 @@ def _answer_chat_inner(
         content=answer,
         sources=sources,
         waiting=False,
+        meta={"quote_check": quote_check, "pushback": pushback} if quote_check["checked"] or pushback else None,
     )
-    return {"answer": answer, "sources": sources, "waiting": False}
+    return {"answer": answer, "sources": sources, "waiting": False, "quote_check": quote_check}
