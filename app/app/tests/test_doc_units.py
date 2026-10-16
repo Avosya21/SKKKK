@@ -270,3 +270,15 @@ def test_scorecard_m9_counts_bound_active_document_items(docs):
     assert (bound, total) == (1, 2) and value == pytest.approx(0.5)
     other = docs.project.id + 100
     assert sc._m9(docs.db, docs.settings, other) == (None, 0, 0)
+
+
+def test_captioned_table_rows_are_units_but_caption_like_paragraph_stays():
+    """«Таблица 1: лист «Этапы»» над строками таблицы — подпись, строки — единицы (Excel, HTML, Word с подписью; до 2026-10-09 таблица
+    целиком была одним абзацем). Абзац «Таблица 3. Перечень отчётов» без таблицы под ним остаётся абзацем."""
+    from app.app.services.doc_units import split_units
+
+    text = "Таблица 1: лист «Этапы»\n| Этап | Срок |\n| --- | --- |\n| Проектирование | 20.04.2026 |\n| Разработка | 20.10.2026 |\n\nТаблица 3. Перечень отчётов приведён ниже.\n"
+    units = split_units(text)
+    assert [(u.kind, u.text) for u in units] == [
+        ("row", "Этап | Срок"), ("row", "Проектирование | 20.04.2026"), ("row", "Разработка | 20.10.2026"),
+        ("para", "Таблица 3. Перечень отчётов приведён ниже.")]

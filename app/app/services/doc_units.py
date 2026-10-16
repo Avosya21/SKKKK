@@ -5,7 +5,7 @@
 модели и всегда одинаково: номер зависит только от текста, поэтому пока текст не менялся, адрес стабилен.
 
 Что считается единицей: заголовок (строка ``#``), абзац (блок до пустой строки), пункт маркированного или нумерованного
-списка, строка таблицы (``Таблица N`` + строки ``| … |``; разделитель ``| --- |`` и подпись «Таблица N» — не единицы).
+списка, строка таблицы (``Таблица N`` или ``Таблица N: подпись`` + строки ``| … |``; разделитель ``| --- |`` и подпись — не единицы).
 Нумерация сквозная, с единицы. Адрес-строка — ``P12``.
 """
 from __future__ import annotations
@@ -23,6 +23,9 @@ CONTEXT_AFTER = 1
 _HEADING = re.compile(r"^#{1,6}\s+\S")
 _LIST_ITEM = re.compile(r"^\s*(?:[*•\-–—]|\d{1,3}[.)])\s+\S")
 _TABLE_CAPTION = re.compile(r"^Таблица\s+\d+\s*$")
+# Подпись с текстом («Таблица 1: лист «Этапы»» — Excel, HTML, Word с подписью): подпись, только если сразу за ней строка таблицы,
+# иначе это обычный абзац. До 2026-10-09 такие таблицы целиком становились одним абзацем (строки не были единицами).
+_TABLE_CAPTION_TEXT = re.compile(r"^Таблица\s+\d+\s*[.:]\s*\S")
 _TABLE_SEPARATOR = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 _SPACES = re.compile(r"\s+")
 
@@ -65,7 +68,13 @@ def split_units(text: str) -> list[Unit]:
             add(KIND_PARA, start, end, " ".join(line for _o, line in block))
         block = []
 
-    for raw_line in text.splitlines(keepends=True):
+    raw_lines = text.splitlines(keepends=True)
+
+    def table_follows(i: int) -> bool:
+        nxt = next((ln.strip() for ln in raw_lines[i + 1:] if ln.strip()), "")
+        return nxt.startswith("|")
+
+    for i, raw_line in enumerate(raw_lines):
         line = raw_line.rstrip("\r\n")
         start, stripped = offset, line.strip()
         offset += len(raw_line)
@@ -73,7 +82,7 @@ def split_units(text: str) -> list[Unit]:
             flush()
             in_table = False
             continue
-        if _TABLE_CAPTION.match(stripped):
+        if _TABLE_CAPTION.match(stripped) or (_TABLE_CAPTION_TEXT.match(stripped) and table_follows(i)):
             flush()
             in_table = True
             continue

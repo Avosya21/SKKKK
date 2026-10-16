@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--project", type=int, required=True)
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--rebind", action="store_true", help="заново и у пунктов с абзацем (нумерация единиц документа изменилась)")
+    ap.add_argument("--artifact", type=int, action="append", help="только эти документы (id материала, можно несколько раз)")
     args = ap.parse_args(argv)
 
     from app.app.config import get_settings
@@ -49,7 +51,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Копия БД:", _backup(path))
     db = SessionLocal()
     try:
-        report = doc_anchors.bind_project(db, settings, args.project, apply=args.apply)
+        report = doc_anchors.bind_project(db, settings, args.project, apply=args.apply, rebind=args.rebind,
+                                          artifact_ids=set(args.artifact) if args.artifact else None)
     finally:
         db.close()
     verb = "привязано" if args.apply else "можно привязать"

@@ -41,8 +41,9 @@ def _statement(value: dict[str, Any]) -> str:
     return str(value.get("text") or value.get("description") or "")
 
 
-def bind_artifact(db: Session, settings: Settings, art: Artifact, *, apply: bool) -> dict[str, int]:
-    """Привязать пункты одного документа. Счётчики: пунктов, уже с абзацем, привязано, осталось без."""
+def bind_artifact(db: Session, settings: Settings, art: Artifact, *, apply: bool, rebind: bool = False) -> dict[str, int]:
+    """Привязать пункты одного документа. Счётчики: пунктов, уже с абзацем, привязано, осталось без. ``rebind`` — заново и у пунктов
+    с абзацем: нумерация единиц документа изменилась (2026-10-09: строки таблиц с подписью «Таблица N: …» стали единицами)."""
     units = split_units(artifact_knowledge_text(settings, art) or "")
     stats = {"items": 0, "already": 0, "bound": 0, "left": 0}
     if not units:
@@ -55,7 +56,7 @@ def bind_artifact(db: Session, settings: Settings, art: Artifact, *, apply: bool
         if not isinstance(value, dict):
             continue
         stats["items"] += 1
-        if isinstance(value.get("source_paragraph"), int):
+        if isinstance(value.get("source_paragraph"), int) and not rebind:
             stats["already"] += 1
             continue
         unit, quote, basis = None, None, None
@@ -73,6 +74,9 @@ def bind_artifact(db: Session, settings: Settings, art: Artifact, *, apply: bool
                     quote = found[0] if found else best.text[: ct.QUOTE_MAX]
         if unit is None:
             stats["left"] += 1
+            if apply and rebind and "source_paragraph" in value:  # прежний номер указывает уже на другую единицу
+                value.pop("source_paragraph", None)
+                ent.value_json = json.dumps(value, ensure_ascii=False)
             continue
         stats["bound"] += 1
         if apply:
@@ -88,12 +92,15 @@ def bind_artifact(db: Session, settings: Settings, art: Artifact, *, apply: bool
     return stats
 
 
-def bind_project(db: Session, settings: Settings, project_id: int, *, apply: bool = False) -> dict[str, Any]:
-    """Привязать пункты всех документов проекта; ``apply=False`` — только посчитать."""
+def bind_project(db: Session, settings: Settings, project_id: int, *, apply: bool = False, rebind: bool = False,
+                 artifact_ids: set[int] | None = None) -> dict[str, Any]:
+    """Привязать пункты всех документов проекта (или только ``artifact_ids``); ``apply=False`` — только посчитать."""
     per: list[dict[str, Any]] = []
     total = {"items": 0, "already": 0, "bound": 0, "left": 0}
     for art in document_artifacts(db, settings, project_id):
-        stats = bind_artifact(db, settings, art, apply=apply)
+        if artifact_ids and art.id not in artifact_ids:
+            continue
+        stats = bind_artifact(db, settings, art, apply=apply, rebind=rebind)
         per.append({"artifact_id": art.id, "name": art.original_filename, **stats})
         for k in total:
             total[k] += stats[k]
