@@ -167,6 +167,7 @@ def test_memory_api_live_run_history_and_auto_run(client, admin_token, panel_fil
     plain = client.post("/projects", json={"name": "Без платформы"}, headers=h).json()["id"]
     on = client.post("/projects", json={"name": "С платформой"}, headers=h).json()["id"]
     client.put(f"/projects/{on}/people-platform", json={"enabled": True}, headers=h)
+    client.put(f"/projects/{plain}/people-platform", json={"enabled": False}, headers=h)  # новый проект — с платформой (Р4)
 
     data = client.get("/admin/memory/data", headers=h).json()
     assert data["project_id"] == on and data["auto_ran"] is True  # выбран проект с платформой; прогонов не было — записан сам

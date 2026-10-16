@@ -43,6 +43,7 @@ class PersonPatch(BaseModel):
     job_title: str | None = Field(default=None, max_length=200)
     authority: str | None = None
     clear_authority: bool = False
+    confirm_company: bool = False  # ЛГ5: «Компания верна» — снять пометку автоматической компании
 
 
 class MergeIn(BaseModel):
@@ -84,6 +85,7 @@ def _person_out(db: Session, p: Person, users: dict[int, str], voices: dict[int,
         "authority": p.authority, "user": {"id": p.user_id, "name": users.get(p.user_id, "")} if p.user_id else None,
         "external": p.user_id is None, "voice_suggestions": suggestions.get(p.user_id, []) if p.user_id else [],
         "voices": voices.get(p.id, 0), "voice_consent_at": p.voice_consent_at.isoformat() if p.voice_consent_at else None,
+        "company_unconfirmed": bool(p.company_unconfirmed),
     }
 
 
@@ -178,7 +180,9 @@ def update_person(
     user: Annotated[User, Depends(get_current_user)],
 ):
     project = require_project_staff(db, user, project_id)
-    fields: dict[str, Any] = {k: v for k, v in body.model_dump(exclude={"side", "clear_authority"}).items() if v is not None}
+    fields: dict[str, Any] = {k: v for k, v in body.model_dump(exclude={"side", "clear_authority", "confirm_company"}).items() if v is not None}
+    if body.confirm_company or "company_name" in fields:
+        fields["company_unconfirmed"] = False  # компанию подтвердил или выбрал человек
     if body.clear_authority:
         fields["authority"] = None
     try:

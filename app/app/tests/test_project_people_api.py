@@ -14,7 +14,7 @@ def test_staff_creates_edits_and_merges_people(client, manager_token):
     pid = _project(client, manager_token)
     h = _auth(manager_token)
     empty = client.get(f"/projects/{pid}/people", headers=h)
-    assert empty.status_code == 200 and empty.json()["platform_enabled"] is False
+    assert empty.status_code == 200 and empty.json()["platform_enabled"] is True  # Р4: новый проект — сразу с платформой
     assert [p["display_name"] for p in empty.json()["people"]] == ["Manager"]  # автор проекта записан человеком сразу
 
     a = client.post(f"/projects/{pid}/people", json={"display_name": "Ольга Пример", "side": "customer", "company_name": "ООО Пример"}, headers=h)
@@ -260,3 +260,29 @@ def test_deleting_project_removes_registry(client, admin_token, db_engine):
         assert db.query(Person).filter(Person.project_id == keep).count() >= 1  # чужой проект не тронут
     finally:
         db.close()
+
+
+def test_auto_company_is_confirmed_or_replaced_by_manager(client, manager_token, db_engine):
+    """ЛГ5: компания гостя, взятая по заказчику проекта, — на подтверждение; «Компания верна» или другая компания снимают пометку."""
+    from app.app.db import SessionLocal
+    from app.app.models.person import Person
+    from app.app.services import people
+
+    pid = _project(client, manager_token, "Подтверждение компании")
+    h = _auth(manager_token)
+    client.put(f"/projects/{pid}/parties", json={"company_name": "Заказчик Тест", "side": "customer"}, headers=h)
+    client.put(f"/projects/{pid}/parties", json={"company_name": "Партнёр Пример", "side": "customer"}, headers=h)
+    db = SessionLocal()
+    try:
+        ids = [people.create_person(db, pid, n, company_name="Заказчик Тест", side="customer").id for n in ("Гостья Первая", "Гость Второй")]
+        db.query(Person).filter(Person.id.in_(ids)).update({"company_unconfirmed": True})
+        db.commit()
+    finally:
+        db.close()
+    listed = client.get(f"/projects/{pid}/people", headers=h).json()["people"]
+    assert all(p["company_unconfirmed"] for p in listed if p["id"] in ids)
+    ok = client.put(f"/projects/{pid}/people/{ids[0]}", json={"confirm_company": True}, headers=h).json()["people"]
+    assert next(p for p in ok if p["id"] == ids[0])["company_unconfirmed"] is False
+    moved = client.put(f"/projects/{pid}/people/{ids[1]}", json={"company_name": "Партнёр Пример"}, headers=h).json()["people"]
+    row = next(p for p in moved if p["id"] == ids[1])
+    assert row["company_name"] == "Партнёр Пример" and row["company_unconfirmed"] is False
