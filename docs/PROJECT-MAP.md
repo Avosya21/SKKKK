@@ -1573,7 +1573,7 @@ run_pipeline
 | `speech_acts_doc.md` | speech_acts.py + doc_memory.py (акты единиц документа, `speech_acts_doc-v2`: контекст не размечается, ответ одной строкой; порция, ответ на которую оборвался, делится пополам) |
 | `document_passport.md` | doc_memory.py (паспорт документа: вид, сторона, утверждение, дата — с цитатами, `document_passport-v1`) |
 | `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
-| `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |
+| `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v2`: у пунктов документа раздел — не предмет, однородный перечень — один предмет) |
 | `subject_judge.md` | subject_judge.py (итог предмета и его позиции по ленте реплик и пунктов документов, `subject_judge-v3`) |
 | `subject_merge.md` | subject_windows.py (склейка дублей: один ли вопрос у двух предметов, `subject_merge-v1`) |
 
@@ -1668,7 +1668,7 @@ run_pipeline
 | `extract_speech_acts.py` | речевые акты материалов проекта (Э2 памяти решений) |
 | `build_decision_memory.py` | память решений: акты → предметы → события → итоги, копия БД перед записью |
 | `rebind_act_authors.py` | имена из стенограмм созвонов — в акты и события памяти решений без модели (голоса опознали после построения памяти); `--dry-run`, `--project`, `--artifact`; копия БД перед записью |
-| `memory_documents.py` | документы в память решений: отчёт по документам без актов (единицы, порции, время); `--enqueue` — копия БД и задачи `memory` + `memory_judge`; `--all`, `--redo` |
+| `memory_documents.py` | документы в память решений: отчёт по документам без актов (единицы, порции, время); `--enqueue` — копия БД и задачи `memory` + `memory_judge`; `--all`, `--redo`; `--artifact` — только эти документы; `--reassign` — снять пункты документов с предметов (`subject_windows.release_document_acts`) и поставить итог проекта: раскладка заново |
 | `tools/projectmap/tests/test_languages_and_grammars.py` | реестр языков (расширения, уровни, 12 языков Emerge) и грамматики tree-sitter: кэш проекта, докачка, разбор простого кода |
 | `tools/projectmap/tests/test_lang_python.py` | разбор Python через `ast`: символы, вызовы по принадлежности, импорты (в том числе внутри функций), базовые классы, ошибки синтаксиса |
 | `tools/projectmap/tests/test_lang_treesitter.py` | разбор 21 языка: образец кода на язык, шум вызовов, замыкания, отсутствие грамматики, сбой одного файла, `split_target` |

@@ -180,3 +180,30 @@ def test_unmarked_acts_get_one_followup_question(world):
     assert "Разметь ТОЛЬКО акты ниже; новые метки начинай с N2." in prompts[1] and "N1 Разбивка каталога" in prompts[1]
     assert f"A{ids[0]}" not in prompts[1].split("Акты окна:")[1]  # во втором вопросе только оставшиеся акты
     assert {s.title for s in db.query(Subject).filter(Subject.project_id == project.id).all()} == {"Разбивка каталога", "Оплата"}
+
+
+def test_release_document_acts_keeps_dialog_and_human_subjects(world):
+    """Повторная раскладка пунктов документов: предмет только из документа удаляется, у смешанного снимаются только пункты документа,
+    предмет с решением человека не трогается."""
+    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.speech_act import SpeechAct
+
+    db, settings, project, acts = world
+    doc_only = Subject(project_id=project.id, title="Срок окончания работ")
+    mixed = Subject(project_id=project.id, title="Загрузка показаний")
+    human = Subject(project_id=project.id, title="Отчёт по пломбам")
+    db.add_all([doc_only, mixed, human])
+    db.commit()
+    acts[0].unit_ref, acts[0].subject_id = "P1", doc_only.id
+    acts[1].unit_ref, acts[1].subject_id = "P2", mixed.id
+    acts[2].subject_id = mixed.id  # реплика
+    acts[3].unit_ref, acts[3].subject_id = "P3", human.id
+    db.add(DecisionEvent(project_id=project.id, subject_id=human.id, kind="agreed", occurred_at="2026-01-01", decided_by="human"))
+    db.commit()
+    doc_id, mixed_id, human_id = doc_only.id, mixed.id, human.id
+    act_ids = [x.id for x in acts[:4]]
+    stats = sw.release_document_acts(db, project.id)
+    assert stats == {"released": 2, "dropped_subjects": 1, "kept_human": 1}
+    assert db.get(Subject, doc_id) is None and db.get(Subject, mixed_id) is not None
+    got = {a.id: a.subject_id for a in db.query(SpeechAct).filter(SpeechAct.id.in_(act_ids)).all()}
+    assert got == {act_ids[0]: None, act_ids[1]: None, act_ids[2]: mixed_id, act_ids[3]: human_id}
