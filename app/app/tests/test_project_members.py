@@ -16,7 +16,7 @@ def _user_id(db_engine, telegram_id: str) -> int:
         db.close()
 
 
-def test_grant_member_sees_project_and_cannot_assign_admin(client, manager_token, user_token, db_engine):
+def test_grant_member_sees_project_and_cannot_assign_admin(client, manager_token, user_token, db_engine, member_card):
     pid = client.post("/projects", json={"name": "Share"}, headers=_auth(manager_token)).json()["id"]
     uid = _user_id(db_engine, "tg-user")
     listed = client.get(f"/projects/{pid}/members", headers=_auth(manager_token))
@@ -25,14 +25,14 @@ def test_grant_member_sees_project_and_cannot_assign_admin(client, manager_token
 
     bad = client.post(
         f"/projects/{pid}/members",
-        json={"user_id": uid, "role": "admin"},
+        json={"user_id": uid, "role": "admin", **member_card},
         headers=_auth(manager_token),
     )
     assert bad.status_code == 400
 
     ok = client.post(
         f"/projects/{pid}/members",
-        json={"user_id": uid, "role": "user"},
+        json={"user_id": uid, "role": "user", **member_card},
         headers=_auth(manager_token),
     )
     assert ok.status_code == 200
@@ -45,12 +45,12 @@ def test_grant_member_sees_project_and_cannot_assign_admin(client, manager_token
     assert "Выдать доступ" not in html
 
 
-def test_granted_manager_can_use_staff_api(client, admin_token, user_token, db_engine):
+def test_granted_manager_can_use_staff_api(client, admin_token, user_token, db_engine, member_card):
     pid = client.post("/projects", json={"name": "StaffShare"}, headers=_auth(admin_token)).json()["id"]
     uid = _user_id(db_engine, "tg-user")
     r = client.post(
         f"/projects/{pid}/members",
-        json={"user_id": uid, "role": "manager"},
+        json={"user_id": uid, "role": "manager", **member_card},
         headers=_auth(admin_token),
     )
     assert r.status_code == 200
@@ -73,12 +73,12 @@ def test_user_cannot_grant_access(client, manager_token, user_token, db_engine):
     assert client.get(f"/projects/{pid}/members", headers=_auth(user_token)).status_code == 404
 
 
-def test_user_member_sees_project_but_cannot_grant_or_rebuild(client, manager_token, user_token, db_engine):
+def test_user_member_sees_project_but_cannot_grant_or_rebuild(client, manager_token, user_token, db_engine, member_card):
     pid = client.post("/projects", json={"name": "UserMember"}, headers=_auth(manager_token)).json()["id"]
     uid = _user_id(db_engine, "tg-user")
     assert client.post(
         f"/projects/{pid}/members",
-        json={"user_id": uid, "role": "user"},
+        json={"user_id": uid, "role": "user", **member_card},
         headers=_auth(manager_token),
     ).status_code == 200
     assert client.get(f"/projects/{pid}", headers=_auth(user_token)).status_code == 200
@@ -88,12 +88,12 @@ def test_user_member_sees_project_but_cannot_grant_or_rebuild(client, manager_to
     assert "Выдать доступ" not in html
 
 
-def test_remove_member_hides_project(client, manager_token, user_token, db_engine):
+def test_remove_member_hides_project(client, manager_token, user_token, db_engine, member_card):
     pid = client.post("/projects", json={"name": "Revoke"}, headers=_auth(manager_token)).json()["id"]
     uid = _user_id(db_engine, "tg-user")
     client.post(
         f"/projects/{pid}/members",
-        json={"user_id": uid, "role": "user"},
+        json={"user_id": uid, "role": "user", **member_card},
         headers=_auth(manager_token),
     )
     assert client.delete(f"/projects/{pid}/members/{uid}", headers=_auth(manager_token)).status_code == 204
@@ -102,7 +102,7 @@ def test_remove_member_hides_project(client, manager_token, user_token, db_engin
     assert client.get(f"/projects/{pid}", headers=_auth(user_token)).status_code == 404
 
 
-def test_candidates_come_from_allowlist_without_account(client, manager_token):
+def test_candidates_come_from_allowlist_without_account(client, manager_token, member_card):
     pid = client.post("/projects", json={"name": "Allowlist"}, headers=_auth(manager_token)).json()["id"]
     listed = client.get(f"/projects/{pid}/members", headers=_auth(manager_token))
     assert listed.status_code == 200
@@ -113,7 +113,7 @@ def test_candidates_come_from_allowlist_without_account(client, manager_token):
     assert "Manager" not in logins
     r = client.post(
         f"/projects/{pid}/members",
-        json={"login": "Bootstrap admin", "role": "user"},
+        json={"login": "Bootstrap admin", "role": "user", **member_card},
         headers=_auth(manager_token),
     )
     assert r.status_code == 200

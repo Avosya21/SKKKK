@@ -158,6 +158,7 @@ def complete_onboarding(
     profile.completed_at = now
     db.commit()
     db.refresh(profile)
+    _sync_people_company(db, user.id, existing.company_id if existing is not None else None)
     return profile
 
 
@@ -192,10 +193,46 @@ def replace_avatar(db: Session, user: User, avatar_bytes: bytes) -> UserProfile:
 def set_company(db: Session, user_id: int, company_id: int) -> UserProfile:
     company = active_company(db, company_id)
     profile = _get_or_new(db, user_id)
+    old = profile.company_id
     profile.company_id = company.id
     db.commit()
     db.refresh(profile)
+    _sync_people_company(db, user_id, old)
     return profile
+
+
+def has_card(profile: UserProfile | None) -> bool:
+    """Карточка, без которой учётку нельзя добавить в проект (Р6, PEOPLE-FLOW-PLAN ЛГ3): фамилия, имя и компания."""
+    return bool(profile and profile.last_name and profile.first_name and profile.company_id)
+
+
+def fill_card_for_member(db: Session, user_id: int, *, last_name: str, first_name: str, company_id: int | None) -> UserProfile:
+    """Менеджер выдаёт доступ сотруднику без карточки: фамилия, имя и компания. Фото, должность и согласие на голос
+    человек заполнит сам при первом входе (анкета не меняет компанию, назначенную здесь). Уже заполненное не перетирается."""
+    company = active_company(db, company_id)
+    last = _clean_name(last_name, "last_name", "фамилию")
+    first = _clean_name(first_name, "first_name", "имя")
+    profile = _get_or_new(db, user_id)
+    old = profile.company_id
+    profile.last_name = profile.last_name or last
+    profile.first_name = profile.first_name or first
+    profile.company_id = profile.company_id or company.id
+    db.commit()
+    db.refresh(profile)
+    _sync_people_company(db, user_id, old)
+    return profile
+
+
+def _sync_people_company(db: Session, user_id: int, old_company_id: int | None) -> None:
+    """Компания в карточке сотрудника сменилась — у его людей в проектах тоже (если там была прежняя компания карточки
+    или пусто); сторона — от компании в проекте (Р1)."""
+    from app.app.services import people
+
+    profile = db.get(UserProfile, user_id)
+    if profile is None or not profile.company_id or profile.company_id == old_company_id:
+        return
+    people.sync_user_company(db, user_id, old_company_id)
+    db.commit()
 
 
 def withdraw_voice_consent(db: Session, user_id: int) -> int:

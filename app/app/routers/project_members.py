@@ -21,6 +21,10 @@ class MemberIn(BaseModel):
     role: str = Field(min_length=1, max_length=32)
     user_id: int | None = None
     login: str | None = Field(default=None, max_length=255)
+    # Р6: карточка сотрудника без неё — заполнить при выдаче доступа (фото, должность и согласие — сам при первом входе)
+    last_name: str | None = Field(default=None, max_length=100)
+    first_name: str | None = Field(default=None, max_length=100)
+    company_id: int | None = None
 
 
 @router.get("/{project_id}/members")
@@ -51,6 +55,9 @@ def add_member(
         role=body.role,
         user_id=body.user_id,
         login=body.login,
+        last_name=body.last_name,
+        first_name=body.first_name,
+        company_id=body.company_id,
     )
     return list_members_payload(db, project, settings) | {"user_id": row.user_id, "role": row.role}
 

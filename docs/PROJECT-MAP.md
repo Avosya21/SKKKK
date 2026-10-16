@@ -625,7 +625,7 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 | Элемент UI | API | Кто |
 |------------|-----|-----|
 | Список + кандидаты | `GET /projects/{id}/members` | admin / менеджер проекта |
-| **Добавить** | `POST /projects/{id}/members` `{login, role}` (или `user_id`) | те же; `role` только `manager`\|`user`; логин должен быть в `Login_up.txt` |
+| **Добавить** | `POST /projects/{id}/members` `{login, role}` (или `user_id`; при необходимости `last_name`, `first_name`, `company_id`) | те же; `role` только `manager`\|`user`; логин должен быть в `Login_up.txt`. **ЛГ3:** без карточки сотрудника (фамилия, имя, компания — Р6) — 400 `detail.code = card_required`, форма `#grant-card` спрашивает эти поля (`user_profile.fill_card_for_member`; фото, должность и согласие — сам при первом входе); участник сразу человек проекта (`people.member_person`: человек без учётки с тем же именем получает учётку, иначе новый по карточке); смена компании в карточке (`set_company`, анкета) переносится на его людей (`people.sync_user_company`) |
 | **Убрать** | `DELETE /projects/{id}/members/{user_id}` | те же |
 
 Эффективная роль: portal admin → `admin`; создатель → `manager`; иначе строка `project_members`; иначе (загрузка/чат без выдачи) — роль от пароля.
@@ -2246,6 +2246,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `lightrag_index.py` | Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline. |
 | `lightrag_query.py` | Запрос к LightRAG по карте SKKKK. |
 | `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
+| `link_members_people.py` | Участники проектов → люди проектов (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ3). |
 | `link_project_parties.py` | Свести стороны проектов со справочником компаний (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ1). |
 | `link_voice_profiles.py` | Привязка слепков голоса к карточкам сотрудников — только по подтверждению, ничего не привязывается само. |
 | `live_meetings.py` | Печатает идущие встречи и завершается кодом 0, если их нет, и 3, если есть. |

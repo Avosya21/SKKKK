@@ -306,7 +306,7 @@ def test_join_returns_livekit_when_configured(client, manager_token, monkeypatch
     assert body["livekit"]["configured"] is True
 
 
-def test_user_cannot_create_meeting(client, manager_token, user_token, db_engine):
+def test_user_cannot_create_meeting(client, manager_token, user_token, db_engine, member_card):
     from app.app.db import SessionLocal
     from app.app.models.user import User
 
@@ -318,7 +318,7 @@ def test_user_cannot_create_meeting(client, manager_token, user_token, db_engine
         db.close()
     client.post(
         f"/projects/{pid}/members",
-        json={"user_id": uid, "role": "user"},
+        json={"user_id": uid, "role": "user", **member_card},
         headers=_auth(manager_token),
     )
     r = client.post(f"/projects/{pid}/meetings", headers=_auth(user_token))
@@ -1209,7 +1209,7 @@ def test_live_meetings_only_while_someone_is_on_the_line(client, manager_token):
     assert live() == []
 
 
-def test_live_meeting_bar_is_for_meeting_staff_only(client, manager_token, user_token):
+def test_live_meeting_bar_is_for_meeting_staff_only(client, manager_token, user_token, member_card):
     from app.app.db import SessionLocal
     from app.app.models.user import User
 
@@ -1220,7 +1220,7 @@ def test_live_meeting_bar_is_for_meeting_staff_only(client, manager_token, user_
         uid = db.query(User).filter(User.telegram_id == "tg-user").one().id
     finally:
         db.close()
-    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user"}, headers=h)
+    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user", **member_card}, headers=h)
     assert client.get(f"/projects/{pid}/meetings/live", headers=_auth(user_token)).status_code == 403
     page = client.get(f"/projects/{pid}", headers=_auth(user_token))
     assert page.status_code == 200 and 'id="live-meetings"' not in page.text

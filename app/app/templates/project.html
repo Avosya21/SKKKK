@@ -1068,6 +1068,18 @@
           <button type="button" class="btn btn-sm btn-primary skkkk-action-btn w-100" id="grant-add" data-idle-label="Добавить">Добавить</button>
         </div>
       </div>
+      <div id="grant-card" class="border rounded p-2 mb-2" hidden>
+        <div class="small mb-2" id="grant-card-text"></div>
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4"><label class="form-label small mb-1" for="grant-last-name">Фамилия</label>
+            <input id="grant-last-name" class="form-control form-control-sm" maxlength="100" autocomplete="off"></div>
+          <div class="col-md-3"><label class="form-label small mb-1" for="grant-first-name">Имя</label>
+            <input id="grant-first-name" class="form-control form-control-sm" maxlength="100" autocomplete="off"></div>
+          <div class="col-md-5"><label class="form-label small mb-1" for="grant-company">Компания</label>
+            <select id="grant-company" class="form-select form-select-sm"></select></div>
+        </div>
+        <div class="form-text">Заполните и нажмите «Добавить» ещё раз.</div>
+      </div>
       <div id="grant-status" class="text-muted small mb-2" aria-live="polite"></div>
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0">
@@ -3205,6 +3217,26 @@ if (grantAccessPanel && grantToggleHint) {
     grantToggleHint.textContent = '(развернуть)';
   });
 }
+async function showGrantCard(login, detail) {
+  const box = document.getElementById('grant-card');
+  const sel = document.getElementById('grant-company');
+  if (!sel.options.length) {
+    try {
+      const r = await SKKKK.api('/companies');
+      const items = r.ok ? (await r.json()).items.filter((c) => c.active) : [];
+      sel.innerHTML = '<option value="">Выберите компанию</option>' + items.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    } catch (_) { sel.innerHTML = '<option value="">Список компаний недоступен</option>'; }
+  }
+  document.getElementById('grant-card-text').textContent = detail.message || 'Нужна карточка сотрудника.';
+  document.getElementById('grant-last-name').value = detail.last_name || '';
+  document.getElementById('grant-first-name').value = detail.first_name || '';
+  if (detail.company_id) sel.value = String(detail.company_id);
+  box.dataset.login = login;
+  box.hidden = false;
+  if (grantStatus) grantStatus.textContent = '';
+  document.getElementById('grant-last-name').focus();
+}
+if (grantUserSel) grantUserSel.addEventListener('change', () => { document.getElementById('grant-card').hidden = true; });
 if (grantAddBtn) {
   grantAddBtn.addEventListener('click', async () => {
     const login = grantUserSel && grantUserSel.value;
@@ -3213,13 +3245,28 @@ if (grantAddBtn) {
       if (grantStatus) grantStatus.textContent = 'Выберите пользователя и роль';
       return;
     }
+    // Р6 (PEOPLE-FLOW-PLAN, ЛГ3): без карточки сотрудника сервер просит фамилию, имя и компанию
+    const cardBox = document.getElementById('grant-card');
+    const body = { login, role };
+    if (!cardBox.hidden && cardBox.dataset.login === login) {
+      body.last_name = document.getElementById('grant-last-name').value.trim();
+      body.first_name = document.getElementById('grant-first-name').value.trim();
+      body.company_id = Number(document.getElementById('grant-company').value) || null;
+    }
     await SKKKK.guardButton(grantAddBtn, async () => {
       const r = await SKKKK.api(`/projects/${projectId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login, role }),
+        body: JSON.stringify(body),
       });
-      if (!r.ok) throw new Error('add failed');
+      if (!r.ok) {
+        let detail = null;
+        try { detail = (await r.json()).detail; } catch (_) { detail = null; }
+        if (detail && detail.code === 'card_required') { await showGrantCard(login, detail); return; }
+        if (grantStatus) grantStatus.textContent = typeof detail === 'string' ? detail : 'Не удалось выдать доступ';
+        return;
+      }
+      cardBox.hidden = true;
       renderGrantPayload(await r.json());
       if (grantStatus) grantStatus.textContent = 'Доступ выдан';
     }, { label: 'Добавление…' }).catch(() => {

@@ -351,3 +351,16 @@ def cookie_auth_client(client: TestClient, admin_token: str) -> TestClient:
 
     return client
 
+
+@pytest.fixture()
+def member_card(db_engine):
+    """Карточка сотрудника для выдачи доступа к проекту (Р6, PEOPLE-FLOW-PLAN ЛГ3): без неё учётку в проект не добавить."""
+    import app.app.db as db_mod
+    from app.app.services.companies import canonical_company, sync_companies
+
+    db = db_mod.SessionLocal()
+    try:
+        sync_companies(db)
+        return {"last_name": "Пример", "first_name": "Участник", "company_id": canonical_company(db, "ACME").id}
+    finally:
+        db.close()

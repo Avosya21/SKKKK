@@ -446,6 +446,47 @@ def sides_map(db: Session, project_id: int) -> dict[str, str]:
     return out
 
 
+def member_person(db: Session, project_id: int, user_id: int, *, by_user_id: int | None = None) -> Person | None:
+    """ЛГ3: участник проекта — человек проекта. Уже есть человек с этой учёткой — он; есть человек без учётки с тем же
+    именем, что в карточке, — ему привязывается учётка; иначе новый по карточке. Без имени в карточке — None."""
+    from app.app.services import user_profile as profiles
+
+    own = db.scalar(select(Person).where(Person.project_id == project_id, Person.user_id == user_id, Person.merged_into.is_(None)))
+    if own is not None:
+        return own
+    card = profiles.get_profile(db, user_id)
+    if card is None or not (card.first_name and card.last_name):
+        return None
+    for name in (f"{card.first_name} {card.last_name}", f"{card.last_name} {card.first_name}"):
+        hit = resolve(db, project_id, name, allow_first_name=False)
+        if hit is not None and hit.person.user_id is None:
+            return update_person(db, project_id, hit.person.id, by_user_id=by_user_id, user_id=user_id)
+    return person_from_user(db, project_id, user_id, by_user_id=by_user_id)
+
+
+def sync_user_company(db: Session, user_id: int, old_company_id: int | None, *, by_user_id: int | None = None) -> int:
+    """Компания карточки сотрудника → его люди во всех проектах, у кого компания пустая или прежняя карточки."""
+    from app.app.models.company import Company
+    from app.app.services import user_profile as profiles
+
+    card = profiles.get_profile(db, user_id)
+    company = db.get(Company, card.company_id) if card is not None and card.company_id else None
+    if company is None:
+        return 0
+    changed = 0
+    for person in db.scalars(select(Person).where(Person.user_id == user_id, Person.merged_into.is_(None))).all():
+        if (person.company_name or "").strip() and not (old_company_id and person.company_id == old_company_id):
+            continue
+        if person.company_id == company.id:
+            continue
+        if find_party(db, person.project_id, company.name) is None and company.side in (SIDE_EXECUTOR, SIDE_CUSTOMER):
+            set_party(db, person.project_id, company.name, company.side, by_user_id=by_user_id)  # сторона компании по умолчанию
+        update_person(db, person.project_id, person.id, by_user_id=by_user_id, company_name=company.name)
+        changed += 1
+    db.flush()
+    return changed
+
+
 def person_from_user(db: Session, project_id: int, user_id: int, *, by_user_id: int | None = None) -> Person:
     """Сотрудник портала -> человек проекта: имя, компания и должность из карточки, сторона от компании проекта или списка."""
     from app.app.models.company import Company
