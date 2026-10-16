@@ -24,11 +24,11 @@ def _user_id(telegram_id: str) -> int:
 
 
 @pytest.fixture()
-def world(client, admin_token, manager_token, user_token):
+def world(client, admin_token, manager_token, user_token, member_card):
     """Проект менеджера (в нём участник-«user») и проект админа, куда у менеджера и «user» доступа нет."""
     mine = client.post("/projects", json={"name": "Проект менеджера", "customer_company": "ООО Пример",
                                           "customer_people": [{"name": "Ольга Заказчикова"}]}, headers=_auth(manager_token)).json()["id"]
-    client.post(f"/projects/{mine}/members", json={"user_id": _user_id("tg-user"), "role": "user"}, headers=_auth(manager_token))
+    client.post(f"/projects/{mine}/members", json={"user_id": _user_id("tg-user"), "role": "user", **member_card}, headers=_auth(manager_token))
     foreign = client.post("/projects", json={"name": "Чужой проект"}, headers=_auth(admin_token)).json()["id"]
     return mine, foreign
 
@@ -154,7 +154,7 @@ def test_forget_keeps_account_and_global_voice(client, admin_token, world):
     db = SessionLocal()
     try:
         account = db.query(User).filter(User.telegram_id == "tg-user").one()
-        person = people.create_person(db, mine, "Сотрудник Пример", user_id=account.id)
+        person = next(p for p in people.list_people(db, mine) if p.user_id == account.id)  # участник — человек проекта (ЛГ3)
         shared = SpeakerProfile(scope="global", display_name="Сотрудник Пример", embedding=b"\0" * 8, embedding_dim=2, user_id=account.id, person_id=person.id)
         db.add(shared)
         db.commit()

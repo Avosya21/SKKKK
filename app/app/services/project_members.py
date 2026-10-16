@@ -103,6 +103,9 @@ def upsert_member(
     role: str,
     user_id: int | None = None,
     login: str | None = None,
+    last_name: str | None = None,
+    first_name: str | None = None,
+    company_id: int | None = None,
 ) -> ProjectMember:
     role = (role or "").strip()
     if role not in MEMBER_ROLES:
@@ -127,6 +130,8 @@ def upsert_member(
         )
     )
     created = row is None
+    if created:
+        _ensure_card(db, target, last_name=last_name, first_name=first_name, company_id=company_id)
     if row is None:
         row = ProjectMember(
             project_id=project.id,
@@ -140,6 +145,7 @@ def upsert_member(
         row.granted_by = actor.id
     db.commit()
     db.refresh(row)
+    _ensure_member_person(db, project.id, target.id, actor.id)
     log_activity(
         db,
         user_id=actor.id,
@@ -152,6 +158,43 @@ def upsert_member(
         target_id=target.id,
     )
     return row
+
+
+def _ensure_card(db: Session, target: User, *, last_name: str | None, first_name: str | None, company_id: int | None) -> None:
+    """Р6 (PEOPLE-FLOW-PLAN, ЛГ3): без карточки (фамилия, имя, компания) учётку в проект не добавить. Поля из формы
+    выдачи доступа заполняют недостающее; ничего не передали — 400 с кодом ``card_required`` для формы."""
+    from app.app.services import user_profile as profiles
+
+    card = profiles.get_profile(db, target.id)
+    if profiles.has_card(card):
+        return
+    if not (last_name or first_name or company_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
+            "code": "card_required",
+            "message": f"У «{target.name}» нет карточки сотрудника. Укажите фамилию, имя и компанию — "
+                       "фото и должность он заполнит сам при первом входе.",
+            "last_name": (card.last_name if card else "") or "", "first_name": (card.first_name if card else "") or "",
+            "company_id": card.company_id if card else None,
+        })
+    try:
+        profiles.fill_card_for_member(db, target.id, last_name=last_name or "", first_name=first_name or "", company_id=company_id)
+    except profiles.ProfileError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _ensure_member_person(db: Session, project_id: int, user_id: int, actor_id: int) -> None:
+    """ЛГ3: участник проекта сразу человек проекта («Люди и стороны»). Сбой реестра не отменяет выданный доступ."""
+    import logging
+
+    from app.app.services import people
+
+    try:
+        people.member_person(db, project_id, user_id, by_user_id=actor_id)
+        db.commit()
+    except people.PeopleError:
+        db.rollback()
+        logging.getLogger("skkkk.members").warning("участник %s проекта %s не записан в реестр", user_id, project_id, exc_info=True)
 
 
 def remove_member(db: Session, *, project: Project, actor: User, user_id: int) -> None:

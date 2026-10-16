@@ -69,7 +69,7 @@ def test_unknown_queue_resolves_to_person_new_person_or_ignore(client, manager_t
     assert "Serge P" in next(p for p in done["people"] if p["id"] == known)["aliases"]
 
 
-def test_parties_and_from_user(client, manager_token, user_token, db_engine):
+def test_parties_and_from_user(client, manager_token, user_token, db_engine, member_card):
     from app.app.db import SessionLocal
     from app.app.models.user import User
 
@@ -85,13 +85,13 @@ def test_parties_and_from_user(client, manager_token, user_token, db_engine):
     finally:
         db.close()
     assert client.post(f"/projects/{pid}/people/from-user", json={"user_id": uid}, headers=h).status_code == 400  # не участник проекта
-    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user"}, headers=h)
-    listed = client.get(f"/projects/{pid}/people", headers=h).json()
-    assert any(m["user_id"] == uid for m in listed["members_without_person"])
-    created = client.post(f"/projects/{pid}/people/from-user", json={"user_id": uid}, headers=h)
-    assert created.status_code == 201
-    person = next(p for p in created.json()["people"] if p["user"] and p["user"]["id"] == uid)
-    assert person["side_source"] in ("card", "human") and created.json()["members_without_person"] == []
+    added = client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user"}, headers=h)
+    assert added.status_code == 400 and added.json()["detail"]["code"] == "card_required"  # Р6: без карточки не добавить
+    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user", **member_card}, headers=h)
+    listed = client.get(f"/projects/{pid}/people", headers=h).json()  # ЛГ3: участник сразу человек проекта
+    person = next(p for p in listed["people"] if p["user"] and p["user"]["id"] == uid)
+    assert person["display_name"] == "Участник Пример" and person["company_name"] == "ACME"
+    assert person["side"] == "executor" and listed["members_without_person"] == []
 
 
 def test_ordinary_user_has_no_access(client, manager_token, user_token, admin_token):
@@ -120,7 +120,7 @@ def test_platform_switch_admin_only_and_changes_flag(client, admin_token, manage
     assert {"platform_on", "platform_off"} <= {r["action"] for r in log}
 
 
-def test_project_page_shows_people_card_only_to_staff(client, manager_token, user_token):
+def test_project_page_shows_people_card_only_to_staff(client, manager_token, user_token, member_card):
     pid = _project(client, manager_token, "Страница")
     uid = None
     from app.app.db import SessionLocal
@@ -131,7 +131,7 @@ def test_project_page_shows_people_card_only_to_staff(client, manager_token, use
         uid = db.query(User).filter(User.telegram_id == "tg-user").one().id
     finally:
         db.close()
-    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user"}, headers=_auth(manager_token))
+    client.post(f"/projects/{pid}/members", json={"user_id": uid, "role": "user", **member_card}, headers=_auth(manager_token))
     staff = client.get(f"/projects/{pid}", headers=_auth(manager_token)).text
     assert "Люди и стороны" in staff and "/static/people.js" in staff
     ordinary = client.get(f"/projects/{pid}", headers=_auth(user_token)).text

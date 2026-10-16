@@ -191,7 +191,7 @@ def test_queue_reextract_selected_keeps_project_topics(db, setup):
     assert [s["scope"] for s in pj.progress(db, pid)["stages"]] == ["reextract"]
 
 
-def test_review_refused_when_auto_review_is_off(db, setup):
+def test_review_refused_when_auto_review_is_off(db, setup, member_card):
     pid, _ = setup
     off = _settings().model_copy(update={"auto_review_mode": "off"})
     with pytest.raises(pj.JobsError, match="выключена"):
@@ -212,12 +212,12 @@ def _user_id(telegram_id):
 
 
 @pytest.fixture()
-def api_project(client, admin_token, manager_token, user_token, monkeypatch):
+def api_project(client, admin_token, manager_token, user_token, monkeypatch, member_card):
     from app.app.routers import project_background
 
     monkeypatch.setattr(project_background, "running_worker_kinds", lambda _d: {"auto_review"})
     pid = client.post("/projects", json={"name": "API фона"}, headers=_auth(manager_token)).json()["id"]
-    client.post(f"/projects/{pid}/members", json={"user_id": _user_id("tg-user"), "role": "user"}, headers=_auth(manager_token))
+    client.post(f"/projects/{pid}/members", json={"user_id": _user_id("tg-user"), "role": "user", **member_card}, headers=_auth(manager_token))
     return pid
 
 

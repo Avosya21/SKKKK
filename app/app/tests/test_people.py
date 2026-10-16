@@ -180,6 +180,28 @@ def test_person_side_follows_company_side_in_project(db, project):
     assert people.get(db, project.id, anna.id).side == "executor"  # смена стороны компании — всем её людям
 
 
+def test_member_person_links_existing_name_and_follows_card_company(db, project):
+    """ЛГ3: участник — человек проекта (уже заведённый по имени получает учётку); смена компании в карточке — у его людей."""
+    from app.app.services import user_profile as profiles
+    from app.app.services.companies import canonical_company, sync_companies
+
+    sync_companies(db)
+    acme, client_co = canonical_company(db, "ACME"), canonical_company(db, "Заказчик Тест")
+    worker = _user(db, "lg3-worker")
+    profiles.fill_card_for_member(db, worker.id, last_name="Пример", first_name="Вера", company_id=acme.id)
+    early = people.create_person(db, project.id, "Вера Пример", company_name="ACME", side="executor", side_source="human")
+    db.commit()
+    linked = people.member_person(db, project.id, worker.id)
+    assert linked.id == early.id and linked.user_id == worker.id  # не дубль, а привязка учётки
+    assert people.member_person(db, project.id, worker.id).id == early.id  # повтор ничего не меняет
+    profiles.set_company(db, worker.id, client_co.id)
+    db.expire_all()
+    moved = people.get(db, project.id, early.id)
+    assert moved.company_name == "Заказчик Тест" and moved.side == "customer"  # сторона — от компании (Р1)
+    nobody = _user(db, "lg3-nocard")
+    assert people.member_person(db, project.id, nobody.id) is None  # без карточки имени нет — человека не заводим
+
+
 def test_contract_uses_registry_only_when_platform_enabled(db, project, monkeypatch):
     from app.app.services import contract
 
