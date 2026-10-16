@@ -3675,6 +3675,48 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_align_people_sides
+    kind: file
+    path: scripts/align_people_sides.py
+    title: "Привести людей проектов к правилу «сторона — от компании в проекте» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ2, решение Р1)."
+    tags: [auto]
+    auto: true
+
+  - id: script_link_project_parties
+    kind: file
+    path: scripts/link_project_parties.py
+    title: "Свести стороны проектов со справочником компаний (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ1)."
+    tags: [auto]
+    auto: true
+
+  - id: script_people_flow_report
+    kind: file
+    path: scripts/people_flow_report.py
+    title: "Отчёт расхождений «компания → сторона → человек → учётка → голос» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ0)."
+    tags: [auto]
+    auto: true
+
+  - id: script_chat_authors_people
+    kind: file
+    path: scripts/chat_authors_people.py
+    title: "Авторы уже загруженных переписок и разобранных реплик → карточки людей проекта (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ6)."
+    tags: [auto]
+    auto: true
+
+  - id: script_link_meeting_people
+    kind: file
+    path: scripts/link_meeting_people.py
+    title: "Участники прошлых встреч → люди проектов (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ5)."
+    tags: [auto]
+    auto: true
+
+  - id: script_link_members_people
+    kind: file
+    path: scripts/link_members_people.py
+    title: "Участники проектов → люди проектов (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ3)."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
