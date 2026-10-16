@@ -534,3 +534,12 @@ def test_people_changes_reach_decision_memory(db, project, admin):
     db.expire_all()
     assert db.get(SpeechAct, act.id).side == "executor" and db.get(DecisionEvent, event.id).actor_side == "executor"
     assert db.get(Subject, subject.id).state  # свёртка журнала пересчитана
+
+    judged = db.get(Subject, subject.id)  # итог поставил судья (модель) — правки людей его не перетирают
+    judged.state, judged.state_source = "agreed", "judge"
+    db.commit()
+    people.set_party(db, project.id, "Заказчик Тест", "customer")
+    db.commit()
+    db.expire_all()
+    kept = db.get(Subject, subject.id)
+    assert (kept.state, kept.state_source) == ("agreed", "judge") and db.get(DecisionEvent, event.id).actor_side == "customer"
