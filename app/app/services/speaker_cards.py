@@ -121,11 +121,12 @@ def page_context(db: Session, artifact: Artifact) -> dict[str, Any]:
     staff = _staff(db)
     companies: dict[str, str] = {}
     sides: dict[str, str] = {}
+    parties = db.scalars(select(ProjectParty).where(ProjectParty.project_id == project_id)).all()
     for c in active_companies(db):
         companies.setdefault(people.alias_key(c.name), c.name)
         if c.side in CARD_SIDES:
             sides[people.alias_key(c.name)] = c.side
-    for party in db.scalars(select(ProjectParty).where(ProjectParty.project_id == project_id)).all():
+    for party in parties:
         companies.setdefault(party.company_key, party.company_name)
         if party.side in CARD_SIDES:
             sides[party.company_key] = party.side  # сторона в проекте главнее общего списка (Д1)
@@ -158,7 +159,10 @@ def page_context(db: Session, artifact: Artifact) -> dict[str, Any]:
         "artifact_id": artifact.artifact_id,
         "people": rows,
         "staff": [{k: s[k] for k in ("name", "keys", "company", "side", "job_title")} for s in staff],
-        "companies": sorted(companies.values(), key=str.casefold),
+        # компании проекта первыми (ЛГ4): новый человек почти всегда из них; остальные — справочник портала
+        "companies": sorted({p.company_name for p in parties}, key=str.casefold)
+        + sorted((v for v in companies.values() if v not in {p.company_name for p in parties}), key=str.casefold),
+        "project_parties": [{"company": p.company_name, "side": p.side} for p in parties],
         "company_sides": sides,
         "cards": cards,
     }
@@ -333,4 +337,21 @@ def confirm_card(db: Session, artifact: Artifact, *, diar_label: str, name: str,
         prof = db.get(SpeakerProfile, profile.id)
         prof.person_id = person.id
         db.commit()
+    _link_staff_voice(db, person, profile)
     return person, profile
+
+
+def _link_staff_voice(db: Session, person: Person, profile) -> None:
+    """Р5 (PEOPLE-FLOW-PLAN, ЛГ4): подтверждённый голос сотрудника сам привязывается к его учётке, если в карточке есть
+    согласие на голос. Уже есть другой голос учётки — не трогаем: два голоса одного человека разбираются на странице
+    разбора голосов (возможный дубль), а не склеиваются молча."""
+    from app.app.models.speaker_profile import SpeakerProfile
+    from app.app.services import voice_link
+
+    if person.user_id is None or profile.scope != "global" or profile.user_id is not None:
+        return
+    if not voice_link.has_voice_consent(db, person.user_id):
+        return
+    other = db.scalar(select(SpeakerProfile.id).where(SpeakerProfile.user_id == person.user_id, SpeakerProfile.id != profile.id))
+    if other is None:
+        voice_link.link_profile(db, profile.id, person.user_id)

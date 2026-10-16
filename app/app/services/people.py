@@ -588,7 +588,9 @@ def attach_guest_rows(db: Session, project_id: int, label_key: str, person_id: i
 
 def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | None = None) -> dict[str, int]:
     """После встречи: каждый участник комнаты становится человеком проекта или вопросом «Кто это?».
-    Сотрудник (учётка) — человек по карточке (создаётся, если его ещё нет); гость — по написанию имени в реестре, иначе вопрос.
+    Сотрудник (учётка) — человек по карточке (создаётся, если его ещё нет); гость — по написанию имени в реестре, иначе
+    новый человек проекта с согласием на голос (Р7) и компанией, указанной при входе; вопрос — только если одиночное имя
+    подходит нескольким людям.
     Повтор безопасен: уже связанные участники пропускаются, вопросы не дублируются."""
     from app.app.models.meeting import MeetingParticipant
 
@@ -610,7 +612,12 @@ def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | No
         if person is None:
             hit = resolve(db, meeting.project_id, row.display_name)
             person = hit.person if hit is not None else None
+        if person is None and row.user_id is None and not _ambiguous_first_name(db, meeting.project_id, row.display_name):
+            person = _guest_person(db, meeting, row, by_user_id)  # Р7: гость встречи — человек проекта
+            if person is not None:
+                out["created"] += 1
         if person is not None:
+            _guest_company(db, meeting.project_id, person, row, by_user_id)
             row.person_id = person.id
             out["linked"] += 1
         else:
@@ -618,6 +625,43 @@ def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | No
             out["unknown"] += 1
     db.flush()
     return out
+
+
+GUEST_CONSENT_BASIS = "согласие при входе во встречу"
+
+
+def _ambiguous_first_name(db: Session, project_id: int, label: str | None) -> bool:
+    """Одиночное имя («Анна»), под которое подходят несколько людей проекта, — вопрос «Кто это?», а не новый человек."""
+    key = alias_key(label)
+    if not key or " " in key:
+        return False
+    owners = {a.person_id for a in db.scalars(select(PersonAlias).where(PersonAlias.project_id == project_id,
+                                                                      PersonAlias.alias_key.like(f"{key} %"))).all()}
+    return len(owners) > 1
+
+
+def _guest_person(db: Session, meeting: Any, row: Any, by_user_id: int | None) -> Person | None:
+    """Р7 (PEOPLE-FLOW-PLAN, ЛГ4): гость вошёл с согласием на запись и назвался — он человек проекта. Компания — если
+    указал её при входе и она есть в сторонах проекта (сторона — от неё, Р1); иначе без компании, сторону укажет менеджер."""
+    party = find_party(db, meeting.project_id, row.company_name) if (row.company_name or "").strip() else None
+    try:
+        with db.begin_nested():
+            person = create_person(db, meeting.project_id, row.display_name, company_name=party.company_name if party else None,
+                                   side=party.side if party else SIDE_UNKNOWN, side_source="project_party" if party else "model",
+                                   by_user_id=by_user_id, alias_source="guest")
+            give_voice_consent(db, meeting.project_id, person.id, by_user_id=by_user_id, basis=GUEST_CONSENT_BASIS)
+        return person
+    except PeopleError:
+        return None
+
+
+def _guest_company(db: Session, project_id: int, person: Person, row: Any, by_user_id: int | None) -> None:
+    """Гость указал компанию из сторон проекта, а у человека компании ещё нет — проставить (сторона — от компании)."""
+    if person.user_id is not None or (person.company_name or "").strip() or not (getattr(row, "company_name", None) or "").strip():
+        return
+    party = find_party(db, project_id, row.company_name)
+    if party is not None:
+        update_person(db, project_id, person.id, by_user_id=by_user_id, company_name=party.company_name)
 
 
 # ---------------------------------------------------------------- удаление человека из проекта (ПФ8)

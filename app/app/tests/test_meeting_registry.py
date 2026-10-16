@@ -21,8 +21,9 @@ def room(client, manager_token, monkeypatch):
     mid, token = created["id"], created["public_token"]
     client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
 
-    def guest(name, guest_id):
-        return client.post(f"/api/meetings/public/{token}/join", json={"display_name": name, "guest_id": guest_id})
+    def guest(name, guest_id, company=None):
+        body = {"display_name": name, "guest_id": guest_id} | ({"company_name": company} if company else {})
+        return client.post(f"/api/meetings/public/{token}/join", json=body)
 
     def end():
         return client.post(f"/projects/{pid}/meetings/{mid}/end", headers=_auth(manager_token))
@@ -61,27 +62,37 @@ def test_platform_off_leaves_participants_unlinked(room):
     assert set(_participants(mid).values()) == {None}
 
 
-def test_guest_becomes_question_and_known_guest_is_linked(room):
+def test_new_guest_becomes_person_known_is_linked_ambiguous_is_question(room):
+    """Р7 (PEOPLE-FLOW-PLAN, ЛГ4): гость согласился на запись при входе — после встречи он человек проекта (компания и
+    сторона — из указанной при входе); известный — привязка; одиночное имя нескольких людей — «Кто это?»."""
     from app.app.db import SessionLocal
 
     pid, mid, guest, end = room
     _enable(pid)
     db = SessionLocal()
     try:
-        known = people.create_person(db, pid, "Елена Образцова", side="customer", side_source="human")
-        known_id = known.id
+        people.set_party(db, pid, "Заказчик Тест", "customer")
+        known_id = people.create_person(db, pid, "Елена Образцова", side="customer", side_source="human").id
+        people.create_person(db, pid, "Анна Первая")
+        people.create_person(db, pid, "Анна Вторая")
         db.commit()
     finally:
         db.close()
     guest("Елена Образцова", "g-known")
-    guest("Незнакомый Гость", "g-unknown")
+    guest("Незнакомый Гость", "g-unknown", company="заказчик тест")
+    guest("Без Компании", "g-nocompany")
+    guest("Анна", "g-ambiguous")
     assert end().status_code == 200
     got = _participants(mid)
-    assert got["Елена Образцова"] == known_id and got["Незнакомый Гость"] is None
+    assert got["Елена Образцова"] == known_id and got["Анна"] is None
     db = SessionLocal()
     try:
+        fresh = people.get(db, pid, got["Незнакомый Гость"])
+        assert (fresh.company_name, fresh.side) == ("Заказчик Тест", "customer") and fresh.voice_consent_at is not None
+        bare = people.get(db, pid, got["Без Компании"])
+        assert bare.company_name is None and bare.side == "unknown" and bare.voice_consent_at is not None
         queue = people.open_unknown(db, pid)
-        assert [(q.kind, q.label) for q in queue] == [("guest", "Незнакомый Гость")]
+        assert [(q.kind, q.label) for q in queue] == [("guest", "Анна")]
         assert "встречи" in queue[0].examples_json
     finally:
         db.close()
@@ -120,21 +131,28 @@ def test_resolving_guest_links_all_meetings_and_future_ones(room, client, manage
 
     pid, mid, guest, end = room
     _enable(pid)
-    guest("Гость Иванов", "g-a")
+    db = SessionLocal()
+    try:  # одиночное имя, под которое подходят двое, — вопрос «Кто это?»
+        people.create_person(db, pid, "Гость Первый")
+        people.create_person(db, pid, "Гость Второй")
+        db.commit()
+    finally:
+        db.close()
+    guest("Гость", "g-a")
     end()
     h = _auth(manager_token)
     queue = client.get(f"/projects/{pid}/people/unknown", headers=h).json()["items"]
-    assert [q["label"] for q in queue] == ["Гость Иванов"]
+    assert [q["label"] for q in queue] == ["Гость"]
     made = client.post(f"/projects/{pid}/people/unknown/{queue[0]['id']}/resolve", json={"new_name": "Иван Иванов", "side": "customer"}, headers=h)
     assert made.status_code == 200
     person_id = next(p["id"] for p in made.json()["people"] if p["display_name"] == "Иван Иванов")
-    assert _participants(mid)["Гость Иванов"] == person_id  # запись прошлой встречи получила человека
+    assert _participants(mid)["Гость"] == person_id  # запись прошлой встречи получила человека
 
     created = client.post(f"/projects/{pid}/meetings", headers=h).json()  # вторая встреча: тот же гость узнаётся без вопроса
     client.post(f"/projects/{pid}/meetings/{created['id']}/start", headers=h)
-    client.post(f"/api/meetings/public/{created['public_token']}/join", json={"display_name": "Гость Иванов", "guest_id": "g-b"})
+    client.post(f"/api/meetings/public/{created['public_token']}/join", json={"display_name": "Гость", "guest_id": "g-b"})
     client.post(f"/projects/{pid}/meetings/{created['id']}/end", headers=h)
-    assert _participants(created["id"])["Гость Иванов"] == person_id
+    assert _participants(created["id"])["Гость"] == person_id
     db = SessionLocal()
     try:
         assert people.open_unknown(db, pid) == []
@@ -148,14 +166,24 @@ def test_link_is_idempotent_and_does_not_duplicate_questions(room):
 
     pid, mid, guest, end = room
     _enable(pid)
-    guest("Повторный Гость", "g-r")
+    db = SessionLocal()
+    try:
+        people.create_person(db, pid, "Повторный Первый")
+        people.create_person(db, pid, "Повторный Второй")
+        db.commit()
+    finally:
+        db.close()
+    guest("Повторный", "g-r")
+    guest("Новый Гость", "g-new")
     end()
     db = SessionLocal()
     try:
         meeting = db.get(Meeting, mid)
+        before = len(people.list_people(db, pid))
         again = people.link_meeting_participants(db, meeting)
         db.commit()
         assert again["unknown"] == 1 and len(people.open_unknown(db, pid)) == 1  # вопрос один, а не два
+        assert again["created"] == 0 and len(people.list_people(db, pid)) == before  # гость не задвоился
     finally:
         db.close()
 
