@@ -111,6 +111,31 @@ def test_documented_rules():
                  ev(3, "documented", "2026-03-01", "executor", precision="day")) == "documented"  # новый документ снова фиксирует
 
 
+def ev_by(i, kind, at, side, *, person=None, label=None):
+    return SimpleNamespace(id=i, kind=kind, occurred_at=at, actor_side=side, actor_person_id=person, actor_label=label, decided_by="rule",
+                           precision="minute", is_active=True)
+
+
+def test_internal_project_counts_colleague_agreement_not_authors_own():
+    """Внутренний проект (все — исполнитель): согласие коллеги закрывает предложение, «согласие» самого автора — нет."""
+    offer = ev_by(1, "proposed", "2026-01-01T10:00", "executor", person=7, label="Аналитик А")
+    colleague = ev_by(2, "agreed", "2026-01-01T10:05", "executor", person=8, label="Аналитик Б")
+    author = ev_by(2, "agreed", "2026-01-01T10:05", "executor", person=7, label="Аналитик А")
+    assert dl.fold([offer, colleague], internal=True).state == "agreed"
+    own = dl.fold([offer, author], internal=True)
+    assert own.state == "proposed" and "автора предложения" in own.trail[-1]["note"]
+    # без человека реестра сравнивается подпись автора
+    by_label = ev_by(1, "documented", "2026-01-01T10:00", "executor", label="Аналитик А")
+    assert dl.fold([by_label, ev_by(2, "agreed", "2026-01-02T10:00", "executor", label="Аналитик Б")], internal=True).state == "agreed"
+    assert dl.fold([by_label, ev_by(2, "agreed", "2026-01-02T10:00", "executor", label=" аналитик  а ")], internal=True).state == "documented"
+    assert dl.fold([offer, ev_by(2, "agreed", "2026-01-01T10:05", "executor")], internal=True).state == "proposed"  # автор согласия неизвестен
+    done = ev_by(3, "implemented", "2026-01-01T10:10", "executor", person=7)
+    assert dl.fold([offer, done, ev_by(4, "agreed", "2026-01-01T10:15", "executor", person=8)], internal=True).state == "implemented"  # «ок» после «сделал»
+    # проект с заказчиком — как раньше: коллега своей стороны предложение не закрывает
+    assert dl.fold([offer, colleague]).state == "proposed"
+    assert dl.fold([offer, ev_by(2, "agreed", "2026-01-01T10:05", "customer", person=9)]).state == "agreed"
+
+
 # ---------------------------------------------------------------- база: события и пересборка из актов
 
 @pytest.fixture()
@@ -151,6 +176,17 @@ def test_add_event_validates_and_refresh_subject_writes_state(world):
     res = dl.refresh_subject(db, subject)
     db.commit()
     assert res.state == "agreed" and subject.state == "agreed" and subject.state_since == "2026-01-02T10:00" and subject.state_source == "fold"
+    assert dl.state_at(db, subject.id, "2026-01-01").state == "proposed"
+
+
+def test_refresh_subject_reads_internal_project_flag(world):
+    db, project, _art, subject, _other = world
+    dl.add_event(db, subject, "proposed", "2026-01-01T10:00", actor_side="executor", actor_label="Аналитик А")
+    dl.add_event(db, subject, "agreed", "2026-01-02T10:00", actor_side="executor", actor_label="Аналитик Б")
+    assert dl.refresh_subject(db, subject).state == "proposed"  # проект с заказчиком: своя сторона не закрывает
+    project.set_settings({**project.settings(), "internal_project": True})
+    db.commit()
+    assert dl.refresh_subject(db, subject).state == "agreed" and dl.state_at(db, subject.id, "2026-01-02").state == "agreed"
     assert dl.state_at(db, subject.id, "2026-01-01").state == "proposed"
 
 
