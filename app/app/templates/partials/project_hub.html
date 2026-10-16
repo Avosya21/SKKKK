@@ -102,7 +102,8 @@
         </div>
         <form class="px-form-row d-none" id="pp-add-form" autocomplete="off">
           <input type="text" class="form-control form-control-sm" id="pp-new-name" placeholder="Имя и фамилия" maxlength="200" required>
-          <input type="text" class="form-control form-control-sm" id="pp-new-company" placeholder="Компания" maxlength="200">
+          <input type="text" class="form-control form-control-sm" id="pp-new-company" placeholder="Компания из сторон проекта" maxlength="200" list="pp-party-companies">
+          <datalist id="pp-party-companies"></datalist>
           <select class="form-select form-select-sm" id="pp-new-side" aria-label="Сторона">
             <option value="unknown">Сторона не определена</option>
             <option value="customer">Заказчик</option>
