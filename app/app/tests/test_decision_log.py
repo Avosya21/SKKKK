@@ -217,3 +217,9 @@ def test_rebuild_events_from_acts_skips_context_acts_and_keeps_human_events(worl
     db.commit()
     assert again["events"] == 1 and db.query(DecisionEvent).filter(DecisionEvent.subject_id == subject.id).count() == 1  # события актов заменены
     assert db.get(DecisionEvent, human.id) is not None and db.get(type(other), other.id).state == "agreed"  # событие человека осталось
+
+
+def test_document_fact_is_documented_dialog_fact_is_context():
+    assert dl.event_kind(SimpleNamespace(act="info", unit_ref="P12")) == "documented"
+    assert dl.event_kind(SimpleNamespace(act="info", unit_ref="T12")) is None
+    assert dl.event_kind(SimpleNamespace(act="done", unit_ref="P3")) == "implemented"
