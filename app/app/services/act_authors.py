@@ -4,7 +4,7 @@
 неназванного голоса (``speaker_2``). Голоса часто опознают позже разбора — тогда стенограмма уже с именами, а акты и
 события журнала остаются с меткой и без человека. ``rebind_call_authors`` переносит имена из стенограммы в акты
 (автор, человек, сторона) и в события журнала, выведенные из этих актов, и пересчитывает затронутые предметы свёрткой
-журнала. Модель не вызывается. Реплика акта — по номеру ``T<n>`` и дословной цитате (номера сдвигаются после «Слить» —
+журнала, кроме предметов с итогом судьи или человека (``people.sync_decision_memory``). Модель не вызывается. Реплика акта — по номеру ``T<n>`` и дословной цитате (номера сдвигаются после «Слить» —
 тогда ближайшая по ``start_sec`` реплика с цитатой); не нашлась — метка голоса → имя подтверждённого спикера созвона. Вызывается из ``entities.rebind_call_entities`` — там же, где
 обновляются имена в сущностях созвона (подтверждение и переименование голосов, переиндексация).
 """
@@ -67,7 +67,7 @@ def rebind_call_authors(db: Session, settings: Settings, artifact: Artifact) -> 
     stats = {"acts": 0, "people": 0, "events": 0, "subjects": 0}
     if artifact.file_type != "audio":
         return stats
-    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.decision_memory import DecisionEvent
     from app.app.models.speech_act import SpeechAct
     from app.app.services import decision_log, people
     from app.app.services.entities import speaker_label_names
@@ -121,11 +121,8 @@ def rebind_call_authors(db: Session, settings: Settings, artifact: Artifact) -> 
             touched.add(event.subject_id)
             stats["events"] += 1
     db.flush()
-    for sid in sorted(touched):
-        subject = db.get(Subject, sid)
-        if subject is not None:
-            decision_log.refresh_subject(db, subject)
-    db.flush()
+    # Пересчёт свёрткой — как при правке людей: итог судьи или человека не перетирается (судья перепроверит сам)
+    people.sync_decision_memory(db, artifact.project_id, person_ids=set(), subject_ids=touched)
     stats["subjects"] = len(touched)
     log_event(logger, "act_authors.rebound", artifact=artifact.artifact_id, **stats)
     return stats
