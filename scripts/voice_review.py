@@ -12,7 +12,8 @@
 
 Решения по голосу: «всё верно», «переименовать», «это тот же человек, что …» (слить), «в голосе смешаны разные люди»,
 «удалить голос» (привязки в созвонах снимаются — голос снова «новый»), «не уверен»; компания и сторона — людям проекта под
-этим голосом (компания — из списка компаний портала). Решение по паре: один человек (какой оставить) / разные / не уверен.
+этим голосом (компания — из списка компаний портала). Решение по паре: один человек (какой оставить) / разные / не уверен. Голос без владельца получает предложение «чей голос»
+(ЛГ4 PEOPLE-FLOW-PLAN): учётка сотрудника с согласием в карточке или человек проекта; привязка — только по «Да».
 """
 from __future__ import annotations
 
@@ -70,7 +71,25 @@ def _speaker_sample(turns: list, name: str, near: float | None) -> tuple[float, 
     return best.start_sec, end, (best.text or "").strip()[:400]
 
 
-def build() -> Path:
+def owner_suggestion(prof, linked_people: list, consent_of) -> dict | None:
+    """ЛГ4: чей голос без владельца. Один сотрудник с согласием в карточке среди людей под голосом — его учётка (Р5);
+    сотрудников нет, а человек проекта один — он (голос внешнего человека, Д5). Иначе — без предложения."""
+    if prof.user_id or prof.person_id:
+        return None
+    staff = {p.user_id: p for p in linked_people if p.user_id}
+    if len(staff) == 1:
+        uid, person = next(iter(staff.items()))
+        if consent_of(uid):
+            return {"kind": "account", "user_id": uid, "label": f"учётка сотрудника «{person.display_name}»"}
+        return None
+    if not staff and len(linked_people) == 1:
+        person = linked_people[0]
+        return {"kind": "person", "person_id": person.id, "project": person.project_id,
+                "label": f"человек проекта {person.project_id} «{person.display_name}»"}
+    return None
+
+
+def build(skip_projects: set[int] | None = None) -> Path:
     from sqlalchemy import select
 
     from app.app.config import get_settings
@@ -81,7 +100,7 @@ def build() -> Path:
     from app.app.models.project import Project
     from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
     from app.app.models.user import User
-    from app.app.services import people
+    from app.app.services import people, voice_link
     from app.app.services.transcript_turns import load_turns
     from asr.speaker_registry import cosine, unpack_embedding
     from scripts.voice_duplicates import candidate_pairs
@@ -162,6 +181,8 @@ def build() -> Path:
                 samples.append({"kind": "созвон", "src": f"clips/{out.name}", "project": art.project_id,
                                 "call": art.original_filename, "at": round(sample[0]), "text": sample[2],
                                 "label": link.diar_label})
+            voice_projects = {l.project_id for l in calls} | ({prof.project_id} if prof.project_id else set())
+            suggest = None if skip_projects and voice_projects & skip_projects else                 owner_suggestion(prof, list(linked.values()), lambda uid: voice_link.has_voice_consent(db, uid))
             near = sorted(((cosine(vecs[prof.id], vecs[o.id]), o.id) for o in profiles
                            if o.id != prof.id and len(vecs[o.id]) == len(vecs[prof.id])), reverse=True)
             voices.append({
@@ -173,6 +194,8 @@ def build() -> Path:
                             "side": p.side, "job": p.job_title or "", "account": p.user_id is not None} for p in linked.values()],
                 "samples": samples,
                 "near": [{"id": oid, "pct": int(round(s * 100))} for s, oid in near[:NEIGHBOURS] if s >= NEIGHBOUR_MIN],
+                "owner": ("учётка" if prof.user_id else "человек проекта" if prof.person_id else None),
+                "owner_suggest": suggest,
             })
         with ThreadPoolExecutor(max_workers=6) as pool:
             ok = list(pool.map(lambda j: _clip(*j), jobs))
@@ -246,6 +269,7 @@ def plan(decisions: dict, data: dict) -> list[tuple[str, dict]]:
     """Решения → шаги: слить, переименовать, компания/сторона людям, удалить голос. Пары «один человек» — тоже слияния."""
     steps: list[tuple[str, dict]] = []
     names = {v["id"]: v["name"] for v in data["voices"]}
+    suggestions = {v["id"]: v.get("owner_suggest") for v in data["voices"]}
     merges: dict[int, int] = {}
     for key, verdict in (decisions.get("pairs") or {}).items():
         a, b = (int(x) for x in key.split(":"))
@@ -287,6 +311,9 @@ def plan(decisions: dict, data: dict) -> list[tuple[str, dict]]:
                                              f"сторона {d.get('side') or '—'}"}))
         if d.get("verdict") == "mixed":
             steps.append(("note", {"id": vid, "text": f"«{names.get(vid)}» ({vid}): смешаны разные люди — разбирать вручную"}))
+        offer = suggestions.get(vid)
+        if d.get("owner") == "accept" and offer and vid not in merges and d.get("verdict") != "delete":
+            steps.append(("owner", {"id": vid, **offer, "text": f"голос «{names.get(vid)}» ({vid}) → {offer['label']}"}))
     return steps
 
 
@@ -314,7 +341,7 @@ def _apply_steps(steps: list[tuple[str, dict]], data: dict) -> None:
     from app.app.db import SessionLocal
     from app.app.models.artifact import Artifact
     from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
-    from app.app.services import people
+    from app.app.services import people, voice_link
     from app.app.services.entities import rebind_call_entities
     from app.app.services.speaker_profiles import _absorb_profile, _refresh_match_views_after_cleanup
 
@@ -361,6 +388,16 @@ def _apply_steps(steps: list[tuple[str, dict]], data: dict) -> None:
                 for link in db.scalars(select(ArtifactSpeakerLink).where(ArtifactSpeakerLink.suggested_profile_id == prof.id)):
                     link.suggested_profile_id = None
                 db.delete(prof)
+            elif kind == "owner":
+                prof = db.get(SpeakerProfile, s["id"])
+                if prof is None or prof.user_id or prof.person_id:
+                    print("пропуск:", s["text"])
+                    continue
+                if s["kind"] == "account":
+                    voice_link.link_profile(db, prof.id, s["user_id"])  # согласие в карточке проверяется здесь
+                else:
+                    prof.person_id = s["person_id"]
+                touched |= {l.artifact_id for l in db.scalars(select(ArtifactSpeakerLink).where(ArtifactSpeakerLink.profile_id == prof.id))}
             elif kind == "person":
                 for p in people_of.get(s["id"], []):
                     try:
@@ -389,9 +426,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("cmd", choices=("build", "serve", "apply"))
     ap.add_argument("--yes", action="store_true", help="apply: применить (иначе только план)")
+    ap.add_argument("--skip-project", type=int, action="append", default=[],
+                    help="build: не предлагать владельца голосам, звучащим в этом проекте (можно несколько раз)")
     args = ap.parse_args()
     if args.cmd == "build":
-        build()
+        build(set(args.skip_project))
     elif args.cmd == "serve":
         serve()
     else:

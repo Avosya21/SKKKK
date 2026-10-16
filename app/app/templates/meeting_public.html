@@ -35,6 +35,11 @@
               <label class="form-label" for="guest-name">Как вас представить</label>
               <input class="form-control" id="guest-name" name="display_name" required maxlength="128" autocomplete="name" enterkeyhint="go">
             </div>
+            <div class="mb-3">
+              <label class="form-label" for="guest-company">Ваша компания</label>
+              <input class="form-control" id="guest-company" name="company_name" maxlength="200" autocomplete="organization" list="guest-company-list" placeholder="Выберите или впишите">
+              <datalist id="guest-company-list">{% for c in guest_companies %}<option value="{{ c }}"></option>{% endfor %}</datalist>
+            </div>
             <div class="alert alert-warning small py-2 mb-2" role="status" id="guest-consent">
               {% if record_audio %}
               <strong>Что записывается во встрече</strong>
@@ -220,7 +225,7 @@ form.addEventListener('submit', async (e) => {
     const r = await fetch('/api/meetings/public/' + encodeURIComponent(token) + '/join', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: name, guest_id: guestId }),
+      body: JSON.stringify({ display_name: name, guest_id: guestId, company_name: (document.getElementById('guest-company').value || '').trim() || undefined }),
     });
     if (r.status === 409) {
       const info = await loadStatus();
@@ -284,7 +289,8 @@ form.addEventListener('submit', async (e) => {
         const again = await fetch('/api/meetings/public/' + encodeURIComponent(token) + '/join', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ display_name: name, guest_id: localStorage.getItem('skkkk-guest-' + token) || undefined }),
+          body: JSON.stringify({ display_name: name, guest_id: localStorage.getItem('skkkk-guest-' + token) || undefined,
+                                 company_name: (document.getElementById('guest-company').value || '').trim() || undefined }),
         });
         if ([404, 409, 410].includes(again.status)) {
           throw Object.assign(new Error('Встреча завершена или ссылка отозвана.'), { meetingGone: true });

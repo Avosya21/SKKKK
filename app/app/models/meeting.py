@@ -50,3 +50,5 @@ class MeetingParticipant(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     # Человек из реестра проекта (ПФ7): гость становится человеком после «Кто это?».
     person_id: Mapped[int | None] = mapped_column(ForeignKey("people.id"), nullable=True)
+    # Компания, которую гость указал при входе (Р7): после встречи по ней человек проекта получает компанию и сторону.
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)

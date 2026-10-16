@@ -44,6 +44,7 @@ MEETING_DELETE_TITLE = "Удалил созвон"
 class GuestJoinIn(BaseModel):
     display_name: str = Field(min_length=1, max_length=128)
     guest_id: str | None = None
+    company_name: str | None = Field(default=None, max_length=200)  # Р7: компания гостя (из сторон проекта)
 
 
 class LeaveIn(BaseModel):
@@ -272,7 +273,8 @@ def public_meeting_join(
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     meeting = meeting_by_token(db, token)
-    return join_guest(db, settings, meeting, body.display_name, guest_id=parse_guest_id(body.guest_id))
+    return join_guest(db, settings, meeting, body.display_name, guest_id=parse_guest_id(body.guest_id),
+                      company_name=body.company_name)
 
 
 @router.post("/api/meetings/public/{token}/leave", status_code=status.HTTP_204_NO_CONTENT)

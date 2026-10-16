@@ -175,13 +175,21 @@ def public_meeting_page(
     token: str,
     db: Annotated[Session, Depends(get_db)],
 ):
-    meeting_by_token(db, token)
+    meeting = meeting_by_token(db, token)
+    from sqlalchemy import select
+
+    from app.app.models.person import ProjectParty
+
+    # Р7: гость выбирает свою компанию из сторон проекта (только названия компаний, без людей и проекта)
+    parties = sorted(db.scalars(select(ProjectParty.company_name).where(ProjectParty.project_id == meeting.project_id)).all(),
+                     key=str.casefold)
     return templates.TemplateResponse(
         request,
         "meeting_public.html",
         {
             "title": "Встреча",
             "token": token,
+            "guest_companies": parties,
             "meeting_voice": meeting_voice_flags(get_settings()),
             "record_audio": recording_enabled(),
             "record_screen": screen_recording_enabled(),

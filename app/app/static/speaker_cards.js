@@ -241,7 +241,12 @@
       if (s && !touched.side) side.value = s;
       sync();
     });
-    side.addEventListener('change', sync);
+    side.addEventListener('change', () => {
+      // ЛГ4: выбрали сторону, а компании ещё нет — компания этой стороны в проекте, если она одна
+      const same = (ctx.project_parties || []).filter((p) => p.side === side.value);
+      if (!company.value.trim() && same.length === 1) { company.value = same[0].company; touched.company = false; }
+      sync();
+    });
 
     // начальное состояние: голос карточки, иначе вариант с тем же именем, что подставила страница
     const startKey = key(nameInp.value);

@@ -326,7 +326,7 @@ def guest_identity(token_hash: str, guest_id: str) -> str:
     return GUEST_PREFIX + digest[:GUEST_IDENTITY_HASH_LEN]
 
 
-def _upsert_guest(db: Session, meeting: Meeting, identity: str, name: str) -> None:
+def _upsert_guest(db: Session, meeting: Meeting, identity: str, name: str, company: str | None = None) -> None:
     row = db.scalar(
         select(MeetingParticipant).where(
             MeetingParticipant.meeting_id == meeting.id,
@@ -335,6 +335,7 @@ def _upsert_guest(db: Session, meeting: Meeting, identity: str, name: str) -> No
     )
     if row:
         row.display_name = name
+        row.company_name = company or row.company_name
         row.joined_at = _now()
         row.left_at = None
         return
@@ -344,6 +345,7 @@ def _upsert_guest(db: Session, meeting: Meeting, identity: str, name: str) -> No
             identity=identity,
             display_name=name,
             participant_type=PARTICIPANT_GUEST,
+            company_name=company,
         )
     )
 
@@ -354,6 +356,7 @@ def join_guest(
     meeting: Meeting,
     display_name: str,
     guest_id: str | None = None,
+    company_name: str | None = None,
 ) -> dict:
     name = (display_name or "").strip()
     if not name:
@@ -365,7 +368,7 @@ def join_guest(
         identity = guest_identity(meeting.public_token_hash, guest_id)
     else:
         identity = GUEST_PREFIX + secrets.token_hex(16)
-    _upsert_guest(db, meeting, identity, short_name)
+    _upsert_guest(db, meeting, identity, short_name, " ".join((company_name or "").split())[:200] or None)
     db.commit()
     return _join_payload(settings, meeting, identity, short_name)
 

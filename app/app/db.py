@@ -121,6 +121,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     # Платформа памяти решений (PLATFORM-FOUNDATION-PLAN, ПФ1): человек из реестра и точность времени материала.
     ("speaker_profiles", "person_id", "INTEGER REFERENCES people(id)"),
     ("meeting_participants", "person_id", "INTEGER REFERENCES people(id)"),
+    # ЛГ4/Р7 (PEOPLE-FLOW-PLAN): компания, которую гость указал при входе во встречу
+    ("meeting_participants", "company_name", "VARCHAR(200)"),
     ("artifacts", "recorded_at_precision", "VARCHAR(8)"),
 ]
 

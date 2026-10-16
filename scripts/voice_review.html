@@ -239,6 +239,25 @@ a.jump { color: var(--accent); cursor: pointer; text-decoration: underline; }
     });
     box.append(vs);
 
+    // ЛГ4: чей голос — учётка сотрудника или человек проекта; привязка — только по «Да»
+    if (v.owner) box.append(el('div', 'small muted', `Владелец голоса: ${v.owner}`));
+    if (v.owner_suggest) {
+      const row = el('div', 'verdicts');
+      row.append(el('span', 'small', `Чей голос: ${v.owner_suggest.label}?`));
+      [['accept', 'Да, привязать'], ['reject', 'Нет']].forEach(([key, label]) => {
+        const b = el('button', '', label);
+        b.type = 'button'; b.dataset.o = key;
+        b.setAttribute('aria-pressed', String(d.owner === key));
+        b.addEventListener('click', () => {
+          d.owner = d.owner === key ? '' : key;
+          row.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.o === d.owner)));
+          save();
+        });
+        row.append(b);
+      });
+      box.append(row);
+    }
+
     const nameInp = el('input'); nameInp.type = 'text'; nameInp.value = d.name || v.name;
     nameInp.addEventListener('input', () => { d.name = nameInp.value; save(); });
     nameRow.append(el('label', 'lbl', 'Правильное имя (Имя Фамилия)'), nameInp);

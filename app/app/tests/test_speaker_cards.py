@@ -214,3 +214,33 @@ def test_page_lists_voice_candidates(setup):
     match.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     cands = page_context(db, art)["cards"]["speaker_0"]["candidates"]
     assert cands[0]["profile_id"] == voice.id and cands[0]["pct"] == 87
+
+
+def test_staff_voice_links_to_account_and_party_companies_come_first(setup):
+    """ЛГ4 (Р5): подтверждённый голос сотрудника с согласием в карточке сам привязывается к его учётке;
+    в карточке голоса компании проекта идут первыми, есть стороны проекта для подстановки компании."""
+    from datetime import datetime, timezone
+
+    from app.app.models.user import User
+    from app.app.services import user_profile as profiles
+    from app.app.services.companies import canonical_company, sync_companies
+    from app.app.services.speaker_cards import confirm_card, page_context
+
+    db, art, _match = setup
+    sync_companies(db)
+    worker = User(name="lg4-worker", telegram_id="tg-lg4-worker", role="user", password_hash="x")
+    db.add(worker)
+    db.commit()
+    card = profiles.fill_card_for_member(db, worker.id, last_name="Пилотова", first_name="Ирина",
+                                         company_id=canonical_company(db, "ACME").id)
+    card.voice_consent_at = datetime.now(timezone.utc)
+    db.commit()
+    people.set_party(db, art.project_id, "Заказчик Тест", "customer")
+    people.member_person(db, art.project_id, worker.id)
+    db.commit()
+    person, profile = confirm_card(db, art, diar_label="speaker_0", name="Ирина Пилотова", company="ACME", side="executor")
+    db.refresh(profile)
+    assert person.user_id == worker.id and profile.scope == "global" and profile.user_id == worker.id
+    ctx = page_context(db, art)
+    parties = {p["company"] for p in ctx["project_parties"]}
+    assert parties == {"ACME", "Заказчик Тест"} and set(ctx["companies"][:2]) == parties
