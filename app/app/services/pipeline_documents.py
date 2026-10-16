@@ -248,6 +248,26 @@ def _strip_page_numbers(text: str) -> str:
 SHORT_TXT_NORMALIZE_CHARS = 3000
 
 
+def _chat_authors_to_people(db: Session, settings: Settings, artifact: Artifact) -> None:
+    """Авторы загруженной переписки — люди проекта (PEOPLE-FLOW-PLAN: у каждой реплики карточка): известные — их слова,
+    незнакомые — новые карточки на подтверждение. Только при включённой платформе; сбой не мешает разбору документа."""
+    from app.app.models.project import Project
+    from app.app.services import memory_platform, people
+    from app.app.services.chat_export import load_artifact_export
+
+    try:
+        if not memory_platform.enabled(settings, db.get(Project, artifact.project_id)):
+            return
+        export = load_artifact_export(settings, artifact) or {}
+        authors = [m.get("author") for m in export.get("messages") or [] if m.get("author")]
+        out = people.chat_author_people(db, artifact.project_id, authors)
+        db.commit()
+        log_event(logger, "document.chat_people", artifact=artifact.artifact_id, **out)
+    except Exception:  # noqa: BLE001 — реестр дополняется и кнопкой, разбор переписки важнее
+        db.rollback()
+        logger.warning("авторы переписки %s не записаны в реестр", artifact.artifact_id, exc_info=True)
+
+
 def process_document_artifact(db: Session, settings: Settings, artifact: Artifact) -> str:
     path = Path(artifact.file_path)
     set_status(db, artifact, "preprocessing")
@@ -298,6 +318,8 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
         raise RuntimeError("no text extracted")
 
     log_event(logger, "document.extracted", artifact=artifact.artifact_id, file_type=artifact.file_type, chars=len(raw))
+    if is_chat:
+        _chat_authors_to_people(db, settings, artifact)
     raw = _strip_page_numbers(raw)
     out_dir = parsed_dir(settings, artifact.project_id, artifact.source_type)
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -405,6 +405,7 @@ def seed_project(db: Session, settings: Settings, project_id: int, *, apply: boo
         person = people.create_person(db, project_id, cluster.display_name, user_id=row["user_id"], company_name=row["company"],
                                       job_title=card.job_title if card else None, side=side, side_source=side_source,
                                       by_user_id=by_user_id, alias_source="card" if card else "model")
+        person.needs_review = card is None  # карточку по материалам завела система — подтвердить или объединить
         for n in cluster.names:
             if alias_key(n) != alias_key(cluster.display_name):
                 try:

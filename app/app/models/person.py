@@ -51,6 +51,9 @@ class Person(Base):
     # Компания проставлена автоматически (гость встречи без указанной компании — заказчик проекта, ЛГ5): ждёт подтверждения
     # менеджера в «Люди и стороны»; снимается кнопкой «Компания верна» или правкой компании.
     company_unconfirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # Карточку завела система (автор переписки, гость встречи): в «Люди и стороны» она подсвечена, пока менеджер её не
+    # подтвердит («Подтвердить карточку») или не объединит с уже известным человеком.
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -38,13 +38,14 @@
   function renderPeople() {
     const list = $('pp-list');
     if (!state.people.length) { list.innerHTML = '<div class="text-muted small">Пока никого. Нажмите «Найти людей в материалах» или добавьте вручную.</div>'; return; }
+    $('pp-new-count').textContent = state.new_cards ? `(новых карточек: ${state.new_cards} — подтвердите или объедините)` : '';
     list.innerHTML = state.people.map((p) => {
       const others = state.people.filter((o) => o.id !== p.id).map((o) => `<option value="${o.id}">${esc(o.display_name)}</option>`).join('');
       const extra = p.aliases.filter((a) => a !== p.display_name);
       const meta = [p.company_name, p.job_title, p.user ? `учётка: ${esc(p.user.name)}` : 'без учётки в портале', p.voices ? `голосов: ${p.voices}` : null].filter(Boolean).join(' · ');
-      return `<div class="px-item" data-person="${p.id}">
+      return `<div class="px-item${p.needs_review ? ' px-item-new' : ''}" data-person="${p.id}">
         <div class="d-flex flex-wrap justify-content-between gap-2">
-          <div><strong>${esc(p.display_name)}</strong>${p.side === 'unknown' ? ' <span class="badge text-bg-warning">сторона не определена</span>' : ''}${p.company_unconfirmed ? ' <span class="badge text-bg-warning">компания определена автоматически</span>' : ''}
+          <div><strong>${esc(p.display_name)}</strong>${p.side === 'unknown' ? ' <span class="badge text-bg-warning">сторона не определена</span>' : ''}${p.needs_review ? ' <span class="badge text-bg-info">новая карточка</span>' : ''}${p.company_unconfirmed ? ' <span class="badge text-bg-warning">компания определена автоматически</span>' : ''}
             <div class="small text-muted">${meta}</div>
             ${extra.length ? `<div class="small text-muted">Также пишут: ${extra.map(esc).join(', ')}</div>` : ''}</div>
         </div>
@@ -53,6 +54,8 @@
           <select class="form-select form-select-sm" data-act="authority" aria-label="Право утверждать">${opts(AUTH, p.authority || '')}</select>
           <input type="text" class="form-control form-control-sm" data-act="company" placeholder="Компания из сторон проекта" list="pp-party-companies" value="${esc(p.company_name || '')}" maxlength="200">
         </div>
+        ${p.needs_review ? `<div class="px-form-row"><span class="small">Карточку завела система по материалам (переписка, встреча). Если это уже известный человек — выберите его в «Объединить с…» ниже, его слова перейдут к нему; если новый — подтвердите.</span>
+          <button type="button" class="btn btn-sm btn-primary" data-act="confirm-card">Подтвердить карточку</button></div>` : ''}
         ${p.company_unconfirmed ? `<div class="px-form-row"><span class="small">Заведён по встрече: компания взята по заказчику проекта. Гость мог быть из другой компании — выберите её в поле «Компания» или подтвердите.</span>
           <button type="button" class="btn btn-sm btn-outline-secondary" data-act="confirm-company">Компания верна</button></div>` : ''}
         <div class="small text-muted mt-1">${partyOf(p.company_name) ? `Сторона — от компании «${esc(partyOf(p.company_name).company_name)}» в проекте` : `Сторона: ${esc(SOURCE[p.side_source] || p.side_source)}`}</div>
@@ -77,8 +80,10 @@
     const list = $('pp-unknown');
     $('pp-unknown-count').textContent = state.unknown_open ? `(ждут ответа: ${state.unknown_open})` : '';
     const badge = $('pp-badge');
-    badge.classList.toggle('d-none', !state.unknown_open);
-    badge.textContent = state.unknown_open ? `Кто это? ${state.unknown_open}` : '';
+    const waiting = (state.unknown_open || 0) + (state.new_cards || 0);
+    badge.classList.toggle('d-none', !waiting);
+    badge.textContent = [state.unknown_open ? `Кто это? ${state.unknown_open}` : '', state.new_cards ? `Новых: ${state.new_cards}` : '']
+      .filter(Boolean).join(' · ');
     if (!state.unknown_items || !state.unknown_items.length) {
       list.innerHTML = state.unknown_open ? '<div class="text-muted small">Загрузка…</div>' : '<div class="text-muted small">Все опознаны.</div>';
       return;
@@ -205,6 +210,11 @@
     const btn = e.target.closest('button[data-act]'); const card = e.target.closest('[data-person]');
     if (!btn || !card) return;
     const id = card.dataset.person;
+    if (btn.dataset.act === 'confirm-card') {
+      const r = await call(`/people/${id}`, 'PUT', { confirm_card: true });
+      if (r) { apply(r); say('Карточка подтверждена.'); }
+      return;
+    }
     if (btn.dataset.act === 'confirm-company') {
       const r = await call(`/people/${id}`, 'PUT', { confirm_company: true });
       if (r) { apply(r); say('Компания подтверждена.'); }

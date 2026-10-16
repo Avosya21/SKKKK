@@ -3,6 +3,7 @@
 .px-card .card-header .px-toggle-btn:hover { color: var(--ds-text-2, #3f3f46); }
 .px-list { display: flex; flex-direction: column; gap: 0; }
 .px-item { border: 1px solid var(--ds-line, #e4e4e7); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--ds-surface, #fff); }
+.px-item-new { border-color: var(--bs-info, #0dcaf0); box-shadow: inset 3px 0 0 var(--bs-info, #0dcaf0); }
 .px-statement { color: var(--ds-text, #09090b); overflow-wrap: anywhere; white-space: pre-wrap; }
 .px-quote { margin: 8px 0 0; padding: 6px 12px; border-left: 2px solid var(--ds-line-strong, #d4d4d8); color: var(--ds-text-2, #3f3f46); font-size: .875rem; overflow-wrap: anywhere; }
 .px-quote footer { margin-top: 2px; font-size: .78rem; color: var(--ds-text-3, #71717a); }

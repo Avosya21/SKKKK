@@ -160,6 +160,7 @@ def create_person(
     _log(db, project_id, person.id, by_user_id, "create", None, _snapshot(person))
     db.flush()
     align_to_company(db, project_id, person, by_user_id=by_user_id)
+    attach_words(db, project_id, person)
     return person
 
 
@@ -177,7 +178,28 @@ def add_alias(db: Session, project_id: int, person_id: int, alias: str, *, sourc
     db.add(row)
     _log(db, project_id, person.id, by_user_id, "add_alias", None, {"alias": row.alias, "source": source})
     db.flush()
+    attach_words(db, project_id, person)
     return row
+
+def attach_words(db: Session, project_id: int, person: Person) -> int:
+    """Слова человека — к его карточке: уже разобранные реплики (``speech_acts``) без человека, автор которых — одно из
+    написаний человека, привязываются к нему (карточку или написание завели позже разбора материала). Сторона реплики,
+    если неизвестна, — сторона человека."""
+    from app.app.models.speech_act import SpeechAct
+
+    keys = {a.alias_key for a in aliases_of(db, person.id)}
+    side = person.side if person.side in (SIDE_EXECUTOR, SIDE_CUSTOMER) else None
+    n = 0
+    for act in db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id, SpeechAct.person_id.is_(None),
+                                                  SpeechAct.author.isnot(None))).all():
+        if alias_key(act.author) in keys:
+            act.person_id = person.id
+            if side and act.side in (None, "", SIDE_UNKNOWN):
+                act.side = side
+            n += 1
+    if n:
+        db.flush()
+    return n
 
 
 def resolve(db: Session, project_id: int, label: str | None, *, allow_first_name: bool = True) -> Match | None:
@@ -229,7 +251,8 @@ def set_side(db: Session, project_id: int, person_id: int, side: str, *, source:
 def update_person(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None, **fields: Any) -> Person:
     """Правка карточки человека проекта: company_name, company_id, job_title, authority, display_name, user_id."""
     person = get(db, project_id, person_id)
-    allowed = {"company_name", "company_id", "job_title", "authority", "display_name", "user_id", "company_unconfirmed"}
+    allowed = {"company_name", "company_id", "job_title", "authority", "display_name", "user_id", "company_unconfirmed",
+               "needs_review"}
     bad = set(fields) - allowed
     if bad:
         raise PeopleError(f"Нельзя менять: {', '.join(sorted(bad))}")
@@ -288,6 +311,7 @@ def merge(db: Session, project_id: int, keep_id: int, drop_id: int, *, by_user_i
     _log(db, project_id, keep.id, by_user_id, "merge", before, {"keep": _snapshot(keep), "drop_id": drop.id})
     db.flush()
     keep = align_to_company(db, project_id, keep, by_user_id=by_user_id)
+    keep.needs_review = keep.needs_review and drop.needs_review  # объединили с известным — карточка разобрана
     _rebind_material(db, project_id, keep, drop.id)
     return keep
 
@@ -700,7 +724,7 @@ def _guest_person(db: Session, meeting: Any, row: Any, by_user_id: int | None) -
     party = find_party(db, meeting.project_id, row.company_name) if (row.company_name or "").strip() else None
     guessed = False
     if party is None and not (row.company_name or "").strip():
-        party = _only_customer(db, meeting.project_id)  # правило владельца: не сотрудник — сотрудник заказчика проекта
+        party = default_party(db, meeting.project_id)  # правило владельца: не сотрудник — сотрудник заказчика проекта
         guessed = party is not None  # гость может быть и из другой компании — менеджер подтвердит или выберет другую
     try:
         with db.begin_nested():
@@ -709,20 +733,76 @@ def _guest_person(db: Session, meeting: Any, row: Any, by_user_id: int | None) -
                                    by_user_id=by_user_id, alias_source="guest")
             give_voice_consent(db, meeting.project_id, person.id, by_user_id=by_user_id, basis=GUEST_CONSENT_BASIS)
             person.company_unconfirmed = guessed
+            person.needs_review = True  # новая карточка от системы — подсвечена до подтверждения или объединения
         return person
     except PeopleError:
         return None
 
 
-def _only_customer(db: Session, project_id: int) -> ProjectParty | None:
-    """Единственная сторона-заказчик проекта (не внутреннего): гость встречи без указанной компании — из неё (ЛГ5)."""
+def default_party(db: Session, project_id: int) -> ProjectParty | None:
+    """Компания по умолчанию для незнакомого человека проекта (правило владельца: не сотрудник — сотрудник заказчика):
+    единственный заказчик проекта; у внутреннего проекта — единственный исполнитель. Ставится с пометкой «компания
+    определена автоматически» — менеджер подтверждает или выбирает другую."""
     from app.app.models.project import Project
 
     project = db.get(Project, project_id)
-    if project is None or project.settings().get("internal_project"):
+    if project is None:
         return None
-    rows = db.scalars(select(ProjectParty).where(ProjectParty.project_id == project_id, ProjectParty.side == SIDE_CUSTOMER)).all()
+    side = SIDE_EXECUTOR if project.settings().get("internal_project") else SIDE_CUSTOMER
+    rows = db.scalars(select(ProjectParty).where(ProjectParty.project_id == project_id, ProjectParty.side == side)).all()
     return rows[0] if len(rows) == 1 else None
+
+
+def chat_author_people(db: Session, project_id: int, authors: list[str], *, by_user_id: int | None = None) -> dict[str, int]:
+    """Авторы переписки — люди проекта (у каждой реплики должна быть карточка): известный по написанию — он; сотрудник по
+    имени в карточке — его человек; иначе новая карточка с пометкой «Новая карточка» и компанией по умолчанию — менеджер
+    подтверждает её или объединяет с уже известным человеком («Это один человек»). Ник остаётся написанием карточки."""
+    from app.app.services.people_seed import clean_name
+
+    out = {"known": 0, "staff": 0, "created": 0, "skipped": 0}
+    for raw in dict.fromkeys(a for a in authors if (a or "").strip()):
+        name = clean_name(raw)
+        if not name:
+            out["skipped"] += 1
+            continue
+        hit = resolve(db, project_id, raw) or resolve(db, project_id, name)
+        if hit is not None:
+            if alias_key(raw) != alias_key(hit.person.display_name):
+                try:
+                    add_alias(db, project_id, hit.person.id, raw, source="chat", by_user_id=by_user_id)
+                except PeopleError:
+                    pass
+            attach_words(db, project_id, hit.person)
+            out["known"] += 1
+            continue
+        staff_id = _staff_by_name(db, name)
+        if staff_id is not None:
+            try:
+                with db.begin_nested():
+                    person = member_person(db, project_id, staff_id, by_user_id=by_user_id)
+                    if person is not None and alias_key(raw) != alias_key(person.display_name):
+                        add_alias(db, project_id, person.id, raw, source="chat", by_user_id=by_user_id)
+                if person is not None:
+                    out["staff"] += 1
+                    continue
+            except PeopleError:
+                pass
+        party = default_party(db, project_id)
+        try:
+            with db.begin_nested():
+                person = create_person(db, project_id, name, company_name=party.company_name if party else None,
+                                       side=party.side if party else SIDE_UNKNOWN,
+                                       side_source="project_party" if party else "model", by_user_id=by_user_id,
+                                       alias_source="chat")
+                if alias_key(raw) != alias_key(name):
+                    add_alias(db, project_id, person.id, raw, source="chat", by_user_id=by_user_id)
+                person.company_unconfirmed = party is not None
+                person.needs_review = True
+            out["created"] += 1
+        except PeopleError:
+            out["skipped"] += 1
+    db.flush()
+    return out
 
 
 def _guest_company(db: Session, project_id: int, person: Person, row: Any, by_user_id: int | None) -> None:

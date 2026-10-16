@@ -8,7 +8,7 @@
 (``people.link_meeting_participants``): сотрудник — человек по учётке, гость — по имени, иначе новый человек проекта с
 согласием на голос (Р7; компания — указанная при входе, иначе единственный заказчик проекта); «Кто это?» — только для
 неоднозначного имени. ``--enable-platform`` включает платформу у проектов, где она выключена, а стороны уже заданы (Р4):
-без неё связывание не работает. План считается прогоном с откатом. Имена — только в консоль (не в git).
+без неё связывание не работает. План считается прогоном на временной копии БД. Имена — только в консоль (не в git).
 """
 from __future__ import annotations
 
@@ -22,6 +22,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def use_db_copy_for_dry_run() -> Path:
+    """План считается на временной копии БД: вложенные точки сохранения SQLite (``begin_nested``) без начатой транзакции
+    при выходе фиксируют данные, и откат «пробного» прогона их уже не вернул бы (так 16.10 в базу попали три карточки).
+    Вызывать до импорта модулей приложения."""
+    import os
+    import sqlite3
+    import tempfile
+
+    src = ROOT / "data" / "app.db"
+    dst = Path(tempfile.mkdtemp(prefix="skkkk-dry-")) / "app.db"
+    with sqlite3.connect(src) as a, sqlite3.connect(dst) as b:
+        a.backup(b)
+    os.environ["DATABASE_URL"] = "sqlite:///" + dst.as_posix()
+    return dst
 
 
 def run(db, settings, *, skip: set[int], enable_platform: bool) -> tuple[Counter, list[str]]:
@@ -57,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--enable-platform", action="store_true", help="включить платформу у проектов со сторонами (Р4)")
     ap.add_argument("--skip-project", type=int, action="append", default=[], help="не трогать проект (можно несколько раз)")
     args = ap.parse_args(argv)
+    if not args.apply:
+        use_db_copy_for_dry_run()
 
     import app.app.models  # noqa: F401
     from app.app.config import get_settings

@@ -44,6 +44,7 @@ class PersonPatch(BaseModel):
     authority: str | None = None
     clear_authority: bool = False
     confirm_company: bool = False  # ЛГ5: «Компания верна» — снять пометку автоматической компании
+    confirm_card: bool = False  # «Подтвердить карточку»: новая карточка от системы — отдельный человек
 
 
 class MergeIn(BaseModel):
@@ -86,6 +87,7 @@ def _person_out(db: Session, p: Person, users: dict[int, str], voices: dict[int,
         "external": p.user_id is None, "voice_suggestions": suggestions.get(p.user_id, []) if p.user_id else [],
         "voices": voices.get(p.id, 0), "voice_consent_at": p.voice_consent_at.isoformat() if p.voice_consent_at else None,
         "company_unconfirmed": bool(p.company_unconfirmed),
+        "needs_review": bool(p.needs_review),
     }
 
 
@@ -110,7 +112,9 @@ def _payload(db: Session, settings: Settings, project) -> dict[str, Any]:
     parties = db.scalars(select(ProjectParty).where(ProjectParty.project_id == pid).order_by(ProjectParty.id)).all()
     return {
         "platform_enabled": memory_platform.enabled(settings, project),
-        "people": [_person_out(db, p, users, voices, suggestions) for p in rows],
+        # новые карточки от системы — первыми: их нужно подтвердить или объединить с известным человеком
+        "people": [_person_out(db, p, users, voices, suggestions) for p in sorted(rows, key=lambda r: not r.needs_review)],
+        "new_cards": sum(1 for p in rows if p.needs_review),
         "unknown_open": len(people.open_unknown(db, pid)),
         "parties": [{"company_name": r.company_name, "side": r.side} for r in parties],
         "members_without_person": free_members,
@@ -180,7 +184,10 @@ def update_person(
     user: Annotated[User, Depends(get_current_user)],
 ):
     project = require_project_staff(db, user, project_id)
-    fields: dict[str, Any] = {k: v for k, v in body.model_dump(exclude={"side", "clear_authority", "confirm_company"}).items() if v is not None}
+    fields: dict[str, Any] = {k: v for k, v in body.model_dump(exclude={"side", "clear_authority", "confirm_company", "confirm_card"}).items()
+                              if v is not None}
+    if body.confirm_card:
+        fields["needs_review"] = False  # карточку подтвердил человек; компанию — отдельно («Компания верна»)
     if body.confirm_company or "company_name" in fields:
         fields["company_unconfirmed"] = False  # компанию подтвердил или выбрал человек
     if body.clear_authority:
