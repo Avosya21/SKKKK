@@ -7,7 +7,9 @@
   его принимает согласие заказчика или другой стороны, отклоняет отказ;
 - ``agreed`` — согласовано, если согласился заказчик либо сторона, отличная от предложившей («заказчик попросил — исполнитель
   согласился» — обязательство принято); согласие своей же стороны (исполнитель согласился с исполнителем) предложение не
-  закрывает, и оно остаётся ``proposed`` с пометкой;
+  закрывает, и оно остаётся ``proposed`` с пометкой. Во внутреннем проекте (``internal_project`` в настройках: все на стороне
+  исполнителя) согласие засчитывается от любого другого человека, кроме автора предложения (``actor_person_id``, без него —
+  ``actor_label``);
 - ``rejected`` — отклонено, если отказала другая сторона; своей же стороны — это снятие (``withdrawn``);
 - ``superseded`` / ``withdrawn`` / ``implemented`` / ``reopened`` меняют состояние как написано; ``reopened`` возвращает в ``proposed``;
 - событие человека (``decided_by=human``) главнее: после него события модели и правил состояние не меняют, пока человек не скажет иначе.
@@ -54,13 +56,24 @@ def _on_or_before(occurred_at: str, as_of: str) -> bool:
     return occurred_at[:10] <= as_of[:10] if len(as_of) <= 10 else occurred_at <= as_of
 
 
-def fold(events: Iterable[Any], *, as_of: str | None = None) -> FoldResult:
-    """Состояние предмета по событиям. ``as_of`` — ГГГГ-ММ-ДД (до конца дня) или ISO-момент."""
+def _actor_key(e: Any) -> tuple[str, Any] | None:
+    """Кто сказал: человек реестра, без него — подпись автора; None, если неизвестно."""
+    person = getattr(e, "actor_person_id", None)
+    if person:
+        return ("person", int(person))
+    label = " ".join(str(getattr(e, "actor_label", None) or "").split()).casefold()
+    return ("label", label) if label else None
+
+
+def fold(events: Iterable[Any], *, as_of: str | None = None, internal: bool = False) -> FoldResult:
+    """Состояние предмета по событиям. ``as_of`` — ГГГГ-ММ-ДД (до конца дня) или ISO-момент. ``internal`` — внутренний проект:
+    согласие засчитывается от любого другого человека, кроме автора предложения."""
     items = sorted((e for e in events if getattr(e, "is_active", True)), key=_sort_key)
     if as_of:
         items = [e for e in items if _on_or_before(str(e.occurred_at), as_of)]
     res = FoldResult()
     proposer_side: str | None = None
+    proposer_key: tuple[str, Any] | None = None
     human_lock = False
     day_kinds: dict[str, set[str]] = {}
     for e in items:
@@ -75,17 +88,21 @@ def fold(events: Iterable[Any], *, as_of: str | None = None) -> FoldResult:
         if kind == "proposed":
             new = "proposed" if before in ("open", "rejected", "withdrawn", "superseded", "proposed") else before
             if before in ("open", "rejected", "withdrawn", "superseded"):
-                proposer_side = side
+                proposer_side, proposer_key = side, _actor_key(e)
         elif kind == "documented":
             if before in ("open", "rejected", "withdrawn", "superseded", "proposed", "documented"):
                 new = "documented"
             if before in ("open", "rejected", "withdrawn", "superseded"):
-                proposer_side = side
+                proposer_side, proposer_key = side, _actor_key(e)
         elif kind == "agreed":
+            actor = _actor_key(e)
             if human or side == SIDE_CUSTOMER or (proposer_side and side and side != proposer_side):
                 new = "agreed"
+            elif internal and before != "implemented" and proposer_key and actor and actor != proposer_key:
+                new = "agreed"  # внутренний проект: согласился коллега, не автор предложения; выполненное «ок» не понижает
             elif before in OPEN_OFFERS:
-                note = "согласие своей же стороны: предложение не закрыто"  # состояние то же
+                note = ("согласие автора предложения: предложение не закрыто" if internal
+                        else "согласие своей же стороны: предложение не закрыто")  # состояние то же
         elif kind == "rejected":
             if human or not (proposer_side and side and side == proposer_side):
                 new = "rejected"
@@ -96,7 +113,7 @@ def fold(events: Iterable[Any], *, as_of: str | None = None) -> FoldResult:
         elif kind == "implemented":
             new = "implemented"
         elif kind == "reopened":
-            new, proposer_side = "proposed", None
+            new, proposer_side, proposer_key = "proposed", None, None
         if new != before or not res.trail or note:
             res.trail.append({"event_id": e.id, "kind": kind, "from": before, "to": new, "at": e.occurred_at, "note": note})
         if new != before:
@@ -115,13 +132,25 @@ def events_of(db: Session, subject_id: int) -> list[DecisionEvent]:
                            .order_by(DecisionEvent.occurred_at, DecisionEvent.id)).all())
 
 
-def state_at(db: Session, subject_id: int, as_of: str | None = None) -> FoldResult:
-    return fold(events_of(db, subject_id), as_of=as_of)
+def is_internal_project(db: Session, project_id: int) -> bool:
+    """Внутренний проект (только исполнитель): ``internal_project`` в настройках проекта."""
+    from app.app.models.project import Project
+
+    project = db.get(Project, project_id)
+    return bool(project and project.settings().get("internal_project"))
+
+
+def state_at(db: Session, subject_id: int, as_of: str | None = None, *, internal: bool | None = None) -> FoldResult:
+    """Состояние на дату; ``internal`` не задан — берётся из настроек проекта предмета."""
+    if internal is None:
+        subject = db.get(Subject, subject_id)
+        internal = bool(subject and is_internal_project(db, subject.project_id))
+    return fold(events_of(db, subject_id), as_of=as_of, internal=internal)
 
 
 def refresh_subject(db: Session, subject: Subject) -> FoldResult:
     """Пересчитать и записать состояние предмета по журналу (на сегодня)."""
-    res = state_at(db, subject.id)
+    res = state_at(db, subject.id, internal=is_internal_project(db, subject.project_id))
     subject.state, subject.state_since, subject.state_source = res.state, res.since, res.source
     return res
 

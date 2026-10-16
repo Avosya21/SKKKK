@@ -87,7 +87,7 @@ def subject_detail(db: Session, project_id: int, s: Subject, *, as_of: str | Non
     acts = db.scalars(select(SpeechAct).where(SpeechAct.subject_id == s.id).order_by(SpeechAct.said_at, SpeechAct.artifact_id, SpeechAct.unit_key)).all()
     names = {a.id: (a.artifact_id, a.original_filename) for a in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all()}
     events = dl.events_of(db, s.id)
-    fold = dl.fold(events, as_of=as_of) if as_of else dl.fold(events)
+    fold = dl.fold(events, as_of=as_of, internal=dl.is_internal_project(db, project_id))
     return {
         "subject": summary_row(s, len(acts), acts[-1].said_at if acts else None),
         "acts": dedupe_acts([_act_out(a, names) for a in acts]),
