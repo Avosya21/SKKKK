@@ -446,3 +446,56 @@ def test_prune_merges_described_duplicates_and_renames_single(db, project, admin
     assert result["merged"] == 1 and result["renamed"] == 1
     assert dup.merged_into == full.id and people.resolve(db, project.id, "Ирина О. (Пример, торговля)").person.id == full.id
     assert solo.display_name == "Марина" and people.resolve(db, project.id, "Марина").person.id == solo.id
+
+
+def test_every_word_lands_on_a_card_chat_call_and_merge(db, project, admin, monkeypatch):
+    """Сквозной путь (PEOPLE-FLOW-PLAN): говорящий подписан в созвоне — карточка; авторы загруженной переписки — карточки
+    (известный ник — его, незнакомый — новая карточка на подтверждение); слова, разобранные раньше, цепляются к карточке,
+    как только она или написание появились; после «Это один человек» все слова у одной карточки."""
+    from app.app.config import get_settings
+    from app.app.models.artifact import Artifact
+    from app.app.models.speech_act import SpeechAct
+    from app.app.services import chat_export, pipeline_documents
+
+    project.set_settings({"memory_platform": True})
+    people.set_party(db, project.id, "Заказчик Тест", "customer")
+    chat = Artifact(artifact_id="chat-flow", project_id=project.id, user_id=admin.id, original_filename="chat.html",
+                    stored_filename="chat.html", file_path="chat.html", file_type="html", source_type="document", status="done", sha256="f1")
+    call = Artifact(artifact_id="call-flow", project_id=project.id, user_id=admin.id, original_filename="call.webm",
+                    stored_filename="call.webm", file_path="call.webm", file_type="audio", source_type="call", status="done", sha256="f2")
+    db.add_all([chat, call])
+    db.flush()
+
+    def act(art, n, author):
+        row = SpeechAct(project_id=project.id, artifact_id=art.id, unit_ref=f"M{n}", unit_key=n, author=author, act="proposal",
+                        quote="пример", prompt_version="test")
+        db.add(row)
+        return row
+
+    said = act(call, 1, "Василий Котов")          # реплика созвона разобрана раньше, чем подписали голос
+    wrote = act(chat, 2, "vasya_k")                 # он же в переписке под ником
+    stranger = act(chat, 3, "Новый Автор")
+    db.commit()
+
+    # подпись голоса в созвоне заводит карточку (так делает карточка голоса) — слова созвона цепляются сразу
+    vasya = people.create_person(db, project.id, "Василий Котов", company_name="Заказчик Тест", side="customer", side_source="human")
+    db.commit()
+    assert db.get(SpeechAct, said.id).person_id == vasya.id
+
+    # загрузка переписки: авторы — карточки
+    monkeypatch.setattr(chat_export, "load_artifact_export",
+                        lambda _s, _a: {"messages": [{"author": "vasya_k"}, {"author": "Новый Автор"}, {"author": "Василий Котов"}]})
+    pipeline_documents._chat_authors_to_people(db, get_settings(), chat)
+    db.expire_all()
+    nick = people.resolve(db, project.id, "vasya_k").person
+    newcomer = people.resolve(db, project.id, "Новый Автор").person
+    assert nick.id != vasya.id and nick.needs_review and nick.company_unconfirmed and nick.company_name == "Заказчик Тест"
+    assert db.get(SpeechAct, wrote.id).person_id == nick.id and db.get(SpeechAct, stranger.id).person_id == newcomer.id
+    assert not people.get(db, project.id, vasya.id).needs_review  # подписанный в созвоне — не новая карточка
+
+    # менеджер видит, что ник — это Василий, и объединяет: все слова — у одной карточки, пометка снята
+    kept = people.merge(db, project.id, vasya.id, nick.id)
+    db.commit()
+    db.expire_all()
+    assert {db.get(SpeechAct, x.id).person_id for x in (said, wrote)} == {vasya.id}
+    assert people.resolve(db, project.id, "vasya_k").person.id == vasya.id and not kept.needs_review

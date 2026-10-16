@@ -124,6 +124,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     # ЛГ4/Р7 (PEOPLE-FLOW-PLAN): компания, которую гость указал при входе во встречу
     ("meeting_participants", "company_name", "VARCHAR(200)"),
     ("people", "company_unconfirmed", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("people", "needs_review", "BOOLEAN NOT NULL DEFAULT 0"),
     ("artifacts", "recorded_at_precision", "VARCHAR(8)"),
 ]
 

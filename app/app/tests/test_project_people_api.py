@@ -286,3 +286,23 @@ def test_auto_company_is_confirmed_or_replaced_by_manager(client, manager_token,
     moved = client.put(f"/projects/{pid}/people/{ids[1]}", json={"company_name": "Партнёр Пример"}, headers=h).json()["people"]
     row = next(p for p in moved if p["id"] == ids[1])
     assert row["company_name"] == "Партнёр Пример" and row["company_unconfirmed"] is False
+
+
+def test_new_card_is_listed_first_and_confirmed(client, manager_token, db_engine):
+    from app.app.db import SessionLocal
+    from app.app.services import people
+
+    pid = _project(client, manager_token, "Новые карточки")
+    h = _auth(manager_token)
+    db = SessionLocal()
+    try:
+        fresh = people.create_person(db, pid, "Автор Переписки")
+        fresh.needs_review = True
+        db.commit()
+        fresh_id = fresh.id
+    finally:
+        db.close()
+    listed = client.get(f"/projects/{pid}/people", headers=h).json()
+    assert listed["new_cards"] == 1 and listed["people"][0]["id"] == fresh_id and listed["people"][0]["needs_review"]
+    done = client.put(f"/projects/{pid}/people/{fresh_id}", json={"confirm_card": True}, headers=h).json()
+    assert done["new_cards"] == 0 and not next(p for p in done["people"] if p["id"] == fresh_id)["needs_review"]
