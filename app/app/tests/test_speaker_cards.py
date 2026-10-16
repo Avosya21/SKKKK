@@ -244,3 +244,22 @@ def test_staff_voice_links_to_account_and_party_companies_come_first(setup):
     ctx = page_context(db, art)
     parties = {p["company"] for p in ctx["project_parties"]}
     assert parties == {"ACME", "Заказчик Тест"} and set(ctx["companies"][:2]) == parties
+
+
+def test_merging_speakers_merges_their_people(setup):
+    """Вкладка «Голоса»: две метки созвона подписали разными людьми, а это один человек — «Объединить» сводит и людей
+    проекта в одну карточку (написания, голоса, реплики — у оставшегося)."""
+    from app.app.services.speaker_cards import confirm_card
+    from app.app.services.speaker_profiles import merge_speakers
+
+    db, art, _match = setup
+    first, _ = confirm_card(db, art, diar_label="speaker_0", name="Анна Пример", company="Пример Заказчик", side="customer")
+    second, _ = confirm_card(db, art, diar_label="speaker_1", name="Аня Ник", company="Пример Заказчик", side="customer",
+                             new_person=True)
+    assert first.id != second.id
+    result = merge_speakers(db, project_id=art.project_id, artifact_id=art.artifact_id,
+                            source_diar_label="speaker_1", target_diar_label="speaker_0")
+    db.expire_all()
+    assert result["people_merged"] is True
+    kept = people.resolve(db, art.project_id, "Аня Ник").person
+    assert kept.id == first.id and len([p for p in people.list_people(db, art.project_id) if p.display_name in ("Анна Пример", "Аня Ник")]) == 1

@@ -202,6 +202,58 @@ def test_member_person_links_existing_name_and_follows_card_company(db, project)
     assert people.member_person(db, project.id, nobody.id) is None  # без карточки имени нет — человека не заводим
 
 
+def test_merge_moves_chat_and_call_speech_to_one_person(db, project, admin):
+    """«Это один человек»: ник из переписки и имя из созвона — одна карточка; уже разобранные реплики, события памяти
+    решений и прежде не опознанные реплики под его написаниями — у оставшейся карточки, со стороной компании."""
+    from app.app.models.artifact import Artifact
+    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.speech_act import SpeechAct
+
+    people.set_party(db, project.id, "Заказчик Тест", "customer")
+    nick = people.create_person(db, project.id, "vasya_k")  # автор переписки под ником: стороны и компании нет
+    real = people.create_person(db, project.id, "Василий Котов", company_name="Заказчик Тест", side="customer", side_source="human")
+    people.add_alias(db, project.id, real.id, "Вася К.")
+    chat = Artifact(artifact_id="chat-merge", project_id=project.id, user_id=admin.id, original_filename="chat.txt",
+                    stored_filename="chat.txt", file_path="chat.txt", file_type="txt", source_type="document", status="done", sha256="m1")
+    call = Artifact(artifact_id="call-merge", project_id=project.id, user_id=admin.id, original_filename="call.webm",
+                    stored_filename="call.webm", file_path="call.webm", file_type="audio", source_type="call", status="done", sha256="m2")
+    db.add_all([chat, call])
+    db.flush()
+
+    def act(art, n, author, person_id, side):
+        row = SpeechAct(project_id=project.id, artifact_id=art.id, unit_ref=f"M{n}", unit_key=n, author=author, person_id=person_id,
+                        side=side, act="proposal", quote="пример реплики", prompt_version="test")
+        db.add(row)
+        return row
+
+    from_chat = act(chat, 1, "vasya_k", nick.id, "unknown")
+    from_call = act(call, 2, "Василий Котов", real.id, "customer")
+    unknown_nick = act(chat, 3, "Вася К.", None, None)
+    other = act(chat, 4, "Совсем Другой", None, None)
+    subject = Subject(project_id=project.id, title="Пример предмета")
+    db.add(subject)
+    db.flush()
+    event = DecisionEvent(project_id=project.id, subject_id=subject.id, kind="proposed", occurred_at="2026-10-16T10:00:00",
+                          actor_person_id=nick.id, actor_label="vasya_k", actor_side="unknown")
+    db.add(event)
+    db.commit()
+
+    kept = people.merge(db, project.id, real.id, nick.id)
+    db.commit()
+    db.expire_all()
+    assert kept.id == real.id and people.resolve(db, project.id, "vasya_k").person.id == real.id  # ник — написание того же человека
+    for row in (from_chat, from_call, unknown_nick):
+        refreshed = db.get(SpeechAct, row.id)
+        assert refreshed.person_id == real.id and refreshed.side == "customer"
+    assert db.get(SpeechAct, other.id).person_id is None  # чужие реплики не задеты
+    moved = db.get(DecisionEvent, event.id)
+    assert moved.actor_person_id == real.id and moved.actor_side == "customer"
+    assert people.sides_map(db, project.id).get("vasya_k") == "customer"  # контракт видит ник со стороной человека
+    people.forget_person(db, project.id, real.id)  # удаление человека не ломается на его репликах
+    db.commit()
+    assert db.get(SpeechAct, from_call.id).person_id is None and db.get(DecisionEvent, event.id).actor_person_id is None
+
+
 def test_contract_uses_registry_only_when_platform_enabled(db, project, monkeypatch):
     from app.app.services import contract
 

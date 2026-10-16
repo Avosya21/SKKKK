@@ -129,6 +129,7 @@
       if ((force || !touched.side) && src.side) { side.value = src.side; touched.side = false; }
       if ((force || !touched.job) && src.job_title) { job.value = src.job_title; touched.job = false; }
       if (!side.value && company.value) side.value = companySide(company.value);
+      lockSide();
       note.textContent = src.source ? `Заполнено по данным: ${src.source}. Проверьте перед подтверждением.` : '';
     }
 
@@ -236,9 +237,17 @@
       if (e.key === 'ArrowUp') { e.preventDefault(); (i > 0 ? items[i - 1] : nameInp).focus(); }
       if (e.key === 'Escape') { menu.classList.remove('show'); nameInp.focus(); }
     });
+    // Р1: компания из сторон проекта задаёт сторону — селект неактивен; новая компания — сторону выбирает человек
+    function lockSide() {
+      const party = (ctx.project_parties || []).find((p) => key(p.company) === key(company.value));
+      if (party) side.value = party.side;
+      side.disabled = Boolean(party);
+      side.title = party ? 'Сторона берётся от компании в проекте; меняется в «Стороны компаний»' : '';
+    }
     company.addEventListener('input', () => {
       const s = companySide(company.value);
       if (s && !touched.side) side.value = s;
+      lockSide();
       sync();
     });
     side.addEventListener('change', () => {

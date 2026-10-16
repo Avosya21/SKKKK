@@ -255,7 +255,9 @@ def update_person(db: Session, project_id: int, person_id: int, *, by_user_id: i
 
 
 def merge(db: Session, project_id: int, keep_id: int, drop_id: int, *, by_user_id: int | None = None) -> Person:
-    """«Это один человек»: алиасы, голоса, участия и вопросы «Кто это?» переходят к ``keep``; ``drop`` остаётся с ``merged_into``."""
+    """«Это один человек»: алиасы, голоса, участия, вопросы «Кто это?», уже разобранные реплики и события памяти решений
+    переходят к ``keep``; ``drop`` остаётся с ``merged_into``. Ник из переписки и имя из созвона после этого — один человек:
+    реплики под любым из его написаний (и прежде не опознанные) — его, со стороной оставшейся карточки."""
     if keep_id == drop_id:
         raise PeopleError("Нельзя объединить человека с самим собой")
     keep, drop = get(db, project_id, keep_id), get(db, project_id, drop_id)
@@ -285,7 +287,33 @@ def merge(db: Session, project_id: int, keep_id: int, drop_id: int, *, by_user_i
         row.person_id = keep.id
     _log(db, project_id, keep.id, by_user_id, "merge", before, {"keep": _snapshot(keep), "drop_id": drop.id})
     db.flush()
-    return align_to_company(db, project_id, keep, by_user_id=by_user_id)
+    keep = align_to_company(db, project_id, keep, by_user_id=by_user_id)
+    _rebind_material(db, project_id, keep, drop.id)
+    return keep
+
+
+def _rebind_material(db: Session, project_id: int, keep: Person, drop_id: int) -> None:
+    """Реплики (``speech_acts``) и события памяти решений (``decision_events``) человека ``drop_id`` — к ``keep``;
+    не опознанные раньше реплики под написанием ``keep`` — тоже к нему. Неизвестная сторона реплики — сторона ``keep``."""
+    from app.app.models.decision_memory import DecisionEvent
+    from app.app.models.speech_act import SpeechAct
+
+    keys = {a.alias_key for a in aliases_of(db, keep.id)}
+    side = keep.side if keep.side in (SIDE_EXECUTOR, SIDE_CUSTOMER) else None
+    acts = db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id,
+                                              (SpeechAct.person_id == drop_id) | SpeechAct.person_id.is_(None))).all()
+    for act in acts:
+        if act.person_id is None and alias_key(act.author) not in keys:
+            continue
+        act.person_id = keep.id
+        if side and act.side in (None, "", SIDE_UNKNOWN):
+            act.side = side
+    for event in db.scalars(select(DecisionEvent).where(DecisionEvent.project_id == project_id,
+                                                        DecisionEvent.actor_person_id == drop_id)).all():
+        event.actor_person_id = keep.id
+        if side and event.actor_side in (None, "", SIDE_UNKNOWN):
+            event.actor_side = side
+    db.flush()
 
 
 # ---------------------------------------------------------------- стороны проекта
@@ -712,8 +740,10 @@ def forget_person(db: Session, project_id: int, person_id: int, *, by_user_id: i
     """Полностью убрать человека из реестра проекта (вместе с теми, кого в него объединили): написания, голосовые слепки
     проекта, ссылки из встреч и вопросов, а в журнале правок — имена и данные «до / после». Остаётся запись «удалён» без имени.
     Учётка портала и общие голоса сотрудника не затрагиваются. Необратимо."""
+    from app.app.models.decision_memory import DecisionEvent
     from app.app.models.meeting import MeetingParticipant
     from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+    from app.app.models.speech_act import SpeechAct
 
     root = get(db, project_id, person_id)
     ids = {root.id}
@@ -735,9 +765,11 @@ def forget_person(db: Session, project_id: int, person_id: int, *, by_user_id: i
             db.delete(v)
         else:
             v.person_id = None
-    for model in (MeetingParticipant, UnknownActor):
+    for model in (MeetingParticipant, UnknownActor, SpeechAct):
         for row in db.scalars(select(model).where(model.person_id.in_(ids))).all():
             row.person_id = None
+    for event in db.scalars(select(DecisionEvent).where(DecisionEvent.actor_person_id.in_(ids))).all():
+        event.actor_person_id = None
     for entry in db.scalars(select(PeopleLog).where(PeopleLog.project_id == project_id, PeopleLog.person_id.in_(ids))).all():
         entry.person_id, entry.before_json, entry.after_json = None, None, None  # имя и данные — стереть, факт правки остаётся
     removed_aliases = db.query(PersonAlias).filter(PersonAlias.person_id.in_(ids)).delete(synchronize_session=False)

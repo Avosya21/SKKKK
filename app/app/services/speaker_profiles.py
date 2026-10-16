@@ -892,6 +892,14 @@ def merge_speakers(
     profile = db.get(SpeakerProfile, target_profile_id)
     if profile is None:
         raise ValueError("профиль не найден")
+    source_link = (
+        db.query(ArtifactSpeakerLink)
+        .filter(ArtifactSpeakerLink.artifact_id == artifact_id,
+                ArtifactSpeakerLink.diar_label.in_([source_diar_label, source_canon]),
+                ArtifactSpeakerLink.status == "confirmed", ArtifactSpeakerLink.profile_id.isnot(None))
+        .first()
+    )
+    source_profile = db.get(SpeakerProfile, source_link.profile_id) if source_link is not None else None
 
     try:
         _, source_emb = _resolve_embedding(payload, source_diar_label)
@@ -913,6 +921,7 @@ def merge_speakers(
 
     db.commit()
     db.refresh(profile)
+    people_merged = _merge_label_people(db, project_id, keep_profile=profile, drop_profile=source_profile)
 
     for key in list(merge_map):
         if merge_map[key] == source_canon or key in {source_diar_label, source_canon}:
@@ -959,7 +968,49 @@ def merge_speakers(
         "target": target_diar_label,
         "profile_id": profile.id,
         "display_name": profile.display_name,
+        "people_merged": people_merged,
     }
+
+
+def _label_person(db: Session, project_id: int, profile: SpeakerProfile | None):
+    """Человек проекта за голосом: свой слепок проекта, человек с учёткой голоса, иначе по написанию имени голоса."""
+    from app.app.models.person import Person
+    from app.app.services import people
+
+    if profile is None:
+        return None
+    if profile.person_id:
+        person = db.get(Person, profile.person_id)
+        if person is not None and person.project_id == project_id:
+            return people.canonical(db, person)
+    if profile.user_id:
+        own = db.query(Person).filter(Person.project_id == project_id, Person.user_id == profile.user_id,
+                                      Person.merged_into.is_(None)).first()
+        if own is not None:
+            return own
+    hit = people.resolve(db, project_id, profile.display_name, allow_first_name=False)
+    return hit.person if hit is not None else None
+
+
+def _merge_label_people(db: Session, project_id: int, *, keep_profile: SpeakerProfile,
+                        drop_profile: SpeakerProfile | None) -> bool:
+    """Две метки одного созвона — один человек (кнопка объединения во вкладке «Голоса»). Если обе были подписаны разными
+    людьми проекта, они объединяются в «Люди и стороны» (``people.merge``: написания, реплики, голоса, события — к
+    оставшемуся, PEOPLE-FLOW-PLAN). Разные учётки не объединяются — тогда только метки, как раньше."""
+    from app.app.services import people
+
+    if drop_profile is None or drop_profile.id == keep_profile.id:
+        return False
+    keep, drop = _label_person(db, project_id, keep_profile), _label_person(db, project_id, drop_profile)
+    if keep is None or drop is None or keep.id == drop.id:
+        return False
+    try:
+        people.merge(db, project_id, keep.id, drop.id)
+        db.commit()
+    except people.PeopleError:
+        db.rollback()
+        return False
+    return True
 
 
 def cleanup_project_speaker_profiles(db: Session, project_id: int) -> dict[str, int]:
