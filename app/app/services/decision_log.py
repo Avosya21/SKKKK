@@ -33,6 +33,15 @@ ACT_TO_EVENT = {"proposed": "proposed", "agreed": "agreed", "rejected": "rejecte
 OPEN_OFFERS = ("proposed", "documented")  # ждут ответа другой стороны
 
 
+def event_kind(act: Any) -> str | None:
+    """Вид события для акта или None (контекст). Факт из документа («реквизиты», «источник финансирования») — тоже записанное
+    в документе условие: «в документе», а не «обсуждается» (проект 40, 2026-10-09). Факт из реплики — по-прежнему контекст."""
+    kind = ACT_TO_EVENT.get(act.act)
+    if kind is None and act.act == "info" and str(getattr(act, "unit_ref", "") or "").startswith("P"):
+        return "documented"
+    return kind
+
+
 @dataclass
 class FoldResult:
     state: str = "open"
@@ -197,7 +206,7 @@ def rebuild_events_from_acts(db: Session, project_id: int, assignments: dict[int
     day_of_artifact = day_of_artifact or {}
     made = skipped = 0
     for act in db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id).order_by(SpeechAct.id)).all():
-        kind = ACT_TO_EVENT.get(act.act)
+        kind = event_kind(act)
         subject_id = assignments.get(act.id)
         if kind is None or subject_id is None:
             skipped += 1
