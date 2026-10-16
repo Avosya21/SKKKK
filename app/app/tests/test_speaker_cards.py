@@ -263,3 +263,30 @@ def test_merging_speakers_merges_their_people(setup):
     assert result["people_merged"] is True
     kept = people.resolve(db, art.project_id, "Аня Ник").person
     assert kept.id == first.id and len([p for p in people.list_people(db, art.project_id) if p.display_name in ("Анна Пример", "Аня Ник")]) == 1
+
+
+def test_merged_labels_are_one_card_and_split_returns_label(setup):
+    """Вкладка «Голоса»: присоединённая метка — внутри карточки основной (не отдельная карточка-дубль); «Отделить»
+    возвращает её отдельным спикером без имени."""
+    import json
+
+    from app.app.models.speaker_profile import ArtifactSpeakerLink
+    from app.app.services.speaker_cards import confirm_card
+    from app.app.services.speaker_profiles import merge_speakers, split_speaker
+    from asr.build_speaker_match_view import _speaker_card_groups
+
+    db, art, match = setup
+    confirm_card(db, art, diar_label="speaker_0", name="Анна Пример", company="Пример Заказчик", side="customer")
+    merge_speakers(db, project_id=art.project_id, artifact_id=art.artifact_id, source_diar_label="speaker_1",
+                   target_diar_label="speaker_0")
+    payload = json.loads(match.read_text(encoding="utf-8"))
+    groups = _speaker_card_groups(payload["matches"], payload["merge_map"])
+    assert [g["labels"] for g in groups] == [["speaker_0", "speaker_1"]]
+
+    split_speaker(db, project_id=art.project_id, artifact_id=art.artifact_id, diar_label="speaker_1")
+    payload = json.loads(match.read_text(encoding="utf-8"))
+    assert payload["merge_map"]["speaker_1"] == "speaker_1" and payload["matches"]["speaker_1"]["status"] == "new"
+    assert not db.query(ArtifactSpeakerLink).filter_by(artifact_id=art.artifact_id, diar_label="speaker_1").count()
+    assert [g["labels"] for g in _speaker_card_groups(payload["matches"], payload["merge_map"])] == [["speaker_0"], ["speaker_1"]]
+    with pytest.raises(ValueError):
+        split_speaker(db, project_id=art.project_id, artifact_id=art.artifact_id, diar_label="speaker_1")

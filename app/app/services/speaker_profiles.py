@@ -972,6 +972,38 @@ def merge_speakers(
     }
 
 
+def split_speaker(
+    db: Session,
+    *,
+    project_id: int,
+    artifact_id: str,
+    diar_label: str,
+    match_path: Path | None = None,
+    rebuild_views: bool = True,
+) -> dict:
+    """«Отделить» во вкладке «Голоса»: метка, присоединённая к другой (вручную или по голосу), снова отдельный спикер
+    без имени — её подписывают заново. Голос основной карточки и её человек не меняются."""
+    out_path = resolve_match_path(project_id, artifact_id, match_path=match_path)
+    payload = load_match_payload(project_id, artifact_id, match_path=out_path)
+    merge_map = payload.setdefault("merge_map", {k: k for k in (payload.get("embeddings") or {})})
+    canon = merge_map.get(diar_label, diar_label)
+    if canon == diar_label:
+        raise ValueError("метка не объединена с другой — отделять нечего")
+    merge_map[diar_label] = diar_label
+    row = payload.setdefault("matches", {}).setdefault(diar_label, {"diar_label": diar_label})
+    for key in ("profile_id", "profile_name", "score", "needs_human", "auto"):
+        row.pop(key, None)
+    row["status"] = "new"
+    payload.setdefault("display_names", {}).pop(diar_label, None)
+    db.query(ArtifactSpeakerLink).filter(ArtifactSpeakerLink.artifact_id == artifact_id,
+                                         ArtifactSpeakerLink.diar_label == diar_label).delete(synchronize_session=False)
+    db.commit()
+    _write_match_payload(out_path, payload)
+    if rebuild_views:
+        _safe_rebuild_artifact_views(db, project_id=project_id, artifact_id=artifact_id)
+    return {"label": diar_label, "from": canon}
+
+
 def _label_person(db: Session, project_id: int, profile: SpeakerProfile | None):
     """Человек проекта за голосом: свой слепок проекта, человек с учёткой голоса, иначе по написанию имени голоса."""
     from app.app.models.person import Person
