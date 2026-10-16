@@ -499,3 +499,38 @@ def test_every_word_lands_on_a_card_chat_call_and_merge(db, project, admin, monk
     db.expire_all()
     assert {db.get(SpeechAct, x.id).person_id for x in (said, wrote)} == {vasya.id}
     assert people.resolve(db, project.id, "vasya_k").person.id == vasya.id and not kept.needs_review
+
+
+def test_people_changes_reach_decision_memory(db, project, admin):
+    """Правки людей доходят до памяти решений: реплику привязали к карточке позже — событие журнала получает человека и
+    сторону; сторону компании исправили — реплики и события человека получают её; предметы пересчитываются без модели."""
+    from app.app.models.artifact import Artifact
+    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.speech_act import SpeechAct
+
+    people.set_party(db, project.id, "Заказчик Тест", "customer")
+    chat = Artifact(artifact_id="chat-memory", project_id=project.id, user_id=admin.id, original_filename="chat.html",
+                    stored_filename="chat.html", file_path="chat.html", file_type="html", source_type="document", status="done", sha256="dm1")
+    db.add(chat)
+    db.flush()
+    act = SpeechAct(project_id=project.id, artifact_id=chat.id, unit_ref="M1", unit_key=1, author="Ирина Пример", act="proposal",
+                    quote="предлагаю", prompt_version="test")
+    subject = Subject(project_id=project.id, title="Пример предмета")
+    db.add_all([act, subject])
+    db.flush()
+    event = DecisionEvent(project_id=project.id, subject_id=subject.id, kind="proposed", occurred_at="2026-10-16T10:00:00",
+                          actor_label="Ирина Пример", speech_act_id=act.id)
+    db.add(event)
+    db.commit()
+
+    irina = people.create_person(db, project.id, "Ирина Пример", company_name="Заказчик Тест", side="customer", side_source="human")
+    db.commit()
+    db.expire_all()
+    got = db.get(DecisionEvent, event.id)
+    assert (got.actor_person_id, got.actor_side) == (irina.id, "customer")
+
+    people.set_party(db, project.id, "Заказчик Тест", "executor")  # сторону компании исправили
+    db.commit()
+    db.expire_all()
+    assert db.get(SpeechAct, act.id).side == "executor" and db.get(DecisionEvent, event.id).actor_side == "executor"
+    assert db.get(Subject, subject.id).state  # свёртка журнала пересчитана

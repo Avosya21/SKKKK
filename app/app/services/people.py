@@ -199,7 +199,42 @@ def attach_words(db: Session, project_id: int, person: Person) -> int:
             n += 1
     if n:
         db.flush()
+        sync_decision_memory(db, project_id, person_ids={person.id})
     return n
+
+def sync_decision_memory(db: Session, project_id: int, *, person_ids: set[int] | None = None,
+                         subject_ids: set[int] | None = None) -> dict[str, int]:
+    """Правки людей — в память решений: событие журнала, выведенное из реплики, получает человека и сторону этой реплики
+    (реплику привязали к карточке позже, карточки объединили, сторону исправили по компании); затронутые предметы
+    пересчитываются свёрткой журнала (``decision_log.refresh_subject``, модель не вызывается). ``person_ids`` — только
+    события реплик этих людей; None — весь проект."""
+    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.speech_act import SpeechAct
+    from app.app.services import decision_log
+
+    touched = set(subject_ids or ())
+    q = (select(DecisionEvent, SpeechAct).join(SpeechAct, SpeechAct.id == DecisionEvent.speech_act_id)
+         .where(DecisionEvent.project_id == project_id, SpeechAct.person_id.isnot(None)))
+    if person_ids is not None:
+        q = q.where(SpeechAct.person_id.in_(person_ids or {-1}))
+    events = 0
+    for event, act in (db.execute(q).all() if person_ids is None or person_ids else []):
+        side = act.side if act.side in (SIDE_EXECUTOR, SIDE_CUSTOMER) else event.actor_side
+        if (event.actor_person_id, event.actor_side) != (act.person_id, side):
+            event.actor_person_id, event.actor_side = act.person_id, side
+            touched.add(event.subject_id)
+            events += 1
+    db.flush()
+    changed = 0
+    for sid in sorted(touched):
+        subject = db.get(Subject, sid)
+        if subject is None:
+            continue
+        before = subject.state
+        if decision_log.refresh_subject(db, subject).state != before:
+            changed += 1
+    db.flush()
+    return {"events": events, "subjects": len(touched), "changed": changed}
 
 
 def resolve(db: Session, project_id: int, label: str | None, *, allow_first_name: bool = True) -> Match | None:
@@ -332,12 +367,15 @@ def _rebind_material(db: Session, project_id: int, keep: Person, drop_id: int) -
         act.person_id = keep.id
         if side and act.side in (None, "", SIDE_UNKNOWN):
             act.side = side
+    subjects = set()
     for event in db.scalars(select(DecisionEvent).where(DecisionEvent.project_id == project_id,
                                                         DecisionEvent.actor_person_id == drop_id)).all():
         event.actor_person_id = keep.id
         if side and event.actor_side in (None, "", SIDE_UNKNOWN):
             event.actor_side = side
+        subjects.add(event.subject_id)
     db.flush()
+    sync_decision_memory(db, project_id, person_ids={keep.id}, subject_ids=subjects)
 
 
 # ---------------------------------------------------------------- стороны проекта
@@ -399,11 +437,26 @@ def _take_party(db: Session, project_id: int, person: Person, party: ProjectPart
     if (person.side, person.side_source, person.company_name, person.company_id) == (party.side, "project_party", party.company_name, party.company_id):
         return person
     before = _snapshot(person)
+    side_changed = person.side != party.side
     person.side, person.side_source = party.side, "project_party"
     person.company_name, person.company_id = party.company_name, party.company_id
     _log(db, project_id, person.id, by_user_id, "side_from_party", before, _snapshot(person))
     db.flush()
+    if side_changed:
+        _resync_person_side(db, project_id, person)
     return person
+
+
+def _resync_person_side(db: Session, project_id: int, person: Person) -> None:
+    """Сторона человека исправлена (Р1: от компании) — его реплики и события журнала получают её, предметы пересчитываются."""
+    from app.app.models.speech_act import SpeechAct
+
+    if person.side not in (SIDE_EXECUTOR, SIDE_CUSTOMER):
+        return
+    for act in db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id, SpeechAct.person_id == person.id)).all():
+        act.side = person.side
+    db.flush()
+    sync_decision_memory(db, project_id, person_ids={person.id})
 
 
 def align_to_company(db: Session, project_id: int, person: Person, *, by_user_id: int | None = None) -> Person:
@@ -848,8 +901,13 @@ def forget_person(db: Session, project_id: int, person_id: int, *, by_user_id: i
     for model in (MeetingParticipant, UnknownActor, SpeechAct):
         for row in db.scalars(select(model).where(model.person_id.in_(ids))).all():
             row.person_id = None
+    lost_subjects = set()
     for event in db.scalars(select(DecisionEvent).where(DecisionEvent.actor_person_id.in_(ids))).all():
         event.actor_person_id = None
+        lost_subjects.add(event.subject_id)
+    if lost_subjects:
+        db.flush()
+        sync_decision_memory(db, project_id, person_ids=set(), subject_ids=lost_subjects)
     for entry in db.scalars(select(PeopleLog).where(PeopleLog.project_id == project_id, PeopleLog.person_id.in_(ids))).all():
         entry.person_id, entry.before_json, entry.after_json = None, None, None  # имя и данные — стереть, факт правки остаётся
     removed_aliases = db.query(PersonAlias).filter(PersonAlias.person_id.in_(ids)).delete(synchronize_session=False)
