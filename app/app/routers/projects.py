@@ -69,6 +69,7 @@ def create_project(
     from app.app.services import agent_settings, people
 
     agent_settings.init_new_project(project)  # новый проект: без якорей 1С и без названий компаний в правилах сторон
+    project.set_settings({**project.settings(), "memory_platform": True})  # Р4: реестр людей и стороны — сразу
     if body.internal:
         project.set_settings({**project.settings(), "internal_project": True})
         body = body.model_copy(update={"customer_company": None, "customer_people": []})

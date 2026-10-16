@@ -36,9 +36,17 @@
               <input class="form-control" id="guest-name" name="display_name" required maxlength="128" autocomplete="name" enterkeyhint="go">
             </div>
             <div class="mb-3">
-              <label class="form-label" for="guest-company">Ваша компания</label>
-              <input class="form-control" id="guest-company" name="company_name" maxlength="200" autocomplete="organization" list="guest-company-list" placeholder="Выберите или впишите">
-              <datalist id="guest-company-list">{% for c in guest_companies %}<option value="{{ c }}"></option>{% endfor %}</datalist>
+              <label class="form-label" for="guest-company-select">Ваша компания</label>
+              {% if guest_companies %}
+              <select class="form-select" id="guest-company-select" required>
+                <option value="">Выберите компанию</option>
+                {% for c in guest_companies %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                <option value="__other__">Другая компания…</option>
+              </select>
+              <input class="form-control mt-2" id="guest-company" maxlength="200" autocomplete="organization" placeholder="Название вашей компании" hidden>
+              {% else %}
+              <input class="form-control" id="guest-company" maxlength="200" autocomplete="organization" placeholder="Название вашей компании">
+              {% endif %}
             </div>
             <div class="alert alert-warning small py-2 mb-2" role="status" id="guest-consent">
               {% if record_audio %}
@@ -136,6 +144,21 @@ window.SKKKK_MEETING_VOICE = {{ meeting_voice | tojson }};
 const token = {{ token|tojson }};
 const statusEl = document.getElementById('meeting-status');
 const form = document.getElementById('guest-join-form');
+// Компания гостя (Р7, ЛГ5): из компаний проекта; «Другая компания…» — вписать свою
+const guestCompanySelect = document.getElementById('guest-company-select');
+const guestCompanyOther = document.getElementById('guest-company');
+if (guestCompanySelect) {
+  guestCompanySelect.addEventListener('change', () => {
+    const other = guestCompanySelect.value === '__other__';
+    guestCompanyOther.hidden = !other;
+    guestCompanyOther.required = other;
+    if (other) guestCompanyOther.focus();
+  });
+}
+function guestCompany() {
+  if (guestCompanySelect && guestCompanySelect.value !== '__other__') return guestCompanySelect.value || undefined;
+  return (guestCompanyOther.value || '').trim() || undefined;
+}
 const joinBtn = document.getElementById('guest-join');
 const err = document.getElementById('guest-error');
 const stageEl = document.getElementById('meeting-stage');
@@ -225,7 +248,7 @@ form.addEventListener('submit', async (e) => {
     const r = await fetch('/api/meetings/public/' + encodeURIComponent(token) + '/join', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: name, guest_id: guestId, company_name: (document.getElementById('guest-company').value || '').trim() || undefined }),
+      body: JSON.stringify({ display_name: name, guest_id: guestId, company_name: guestCompany() }),
     });
     if (r.status === 409) {
       const info = await loadStatus();
@@ -290,7 +313,7 @@ form.addEventListener('submit', async (e) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ display_name: name, guest_id: localStorage.getItem('skkkk-guest-' + token) || undefined,
-                                 company_name: (document.getElementById('guest-company').value || '').trim() || undefined }),
+                                 company_name: guestCompany() }),
         });
         if ([404, 409, 410].includes(again.status)) {
           throw Object.assign(new Error('Встреча завершена или ссылка отозвана.'), { meetingGone: true });

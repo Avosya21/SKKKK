@@ -362,9 +362,11 @@ def _track_contract(db: Session, meeting: Meeting, track: dict) -> dict:
         duration = _wav_duration_sec(src)
     if duration is None and track.get("ended_epoch") and track.get("started_epoch"):
         duration = float(track["ended_epoch"]) - float(track["started_epoch"])
+    registry = _registry_person(db, meeting.project_id, identity)
     row = {
         "identity": identity,
-        "speaker": _speaker_name(db, meeting.id, identity),
+        # ЛГ5: в стенограмме — имя человека из «Люди и стороны», а не то, как гость назвался при входе
+        "speaker": registry.display_name if registry is not None else _speaker_name(db, meeting.id, identity),
         **_participant_card(db, identity, meeting.project_id),
         "source": source,
         "src": str(src),

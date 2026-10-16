@@ -229,7 +229,7 @@ def set_side(db: Session, project_id: int, person_id: int, side: str, *, source:
 def update_person(db: Session, project_id: int, person_id: int, *, by_user_id: int | None = None, **fields: Any) -> Person:
     """Правка карточки человека проекта: company_name, company_id, job_title, authority, display_name, user_id."""
     person = get(db, project_id, person_id)
-    allowed = {"company_name", "company_id", "job_title", "authority", "display_name", "user_id"}
+    allowed = {"company_name", "company_id", "job_title", "authority", "display_name", "user_id", "company_unconfirmed"}
     bad = set(fields) - allowed
     if bad:
         raise PeopleError(f"Нельзя менять: {', '.join(sorted(bad))}")
@@ -612,7 +612,15 @@ def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | No
         if person is None:
             hit = resolve(db, meeting.project_id, row.display_name)
             person = hit.person if hit is not None else None
-        if person is None and row.user_id is None and not _ambiguous_first_name(db, meeting.project_id, row.display_name):
+        if person is None and row.user_id is None:
+            staff_id = _staff_by_name(db, row.display_name)  # сотрудник зашёл гостем («Фамилия Имя Отчество» тоже)
+            if staff_id is not None:
+                try:
+                    with db.begin_nested():
+                        person = member_person(db, meeting.project_id, staff_id, by_user_id=by_user_id)
+                except PeopleError:
+                    person = None
+        if person is None and row.user_id is None and not _ambiguous_first_name(db, meeting.project_id, row.display_name)                 and not _placeholder_guest(row.display_name):
             person = _guest_person(db, meeting, row, by_user_id)  # Р7: гость встречи — человек проекта
             if person is not None:
                 out["created"] += 1
@@ -630,6 +638,24 @@ def link_meeting_participants(db: Session, meeting: Any, *, by_user_id: int | No
 GUEST_CONSENT_BASIS = "согласие при входе во встречу"
 
 
+def _placeholder_guest(label: str | None) -> bool:
+    """«Гость», «Гость проверки …» — не имя человека: такой участник идёт в «Кто это?», человеком не заводится."""
+    return alias_key(label).startswith("гость")
+
+
+def _staff_by_name(db: Session, label: str | None) -> int | None:
+    """Учётка сотрудника по имени гостя: «Имя Фамилия» или «Фамилия Имя», отчество отбрасывается; тёзки — не угадываем."""
+    from app.app.models.user_profile import UserProfile
+
+    tokens = alias_key(label).split()
+    if len(tokens) < 2:
+        return None
+    wanted = {" ".join(tokens[:2]), " ".join(reversed(tokens[:2]))}
+    hits = {c.user_id for c in db.scalars(select(UserProfile)).all()
+            if c.first_name and c.last_name and alias_key(f"{c.first_name} {c.last_name}") in wanted}
+    return next(iter(hits)) if len(hits) == 1 else None
+
+
 def _ambiguous_first_name(db: Session, project_id: int, label: str | None) -> bool:
     """Одиночное имя («Анна»), под которое подходят несколько людей проекта, — вопрос «Кто это?», а не новый человек."""
     key = alias_key(label)
@@ -644,15 +670,31 @@ def _guest_person(db: Session, meeting: Any, row: Any, by_user_id: int | None) -
     """Р7 (PEOPLE-FLOW-PLAN, ЛГ4): гость вошёл с согласием на запись и назвался — он человек проекта. Компания — если
     указал её при входе и она есть в сторонах проекта (сторона — от неё, Р1); иначе без компании, сторону укажет менеджер."""
     party = find_party(db, meeting.project_id, row.company_name) if (row.company_name or "").strip() else None
+    guessed = False
+    if party is None and not (row.company_name or "").strip():
+        party = _only_customer(db, meeting.project_id)  # правило владельца: не сотрудник — сотрудник заказчика проекта
+        guessed = party is not None  # гость может быть и из другой компании — менеджер подтвердит или выберет другую
     try:
         with db.begin_nested():
             person = create_person(db, meeting.project_id, row.display_name, company_name=party.company_name if party else None,
                                    side=party.side if party else SIDE_UNKNOWN, side_source="project_party" if party else "model",
                                    by_user_id=by_user_id, alias_source="guest")
             give_voice_consent(db, meeting.project_id, person.id, by_user_id=by_user_id, basis=GUEST_CONSENT_BASIS)
+            person.company_unconfirmed = guessed
         return person
     except PeopleError:
         return None
+
+
+def _only_customer(db: Session, project_id: int) -> ProjectParty | None:
+    """Единственная сторона-заказчик проекта (не внутреннего): гость встречи без указанной компании — из неё (ЛГ5)."""
+    from app.app.models.project import Project
+
+    project = db.get(Project, project_id)
+    if project is None or project.settings().get("internal_project"):
+        return None
+    rows = db.scalars(select(ProjectParty).where(ProjectParty.project_id == project_id, ProjectParty.side == SIDE_CUSTOMER)).all()
+    return rows[0] if len(rows) == 1 else None
 
 
 def _guest_company(db: Session, project_id: int, person: Person, row: Any, by_user_id: int | None) -> None:

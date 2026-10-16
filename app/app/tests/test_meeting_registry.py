@@ -31,14 +31,14 @@ def room(client, manager_token, monkeypatch):
     return pid, mid, guest, end
 
 
-def _enable(pid):
+def _enable(pid, on=True):
     from app.app.db import SessionLocal
     from app.app.models.project import Project
 
     db = SessionLocal()
     try:
         project = db.get(Project, pid)
-        project.set_settings({"memory_platform": True})
+        project.set_settings({**project.settings(), "memory_platform": on})
         db.commit()
     finally:
         db.close()
@@ -57,7 +57,8 @@ def _participants(mid):
 
 def test_platform_off_leaves_participants_unlinked(room):
     pid, mid, guest, end = room
-    guest("Гость Один", "g-1")
+    _enable(pid, on=False)  # новый проект создаётся с платформой (Р4) — здесь проверяем выключенную
+    guest("Ирина Посетитель", "g-1")
     assert end().status_code == 200
     assert set(_participants(mid).values()) == {None}
 
@@ -89,8 +90,9 @@ def test_new_guest_becomes_person_known_is_linked_ambiguous_is_question(room):
     try:
         fresh = people.get(db, pid, got["Незнакомый Гость"])
         assert (fresh.company_name, fresh.side) == ("Заказчик Тест", "customer") and fresh.voice_consent_at is not None
-        bare = people.get(db, pid, got["Без Компании"])
-        assert bare.company_name is None and bare.side == "unknown" and bare.voice_consent_at is not None
+        bare = people.get(db, pid, got["Без Компании"])  # не указал компанию — заказчик проекта, но на подтверждение (ЛГ5)
+        assert (bare.company_name, bare.side, bare.company_unconfirmed) == ("Заказчик Тест", "customer", True)
+        assert fresh.company_unconfirmed is False and bare.voice_consent_at is not None
         queue = people.open_unknown(db, pid)
         assert [(q.kind, q.label) for q in queue] == [("guest", "Анна")]
         assert "встречи" in queue[0].examples_json
@@ -211,3 +213,64 @@ def test_registry_side_beats_company_default_in_analyze_card(room):
         assert meeting_analyze._participant_card(db, identity, None) == {}  # без проекта (или без платформы) — прежнее поведение
     finally:
         db.close()
+
+
+def test_staff_as_guest_placeholder_and_default_customer(room):
+    """ЛГ5: сотрудник, зашедший гостем («Фамилия Имя Отчество»), — его человек по учётке; «Гость проверки» — вопрос;
+    гость без компании — сотрудник единственного заказчика проекта (правило владельца)."""
+    from app.app.db import SessionLocal
+    from app.app.models.user import User
+    from app.app.services import user_profile as profiles
+    from app.app.services.companies import canonical_company, sync_companies
+
+    pid, mid, guest, end = room
+    _enable(pid)
+    db = SessionLocal()
+    try:
+        sync_companies(db)
+        worker = User(name="lg5-worker", telegram_id="tg-lg5-worker", role="user", password_hash="x")
+        db.add(worker)
+        db.commit()
+        profiles.fill_card_for_member(db, worker.id, last_name="Пилотова", first_name="Ирина", company_id=canonical_company(db, "ACME").id)
+        people.set_party(db, pid, "Заказчик Тест", "customer")
+        db.commit()
+        worker_id = worker.id
+    finally:
+        db.close()
+    guest("Пилотова Ирина Сергеевна", "g-staff")
+    guest("Гость проверки", "g-test")
+    guest("Новый Заказчиков", "g-client")
+    assert end().status_code == 200
+    got = _participants(mid)
+    db = SessionLocal()
+    try:
+        staff = people.get(db, pid, got["Пилотова Ирина Сергеевна"])
+        assert staff.user_id == worker_id and staff.side == "executor"
+        assert got["Гость проверки"] is None and [q.label for q in people.open_unknown(db, pid)] == ["Гость проверки"]
+        client_person = people.get(db, pid, got["Новый Заказчиков"])
+        assert (client_person.company_name, client_person.side) == ("Заказчик Тест", "customer") and client_person.company_unconfirmed
+    finally:
+        db.close()
+
+
+def test_new_project_has_platform_on(client, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+
+    pid = client.post("/projects", json={"name": "Сразу с платформой"}, headers=_auth(manager_token)).json()["id"]
+    db = SessionLocal()
+    try:
+        assert db.get(Project, pid).settings().get("memory_platform") is True  # Р4
+    finally:
+        db.close()
+
+
+def test_guest_page_offers_project_companies(client, manager_token):
+    """ЛГ5: проект создают со сторонами — гость выбирает, от какой компании входит; есть «Другая компания…»."""
+    h = _auth(manager_token)
+    pid = client.post("/projects", json={"name": "Встреча со сторонами", "internal": False, "customer_company": "Заказчик Тест",
+                                         "executor_company": "ACME"}, headers=h).json()["id"]
+    token = client.post(f"/projects/{pid}/meetings", headers=h).json()["public_token"]
+    page = client.get(f"/m/{token}").text
+    assert 'id="guest-company-select"' in page and "Другая компания" in page
+    assert '<option value="Заказчик Тест">' in page and '<option value="ACME">' in page
