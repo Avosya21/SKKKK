@@ -800,6 +800,23 @@ def _merge_vec_hits(first: list[dict[str, Any]], second: list[dict[str, Any]], *
     return sorted(best.values(), key=lambda h: -float(h["score"]))[:limit]
 
 
+def _project_materials_text(db: Session, project_id: int) -> str:
+    """Полный текст готовых материалов проекта (стенограммы, документы, переписки) — для сверки цитаты, которой нет
+    в контексте запроса: модель могла взять настоящую фразу из своего прошлого ответа (урок 16.10, пр. 28)."""
+    from app.app.models.entity import Chunk
+
+    parts: list[str] = []
+    rows = db.execute(
+        select(Artifact.id, Artifact.transcription_text).where(Artifact.project_id == project_id, Artifact.status == "done")
+    ).all()
+    for art_id, body in rows:
+        if body and body.strip():
+            parts.append(body)
+        else:
+            parts.extend(t for t in db.scalars(select(Chunk.text).where(Chunk.artifact_id == art_id)) if t)
+    return "\n".join(parts)
+
+
 def _pushback_note(question: str) -> str:
     """Указание модели, когда пользователь оспаривает прошлый ответ или утверждает факт (урок 16.10, пр. 28)."""
     return (
@@ -1072,7 +1089,7 @@ def _answer_chat_inner(
 
     from app.app.services.user_activity import build_chat_user_memory
 
-    memory = build_chat_user_memory(db, project_id=project_id, user_id=user_id)
+    memory = build_chat_user_memory(db, project_id=project_id, user_id=user_id, question=question)
     tz_excerpt = _project_tz_excerpt(settings, project_id)
     try:  # журнал решений (память решений, Э6): состояние предметов, даты, стороны, цитаты; чат его только читает
         from app.app.models.project import Project
@@ -1170,7 +1187,10 @@ def _answer_chat_inner(
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
     # Цитаты сверяются только с материалами: предыдущий диалог и указания пользователя доказательством не считаются.
     evidence = "\n".join(part for part in (catalog, context, supplement, tz_excerpt, decisions, graph_part) if part)
-    answer, quote_check = verify_answer_quotes(answer, evidence, user_texts=[question, *guidance_texts])
+    answer, quote_check = verify_answer_quotes(
+        answer, evidence, user_texts=[question, *guidance_texts],
+        source_texts=lambda: _project_materials_text(db, project_id),
+    )
     if quote_check["unverified"]:
         logger.info("chat: %s из %s цитат не найдены в материалах (проект %s)",
                     len(quote_check["unverified"]), quote_check["checked"], project_id)

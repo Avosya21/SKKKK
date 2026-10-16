@@ -57,18 +57,35 @@ def extract_quotes(answer: str) -> list[str]:
     return seen
 
 
-def verify_answer_quotes(answer: str, evidence: str, *, user_texts: list[str] | tuple[str, ...] = ()) -> tuple[str, dict[str, Any]]:
+def verify_answer_quotes(
+    answer: str,
+    evidence: str,
+    *,
+    user_texts: list[str] | tuple[str, ...] = (),
+    source_texts=None,
+) -> tuple[str, dict[str, Any]]:
     """Сверяет цитаты ответа с материалами ``evidence``. Возвращает ответ с пометками у ненайденных цитат и отчёт
-    ``{checked, verified, unverified: [...], from_user}``. Цитаты из ``user_texts`` (вопрос, указания) не помечаются."""
+    ``{checked, verified, in_source, unverified: [...], from_user}``.
+
+    ``source_texts`` — функция без аргументов, отдающая полный текст материалов-источников ответа: вызывается, только
+    если цитаты нет в контексте (урок 16.10: настоящая фраза созвона из прошлого ответа помечалась «не найдено»,
+    потому что её фрагмента не было в выдаче этого запроса). Цитаты из ``user_texts`` (вопрос, указания) не помечаются."""
     evidence_norm = normalize(evidence)
     user_norm = normalize(" \n ".join(user_texts))
-    report: dict[str, Any] = {"checked": 0, "verified": 0, "unverified": [], "from_user": 0}
+    source_norm: str | None = None
+    report: dict[str, Any] = {"checked": 0, "verified": 0, "in_source": 0, "unverified": [], "from_user": 0}
     marked = answer
     for quote in extract_quotes(answer):
         report["checked"] += 1
         if quote_found(quote, evidence_norm):
             report["verified"] += 1
             continue
+        if source_texts is not None:
+            if source_norm is None:
+                source_norm = normalize(source_texts() or "")
+            if quote_found(quote, source_norm):
+                report["in_source"] += 1
+                continue
         if user_norm.strip() and quote_found(quote, user_norm):
             report["from_user"] += 1
             continue
