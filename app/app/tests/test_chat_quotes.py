@@ -116,3 +116,45 @@ def test_chat_pushback_note_and_quote_mark(client, db_engine, admin_token, tmp_d
     row = db.scalars(select(ChatMessage).where(ChatMessage.project_id == pid, ChatMessage.role == "assistant")).first()
     assert UNVERIFIED_MARK in row.content and '"pushback": true' in row.meta_json
     db.close()
+
+
+def test_quote_from_full_source_is_not_marked():
+    """Урок 16.10: настоящая фраза созвона, которой нет в выдаче этого запроса, не должна помечаться «не найдено»."""
+    answer = "Ольга: «в большей степени интересует история с 1С» и «этого никто никогда не говорил вообще»."
+    calls = []
+
+    def full():
+        calls.append(1)
+        return "Ольга: В большей степени интересует история с 1С. По 1С у нас меньше компетенций."
+
+    marked, report = verify_answer_quotes(answer, "контекст без этих слов", source_texts=full)
+    assert report["in_source"] == 1 and report["unverified"] == ["этого никто никогда не говорил вообще"]
+    assert "история с 1С»" + UNVERIFIED_MARK not in marked and "вообще»" + UNVERIFIED_MARK in marked
+    assert len(calls) == 1  # полный текст читается один раз на ответ
+    _, report2 = verify_answer_quotes("«у нас нет складского учёта»", EVIDENCE, source_texts=full)
+    assert report2["verified"] == 1 and calls == [1]  # нашлось в контексте — полный текст не нужен
+
+
+def test_repeat_question_hides_old_answer(client, db_engine, admin_token, tmp_data):
+    """Урок 16.10: на тот же вопрос модель копировала свой прошлый ответ из ленты мимо материалов и правил."""
+    from app.app.db import SessionLocal
+    from app.app.models.chat_message import ChatMessage
+    from app.app.services.user_activity import REPEAT_HIDDEN, build_chat_user_memory, is_repeat_question
+
+    assert is_repeat_question("Была ли оценка на складской учет в 1с?", "была ли оценка на складской учёт в 1С")
+    assert not is_repeat_question("так получается не шла речь об оценке склада?", "Была ли оценка на складской учет в 1с?")
+
+    pid, uid = _project("RepeatQuestionChat")
+    db = SessionLocal()
+    db.add_all([
+        ChatMessage(project_id=pid, user_id=uid, role="user", content="Была ли оценка на складской учет?"),
+        ChatMessage(project_id=pid, user_id=uid, role="assistant", content="СТАРЫЙ-ОТВЕТ-ПРО-СКЛАД"),
+        ChatMessage(project_id=pid, user_id=uid, role="user", content="Кто ведёт проект?"),
+        ChatMessage(project_id=pid, user_id=uid, role="assistant", content="ОТВЕТ-ПРО-РУКОВОДИТЕЛЯ"),
+    ])
+    db.commit()
+    memory = build_chat_user_memory(db, project_id=pid, user_id=uid, question="была ли оценка на складской учёт")
+    assert "СТАРЫЙ-ОТВЕТ-ПРО-СКЛАД" not in memory and REPEAT_HIDDEN in memory
+    assert "ОТВЕТ-ПРО-РУКОВОДИТЕЛЯ" in memory and "Была ли оценка на складской учет?" in memory
+    assert "СТАРЫЙ-ОТВЕТ-ПРО-СКЛАД" in build_chat_user_memory(db, project_id=pid, user_id=uid)
+    db.close()

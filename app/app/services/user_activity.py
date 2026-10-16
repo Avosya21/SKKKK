@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import func, select
@@ -189,8 +190,29 @@ def _completed_chat_pairs(
     return pairs
 
 
-def build_chat_user_memory(db: Session, *, project_id: int, user_id: int) -> str:
-    """Текст для промпта: та же лента, что на экране (`chat_messages`)."""
+_REPEAT_WORDS = re.compile(r"\w+", re.U)
+REPEAT_SIMILARITY = 0.8  # доля общих слов, с которой вопрос считается повтором прежнего
+REPEAT_HIDDEN = ("(ответ на этот же вопрос скрыт: материалы и правила могли измениться — ответь заново по "
+                 "материалам ниже, не по памяти)")
+
+
+def _question_words(text: str) -> set[str]:
+    return {w for w in _REPEAT_WORDS.findall((text or "").lower().replace("ё", "е")) if len(w) > 2}
+
+
+def is_repeat_question(question: str, earlier: str) -> bool:
+    """Тот же вопрос, заданный ещё раз: совпадает почти весь набор слов (порядок и опечатки в мелочах не важны)."""
+    a, b = _question_words(question), _question_words(earlier)
+    if not a or not b:
+        return False
+    return len(a & b) / len(a | b) >= REPEAT_SIMILARITY
+
+
+def build_chat_user_memory(db: Session, *, project_id: int, user_id: int, question: str | None = None) -> str:
+    """Текст для промпта: та же лента, что на экране (`chat_messages`).
+
+    ``question`` — текущий вопрос: прошлый ответ ИИ на тот же вопрос заменяется пометкой, иначе модель копировала его
+    целиком мимо материалов и новых правил (урок 16.10, пр. 28)."""
     rows = list(
         db.scalars(
             select(ChatMessage)
@@ -213,14 +235,17 @@ def build_chat_user_memory(db: Session, *, project_id: int, user_id: int) -> str
         rows.pop()
 
     lines: list[str] = []
+    after_repeat = False
     for row in rows:
         text = (row.content or "").strip()
         if not text or row.waiting or text == _PENDING_CHAT_TEXT:
             continue
         if row.role == "user":
             lines.append(f"Пользователь: {text}")
+            after_repeat = bool(question) and is_repeat_question(question, text)
         elif row.role == "assistant":
-            lines.append(f"ИИ: {text}")
+            lines.append(f"ИИ: {REPEAT_HIDDEN if after_repeat else text}")
+            after_repeat = False
     if not lines:
         return ""
 
