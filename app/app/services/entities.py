@@ -1692,6 +1692,7 @@ def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) ->
 
     Строки не пересоздаются (id, связи графа, разрешения, human_review целы). Якорь — ``start_sec``: номера реплик
     сдвигаются после «Слить». Сущности без привязки (старые созвоны) и привязка по дорожке (комната) не трогаются.
+    Авторы речевых актов и событий журнала созвона обновляются там же (``act_authors.rebind_call_authors``).
     """
     if getattr(artifact, "source_type", "") != SOURCE_TYPE_CALL or artifact.file_type != "audio":
         return 0
@@ -1741,6 +1742,9 @@ def rebind_call_entities(db: Session, settings: Settings, artifact: Artifact) ->
         if json.dumps(value, ensure_ascii=False, sort_keys=True) != before:
             ent.value_json = json.dumps(value, ensure_ascii=False)
             changed += 1
+    from app.app.services.act_authors import rebind_call_authors
+
+    rebind_call_authors(db, settings, artifact)  # те же имена — в акты и события памяти решений
     if changed:
         db.flush()
         log_event(logger, "entities.rebound", artifact=artifact.artifact_id, changed=changed)
