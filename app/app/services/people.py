@@ -206,7 +206,8 @@ def sync_decision_memory(db: Session, project_id: int, *, person_ids: set[int] |
                          subject_ids: set[int] | None = None) -> dict[str, int]:
     """Правки людей — в память решений: событие журнала, выведенное из реплики, получает человека и сторону этой реплики
     (реплику привязали к карточке позже, карточки объединили, сторону исправили по компании); затронутые предметы
-    пересчитываются свёрткой журнала (``decision_log.refresh_subject``, модель не вызывается). ``person_ids`` — только
+    пересчитываются свёрткой журнала (``decision_log.refresh_subject``, модель не вызывается) — кроме предметов, итог которых
+    поставил судья или человек: их не трогаем, у них меняются только события (судья перепроверит). ``person_ids`` — только
     события реплик этих людей; None — весь проект."""
     from app.app.models.decision_memory import DecisionEvent, Subject
     from app.app.models.speech_act import SpeechAct
@@ -228,8 +229,8 @@ def sync_decision_memory(db: Session, project_id: int, *, person_ids: set[int] |
     changed = 0
     for sid in sorted(touched):
         subject = db.get(Subject, sid)
-        if subject is None:
-            continue
+        if subject is None or subject.state_source in ("judge", "human"):
+            continue  # итог поставил судья (модель) или человек — свёртка его не перетирает; судья перепроверит сам
         before = subject.state
         if decision_log.refresh_subject(db, subject).state != before:
             changed += 1
