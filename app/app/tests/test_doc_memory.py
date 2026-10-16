@@ -153,3 +153,28 @@ def test_agent_exchange_files_are_not_documents():
     assert dm.is_document(SimpleNamespace(file_type="docx", original_filename="ТЗ.docx"))
     assert not dm.is_document(SimpleNamespace(file_type="txt", original_filename="analysis_question_3.json"))
     assert not dm.is_document(SimpleNamespace(file_type="audio", original_filename="встреча.wav"))
+
+
+def test_document_window_that_overflows_is_split_in_halves(doc):
+    """Порция документа, ответ на которую обрывается (не JSON), делится пополам; каждая половина размечается отдельно."""
+    from app.app.models.speech_act import SpeechAct
+    from app.app.services import speech_acts as sa
+
+    db, settings, art = doc
+    units = dm.document_units(DOC, dm.document_label(art))
+    req = next(u for u in units if "показания" in u.text)
+    row = next(u for u in units if "Загрузка тарифов" in u.text)
+
+    def ask(system, user):
+        if "Ответь, что это за документ" in system:
+            return json.dumps(PASSPORT, ensure_ascii=False)
+        targets = user.split("Размечай ТОЛЬКО единицы: ", 1)[1].split(".", 1)[0].split(", ")
+        if len(targets) > 1:
+            return '{"acts": [{"unit": "P1", "act": "documented", "quote": "обрыв'  # ответ упёрся в лимит
+        acts = {req.ref: {"unit": req.ref, "act": "documented", "quote": "Система должна загружать показания"},
+                row.ref: {"unit": row.ref, "act": "done", "quote": "Готово"}}
+        return json.dumps({"acts": [acts[t]] if t in acts else []} if (t := targets[0]) else {"acts": []}, ensure_ascii=False)
+
+    stats = sa.extract_artifact(db, settings, art, ask=ask)
+    assert stats["errors"] == 0 and stats["split"] >= 1 and stats["acts"] == 2
+    assert {r.unit_ref for r in db.query(SpeechAct).filter(SpeechAct.artifact_id == art.id).all()} == {req.ref, row.ref}

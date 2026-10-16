@@ -39,6 +39,7 @@ MIN_QUOTE = 4
 MAX_ABOUT = 160
 MAX_ACTS_PER_UNIT = 3
 MAX_TOKENS = 2048
+DOC_MAX_TOKENS = 4096  # документ: строка плана или длинный абзац дают несколько пунктов
 
 
 @dataclass(frozen=True)
@@ -189,11 +190,11 @@ def build_review_user(context: list[DUnit], targets: list[DUnit], draft: list[di
     return f"{lines}\n\nЧерновая разметка:\n{draft_json}"
 
 
-def _ask_default(settings: Settings) -> Callable[[str, str], str]:
+def _ask_default(settings: Settings, max_tokens: int = MAX_TOKENS) -> Callable[[str, str], str]:
     from app.app.services.llm import chat_completion_no_think
 
     def ask(system: str, user: str) -> str:
-        return chat_completion_no_think(settings, system=system, user=user, max_tokens=MAX_TOKENS)
+        return chat_completion_no_think(settings, system=system, user=user, max_tokens=max_tokens)
 
     return ask
 
@@ -214,6 +215,7 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
     """Разобрать материал: окна -> модель -> проверка -> замена строк ``speech_acts`` материала. ``only_refs`` — только эти реплики
     (для проверок); тогда прежние строки этих реплик заменяются, остальные не трогаются."""
     units = dialog_units(settings, artifact)
+    own_ask = ask is None
     ask = ask or _ask_default(settings)
     doc = None
     if not units:
@@ -232,13 +234,17 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
         from app.app.services import doc_memory
 
         system, review = doc_memory.acts_system(), False  # у документа нет реакций на чужие реплики: проверочный проход реплик не нужен
+        if own_ask:  # строка плана или длинный абзац дают много пунктов: ответу нужен запас
+            ask = _ask_default(settings, max_tokens=DOC_MAX_TOKENS)
     else:
         system = _system()
     review_system = _review_system() if review else ""
     rows: list[SpeechAct] = []
     cache: dict[str, tuple[int | None, str | None]] = {}
     db.commit()  # соединение БД не держим на время ответа модели
-    for context, targets in windows(units):
+    pending_windows = list(windows(units))
+    while pending_windows:
+        context, targets = pending_windows.pop(0)
         if only_refs is not None:
             targets = [u for u in targets if u.ref in only_refs]
             if not targets:
@@ -255,9 +261,19 @@ def extract_artifact(db: Session, settings: Settings, artifact: Artifact, *, ask
             except (ValueError, json.JSONDecodeError, RuntimeError) as exc:
                 if attempt == 0:
                     user += f"\n\nПредыдущий ответ невалиден: {exc}. Верни только JSON вида {{\"acts\": [...]}}."
+                elif doc is not None and len(targets) > 1:
+                    # документ: плотная порция не уместилась в ответ — делим пополам, контекст второй половины — конец первой
+                    half = len(targets) // 2
+                    pending_windows[:0] = [(context, targets[:half]), ((context + targets[:half])[-CONTEXT_UNITS:], targets[half:])]
+                    stats["split"] = stats.get("split", 0) + 1
+                    log_event(logger, "speech_acts.window_split", artifact=artifact.artifact_id, unit=targets[0].ref, units=len(targets))
+                    acts = None
                 else:
                     stats["errors"] += 1
                     log_event(logger, "speech_acts.window_failed", artifact=artifact.artifact_id, unit=targets[0].ref, error=str(exc)[:200])
+        if acts is None:
+            stats["windows"] -= 1  # порция разделена: считаются её половины
+            continue
         if review and acts is not None:
             stats["reviewed"] += 1
             wide = units[max(0, units.index(targets[0]) - REVIEW_CONTEXT_UNITS): units.index(targets[0])]

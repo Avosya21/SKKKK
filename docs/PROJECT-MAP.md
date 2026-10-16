@@ -1570,7 +1570,7 @@ run_pipeline
 | `review_relevance_v2.md` | review_relevance.py (актуальность пунктов по темам, `review_relevance-v2.1`) |
 | `suggest_speaker_names.md` | speaker_auto.py (подсказка имён неназванным голосам) |
 | `speech_acts.md` | speech_acts.py (виды речевых актов, `speech_acts-v5`) |
-| `speech_acts_doc.md` | speech_acts.py + doc_memory.py (акты единиц документа, `speech_acts_doc-v1`) |
+| `speech_acts_doc.md` | speech_acts.py + doc_memory.py (акты единиц документа, `speech_acts_doc-v2`: контекст не размечается, ответ одной строкой; порция, ответ на которую оборвался, делится пополам) |
 | `document_passport.md` | doc_memory.py (паспорт документа: вид, сторона, утверждение, дата — с цитатами, `document_passport-v1`) |
 | `subject_match.md` | subjects.py (серая зона: тот же предмет или нет) |
 | `subject_window.md` | subject_windows.py (раскладка окна актов по предметам одним проходом модели, `subject_window-v1`) |

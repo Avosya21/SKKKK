@@ -27,7 +27,7 @@ from app.app.models.artifact import Artifact
 logger = logging.getLogger("skkkk.doc_memory")
 
 PASSPORT_VERSION = "document_passport-v1"
-ACTS_PROMPT_VERSION = "speech_acts_doc-v1"
+ACTS_PROMPT_VERSION = "speech_acts_doc-v2"  # v2: контекст не размечается, ответ одной строкой
 HEAD_CHARS = 9000  # начало документа для паспорта: титул, реквизиты, лист согласования, введение
 TAIL_CHARS = 3000  # конец: подписи, «утверждаю», приложения
 SECTION_CHARS = 120
@@ -224,7 +224,9 @@ class DocContext:
         return f"{self.label} ({'; '.join(bits)})"
 
     def build_user(self, context: list, targets: list) -> str:
-        lines = [self.header(), "Окно единиц документа:"]
+        targets_refs = ", ".join(u.ref for u in targets)
+        lines = [self.header(), f"Размечай ТОЛЬКО единицы: {targets_refs}. Строки «·» — контекст, их метки в ответе не допускаются.",
+                 "Окно единиц документа:"]
         section = None
         for mark, units in (("·", context), (">", targets)):
             for u in units:
