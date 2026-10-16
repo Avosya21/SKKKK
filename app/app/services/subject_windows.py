@@ -26,7 +26,7 @@ from app.app.services.subjects import TITLE_MAX, _day_of, _sort_key, _Subj, act_
 
 logger = logging.getLogger("skkkk.subject_windows")
 
-PROMPT_VERSION = "subject_window-v1"
+PROMPT_VERSION = "subject_window-v2"  # v2: пункты документов — раздел не предмет, каждое требование отдельно
 WINDOW_ACTS = 25  # актов в одном вопросе модели
 KNOWN_SIMILAR = 12  # известных предметов, ближайших по вектору к окну
 KNOWN_RECENT = 5  # и последних тронутых
@@ -193,6 +193,41 @@ def assign(db: Session, settings: Settings, project_id: int, *, rebuild: bool = 
         db.commit()
     stats["subjects"] = len(known)
     log_event(logger, "subjects.assigned_windows", project=project_id, **stats)
+    return stats
+
+
+def release_document_acts(db: Session, project_id: int) -> dict[str, int]:
+    """Снять с предметов акты документов (``P<n>``), чтобы следующий ``assign`` разложил их заново (смена промпта раскладки).
+    Предмет только из документов удаляется со своими событиями, позициями и строками сравнения; у предмета с репликами снимаются
+    только акты документов. Предметы с решением человека не трогаются. Реплики созвонов и переписки остаются на своих предметах."""
+    human = set(db.scalars(select(DecisionEvent.subject_id).where(DecisionEvent.project_id == project_id, DecisionEvent.decided_by == "human")).all())
+    by_subject: dict[int, list[SpeechAct]] = {}
+    for act in db.scalars(select(SpeechAct).where(SpeechAct.project_id == project_id, SpeechAct.subject_id.is_not(None))).all():
+        by_subject.setdefault(act.subject_id, []).append(act)
+    stats = {"released": 0, "dropped_subjects": 0, "kept_human": 0}
+    drop: list[int] = []
+    for sid, acts in by_subject.items():
+        doc = [a for a in acts if str(a.unit_ref).startswith("P")]
+        if not doc:
+            continue
+        if sid in human:
+            stats["kept_human"] += 1
+            continue
+        for a in doc:
+            a.subject_id = None
+        stats["released"] += len(doc)
+        if len(doc) == len(acts):
+            drop.append(sid)
+    db.flush()  # снятые акты — в базу до удаления их прежних предметов
+    if drop:
+        db.execute(delete(DecisionEvent).where(DecisionEvent.subject_id.in_(drop)))
+        db.execute(delete(SubjectPosition).where(SubjectPosition.subject_id.in_(drop)))
+        db.execute(delete(MemoryShadowReview).where(MemoryShadowReview.subject_id.in_(drop)))
+        db.execute(update(Subject).where(Subject.superseded_by.in_(drop)).values(superseded_by=None))
+        db.execute(delete(Subject).where(Subject.id.in_(drop)))
+    stats["dropped_subjects"] = len(drop)
+    db.commit()
+    log_event(logger, "subjects.document_acts_released", project=project_id, **stats)
     return stats
 
 
