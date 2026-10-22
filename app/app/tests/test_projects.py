@@ -128,6 +128,79 @@ def test_delete_project_with_agent_protocol_rows(client, manager_token):
     assert r.status_code == 204
 
 
+def test_delete_project_with_decision_memory_rows(client, manager_token):
+    """Регресс: память решений (subjects/speech_acts/decision_events/…) ссылается на artifacts/projects
+    (FK) и раньше не чистилась в purge_project — delete падал с IntegrityError после разбора материала."""
+    import io
+
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Subject, SubjectPosition
+    from app.app.models.speech_act import SpeechAct
+    from sqlalchemy import select
+
+    pid = client.post(
+        "/projects",
+        json={"name": "Memory touched"},
+        headers={"Authorization": f"Bearer {manager_token}"},
+    ).json()["id"]
+    up = client.post(
+        f"/projects/{pid}/upload",
+        headers={"Authorization": f"Bearer {manager_token}"},
+        data={"source_type": "note"},
+        files=[("files", ("acted.txt", io.BytesIO(b"some dialogue"), "text/plain"))],
+    )
+    assert up.status_code == 200, up.text
+    aid = up.json()[0]["artifact_id"]
+
+    db = SessionLocal()
+    try:
+        art = db.scalar(select(Artifact).where(Artifact.artifact_id == aid))
+        assert art is not None
+        subject = Subject(project_id=pid, title="Предмет спора")
+        db.add(subject)
+        db.flush()
+        db.add(SubjectPosition(subject_id=subject.id, label="Вариант А"))
+        act = SpeechAct(
+            project_id=pid,
+            artifact_id=art.id,
+            unit_ref="M1",
+            unit_key=1,
+            act="proposed",
+            quote="цитата реплики",
+            prompt_version="v-test",
+        )
+        db.add(act)
+        db.flush()
+        db.add(
+            DecisionEvent(
+                project_id=pid,
+                subject_id=subject.id,
+                kind="proposed",
+                occurred_at="2026-10-01T10:00:00",
+                artifact_id=art.id,
+                speech_act_id=act.id,
+                decided_by="rule",
+            )
+        )
+        db.add(
+            MemoryShadowReview(
+                project_id=pid,
+                entity_id=1,
+                subject_id=subject.id,
+                old_state="current",
+                new_state="agreed",
+                verdict="new",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"})
+    assert r.status_code == 204
+
+
 def test_create_project_makes_directory_tree(client, manager_token, tmp_data):
     r = client.post(
         "/projects",

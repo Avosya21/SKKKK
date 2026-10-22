@@ -285,3 +285,52 @@ def test_contract_ids_survive_concurrent_builds(client, manager_token, tmp_data)
         assert len(seqs) == len(set(seqs))  # номера не повторяются
     finally:
         s.close()
+
+
+def test_build_contract_survives_concurrent_chunk_deletion(client, manager_token, tmp_data, monkeypatch):
+    """Регресс 2026-10-22: сборка коммитит номера пунктов, а материал в это время может быть удалён или
+    переиндексирован. Просроченный Chunk читался заново и падал с ObjectDeletedError (GET
+    /projects/{id}/agent-exchange/summary → 500). Теперь сборка держит загруженный снимок."""
+    import uuid
+
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Chunk
+
+    h = {"Authorization": f"Bearer {manager_token}"}
+    pid = client.post("/projects", json={"name": "Контракт и удаление"}, headers=h).json()["id"]
+    db = SessionLocal()
+    tag = uuid.uuid4().hex[:8]
+    art = Artifact(artifact_id=f"art_2026-10-01_100000_{tag}", project_id=pid, user_id=1,
+                   original_filename="note.txt", stored_filename="note.txt", file_path="note.txt",
+                   file_type="txt", source_type="note", sha256=tag.ljust(64, "0"), status="done")
+    db.add(art)
+    db.flush()
+    parsed = tmp_data / "projects" / str(pid) / "parsed" / "documents"
+    parsed.mkdir(parents=True, exist_ok=True)
+    (parsed / f"{art.artifact_id}_clean.txt").write_text("Заметка без переписки", encoding="utf-8")
+    db.add(Chunk(artifact_id=art.id, project_id=pid, chunk_index=0, text="Заметка без переписки",
+                 speaker="Иван", token_estimate=5))
+    db.commit()
+
+    original = ctr._assign_ids
+    state = {"deleted": False}
+
+    def deleting(session, project_id, slug, kind, items):
+        result = original(session, project_id, slug, kind, items)
+        if not state["deleted"]:  # первый коммит сборки уже прошёл — материл успели удалить
+            state["deleted"] = True
+            other = SessionLocal()
+            try:
+                other.query(Chunk).filter(Chunk.artifact_id == art.id).delete()
+                other.commit()
+            finally:
+                other.close()
+        return result
+
+    monkeypatch.setattr(ctr, "_assign_ids", deleting)
+    files = ctr.build_contract(db, get_settings(), pid).files
+    assert files["artifacts"]["total"] == 1
+    assert [p["name"] for p in files["artifacts"]["items"][0]["participants"]] == ["Иван"]
+    db.close()
