@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 import weakref
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -23,6 +24,18 @@ def _sqlite_path(url: str) -> str:
         return url.replace("sqlite:///", "", 1)
     return url
 
+
+def _ensure_sqlite_parent(url: str) -> None:
+    """Создать каталог файла SQLite: в свежем клоне data/ ещё нет, а СУБД его не создаёт."""
+    if not url.startswith("sqlite:///"):
+        return
+    raw = _sqlite_path(url)
+    if not raw or raw == ":memory:" or raw.startswith("file:"):
+        return
+    Path(raw).parent.mkdir(parents=True, exist_ok=True)
+
+
+_ensure_sqlite_parent(settings.database_url)
 
 engine = create_engine(
     settings.database_url,
