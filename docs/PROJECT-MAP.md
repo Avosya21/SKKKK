@@ -369,7 +369,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 | Элемент | URL | Шаблон | Действие |
 |---------|-----|--------|----------|
-| Логотип **Primary Analytics** | `/` | `base.html` | Список проектов |
+| Логотип **Appa** · Primary Analytics (с 2026-10-16) | `/` | `base.html` `.navbar-brand-logo`: знак-слово `static/brand/appa-wordmark.svg` + подпись «Primary Analytics» (на телефоне скрыта), стили — `design.css`. Иконка вкладки — `static/brand/favicon.ico` / `favicon.svg` / `apple-touch-icon.png` в `<head>` `base.html` и `meeting_public.html`; полный комплект логотипа (варианты, иконки, памятка) хранится вне репозитория | Список проектов |
 | **Выйти** (иконка у ника) | `/auth/logout` | `base.html` `#nav-logout` | `POST /auth/logout`, сброс cookie и localStorage |
 | **к проектам** | `/` | `project.html` nav | То же |
 | `/login` | `/login` | `login.html` | Вход только для логинов из `Login_up.txt` (регистр не важен); JWT + cookie `skkkk_session` |
