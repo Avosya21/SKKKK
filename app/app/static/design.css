@@ -105,6 +105,15 @@ a { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); te
   background: var(--ds-accent);
   box-shadow: 0 0 0 3px var(--ds-accent-soft);
 }
+/* логотип Appa в шапке: знак-слово + подпись Primary Analytics; цветная точка не нужна */
+.navbar-skkkk .navbar-brand-logo::before { display: none !important; }
+.navbar-skkkk .navbar-brand-logo { gap: .6rem; }
+.navbar-skkkk .navbar-brand-logo img { display: block; height: 31px; width: auto; }
+.navbar-skkkk .navbar-brand-sub {
+  font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ds-muted); padding-left: .6rem; border-left: 1px solid var(--ds-line); line-height: 1.1;
+}
+@media (max-width: 575.98px) { .navbar-skkkk .navbar-brand-sub { display: none; } }
 .navbar-skkkk .navbar-text, .navbar-skkkk .text-white-50 { color: var(--ds-muted) !important; }
 .navbar-skkkk .navbar-divider, .navbar-skkkk .navbar-project { color: var(--ds-text-2) !important; border-color: var(--ds-line) !important; }
 .navbar-skkkk .navbar-project { font-weight: 500; }

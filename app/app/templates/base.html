@@ -7,14 +7,17 @@
   <title>{{ title }} — Primary Analytics</title>
   <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
   <link href="/static/app.css?v=18" rel="stylesheet">
-  <link href="/static/design.css?v=7" rel="stylesheet">
+  <link href="/static/design.css?v=8" rel="stylesheet">
+  <link rel="icon" href="/static/brand/favicon.ico" sizes="any">
+  <link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
   {% block extra_head %}{% endblock %}
 </head>
 <body class="bg-light">
 <nav class="navbar navbar-dark bg-dark mb-3 mb-md-4 navbar-skkkk">
   <div class="container navbar-inner">
     <div class="navbar-brand-row">
-      <a class="navbar-brand mb-0 py-1 flex-shrink-0" href="/">Primary Analytics</a>
+      <a class="navbar-brand navbar-brand-logo mb-0 py-1 flex-shrink-0" href="/" title="Appa · Primary Analytics"><img src="/static/brand/appa-wordmark.svg" alt="Appa" width="81" height="31"><span class="navbar-brand-sub">Primary Analytics</span></a>
       {% block nav_project %}{% endblock %}
     </div>
     <div class="navbar-actions-row">
