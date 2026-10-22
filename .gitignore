@@ -139,3 +139,44 @@ Panel_users.txt
 # сборка колеса projectmap
 tools/projectmap/build/
 experiments/embeddinggemma2/model/
+
+# --- Гигиена репозитория: в git только код ---
+# Всё содержимое data/ — рабочие данные портала (БД, проекты, встречи, бэкапы).
+# Каталог создаётся при первом запуске (preflight), в git его быть не должно.
+data/
+# Личные данные, списки логинов и выгрузки — только локально.
+private/
+onec/
+# Базы данных и рабочие документы не коммитятся ни в каком каталоге.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.m4a
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.safetensors
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.ckpt
+# Исключения: синтетические фикстуры тестов.
+!app/app/tests/fixtures/**
+!scripts/qa_data_speech_*.wav

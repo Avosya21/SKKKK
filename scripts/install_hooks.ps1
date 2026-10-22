@@ -8,6 +8,8 @@
     SKKKK-INDEX (post-commit, post-merge): обновляет индекс проекта в фоне, только изменённые файлы; ошибка не ломает git.
     SKKKK-PRIVACY (pre-commit): scripts/scan_personal_data.py --staged — в файлах коммита не должно быть имён людей и названий
       компаний из базы портала (находки видны только в консоли); совпадение отклоняет коммит. Без базы портала пропускается.
+    SKKKK-DATA (pre-commit): scripts/check_no_data_files.py --staged — в коммит не попадают БД, каталог data/, личные списки,
+      документы, медиа и веса моделей; исключения — синтетические фикстуры тестов и примеры настроек.
     SKKKK-MAP (pre-commit, commit-msg): карта проекта должна соответствовать коммиту.
       pre-commit  -> scripts/check_map_staged.py: сверяет карту с содержимым индекса git (роуты, таблицы БД, переменные
                      окружения, файлы кода, реестр модулей, манифест); расхождение отклоняет коммит.
@@ -65,11 +67,22 @@ if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/scan_personal_data.py" ]; then
 fi
 '@
 
+$dataBlock = $mapHead + @'
+
+if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/check_no_data_files.py" ]; then
+  "$SKKKK_PY" "$SKKKK_TOP/scripts/check_no_data_files.py" --staged || {
+    echo "SKKKK: в коммит попадают БД или рабочие данные проектов. Уберите их из индекса." >&2
+    exit 1
+  }
+fi
+'@
+
 $hooks = @(
     @{ Name = 'post-commit'; Tag = 'SKKKK-INDEX'; Body = $indexBlock },
     @{ Name = 'post-merge';  Tag = 'SKKKK-INDEX'; Body = $indexBlock },
     @{ Name = 'pre-commit';  Tag = 'SKKKK-MAP';   Body = $preCommitBlock },
     @{ Name = 'pre-commit';  Tag = 'SKKKK-PRIVACY'; Body = $privacyBlock },
+    @{ Name = 'pre-commit';  Tag = 'SKKKK-DATA';  Body = $dataBlock },
     @{ Name = 'commit-msg';  Tag = 'SKKKK-MAP';   Body = $commitMsgBlock }
 )
 
