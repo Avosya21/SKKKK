@@ -580,9 +580,15 @@ def build_contract(db: Session, settings: Settings, project_id: int) -> Contract
     local_tz = agent_settings.parse_tz(cfg["timezone"])
     anchor_rules = agent_settings.load_pack_rules(cfg["domain_pack"])
     token = _TZ.set(local_tz)
+    # Сборка сама коммитит номера пунктов (_assign_ids), а материалы в это время может переиндексировать воркер
+    # или удалить человек. Просроченные после коммита ORM-строки читались бы из уже удалённых записей
+    # (ObjectDeletedError: Instance '<Chunk ...>' has been deleted). Держим значения загруженными до конца сборки.
+    expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
     try:
         return _build_contract(db, settings, project, project_id, slug, now, cfg, local_tz, anchor_rules)
     finally:
+        db.expire_on_commit = expire_on_commit
         _TZ.reset(token)
 
 

@@ -142,6 +142,80 @@ def test_user_can_purge_one_artifact_and_keep_the_other(client, manager_token, u
         db.close()
 
 
+def test_delete_artifact_with_speech_acts_and_events(client, manager_token, user_token, tmp_data):
+    """Регресс: speech_acts/decision_events ссылаются на artifacts.id (FK) и раньше не чистились
+    в purge_artifact — delete падал с IntegrityError, если материал уже разобран на реплики."""
+    from app.app.db import SessionLocal
+    from app.app.models.decision_memory import DecisionEvent, Subject
+    from app.app.models.speech_act import SpeechAct
+    from sqlalchemy import select
+
+    pid = _project(client, manager_token)
+    art = _upload(client, manager_token, pid, "acted.txt", b"some dialogue")
+
+    db = SessionLocal()
+    try:
+        art_row = db.scalar(select(Artifact).where(Artifact.artifact_id == art["artifact_id"]))
+        assert art_row is not None
+        subject = Subject(project_id=pid, title="Предмет спора")
+        db.add(subject)
+        db.flush()
+        act = SpeechAct(
+            project_id=pid,
+            artifact_id=art_row.id,
+            unit_ref="M1",
+            unit_key=1,
+            act="proposed",
+            quote="цитата реплики",
+            prompt_version="v-test",
+        )
+        db.add(act)
+        db.flush()
+        rule_event = DecisionEvent(
+            project_id=pid,
+            subject_id=subject.id,
+            kind="proposed",
+            occurred_at="2026-10-01T10:00:00",
+            artifact_id=art_row.id,
+            speech_act_id=act.id,
+            decided_by="rule",
+        )
+        human_event = DecisionEvent(
+            project_id=pid,
+            subject_id=subject.id,
+            kind="agreed",
+            occurred_at="2026-10-02T11:00:00",
+            speech_act_id=act.id,
+            decided_by="human",
+        )
+        db.add_all([rule_event, human_event])
+        db.commit()
+        subject_id = subject.id
+        art_pk = art_row.id
+        act_id = act.id
+        rule_id = rule_event.id
+        human_id = human_event.id
+    finally:
+        db.close()
+
+    r = client.delete(
+        f"/projects/{pid}/artifacts/{art['artifact_id']}",
+        headers={"Authorization": f"Bearer {manager_token}"},
+    )
+    assert r.status_code == 204
+
+    db = SessionLocal()
+    try:
+        assert db.scalars(select(SpeechAct).where(SpeechAct.artifact_id == art_pk)).all() == []
+        assert db.get(SpeechAct, act_id) is None
+        assert db.get(DecisionEvent, rule_id) is None  # событие материала ушло с ним
+        human = db.get(DecisionEvent, human_id)
+        assert human is not None and human.speech_act_id is None  # решение человека пережило материал
+        assert db.get(Subject, subject_id) is not None
+    finally:
+        db.close()
+
+
 def test_delete_artifact_clears_graph_links(client, manager_token, user_token, tmp_data):
     pid = _project(client, manager_token)
     gone = _upload(client, manager_token, pid, "gone.txt", b"remove-me")

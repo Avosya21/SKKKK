@@ -19,6 +19,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
 from app.app.models.contract import ContractItem
+from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Subject, SubjectPosition
 from app.app.models.entity import AsrRun, Changelog, Chunk, Entity, Link, NoteRef, Resolution, Topic, UserNote
 from app.app.models.job import Job
 from app.app.models.meeting import Meeting, MeetingParticipant
@@ -30,6 +31,7 @@ from app.app.models.project_task import ProjectTask
 from app.app.models.manual_task import ManualTask
 from app.app.models.project_visit import ProjectVisit
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
+from app.app.models.speech_act import SpeechAct
 from app.app.models.user_activity_log import UserActivityLog
 from app.app.services.graph import delete_entities_with_deps
 from app.app.services.meeting_recordings import remove_room_recordings
@@ -135,6 +137,15 @@ def purge_artifact(db: Session, settings: Settings, artifact: Artifact) -> None:
     db.execute(delete(AsrRun).where(AsrRun.artifact_id == pk))
     db.execute(delete(Job).where(Job.artifact_id == pk))
     db.execute(delete(ProjectTask).where(ProjectTask.artifact_db_id == pk))
+    # память решений (Э3–Э5): события и реплики ссылаются на artifacts.id — снять ссылки, стереть акты материала
+    act_ids = list(db.scalars(select(SpeechAct.id).where(SpeechAct.artifact_id == pk)))
+    if act_ids:
+        db.execute(update(DecisionEvent).where(DecisionEvent.speech_act_id.in_(act_ids)).values(speech_act_id=None))
+    dying_events = list(db.scalars(select(DecisionEvent.id).where(DecisionEvent.artifact_id == pk)))
+    if dying_events:
+        db.execute(update(DecisionEvent).where(DecisionEvent.supersedes_event_id.in_(dying_events)).values(supersedes_event_id=None))
+        db.execute(delete(DecisionEvent).where(DecisionEvent.id.in_(dying_events)))
+    db.execute(delete(SpeechAct).where(SpeechAct.artifact_id == pk))
     db.execute(delete(ArtifactSpeakerLink).where(ArtifactSpeakerLink.artifact_id == aid))
     still_used = {
         *db.scalars(select(ArtifactSpeakerLink.profile_id).where(ArtifactSpeakerLink.profile_id.isnot(None))),
@@ -213,6 +224,17 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
         db.execute(delete(Entity).where(Entity.artifact_id.in_(art_pks)))
         db.execute(delete(AsrRun).where(AsrRun.artifact_id.in_(art_pks)))
         db.execute(delete(Job).where(Job.artifact_id.in_(art_pks)))
+
+    # память решений (Э3–Э5): события, реплики, тени, предметы — до тем, людей и артефактов
+    db.execute(update(DecisionEvent).where(DecisionEvent.project_id == pid).values(speech_act_id=None, supersedes_event_id=None))
+    db.execute(delete(DecisionEvent).where(DecisionEvent.project_id == pid))
+    db.execute(delete(SpeechAct).where(SpeechAct.project_id == pid))
+    db.execute(delete(MemoryShadowReview).where(MemoryShadowReview.project_id == pid))
+    db.execute(update(Subject).where(Subject.project_id == pid).values(superseded_by=None))
+    subject_ids = list(db.scalars(select(Subject.id).where(Subject.project_id == pid)))
+    if subject_ids:
+        db.execute(delete(SubjectPosition).where(SubjectPosition.subject_id.in_(subject_ids)))
+    db.execute(delete(Subject).where(Subject.project_id == pid))
 
     db.execute(delete(Topic).where(Topic.project_id == pid))
     db.execute(delete(ProjectTask).where(ProjectTask.project_id == pid))
