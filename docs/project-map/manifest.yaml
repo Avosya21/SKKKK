@@ -3752,6 +3752,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_check_no_data_files
+    kind: file
+    path: scripts/check_no_data_files.py
+    title: "Проверка гигиены репозитория: в git не попадают БД, проекты и рабочие документы."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
