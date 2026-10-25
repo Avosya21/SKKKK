@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Установка окружения проекта после переноса папки на другой ПК (или с нуля).
 
@@ -20,7 +20,7 @@
 param(
     [string]$Only = '',        # venv | имя из venvs\ ; пусто = всё
     [switch]$Force,            # пересоздавать окружения, даже если они работают
-    [string]$OldRoot = 'C:\1C_NEW_SKKKK'
+    [string]$OldRoot = 'D:\1C_NEW_SKKKK'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot

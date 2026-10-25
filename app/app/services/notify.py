@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.app.config import Settings
 
-logger = logging.getLogger("skkkk.notify")
+logger = logging.getLogger("primaryanalitics.notify")
 
 
 def send_telegram(settings: Settings, chat_id: str, text: str) -> bool:

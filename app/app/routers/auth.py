@@ -66,7 +66,7 @@ from app.app.services.user_identity import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-logger = logging.getLogger("skkkk.auth")
+logger = logging.getLogger("primaryanalitics.auth")
 
 
 TICKET_MINUTES = 5

@@ -17,7 +17,7 @@
 
   const api = async (path, opts) => {
     try {
-      return await SKKKK.api(`/projects/${PID}${path}`, opts);
+      return await PrimaryAnalitics.api(`/projects/${PID}${path}`, opts);
     } catch (e) {
       return new Response(JSON.stringify({ detail: 'Нет связи с сервером. Проверьте интернет и повторите.' }), { status: 599, headers: { 'Content-Type': 'application/json' } });
     }
@@ -169,7 +169,7 @@
       const box = save.closest('.px-task-new');
       const body = { description: box.querySelector('.px-new-desc').value, assignee: box.querySelector('.px-new-who').value,
         deadline_at: box.querySelector('.px-new-date').value };
-      await SKKKK.guardButton(save, async () => {
+      await PrimaryAnalitics.guardButton(save, async () => {
         const r = await send('POST', '/tasks', body);
         if (!r.ok) { say(await errText(r), true); return; }
         st.adding = false;

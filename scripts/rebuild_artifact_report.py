@@ -169,12 +169,12 @@ def rebuild(
         (asr_out / "call_brief.md").write_text(brief.read_text(encoding="utf-8"), encoding="utf-8")
 
     env = os.environ.copy()
-    env["SKKKK_ASR_WORK"] = str(audio_dir)
-    env["SKKKK_ASR_OUT"] = str(asr_out)
-    env["SKKKK_AUDIO_URL"] = f"/artifacts/{artifact_id}/audio"
-    env["SKKKK_ARTIFACT_ID"] = artifact_id
-    env["SKKKK_PROJECT_ID"] = str(project_id)
-    env["SKKKK_MATCH_JSON"] = str(reports / "sortformer_speaker_match.json")
+    env["PRIMARY_ANALITICS_ASR_WORK"] = str(audio_dir)
+    env["PRIMARY_ANALITICS_ASR_OUT"] = str(asr_out)
+    env["PRIMARY_ANALITICS_AUDIO_URL"] = f"/artifacts/{artifact_id}/audio"
+    env["PRIMARY_ANALITICS_ARTIFACT_ID"] = artifact_id
+    env["PRIMARY_ANALITICS_PROJECT_ID"] = str(project_id)
+    env["PRIMARY_ANALITICS_MATCH_JSON"] = str(reports / "sortformer_speaker_match.json")
 
     sortformer = asr_out / "sortformer_segments.json"
     if not skip_sortformer:

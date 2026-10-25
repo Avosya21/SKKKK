@@ -24,7 +24,7 @@ from app.app.logging_setup import log_event
 from app.app.models.decision_memory import POSITION_STATES, STATES, DecisionEvent, Subject, SubjectPosition
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 
-logger = logging.getLogger("skkkk.subject_judge")
+logger = logging.getLogger("primaryanalitics.subject_judge")
 
 PROMPT_VERSION = "subject_judge-v3"  # v3: акты документов («зафиксировано в документе») и состояние documented
 MAX_POSITIONS = 8

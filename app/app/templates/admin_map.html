@@ -36,7 +36,7 @@
 {% block scripts %}
 <script>
 (async () => {
-  if (!SKKKK.requireAuth()) return;
+  if (!PrimaryAnalitics.requireAuth()) return;
   const form = document.getElementById('map-form');
   const qEl = document.getElementById('map-q');
   const modeEl = document.getElementById('map-mode');
@@ -47,7 +47,7 @@
     out.replaceChildren();
     status.textContent = 'Ищу…';
     const params = new URLSearchParams({ q: qEl.value, mode: modeEl.value });
-    const r = await SKKKK.api('/admin/map/search?' + params.toString());
+    const r = await PrimaryAnalitics.api('/admin/map/search?' + params.toString());
     if (r.status === 403) { status.textContent = 'Нужна роль администратора.'; return; }
     if (!r.ok) { status.textContent = 'Ошибка поиска.'; return; }
     const data = await r.json();

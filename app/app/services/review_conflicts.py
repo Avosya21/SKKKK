@@ -31,7 +31,7 @@ from app.app.models.entity import Entity, Link, Resolution
 from app.app.services.auto_review import MODE_LIVE, MODE_SHADOW, record_model_review, undo_model_review
 from app.app.services.source_links import source_url
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 ROOT = Path(__file__).resolve().parents[3]
 # Новый файл, не правка v2: работающий процесс читает промпт с диска на лету (AUTO-REVIEW-PLAN §2 п.8).

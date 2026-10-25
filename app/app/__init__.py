@@ -1,1 +1,1 @@
-"""SKKKK FastAPI application."""
+"""PrimaryAnalitics FastAPI application."""

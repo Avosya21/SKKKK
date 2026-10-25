@@ -1,4 +1,4 @@
-"""Ядро projectmap не знает конкретного проекта: в его коде нет названий SKKKK, путей и файлов нашего портала.
+"""Ядро projectmap не знает конкретного проекта: в его коде нет названий PrimaryAnalitics, путей и файлов нашего портала.
 
 Это проверка общности без второго проекта (план, «Проверка общности»): всё специфичное идёт через адаптеры и конфиг.
 """
@@ -10,9 +10,9 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1] / "projectmap"
 
-# слова, которые выдают привязку к SKKKK; проверяются без учёта регистра
+# слова, которые выдают привязку к PrimaryAnalitics; проверяются без учёта регистра
 FORBIDDEN = (
-    r"skkkk", r"app/app", r"app\\app", r"project_map\.db", r"login_up", r"panel_users", r"companies\.txt",
+    r"primaryanalitics", r"app/app", r"app\\app", r"project_map\.db", r"login_up", r"panel_users", r"companies\.txt",
     r"lm ?studio", r"livekit", r"gigaam", r"parakeet", r"nemotron",
 )
 

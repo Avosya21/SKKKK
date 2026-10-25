@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 chcp 65001 >nul
-title SKKKK — запуск (LM Studio / Gemma)
+title PrimaryAnalitics — запуск (LM Studio / Gemma)
 
 for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
@@ -49,7 +49,7 @@ if errorlevel 1 (
 echo.
 echo [3/3] Портал + GPU-воркер (проверка систем, LLM=gemma)...
 echo   Окно держите открытым — здесь логи API и воркера.
-echo   Остановка: SKKKK-1-Остановить.bat
+echo   Остановка: PrimaryAnalitics-1-Остановить.bat
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\start.ps1" -Llm gemma

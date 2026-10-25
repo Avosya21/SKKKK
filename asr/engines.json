@@ -3,19 +3,19 @@
   "engines": [
     {
       "name": "whisper",
-      "python": "C:\\1C_NEW_SKKKK\\venvs\\whisper\\Scripts\\python.exe",
+      "python": "D:\\Primary_Analitics\\venvs\\whisper\\Scripts\\python.exe",
       "script": "run_whisper.py",
       "audio_key": "wav_16k"
     },
     {
       "name": "gigaam",
-      "python": "C:\\1C_NEW_SKKKK\\venvs\\gigaam\\Scripts\\python.exe",
+      "python": "D:\\Primary_Analitics\\venvs\\gigaam\\Scripts\\python.exe",
       "script": "run_gigaam.py",
       "audio_key": "wav_16k"
     },
     {
       "name": "tone",
-      "python": "C:\\1C_NEW_SKKKK\\venvs\\tone\\Scripts\\python.exe",
+      "python": "D:\\Primary_Analitics\\venvs\\tone\\Scripts\\python.exe",
       "script": "run_tone.py",
       "audio_key": "wav_8k"
     }

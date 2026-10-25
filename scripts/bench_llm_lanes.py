@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 
 import os  # noqa: E402
 
-os.environ.setdefault("SKKKK_DISABLE_LLM_SELFCHECK", "1")
+os.environ.setdefault("PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK", "1")
 
 from app.app.config import Settings  # noqa: E402
 from app.app.services import llm_keeper  # noqa: E402

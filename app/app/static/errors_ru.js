@@ -72,5 +72,5 @@
     return raw ? 'Не удалось выполнить действие (' + raw + ').' : 'Не удалось выполнить действие.';
   }
 
-  window.SKKKKErrors = { text: text, MAP: MAP };
+  window.PrimaryAnaliticsErrors = { text: text, MAP: MAP };
 })();

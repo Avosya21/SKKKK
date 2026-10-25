@@ -36,7 +36,7 @@ def main() -> int:
         return 1
 
     env = _asr_env(settings, artifact)
-    asr_out = Path(env["SKKKK_ASR_OUT"])
+    asr_out = Path(env["PRIMARY_ANALITICS_ASR_OUT"])
     windows_path = asr_out / "docker_merged_windows.json"
     if not windows_path.is_file():
         print(f"missing {windows_path}", file=sys.stderr)
@@ -44,7 +44,7 @@ def main() -> int:
 
     log = json.loads(windows_path.read_text(encoding="utf-8"))
     plain = "\n\n".join((e.get("text") or "").strip() for e in log if (e.get("text") or "").strip()).strip() + "\n"
-    duration = float(env.get("SKKKK_AUDIO_DURATION") or 0)
+    duration = float(env.get("PRIMARY_ANALITICS_AUDIO_DURATION") or 0)
     if not duration:
         meta_path = asr_out / "audio_meta.json"
         if meta_path.is_file():

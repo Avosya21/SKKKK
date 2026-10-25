@@ -1,4 +1,4 @@
-﻿# SKKKK — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health.
+# PrimaryAnalitics — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health.
 # Завершается с ненулевым кодом и называет причину, если запуск невозможен.
 param(
     [ValidateSet("saved", "gemma", "cursor")]
@@ -108,7 +108,7 @@ while ((Get-Date) -lt $deadline) {
             # Git-хуки (обновление индекса, проверка карты проекта) лежат вне репозитория: ставим, если в этой копии их ещё нет.
             $hooksDir = Join-Path $PSScriptRoot '..\.git\hooks'
             $mapHook = Join-Path $hooksDir 'pre-commit'
-            if ((Test-Path -LiteralPath $hooksDir) -and -not ((Test-Path -LiteralPath $mapHook) -and (Select-String -LiteralPath $mapHook -Pattern 'SKKKK-MAP' -Quiet))) {
+            if ((Test-Path -LiteralPath $hooksDir) -and -not ((Test-Path -LiteralPath $mapHook) -and (Select-String -LiteralPath $mapHook -Pattern 'PrimaryAnalitics-MAP' -Quiet))) {
                 try { & (Join-Path $PSScriptRoot 'install_hooks.ps1') | Out-Null; Write-Host 'Git-хуки проекта установлены (карта проекта проверяется при коммите).' -ForegroundColor Green }
                 catch { Write-Host "Git-хуки не установлены: $($_.Exception.Message)" -ForegroundColor Yellow }
             }

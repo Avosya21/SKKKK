@@ -22,7 +22,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.job import Job
 from app.app.services import memory_mode
 
-logger = logging.getLogger("skkkk.memory_pipeline")
+logger = logging.getLogger("primaryanalitics.memory_pipeline")
 
 SCOPE_ACTS = "memory"
 SCOPE_JUDGE = "memory_judge"

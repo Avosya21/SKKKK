@@ -16,7 +16,7 @@ Cursor sense → сверка GigaAM → WeSpeaker. Очистки звука н
 `onnxruntime` из `app/requirements.txt` — это один и тот же модуль.
 
 ```powershell
-cd C:\1C_NEW_SKKKK
+cd D:\Primary_Analitics
 py -3.10 -m venv venvs\lab
 venvs\lab\Scripts\python.exe -m pip install -U pip
 venvs\lab\Scripts\python.exe -m pip install -r asr\lab\requirements.txt
@@ -58,7 +58,7 @@ Sortformer проверяется по sha256 — битая докачка не
 venvs\lab\Scripts\python.exe asr\lab_pipeline.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --report
 ```
 
-Стадия `05_voice` требует контейнер `skkkk-gigaam`. Без Docker:
+Стадия `05_voice` требует контейнер `primaryanalitics-gigaam`. Без Docker:
 
 ```powershell
 ... --no-voice
@@ -83,7 +83,7 @@ venvs\lab\Scripts\python.exe asr\lab_pipeline.py --project-id 1 --artifact-id ar
 
 ## Этап 3 — сверка с GigaAM
 
-Три шага по очереди. Первый нужен контейнер `skkkk-gigaam`, третий — Cursor API.
+Три шага по очереди. Первый нужен контейнер `primaryanalitics-gigaam`, третий — Cursor API.
 
 ```powershell
 $common = "--project-id 1 --artifact-id art_2026-08-19_211842_54f88c --run-id 20260826T174104Z_48a796"
@@ -106,7 +106,7 @@ venv\Scripts\python.exe asr\lab_proof.py $common.Split()       # вычитка 
 
 ## Этап 4 — голоса в ту же БД
 
-Слепки считает тот же WeSpeaker в `skkkk-gigaam`, что и прод. Клипы — прогоны
+Слепки считает тот же WeSpeaker в `primaryanalitics-gigaam`, что и прод. Клипы — прогоны
 уверенных слов снимка плюс разноска Cursor, не сырые сегменты Sortformer.
 Стадию `05_voice` не перезапускаем.
 

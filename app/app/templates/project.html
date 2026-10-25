@@ -698,7 +698,7 @@
       <input class="form-control" type="file" name="files" id="upload-files" multiple required
              accept=".pdf,.docx,.doc,.docm,.dotx,.odt,.rtf,.xlsx,.xlsm,.xltx,.xls,.ods,.csv,.tsv,.pptx,.ppt,.html,.htm,.txt,.md,.markdown,.log,.json,.yaml,.yml,.ini,.text,.cf,.dt,audio/*,video/*,image/*,.webm,.mkv">    </div>
     <div class="col-12 col-md-3">
-      <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="upload-submit" data-idle-label="Загрузить">Загрузить</button>
+      <button class="btn btn-primary w-100 primaryanalitics-action-btn" type="submit" id="upload-submit" data-idle-label="Загрузить">Загрузить</button>
     </div>
   </div>
   <div id="upload-progress-wrap" class="mt-3 d-none" aria-live="polite">
@@ -838,7 +838,7 @@
       </p>
       <div id="meetings-status" class="text-muted small mb-2" aria-live="polite"></div>
       <div class="d-flex flex-wrap gap-2 mb-3">
-        <button type="button" class="btn btn-sm btn-primary skkkk-action-btn" id="meetings-create" data-idle-label="Создать встречу">Создать встречу</button>
+        <button type="button" class="btn btn-sm btn-primary primaryanalitics-action-btn" id="meetings-create" data-idle-label="Создать встречу">Создать встречу</button>
       </div>
       <div id="meetings-new-link" class="alert alert-warning d-none small py-2" role="alert">
         <strong>Гостевая ссылка (один раз):</strong>
@@ -882,7 +882,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-meeting-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+        <button type="button" class="btn btn-danger primaryanalitics-action-btn" id="delete-meeting-confirm" data-idle-label="Удалить" disabled>Удалить</button>
       </div>
     </div>
   </div>
@@ -906,7 +906,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-artifact-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+        <button type="button" class="btn btn-danger primaryanalitics-action-btn" id="delete-artifact-confirm" data-idle-label="Удалить" disabled>Удалить</button>
       </div>
     </div>
   </div>
@@ -918,7 +918,7 @@
       <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
         <div class="section-title-wrap"><strong>Резюме проекта</strong></div>
         {% if current_role == 'admin' %}
-        <button type="button" id="tz-refresh" class="btn btn-sm btn-outline-secondary skkkk-action-btn" data-idle-label="Пересобрать" aria-label="Пересобрать">Пересобрать</button>
+        <button type="button" id="tz-refresh" class="btn btn-sm btn-outline-secondary primaryanalitics-action-btn" data-idle-label="Пересобрать" aria-label="Пересобрать">Пересобрать</button>
         {% endif %}
       </div>
       <div class="card-body d-flex flex-column insights-panel">
@@ -948,7 +948,7 @@
                     aria-label="Вопрос по материалам проекта"
                     enterkeyhint="send"
                     autocomplete="off"></textarea>
-          <button id="chat-send" class="btn btn-primary btn-sm skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+          <button id="chat-send" class="btn btn-primary btn-sm primaryanalitics-action-btn" data-idle-label="Спросить">Спросить</button>
         </div>
       </div>
     </div>
@@ -978,7 +978,7 @@
     <div class="card-body">
       <div id="deadlines-status" class="text-muted small mb-2" aria-live="polite">Загрузка…</div>
       <div class="d-flex justify-content-end mb-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary skkkk-action-btn" id="deadlines-reextract" data-idle-label="Обновить из материалов">Обновить из материалов</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary primaryanalitics-action-btn" id="deadlines-reextract" data-idle-label="Обновить из материалов">Обновить из материалов</button>
       </div>
       <div id="deadlines-list-view">
         {# Список задач с вкладками и правкой: static/px_tasks.js (PORTAL-ACCURACY-MANAGER-PLAN Ш4) #}
@@ -1065,7 +1065,7 @@
           </select>
         </div>
         <div class="col-md-3">
-          <button type="button" class="btn btn-sm btn-primary skkkk-action-btn w-100" id="grant-add" data-idle-label="Добавить">Добавить</button>
+          <button type="button" class="btn btn-sm btn-primary primaryanalitics-action-btn w-100" id="grant-add" data-idle-label="Добавить">Добавить</button>
         </div>
       </div>
       <div id="grant-card" class="border rounded p-2 mb-2" hidden>
@@ -1105,7 +1105,7 @@
 {% block scripts %}
 <script src="/static/vendor/fullcalendar/index.global.min.js?v=6.1.15"></script>
 <script>
-if (!SKKKK.requireAuth()) throw new Error('auth');
+if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 const projectId = {{ project_id }};
 // Список материалов приходит с сервера позже первой отрисовки: резервируем ему прежнюю высоту (запоминается по проекту), иначе всё ниже «уезжает»
 (function reserveArtifactsHeight() {
@@ -1113,13 +1113,13 @@ const projectId = {{ project_id }};
     const body = document.getElementById('artifacts-body');
     if (!body) return;
     // запас высоты задан в CSS (по числу материалов от сервера); сохранённая настоящая высота точнее, если она есть
-    const saved = Number(localStorage.getItem('skkkk_artifacts_h_' + projectId)) || 0;
+    const saved = Number(localStorage.getItem('primary_analitics_artifacts_h_' + projectId)) || 0;
     if (saved > 120) body.style.minHeight = saved + 'px';
   } catch (_) { /* без хранилища работает, но с одним сдвигом при загрузке */ }
 })();
 const currentRole = {{ current_role|tojson }};
 window.PX = { projectId, role: currentRole };
-window.SKKKK_ROLE = currentRole;
+window.PRIMARY_ANALITICS_ROLE = currentRole;
 const TERMINAL = new Set(['done', 'error', 'rejected', 'needs_human']);
 const STATUS_LABEL = {
   uploaded:           'В очереди',
@@ -1239,7 +1239,7 @@ function isChatPending(messages) {
 }
 
 function setChatBusy(busy, label) {
-  SKKKK.setButtonBusy(chatSend, busy, { label: busy ? 'Думаю…' : undefined });
+  PrimaryAnalitics.setButtonBusy(chatSend, busy, { label: busy ? 'Думаю…' : undefined });
   chatQuestion.disabled = busy;
   chatQuestion.placeholder = busy ? 'ИИ готовит ответ…' : 'Задайте вопрос по материалам проекта';
   if (!chatStatus) return;
@@ -1269,7 +1269,7 @@ function renderChatHistoryMessage(msg) {
 async function refreshChatLabel() {
   if (!chatStatus) return;
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/chat/status`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/chat/status`);
     if (!r.ok) return;
     const s = await r.json();
     if (s.label) chatStatus.textContent = s.label;
@@ -1279,7 +1279,7 @@ async function refreshChatLabel() {
 }
 
 async function reloadChatLog() {
-  const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/chat/history`);
   if (!r.ok) return null;
   const data = await r.json();
   const empty = document.getElementById('chat-empty');
@@ -1338,7 +1338,7 @@ async function askProjectChat() {
     startChatPoll();
     return;
   }
-  await SKKKK.guardButton(chatSend, async () => {
+  await PrimaryAnalitics.guardButton(chatSend, async () => {
     chatQuestion.value = '';
     appendChat('q', escapeHtml(question));
     appendChat('a', chatPendingHtml());
@@ -1346,7 +1346,7 @@ async function askProjectChat() {
     setChatBusy(true);
     const labelTimer = setInterval(refreshChatLabel, 3000);
     try {
-      const r = await SKKKK.api('/chat', {
+      const r = await PrimaryAnalitics.api('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId, question }),
@@ -1403,7 +1403,7 @@ function escapeAttr(text) {
 }
 
 function inlineMarkdown(text) {
-  let safe = escapeHtml(SKKKK.cleanSummaryOutput(text || ''));
+  let safe = escapeHtml(PrimaryAnalitics.cleanSummaryOutput(text || ''));
   safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
   return safe;
@@ -1597,7 +1597,7 @@ async function loadTz() {
   const preserveStatus = tzRebuildRunning;
   if (!preserveStatus) tzStatus.textContent = 'Загрузка...';
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/tz/content`);
     const data = await r.json();
     const content = (data.content || '').trim();
     tzContent.innerHTML = renderMarkdown(content);
@@ -1619,12 +1619,12 @@ function findTzTask(tasks) {
 function lockTzRebuildButton(label) {
   tzRebuildRunning = true;
   tzStatus.textContent = label;
-  if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, true, { label: 'Пересборка…' });
+  if (tzRefreshBtn) PrimaryAnalitics.setButtonBusy(tzRefreshBtn, true, { label: 'Пересборка…' });
 }
 
 async function syncTzTaskUi() {
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/tasks/active`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/tasks/active`);
     if (!r.ok) return tzRebuildRunning;
     const tzTask = findTzTask((await r.json()).tasks);
     if (tzTask) {
@@ -1633,7 +1633,7 @@ async function syncTzTaskUi() {
     }
     const justFinished = tzRebuildRunning;
     tzRebuildRunning = false;
-    if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
+    if (tzRefreshBtn) PrimaryAnalitics.setButtonBusy(tzRefreshBtn, false);
     if (justFinished) await loadTz();
     return false;
   } catch (err) {
@@ -1646,7 +1646,7 @@ async function rebuildTz() {
   if (await syncTzTaskUi()) return;
   lockTzRebuildButton('Пересборка итоговой выжимки...');
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
     if (r.status === 409) {
       const payload = await r.json().catch(() => ({}));
       tzStatus.textContent = payload.detail || 'Пересборка уже выполняется…';
@@ -1660,7 +1660,7 @@ async function rebuildTz() {
     tzStatus.textContent = 'Не удалось пересобрать выжимку';
     if (!(await syncTzTaskUi())) {
       tzRebuildRunning = false;
-      if (tzRefreshBtn) SKKKK.setButtonBusy(tzRefreshBtn, false);
+      if (tzRefreshBtn) PrimaryAnalitics.setButtonBusy(tzRefreshBtn, false);
     }
   }
 }
@@ -1851,7 +1851,7 @@ function bindSpeakerConfirmButtons(root) {
       if (!id) return;
       btn.disabled = true;
       try {
-        const st = await SKKKK.api(`/api/artifacts/${id}/speakers-status`);
+        const st = await PrimaryAnalitics.api(`/api/artifacts/${id}/speakers-status`);
         if (st.ok) {
           const info = await st.json();
           if (!info.ready && info.pending && info.pending.length) {
@@ -1861,7 +1861,7 @@ function bindSpeakerConfirmButtons(root) {
             return;
           }
         }
-        const r = await SKKKK.api(`/api/artifacts/${id}/speakers-confirm`, { method: 'POST' });
+        const r = await PrimaryAnalitics.api(`/api/artifacts/${id}/speakers-confirm`, { method: 'POST' });
         if (!r.ok) {
           const payload = await r.json().catch(() => ({}));
           throw new Error(payload.detail || 'confirm failed');
@@ -1891,7 +1891,7 @@ function bindDownloadButtons(root) {
       setDownloadButtonsBusy(id, true);
       showDownloadBanner(fname);
       try {
-        await SKKKK.downloadArtifact(id, {
+        await PrimaryAnalitics.downloadArtifact(id, {
           onProgress: updateDownloadBannerProgress,
           onComplete: (result) => finishDownloadBanner({
             ok: true,
@@ -1987,7 +1987,7 @@ async function setMaterialDate(artifactId, current) {
     if (m[4]) body.datetime_local = `${day}T${m[4].padStart(2, '0')}:${m[5]}`;
     else body.date = day;
   }
-  const r = await SKKKK.api(`/projects/${projectId}/artifacts/${encodeURIComponent(artifactId)}/recorded-at`, {
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/artifacts/${encodeURIComponent(artifactId)}/recorded-at`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   if (!r.ok) { alert('Не удалось сохранить дату'); return; }
@@ -2042,7 +2042,7 @@ let lastMeetingsSig = null;
 
 async function refreshArtifacts() {
   if (deleteArtifactModalEl && deleteArtifactModalEl.classList.contains('show')) return;
-  const r = await SKKKK.api(`/projects/${projectId}/artifacts`);
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/artifacts`);
   const allArts = await r.json();
   // Файлы обмена с внешним агентом (analysis_question_N.json и т. п.) не материалы проекта: их место в блоке «Обмен с агентами»
   const EXCHANGE_FILE = /^analysis_(reply|request|question)_\d+\.json$/i;
@@ -2114,7 +2114,7 @@ async function refreshArtifacts() {
     listBody.style.minHeight = '0';  // запас больше не нужен (список пришёл); 0 перекрывает и CSS-запас, чтобы после удаления файлов не оставалось пустоты
     // в свёрнутом блоке высота 0 — не запоминаем её
     if (listBody.offsetParent !== null) try {
-      localStorage.setItem('skkkk_artifacts_h_' + projectId, String(Math.round(listBody.getBoundingClientRect().height)));
+      localStorage.setItem('primary_analitics_artifacts_h_' + projectId, String(Math.round(listBody.getBoundingClientRect().height)));
     } catch (_) { /* не критично */ }
   }
 }
@@ -2135,8 +2135,8 @@ deleteArtifactConfirmBtn.addEventListener('click', async () => {
   };
   if (!target.id || !deleteArtifactAck.checked) return;
   pendingArtifactDelete = target;
-  await SKKKK.guardButton(deleteArtifactConfirmBtn, async () => {
-    const r = await SKKKK.api(
+  await PrimaryAnalitics.guardButton(deleteArtifactConfirmBtn, async () => {
+    const r = await PrimaryAnalitics.api(
       `/projects/${projectId}/artifacts/${encodeURIComponent(target.id)}`,
       { method: 'DELETE' },
     );
@@ -2230,7 +2230,7 @@ document.getElementById('upload-form').onsubmit = async (e) => {
   const detail = document.getElementById('upload-progress-detail');
   const barWrap = document.getElementById('upload-progressbar');
 
-  await SKKKK.guardSubmit(form, async () => {
+  await PrimaryAnalitics.guardSubmit(form, async () => {
     wrap.classList.remove('d-none');
     artifactsStatus.dataset.busy = '1';
     artifactsStatus.hidden = false;
@@ -2244,7 +2244,7 @@ document.getElementById('upload-form').onsubmit = async (e) => {
     };
 
     try {
-      const arts = await SKKKK.uploadFilesResumable(projectId, files, sourceType, {
+      const arts = await PrimaryAnalitics.uploadFilesResumable(projectId, files, sourceType, {
         onProgress: (p) => {
           const pct = p.percent || 0;
           bar.style.width = `${pct}%`;
@@ -2268,7 +2268,7 @@ document.getElementById('upload-form').onsubmit = async (e) => {
       label.textContent = 'Готово';
       detail.textContent = (dups
         ? `Принято: ${arts.length}, из них дублей: ${dups}`
-        : `Принято ${SKKKK.count(arts.length, ['файл', 'файла', 'файлов'])}`)
+        : `Принято ${PrimaryAnalitics.count(arts.length, ['файл', 'файла', 'файлов'])}`)
         + (extra ? `; в файлы проекта для анализа конфигурации: ${extra}` : '');
       if (extra && extraFilesBox?.open) loadExtraFiles();
       artifactsStatus.dataset.busy = '1';
@@ -2319,7 +2319,7 @@ async function refreshLiveMeetings() {
   if (!liveMeetingsEl) return;
   let rows;
   try {
-    rows = await SKKKK.apiJson(`/projects/${projectId}/meetings/live`);
+    rows = await PrimaryAnalitics.apiJson(`/projects/${projectId}/meetings/live`);
   } catch (err) {
     if (err?.status !== 403) return; // сбой сети — оставляем как было; 403 — входа в комнату у роли больше нет
     rows = [];
@@ -2365,7 +2365,7 @@ let mcpInfo = null;
 function mcpCursorConfig(url, tokenPlaceholder) {
   return {
     mcpServers: {
-      [`skkkk-project-${projectId}`]: {
+      [`primaryanalitics-project-${projectId}`]: {
         url,
         headers: { Authorization: `Bearer ${tokenPlaceholder}` },
       },
@@ -2375,10 +2375,10 @@ function mcpCursorConfig(url, tokenPlaceholder) {
 
 async function loadMcpPanel() {
   if (!mcpStatus) return;
-  const role = currentRole || localStorage.getItem('skkkk_role');
+  const role = currentRole || localStorage.getItem('primary_analitics_role');
   if (role === 'user') return;
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/mcp/info`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/info`);
     if (!r.ok) throw new Error('mcp info failed');
     mcpInfo = await r.json();
     mcpUrlInput.value = mcpInfo.mcp_url || '';
@@ -2399,7 +2399,7 @@ async function loadMcpPanel() {
 async function loadMcpTokens() {
   if (!mcpTokensBody) return;
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/tokens`);
     if (r.status === 403) {
       mcpTokensBody.innerHTML = '<tr><td colspan="5" class="text-muted small">Список ключей доступен admin/manager</td></tr>';
       document.getElementById('mcp-create-token')?.classList.add('d-none');
@@ -2458,7 +2458,7 @@ async function changeMcpScope(tokenId, scope, selectEl) {
     selectEl.value = selectEl.dataset.cur;
     return;
   }
-  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/scope`, {
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/tokens/${tokenId}/scope`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scope }),
@@ -2480,7 +2480,7 @@ async function changeMcpFiles(tokenId, filesAccess, selectEl) {
     selectEl.value = selectEl.dataset.cur;
     return;
   }
-  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/files`, {
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/tokens/${tokenId}/files`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ files_access: filesAccess }),
@@ -2497,7 +2497,7 @@ async function toggleMcpSubmit(tokenId, enable) {
     ? 'Разрешить этому ключу класть вопросы и вердикты в очередь? Агент сможет добавлять записи сам (только добавление, вердикты помечаются как непроверенные).'
     : 'Оставить ключу только чтение?';
   if (!confirm(msg)) return;
-  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}/submit`, {
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/tokens/${tokenId}/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled: enable }),
@@ -2511,7 +2511,7 @@ async function toggleMcpSubmit(tokenId, enable) {
 
 async function revokeMcpToken(tokenId) {
   if (!confirm('Отозвать этот MCP-ключ?')) return;
-  const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens/${tokenId}`, { method: 'DELETE' });
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/tokens/${tokenId}`, { method: 'DELETE' });
   if (!r.ok && r.status !== 204) {
     alert('Не удалось отозвать ключ');
     return;
@@ -2528,7 +2528,7 @@ document.getElementById('mcp-copy-url')?.addEventListener('click', async () => {
 // Права нового ключа по умолчанию берём из «Настроек для агентов» проекта.
 (async () => {
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/agent-settings`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/agent-settings`);
     if (!r.ok) return;
     const scope = (await r.json()).settings?.default_key_scope || 'read';
     const sel = document.getElementById('mcp-rights-select');
@@ -2560,8 +2560,8 @@ document.getElementById('mcp-create-token')?.addEventListener('click', async () 
   const btn = document.getElementById('mcp-create-token');
   const labelInput = document.getElementById('mcp-label');
   const label = labelInput?.value.trim() || 'Cursor';
-  await SKKKK.guardButton(btn, async () => {
-    const r = await SKKKK.api(`/projects/${projectId}/mcp/tokens`, {
+  await PrimaryAnalitics.guardButton(btn, async () => {
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/mcp/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2774,7 +2774,7 @@ function setDeadlinesView(mode) {
 async function loadDeadlinesPanel() {
   if (!deadlinesStatus) return;
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/deadlines`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/deadlines`);
     if (!r.ok) throw new Error('deadlines failed');
     deadlinesData = await r.json();
     // Список задач, счётчик и строку статуса ведёт static/px_tasks.js (вкладки, правка); здесь — данные календаря
@@ -2789,7 +2789,7 @@ async function loadDeadlinesPanel() {
 
 // Правка задачи в списке (px_tasks.js) меняет сроки — календарь берёт свежие данные, список не перезагружается второй раз
 document.addEventListener('px:tasks-changed', async () => {
-  const r = await SKKKK.api(`/projects/${projectId}/deadlines`).catch(() => null);
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/deadlines`).catch(() => null);
   if (!r || !r.ok) return;
   deadlinesData = await r.json();
   if (deadlinesCalendarView && !deadlinesCalendarView.classList.contains('d-none')) setDeadlinesView('calendar');
@@ -2798,9 +2798,9 @@ deadlinesViewListBtn?.addEventListener('click', () => setDeadlinesView('list'));
 deadlinesViewCalendarBtn?.addEventListener('click', () => setDeadlinesView('calendar'));
 document.getElementById('deadlines-reextract')?.addEventListener('click', async () => {
   const btn = document.getElementById('deadlines-reextract');
-  await SKKKK.guardButton(btn, async () => {
+  await PrimaryAnalitics.guardButton(btn, async () => {
     if (deadlinesStatus) deadlinesStatus.textContent = 'Переизвлечение сроков из материалов…';
-    const r = await SKKKK.api(`/projects/${projectId}/reextract-entities`, { method: 'POST' });
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/reextract-entities`, { method: 'POST' });
     if (r.status === 409) {
       const payload = await r.json().catch(() => ({}));
       if (deadlinesStatus) deadlinesStatus.textContent = payload.detail || 'Уже выполняется…';
@@ -2900,7 +2900,7 @@ function showMeetingLink(url, meetingId) {
   if (!meetingsNewLink || !meetingsNewLinkValue || !url) return;
   meetingsNewLinkValue.textContent = url;
   meetingsNewLink.classList.remove('d-none');
-  if (meetingId) sessionStorage.setItem('skkkk-meeting-invite-' + meetingId, url);
+  if (meetingId) sessionStorage.setItem('primaryanalitics-meeting-invite-' + meetingId, url);
 }
 
 function syncMeetingDeleteConfirmEnabled() {
@@ -2918,7 +2918,7 @@ async function loadMeetings() {
   const cards = document.getElementById('meetings-cards');
   if (deleteMeetingModalEl && deleteMeetingModalEl.classList.contains('show')) return;
   try {
-    const rows = await SKKKK.apiJson(`/projects/${projectId}/meetings`);
+    const rows = await PrimaryAnalitics.apiJson(`/projects/${projectId}/meetings`);
     const rowsSig = JSON.stringify(rows);
     if (rowsSig === lastMeetingsSig) return;
     lastMeetingsSig = rowsSig;
@@ -3014,9 +3014,9 @@ function bindMeetingButtons(root) {
 
 async function meetingAction(btn, action, label, showLink) {
   const mid = btn.dataset.id;
-  await SKKKK.guardButton(btn, async () => {
+  await PrimaryAnalitics.guardButton(btn, async () => {
     try {
-      const data = await SKKKK.apiJson(`/projects/${projectId}/meetings/${mid}/${action}`, { method: 'POST' });
+      const data = await PrimaryAnalitics.apiJson(`/projects/${projectId}/meetings/${mid}/${action}`, { method: 'POST' });
       if (showLink && data.public_url) showMeetingLink(data.public_url, data.id || mid);
       if (meetingsStatus) {
         if (action === 'analyze') meetingsStatus.textContent = 'Расшифровка спикеров поставлена в очередь';
@@ -3032,8 +3032,8 @@ async function meetingAction(btn, action, label, showLink) {
 
 document.getElementById('meetings-create')?.addEventListener('click', async () => {
   const btn = document.getElementById('meetings-create');
-  await SKKKK.guardButton(btn, async () => {
-    const data = await SKKKK.apiJson(`/projects/${projectId}/meetings`, { method: 'POST' });
+  await PrimaryAnalitics.guardButton(btn, async () => {
+    const data = await PrimaryAnalitics.apiJson(`/projects/${projectId}/meetings`, { method: 'POST' });
     showMeetingLink(data.public_url, data.id);
     if (meetingsStatus) meetingsStatus.textContent = 'Ссылка показана один раз';
     await loadMeetings();
@@ -3054,8 +3054,8 @@ deleteMeetingModalEl?.addEventListener('hidden.bs.modal', () => {
 deleteMeetingConfirmBtn?.addEventListener('click', async () => {
   if (!pendingMeetingDelete || !deleteMeetingAck?.checked) return;
   const target = pendingMeetingDelete;
-  await SKKKK.guardButton(deleteMeetingConfirmBtn, async () => {
-    const r = await SKKKK.api(`/projects/${projectId}/meetings/${target.id}`, { method: 'DELETE' });
+  await PrimaryAnalitics.guardButton(deleteMeetingConfirmBtn, async () => {
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/meetings/${target.id}`, { method: 'DELETE' });
     if (!r.ok) {
       if (meetingsStatus) {
         meetingsStatus.textContent = r.status === 403 ? MEETING_DELETE_FORBIDDEN : MEETING_DELETE_FAIL;
@@ -3108,7 +3108,7 @@ function extraFilesCell(b) {
   if (files.length === 1) return extraFileLink(b, files[0]);
   const list = files.slice(0, 50).map((f) => `<li>${extraFileLink(b, f)}</li>`).join('');
   const more = files.length > 50 ? `<li class="text-muted">и ещё ${files.length - 50}</li>` : '';
-  return `<details><summary>${SKKKK.count(files.length, ['файл', 'файла', 'файлов'])}</summary><ul class="small mb-0 ps-3">${list}${more}</ul></details>`;
+  return `<details><summary>${PrimaryAnalitics.count(files.length, ['файл', 'файла', 'файлов'])}</summary><ul class="small mb-0 ps-3">${list}${more}</ul></details>`;
 }
 async function loadExtraFiles() {
   const body = document.getElementById('extra-files-body');
@@ -3116,13 +3116,13 @@ async function loadExtraFiles() {
   if (!body) return;
   let data;
   try {
-    data = await SKKKK.apiJson(`/projects/${projectId}/extra-files`);
+    data = await PrimaryAnalitics.apiJson(`/projects/${projectId}/extra-files`);
   } catch (err) {
     status.textContent = 'Не удалось загрузить список файлов';
     return;
   }
   const items = data.items || [];
-  document.getElementById('extra-files-count').textContent = items.length ? SKKKK.count(items.length, ['посылка', 'посылки', 'посылок']) : 'пока нет · только админ';
+  document.getElementById('extra-files-count').textContent = items.length ? PrimaryAnalitics.count(items.length, ['посылка', 'посылки', 'посылок']) : 'пока нет · только админ';
   status.textContent = '';
   if (!items.length) {
     body.innerHTML = '<tr><td colspan="6" class="text-muted small">Дополнительных файлов пока нет</td></tr>';
@@ -3153,7 +3153,7 @@ if (extraFilesBox) {
     if (!btn) return;
     if (!window.confirm(`Удалить посылку «${btn.dataset.name}» с диска сервера? Агент анализа её больше не получит.`)) return;
     btn.disabled = true;
-    const r = await SKKKK.api(`/projects/${projectId}/exchange-files/${btn.dataset.id}`, { method: 'DELETE' });
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/exchange-files/${btn.dataset.id}`, { method: 'DELETE' });
     document.getElementById('extra-files-status').textContent = r.ok ? `Удалено: ${btn.dataset.name}` : 'Не удалось удалить';
     loadExtraFiles();
   });
@@ -3200,7 +3200,7 @@ function renderGrantPayload(data) {
 async function loadGrantPanel() {
   if (!grantMembersBody) return;
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/members`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/members`);
     if (!r.ok) throw new Error('members failed');
     renderGrantPayload(await r.json());
     if (grantStatus) grantStatus.textContent = '';
@@ -3222,7 +3222,7 @@ async function showGrantCard(login, detail) {
   const sel = document.getElementById('grant-company');
   if (!sel.options.length) {
     try {
-      const r = await SKKKK.api('/companies');
+      const r = await PrimaryAnalitics.api('/companies');
       const items = r.ok ? (await r.json()).items.filter((c) => c.active) : [];
       sel.innerHTML = '<option value="">Выберите компанию</option>' + items.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     } catch (_) { sel.innerHTML = '<option value="">Список компаний недоступен</option>'; }
@@ -3253,8 +3253,8 @@ if (grantAddBtn) {
       body.first_name = document.getElementById('grant-first-name').value.trim();
       body.company_id = Number(document.getElementById('grant-company').value) || null;
     }
-    await SKKKK.guardButton(grantAddBtn, async () => {
-      const r = await SKKKK.api(`/projects/${projectId}/members`, {
+    await PrimaryAnalitics.guardButton(grantAddBtn, async () => {
+      const r = await PrimaryAnalitics.api(`/projects/${projectId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -3282,7 +3282,7 @@ if (grantMembersBody) {
     if (!userId) return;
     btn.disabled = true;
     try {
-      const r = await SKKKK.api(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' });
+      const r = await PrimaryAnalitics.api(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' });
       if (!r.ok) throw new Error('remove failed');
       await loadGrantPanel();
       if (grantStatus) grantStatus.textContent = 'Доступ убран';

@@ -38,7 +38,7 @@ def _probe(url: str, path: str = "", timeout: float = 5) -> tuple[bool, str]:
 
 def main() -> int:
     env = _load_env()
-    ws = env.get("WORKSPACE", "SKKKK_PROJECT_MAP")
+    ws = env.get("WORKSPACE", "PRIMARY_ANALITICS_PROJECT_MAP")
     inputs = ROOT / "tools" / "lightrag" / "data" / "inputs" / ws
     ok = True
 

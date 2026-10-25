@@ -17,7 +17,7 @@ from app.app.services.auth import verify_password
 
 security = HTTPBearer(auto_error=False)
 
-SESSION_COOKIE_NAME = "skkkk_session"
+SESSION_COOKIE_NAME = "primary_analitics_session"
 
 
 VALID_ROLES = frozenset({"admin", "manager", "user"})

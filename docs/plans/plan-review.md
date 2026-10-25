@@ -2,7 +2,7 @@
 
 > Итоговый план, в который влиты выводы этой ревизии, — [`MEETING-PLAN.md`](MEETING-PLAN.md).
 
-## v5 (`SKKKK-MEETING-ROOM-AND-TRANSCRIPT-PLAN-v5.md`) — итог
+## v5 (`PrimaryAnalitics-MEETING-ROOM-AND-TRANSCRIPT-PLAN-v5.md`) — итог
 
 v5 закрывает все структурные замечания к v4: этапы A/B/C разделены, native/Egress/Sortformer/provenance вынесены из DoD A, порядок «identity → запись → events → meeting.json → созвон → Повторить» принят, `audio_level` заменён на rank. **Принимать как рабочий план этапа A** с поправками ниже.
 
@@ -42,9 +42,9 @@ v5 закрывает все структурные замечания к v4: э
 
 ---
 
-# Ревизия `SKKKK-MEETING-ROOM-AND-TRANSCRIPT-PLAN-v4.md` относительно кода
+# Ревизия `PrimaryAnalitics-MEETING-ROOM-AND-TRANSCRIPT-PLAN-v4.md` относительно кода
 
-Дата: 2026-09-13. Проверялся файл `Downloads/SKKKK-MEETING-ROOM-AND-TRANSCRIPT-PLAN-v4.md` (§0–§42 + Приложение A) против текущего кода: `meeting_room.js`, `meetings.py`, `meeting_recordings.py`, `voice_cleaner.py`, `meeting_analyze.py`, `pipeline_meeting.py`, `models/entity.py`, `pytest.ini`, вендорный `livekit-client.umd.js` 2.15.8.
+Дата: 2026-09-13. Проверялся файл `Downloads/PrimaryAnalitics-MEETING-ROOM-AND-TRANSCRIPT-PLAN-v4.md` (§0–§42 + Приложение A) против текущего кода: `meeting_room.js`, `meetings.py`, `meeting_recordings.py`, `voice_cleaner.py`, `meeting_analyze.py`, `pipeline_meeting.py`, `models/entity.py`, `pytest.ini`, вендорный `livekit-client.umd.js` 2.15.8.
 
 Итог одной строкой: **§9–§25 (комната, запись, расшифровка) совпадают с кодом и с нашими планами и готовы к работе после семи фактических поправок; §7–§8, §26–§31, §33 — новый объём, который в текущем проекте ничем не подкреплён, его надо вынести в отдельные этапы, иначе Definition of Done (§40) не закроется никогда.**
 
@@ -84,7 +84,7 @@ v5 закрывает все структурные замечания к v4: э
 
 ### 2.4. §3 — `CleanedAudio` как отдельный source
 
-Сейчас `skkkk-dfn` публикует `clean-*` треки с `source=SOURCE_MICROPHONE` и отличается только именем трека (`clean-<identity>`) и identity участника. Менять source нельзя без правки `voice_cleaner._pump`, `playCleanTrack`, `cleanSourceId`, `_dropRawIfCleaner` — и незачем: это работает. В модели §3 `CleanedAudio` — не source, а **признак трека по имени**. Оставить как есть.
+Сейчас `primaryanalitics-dfn` публикует `clean-*` треки с `source=SOURCE_MICROPHONE` и отличается только именем трека (`clean-<identity>`) и identity участника. Менять source нельзя без правки `voice_cleaner._pump`, `playCleanTrack`, `cleanSourceId`, `_dropRawIfCleaner` — и незачем: это работает. В модели §3 `CleanedAudio` — не source, а **признак трека по имени**. Оставить как есть.
 
 ### 2.5. §28 — имена источников `screen_video` / `screen_audio`
 

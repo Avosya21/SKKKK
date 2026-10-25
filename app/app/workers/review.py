@@ -22,7 +22,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.job import Job
 from app.app.services.auto_review import MODE_LIVE, MODE_SHADOW
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 Reviewer = Callable[[Session, Settings, Artifact, str], dict[str, Any]]
 REVIEWERS: dict[str, list[Reviewer]] = {"reextract": [], "artifact": [], "topics": [], "relevance": [], "conflicts": [],

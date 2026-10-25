@@ -21,13 +21,13 @@ body.bg-light {
 
 main.container { max-width: 1180px; }
 
-.navbar-skkkk {
+.navbar-primaryanalitics {
   min-height: 56px;
   background: #111827 !important;
   box-shadow: 0 1px 0 rgba(255,255,255,.08);
 }
 
-.navbar-skkkk .navbar-brand { font-weight: 650; letter-spacing: -0.02em; }
+.navbar-primaryanalitics .navbar-brand { font-weight: 650; letter-spacing: -0.02em; }
 
 .card {
   border: 1px solid var(--sk-line);
@@ -156,16 +156,16 @@ main.container { max-width: 1180px; }
   .card-header, .card-body { padding: .75rem; }
 }
 
-.navbar-skkkk .navbar-brand {
+.navbar-primaryanalitics .navbar-brand {
   margin-right: 0;
 }
 
-.navbar-skkkk .navbar-brand-row {
+.navbar-primaryanalitics .navbar-brand-row {
   min-width: 0;
   align-items: center;
 }
 
-.navbar-skkkk .navbar-divider {
+.navbar-primaryanalitics .navbar-divider {
   flex: 0 0 1px;
   width: 1px;
   font-size: var(--bs-navbar-brand-font-size, 1.25rem);
@@ -175,7 +175,7 @@ main.container { max-width: 1180px; }
   align-self: center;
 }
 
-.navbar-skkkk .navbar-project {
+.navbar-primaryanalitics .navbar-project {
   margin-left: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -183,18 +183,18 @@ main.container { max-width: 1180px; }
   max-width: min(52vw, 24rem);
 }
 
-.navbar-skkkk .navbar-back {
+.navbar-primaryanalitics .navbar-back {
   --bs-btn-padding-y: 0.2rem;
   --bs-btn-padding-x: 0.55rem;
   --bs-btn-font-size: 0.78rem;
   white-space: nowrap;
 }
 
-.navbar-skkkk #nav-session.nav-session:not(.d-none) {
+.navbar-primaryanalitics #nav-session.nav-session:not(.d-none) {
   display: flex !important;
 }
 
-.navbar-skkkk #nav-user {
+.navbar-primaryanalitics #nav-user {
   max-width: min(100%, 16rem);
   overflow-wrap: anywhere;
   text-align: end;
@@ -202,13 +202,13 @@ main.container { max-width: 1180px; }
   line-height: 1.3;
 }
 
-.navbar-skkkk .nav-me-btn { gap: 0.4rem; max-width: 100%; }
-.navbar-skkkk .nav-avatar,
+.navbar-primaryanalitics .nav-me-btn { gap: 0.4rem; max-width: 100%; }
+.navbar-primaryanalitics .nav-avatar,
 .me-photo { border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: rgba(127, 127, 127, 0.15); }
-.navbar-skkkk .nav-avatar { width: 24px; height: 24px; }
+.navbar-primaryanalitics .nav-avatar { width: 24px; height: 24px; }
 .me-photo { width: 96px; height: 96px; }
 
-.navbar-skkkk .nav-logout {
+.navbar-primaryanalitics .nav-logout {
   --bs-btn-padding-y: 0.2rem;
   --bs-btn-padding-x: 0.3rem;
   --bs-btn-color: rgba(255, 255, 255, 0.55);
@@ -275,7 +275,7 @@ main.container { max-width: 1180px; }
   }
 }
 
-.skkkk-action-btn {
+.primaryanalitics-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -283,15 +283,15 @@ main.container { max-width: 1180px; }
   white-space: nowrap;
 }
 
-#chat-send.skkkk-action-btn {
+#chat-send.primaryanalitics-action-btn {
   min-width: 5.5rem;
 }
 
-#tz-refresh.skkkk-action-btn {
+#tz-refresh.primaryanalitics-action-btn {
   min-width: 6.5rem;
 }
 
-#upload-submit.skkkk-action-btn {
+#upload-submit.primaryanalitics-action-btn {
   min-height: 2.5rem;
 }
 
@@ -1121,7 +1121,7 @@ body.meeting-is-live {
 
 /* Projects page + navbar: clean single-column layout on phones */
 @media (max-width: 575.98px) {
-  .navbar-skkkk .navbar-brand {
+  .navbar-primaryanalitics .navbar-brand {
     font-size: 1.1rem;
   }
 
@@ -1144,7 +1144,7 @@ body.meeting-is-live {
     line-height: 1.25;
   }
 
-  .skkkk-action-btn,
+  .primaryanalitics-action-btn,
   .artifact-action-btn,
   .meeting-actions .btn,
   .mobile-data-card .btn {
@@ -1386,19 +1386,19 @@ body.meeting-is-live {
 /* Телефон: кнопки и ссылки-действия не меньше 40 px (рекомендация платформ 44-48, WCAG 2.2 минимум 24) */
 @media (max-width: 767.98px) {
   .btn.btn-sm { min-height: 40px; min-width: 40px; }
-  .navbar-skkkk .nav-logout { min-height: 40px; min-width: 40px; }
-  .navbar-skkkk .navbar-brand { min-height: 40px; display: inline-flex; align-items: center; }
+  .navbar-primaryanalitics .nav-logout { min-height: 40px; min-width: 40px; }
+  .navbar-primaryanalitics .navbar-brand { min-height: 40px; display: inline-flex; align-items: center; }
   a.transcript-link.file-name { min-height: 40px; display: inline-flex; align-items: center; padding-block: 0; }
 }
 /* Телефон: служебные значки (нужен перезапуск, провайдер LLM) не нужны в шапке: экономим высоту */
 @media (max-width: 575.98px) {
-  .navbar-skkkk #nav-stale, .navbar-skkkk #nav-llm { display: none !important; }
+  .navbar-primaryanalitics #nav-stale, .navbar-primaryanalitics #nav-llm { display: none !important; }
 }
 
 
 /* ---- Шапка (21.09.2026): одна сетка вместо переносов ---- */
 /* Компьютер и планшет от 768 px: одна строка. Слева знак, название и проект (обрезается многоточием), справа действия. Ширина = ширине контента страницы. */
-.navbar-skkkk .navbar-inner {
+.navbar-primaryanalitics .navbar-inner {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -1407,22 +1407,22 @@ body.meeting-is-live {
   min-height: 56px;
   padding-block: 0.25rem;
 }
-.navbar-skkkk.navbar { padding-block: 0; }
-.navbar-skkkk .navbar-brand-row { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
-.navbar-skkkk .navbar-actions-row { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; margin-left: auto; }
-.navbar-skkkk .navbar-brand.navbar-project { display: block; flex: 1 1 auto; min-width: 0; max-width: none; }
-.navbar-skkkk #nav-user { max-width: 14rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: end; }
-.navbar-skkkk .navbar-back, .navbar-skkkk .nav-changelog { flex: 0 0 auto; }
+.navbar-primaryanalitics.navbar { padding-block: 0; }
+.navbar-primaryanalitics .navbar-brand-row { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.navbar-primaryanalitics .navbar-actions-row { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; margin-left: auto; }
+.navbar-primaryanalitics .navbar-brand.navbar-project { display: block; flex: 1 1 auto; min-width: 0; max-width: none; }
+.navbar-primaryanalitics #nav-user { max-width: 14rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: end; }
+.navbar-primaryanalitics .navbar-back, .navbar-primaryanalitics .nav-changelog { flex: 0 0 auto; }
 
 /* Планшет: служебные значки («Нужен перезапуск», провайдер LLM) не отнимают место у названия проекта */
 @media (max-width: 991.98px) {
-  .navbar-skkkk #nav-stale, .navbar-skkkk #nav-llm { display: none !important; }
-  .navbar-skkkk #nav-user { max-width: 9rem; }
+  .navbar-primaryanalitics #nav-stale, .navbar-primaryanalitics #nav-llm { display: none !important; }
+  .navbar-primaryanalitics #nav-user { max-width: 9rem; }
 }
 
 /* Телефон до 768 px: две строки. 1) название слева, «Выйти» справа; 2) «к проектам» и проект (с многоточием). Высота строк фиксирована — ничего не «прыгает» после загрузки имени. */
 @media (max-width: 767.98px) {
-  .navbar-skkkk .navbar-inner {
+  .navbar-primaryanalitics .navbar-inner {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "brand brand session" "back project project";
@@ -1431,12 +1431,12 @@ body.meeting-is-live {
     align-items: center;
     padding-block: 0.25rem;
   }
-  .navbar-skkkk .navbar-brand-row, .navbar-skkkk .navbar-actions-row { display: contents; }
-  .navbar-skkkk .navbar-brand[href="/"] { grid-area: brand; font-size: 1.1rem; margin: 0; }
-  .navbar-skkkk #nav-session { grid-area: session; justify-self: end; }
-  .navbar-skkkk .navbar-back, .navbar-skkkk .nav-changelog { grid-area: back; justify-self: start; margin: 0.15rem 0 0.35rem; min-height: 36px !important; display: inline-flex; align-items: center; }
-  .navbar-skkkk .navbar-divider { display: none; }
-  .navbar-skkkk .navbar-brand.navbar-project {
+  .navbar-primaryanalitics .navbar-brand-row, .navbar-primaryanalitics .navbar-actions-row { display: contents; }
+  .navbar-primaryanalitics .navbar-brand[href="/"] { grid-area: brand; font-size: 1.1rem; margin: 0; }
+  .navbar-primaryanalitics #nav-session { grid-area: session; justify-self: end; }
+  .navbar-primaryanalitics .navbar-back, .navbar-primaryanalitics .nav-changelog { grid-area: back; justify-self: start; margin: 0.15rem 0 0.35rem; min-height: 36px !important; display: inline-flex; align-items: center; }
+  .navbar-primaryanalitics .navbar-divider { display: none; }
+  .navbar-primaryanalitics .navbar-brand.navbar-project {
     grid-area: project;
     display: block;
     font-size: 0.95rem;
@@ -1446,11 +1446,11 @@ body.meeting-is-live {
     padding-block: 0 !important;
     max-width: 100%;
   }
-  .navbar-skkkk #nav-user { max-width: 40vw; }
+  .navbar-primaryanalitics #nav-user { max-width: 40vw; }
 }
 /* Совсем узкие экраны: имя пользователя не показываем (кнопка «Выйти» остаётся), чтобы строка не ломалась */
 @media (max-width: 479.98px) {
-  .navbar-skkkk #nav-user { display: none; }
+  .navbar-primaryanalitics #nav-user { display: none; }
 }
 
 /* ---- Чат с ассистентом: карточка на странице проекта и отдельная страница /projects/{id}/chat ----

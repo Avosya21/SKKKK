@@ -20,7 +20,7 @@
 ## Этап 1 — конвейер 01–07 (принят)
 
 ```powershell
-cd C:\1C_NEW_SKKKK
+cd D:\Primary_Analitics
 $env:PYTHONIOENCODING='utf-8'
 venvs\lab\Scripts\python.exe asr\lab_pipeline.py `
   --project-id 1 `
@@ -113,7 +113,7 @@ Hugging Face:
 меняется только `speaker_index`. Пишет исключительно `sense/`.
 
 ```powershell
-cd C:\1C_NEW_SKKKK
+cd D:\Primary_Analitics
 venv\Scripts\python.exe asr\lab_sense.py `
   --project-id 1 `
   --artifact-id art_2026-08-19_211842_54f88c `
@@ -161,7 +161,7 @@ venv\Scripts\python.exe asr\lab_proof.py $args.Split()
 
 | Что | Значение |
 |-----|----------|
-| Контейнер | `skkkk-gigaam`, `asr_backend=pytorch`, `asr_model=v3_e2e_rnnt` |
+| Контейнер | `primaryanalitics-gigaam`, `asr_backend=pytorch`, `asr_model=v3_e2e_rnnt` |
 | Диаризация | pyannote, `DIARIZATION_MIN_SPEAKERS=4`, `MAX=8`, `num_speakers` не задавали |
 | Аудио | `01_audio/clean_16k.wav` того же прогона, загружено как `lab_<run_id>_clean_16k.wav` |
 | Время | 127 с на 2400 с записи |

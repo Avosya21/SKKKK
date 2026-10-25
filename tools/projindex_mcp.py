@@ -3,7 +3,7 @@
 Отдельно от проектного MCP портала (routers/project_mcp.py): тот отдаёт данные проектов внешним агентам по ключам,
 а этот — исходный код и служебную карту, поэтому наружу не публикуется и работает только локально через stdio.
 
-Подключение (Claude Code): файл .mcp.json в корне репозитория уже описывает сервер `skkkk-index`.
+Подключение (Claude Code): файл .mcp.json в корне репозитория уже описывает сервер `primaryanalitics-index`.
 Вручную:  venv\\Scripts\\python.exe tools\\projindex_mcp.py
 
 Инструменты: search_project, find_symbol, callers, callees, route, table, env, ui_element, tests_for, ops,
@@ -119,8 +119,8 @@ def handle(message: dict) -> dict | None:
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": params.get("protocolVersion") or PROTOCOL,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "skkkk-index", "version": "1.0"},
-            "instructions": "Индекс проекта SKKKK. Сначала search_project или find_symbol; для связей — callers/callees/route/table; "
+            "serverInfo": {"name": "primaryanalitics-index", "version": "1.0"},
+            "instructions": "Индекс проекта PrimaryAnalitics. Сначала search_project или find_symbol; для связей — callers/callees/route/table; "
                             "перед правкой кода проверяйте результат в самом файле.",
         }}
     if method in {"notifications/initialized", "notifications/cancelled"} or (method or "").startswith("notifications/"):

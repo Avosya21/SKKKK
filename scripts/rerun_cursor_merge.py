@@ -51,7 +51,7 @@ def main() -> int:
         return 1
 
     env = _asr_env(settings, artifact)
-    asr_out = Path(env["SKKKK_ASR_OUT"])
+    asr_out = Path(env["PRIMARY_ANALITICS_ASR_OUT"])
     for req in ("docker_whisper.json", "docker_gigaam.json", "sortformer_segments.json"):
         if not (asr_out / req).is_file():
             print(f"missing {asr_out / req} — нужен завершённый ASR", file=sys.stderr)

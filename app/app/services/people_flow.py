@@ -52,7 +52,7 @@ def collect(db, settings, project_id: int | None = None) -> dict:
         guests: dict[tuple[int, str], MeetingParticipant] = {}
         if ended:
             for part in db.scalars(select(MeetingParticipant).where(MeetingParticipant.meeting_id.in_(ended))).all():
-                if part.identity.startswith("skkkk-"):
+                if part.identity.startswith("primaryanalitics-"):
                     continue  # рекордеры и служебные участники
                 key = (part.meeting_id, part.identity)
                 if key not in guests or (part.person_id and not guests[key].person_id):

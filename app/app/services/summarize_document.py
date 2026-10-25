@@ -13,7 +13,7 @@ from app.app.services.plain_text import clean_summary_output
 from app.app.services.storage import parsed_dir
 from app.app.services.tz import MAP_CHUNK_CHARS, _pack_map_chunks
 
-logger = logging.getLogger("skkkk.doc_summary")
+logger = logging.getLogger("primaryanalitics.doc_summary")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "doc_summary.md"
 MAP_MAX_TOKENS = 1200

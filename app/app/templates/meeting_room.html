@@ -58,7 +58,7 @@
 <script src="/static/meeting_layout.js?v=a5"></script>
 <script src="/static/meeting_room.js?v=a59"></script>
 <script>
-window.SKKKK_MEETING_VOICE = {{ meeting_voice | tojson }};
+window.PRIMARY_ANALITICS_MEETING_VOICE = {{ meeting_voice | tojson }};
 const projectId = {{ project_id }};
 const meetingId = {{ meeting_id }};
 const stageEl = document.getElementById('meeting-stage');
@@ -69,8 +69,8 @@ const micBtn = document.getElementById('meeting-mic');
 const camBtn = document.getElementById('meeting-cam');
 const screenBtn = document.getElementById('meeting-screen');
 
-if (window.SKKKK && typeof SKKKK.requireAuth === 'function') {
-  if (!SKKKK.requireAuth()) {
+if (window.PrimaryAnalitics && typeof PrimaryAnalitics.requireAuth === 'function') {
+  if (!PrimaryAnalitics.requireAuth()) {
     statusEl.textContent = 'Требуется авторизация.';
   }
 }
@@ -79,8 +79,8 @@ document.body.classList.add('meeting-is-live');
 
 (async () => {
   try {
-    const data = await SKKKK.apiJson(`/projects/${projectId}/meetings/${meetingId}/join`, { method: 'POST' });
-    await SKKKKMeeting.connect(data.livekit, {
+    const data = await PrimaryAnalitics.apiJson(`/projects/${projectId}/meetings/${meetingId}/join`, { method: 'POST' });
+    await PrimaryAnaliticsMeeting.connect(data.livekit, {
       statusEl,
       peopleEl,
       tilesEl,
@@ -118,7 +118,7 @@ document.body.classList.add('meeting-is-live');
       // Повторный вход после обрыва связи: тот же пользователь, то же имя участника
       refreshJoin: async () => {
         try {
-          return await SKKKK.apiJson(`/projects/${projectId}/meetings/${meetingId}/join`, { method: 'POST' });
+          return await PrimaryAnalitics.apiJson(`/projects/${projectId}/meetings/${meetingId}/join`, { method: 'POST' });
         } catch (err) {
           if ([404, 409, 410].includes(err && err.status)) {
             throw Object.assign(new Error('Встреча завершена или недоступна.'), { meetingGone: true });
@@ -133,11 +133,11 @@ document.body.classList.add('meeting-is-live');
   }
 })();
 
-micBtn.addEventListener('click', () => SKKKKMeeting.toggleMic(micBtn));
-camBtn.addEventListener('click', () => SKKKKMeeting.toggleCam(camBtn));
-document.getElementById('meeting-cam-switch').addEventListener('click', () => SKKKKMeeting.switchCamera());
-screenBtn.addEventListener('click', () => SKKKKMeeting.toggleScreen(screenBtn));
-document.getElementById('meeting-fs').addEventListener('click', () => SKKKKMeeting.toggleStageFullscreen());
-document.getElementById('meeting-leave').addEventListener('click', () => SKKKKMeeting.leaveRoom());
+micBtn.addEventListener('click', () => PrimaryAnaliticsMeeting.toggleMic(micBtn));
+camBtn.addEventListener('click', () => PrimaryAnaliticsMeeting.toggleCam(camBtn));
+document.getElementById('meeting-cam-switch').addEventListener('click', () => PrimaryAnaliticsMeeting.switchCamera());
+screenBtn.addEventListener('click', () => PrimaryAnaliticsMeeting.toggleScreen(screenBtn));
+document.getElementById('meeting-fs').addEventListener('click', () => PrimaryAnaliticsMeeting.toggleStageFullscreen());
+document.getElementById('meeting-leave').addEventListener('click', () => PrimaryAnaliticsMeeting.leaveRoom());
 </script>
 {% endblock %}

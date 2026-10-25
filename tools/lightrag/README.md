@@ -1,11 +1,11 @@
-# LightRAG — граф знаний SKKKK
+# LightRAG — граф знаний PrimaryAnalitics
 
 [LightRAG](https://github.com/hkuds/lightrag) держит **структурированный граф** по документации проекта: кнопки → API → сервисы → БД, пайплайны, спикеры. Дополняет `scripts/search_project_map.py` (sqlite-vec) связями entity–relation.
 
 ## Быстрый старт
 
 ```powershell
-cd C:\1C_NEW_SKKKK\tools\lightrag
+cd D:\Primary_Analitics\tools\lightrag
 Copy-Item .env.example .env
 # при необходимости поправить LLM/embedding в .env
 

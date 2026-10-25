@@ -1,7 +1,7 @@
 """Сквозной прогон: видео → три ASR → Gemma → спикеры PyAnnote → HTML.
 
   python asr/run_pipeline.py
-  python asr/run_pipeline.py --source "C:\\1C_NEW_SKKKK\\Test_video\\файл.webm"
+  python asr/run_pipeline.py --source "D:\\Primary_Analitics\\Test_video\\файл.webm"
   python asr/run_pipeline.py --serve
 """
 
@@ -141,7 +141,7 @@ def get_json(url: str, headers: dict[str, str] | None = None, timeout: int = 60)
 
 
 def post_file(url: str, path: Path, headers: dict[str, str], extra_fields: dict[str, str] | None = None, timeout: int = 3600) -> dict:
-    boundary = "----skkkkPipeline7MA4YWxk"
+    boundary = "----primaryanaliticsPipeline7MA4YWxk"
     chunks: list[bytes] = []
     for name, value in (extra_fields or {}).items():
         chunks.append(f"--{boundary}\r\n".encode())
@@ -364,7 +364,7 @@ def main() -> int:
             )
             mark_ok("audio_prep", f"{duration / 60:.1f} мин")
             log(f"duration {duration / 60:.1f} min")
-            artifact_id = os.environ.get("SKKKK_ARTIFACT_ID", "").strip()
+            artifact_id = os.environ.get("PRIMARY_ANALITICS_ARTIFACT_ID", "").strip()
             if artifact_id and maybe_discard_video_source(
                 source, WORK / "input_16k.wav", artifact_id=artifact_id
             ):
@@ -479,9 +479,9 @@ def main() -> int:
         try:
             gate("asr_stop")
             if os.environ.get("ALLOW_LEGACY_ASR") == "1":
-                subprocess.run(["docker", "stop", "skkkk-whisper", "skkkk-gigaam"], check=False)
+                subprocess.run(["docker", "stop", "primaryanalitics-whisper", "primaryanalitics-gigaam"], check=False)
             else:
-                subprocess.run(["docker", "stop", "skkkk-gigaam"], check=False)
+                subprocess.run(["docker", "stop", "primaryanalitics-gigaam"], check=False)
             used = wait_vram(2500)
             mark_ok("asr_stop", f"VRAM после выгрузки {used} MiB")
         except PipelineGateError:

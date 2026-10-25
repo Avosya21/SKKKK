@@ -51,7 +51,7 @@ from app.app.services.pipeline_lab import (
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_audio_path, artifact_dir, ensure_artifact_workspace
 
-logger = logging.getLogger("skkkk.pipeline")
+logger = logging.getLogger("primaryanalitics.pipeline")
 
 MEETING_LAB_STEPS: tuple[tuple[str, str], ...] = (
     ("audio_prep", "Сбор дорожек"),

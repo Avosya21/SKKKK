@@ -954,7 +954,7 @@ const player = document.getElementById("player");
 function initSummaryTabs() {{
   const tabs = [...document.querySelectorAll(".summary-tab")];
   if (!tabs.length) return;
-  const key = data.artifact_id ? ("skkkk-summary-tab:" + data.artifact_id) : "";
+  const key = data.artifact_id ? ("primaryanalitics-summary-tab:" + data.artifact_id) : "";
   const select = (name) => {{
     tabs.forEach((tab) => {{
       const on = tab.dataset.summaryTab === name;
@@ -986,7 +986,7 @@ function initSummaryTabs() {{
 }}
 initSummaryTabs();
 const useRegistry = {"true" if use_registry else "false"};
-const storeKey = "skkkk-speakers:" + location.pathname;
+const storeKey = "primaryanalitics-speakers:" + location.pathname;
 const saved = useRegistry ? {{}} : JSON.parse(localStorage.getItem(storeKey) || "{{}}");
 if (!useRegistry) {{
   data.mapping = Object.assign({{}}, data.mapping, saved.mapping || {{}});
@@ -1302,7 +1302,7 @@ async function guardActionButton(btn, work, label) {{
   }}
 }}
 function authHeaders() {{
-  const token = localStorage.getItem("skkkk_token");
+  const token = localStorage.getItem("primary_analitics_token");
   return token ? {{ Authorization: "Bearer " + token }} : {{}};
 }}
 function setExportButtonBusy(btn, busy) {{

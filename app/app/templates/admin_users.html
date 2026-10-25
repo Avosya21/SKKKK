@@ -53,7 +53,7 @@
 {% block scripts %}
 <script>
 (async () => {
-  if (!SKKKK.requireAuth()) return;
+  if (!PrimaryAnalitics.requireAuth()) return;
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (iso) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return iso; } };
@@ -61,7 +61,7 @@
   const say = (t, bad) => { const el = $('au-status'); el.textContent = t || ''; el.classList.toggle('text-danger', !!bad); };
   const getJson = async (path) => {
     try {
-      const r = await SKKKK.api(path);
+      const r = await PrimaryAnalitics.api(path);
       if (!r.ok) { say(r.status === 404 ? 'Страница недоступна для этой учётки.' : 'Ошибка ' + r.status, true); return null; }
       return await r.json();
     } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }

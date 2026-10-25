@@ -1,4 +1,4 @@
-# SKKKK — запуск API + GPU-воркер с выбором LLM
+# PrimaryAnalitics — запуск API + GPU-воркер с выбором LLM
 param(
     [ValidateSet("cursor", "gemma", "")]
     [string]$Llm = "",
@@ -19,7 +19,7 @@ function Get-EnvValue {
     return $Default
 }
 
-function Stop-Skkkk {
+function Stop-PrimaryAnalitics {
     param([int]$Port)
     $lockDir = Join-Path $Root "data\locks"
     $pidFile = Join-Path $lockDir "gpu_worker.pid"
@@ -46,7 +46,7 @@ function Stop-Skkkk {
 }
 
 $port = [int](Get-EnvValue -Key "WEB_PORT" -Default "1111")
-if (-not $NoStop) { Stop-Skkkk -Port $port }
+if (-not $NoStop) { Stop-PrimaryAnalitics -Port $port }
 
 $py = Join-Path $Root "venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {

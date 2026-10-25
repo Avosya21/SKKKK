@@ -40,8 +40,8 @@
 ## Что появляется на диске
 
 ```
-C:\1C_NEW_SKKKK\data\logs\env-check.txt
-C:\1C_NEW_SKKKK\.env
+D:\Primary_Analitics\data\logs\env-check.txt
+D:\Primary_Analitics\.env
 ```
 
 ## Полезные проекты на GitHub
@@ -59,7 +59,7 @@ C:\1C_NEW_SKKKK\.env
 Запустить единый скрипт:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\1C_NEW_SKKKK\scripts\check_env.ps1
+powershell -ExecutionPolicy Bypass -File D:\Primary_Analitics\scripts\check_env.ps1
 ```
 
 Он проверяет и пишет отчёт в `data\logs\env-check.txt`:

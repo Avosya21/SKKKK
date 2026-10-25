@@ -50,7 +50,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-danger skkkk-action-btn" id="delete-project-confirm" data-idle-label="Удалить" disabled>Удалить</button>
+        <button type="button" class="btn btn-danger primaryanalitics-action-btn" id="delete-project-confirm" data-idle-label="Удалить" disabled>Удалить</button>
       </div>
     </div>
   </div>
@@ -69,7 +69,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button type="submit" class="btn btn-primary skkkk-action-btn" id="rename-project-submit" data-idle-label="Сохранить">Сохранить</button>
+        <button type="submit" class="btn btn-primary primaryanalitics-action-btn" id="rename-project-submit" data-idle-label="Сохранить">Сохранить</button>
       </div>
     </form>
   </div>
@@ -102,7 +102,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="project-cancel">Отмена</button>
-        <button type="submit" class="btn btn-primary skkkk-action-btn" id="project-submit" data-idle-label="Создать">Создать</button>
+        <button type="submit" class="btn btn-primary primaryanalitics-action-btn" id="project-submit" data-idle-label="Создать">Создать</button>
       </div>
     </form>
   </div>
@@ -110,7 +110,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-if (!SKKKK.requireAuth()) throw new Error('auth');
+if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 const currentRole = {{ current_role|tojson }};
 const newProjectBtn = document.getElementById('btn-new-project');
 const modalEl = document.getElementById('newProjectModal');
@@ -143,7 +143,7 @@ function chevronSvg() {
 }
 
 async function loadProjects() {
-  const r = await SKKKK.api('/projects');
+  const r = await PrimaryAnalitics.api('/projects');
   if (!r.ok) return;
   const list = document.getElementById('projects-list');
   list.innerHTML = '';
@@ -271,13 +271,13 @@ async function showDeleteCounts(projectId) {
   if (!el) return;
   el.textContent = 'Считаю, что будет удалено…';
   try {
-    const c = await SKKKK.apiJson(`/projects/${projectId}/delete-preview`);
+    const c = await PrimaryAnalitics.apiJson(`/projects/${projectId}/delete-preview`);
     if (!pendingDelete || pendingDelete.id !== projectId) return;
     const parts = [
-      SKKKK.count(c.documents, ['документ', 'документа', 'документов']),
-      SKKKK.count(c.calls, ['созвон', 'созвона', 'созвонов']),
-      SKKKK.count(c.meetings, ['встреча', 'встречи', 'встреч']),
-      SKKKK.count(c.notes, ['заметка', 'заметки', 'заметок']),
+      PrimaryAnalitics.count(c.documents, ['документ', 'документа', 'документов']),
+      PrimaryAnalitics.count(c.calls, ['созвон', 'созвона', 'созвонов']),
+      PrimaryAnalitics.count(c.meetings, ['встреча', 'встречи', 'встреч']),
+      PrimaryAnalitics.count(c.notes, ['заметка', 'заметки', 'заметок']),
     ];
     el.textContent = 'Будет удалено: ' + parts.join(', ') + '.';
   } catch (err) {
@@ -293,8 +293,8 @@ deleteModalEl.addEventListener('hidden.bs.modal', () => {
 deleteConfirmBtn.addEventListener('click', async () => {
   if (!pendingDelete || !deleteAck.checked) return;
   const target = pendingDelete;
-  await SKKKK.guardButton(deleteConfirmBtn, async () => {
-    const r = await SKKKK.api(`/projects/${target.id}`, { method: 'DELETE' });
+  await PrimaryAnalitics.guardButton(deleteConfirmBtn, async () => {
+    const r = await PrimaryAnalitics.api(`/projects/${target.id}`, { method: 'DELETE' });
     if (!r.ok) {
       window.alert(r.status === 403 ? 'Недостаточно прав' : 'Не удалось удалить проект');
       return;
@@ -336,8 +336,8 @@ renameForm.addEventListener('submit', async (e) => {
     bootstrap.Modal.getOrCreateInstance(renameModalEl).hide();
     return;
   }
-  await SKKKK.guardSubmit(renameForm, async () => {
-    const r = await SKKKK.api(`/projects/${target.id}`, {
+  await PrimaryAnalitics.guardSubmit(renameForm, async () => {
+    const r = await PrimaryAnalitics.api(`/projects/${target.id}`, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ name }),
@@ -345,7 +345,7 @@ renameForm.addEventListener('submit', async (e) => {
     if (!r.ok) {
       let detail = '';
       try { detail = (await r.json()).detail; } catch (_) {}
-      renameErr.textContent = r.status === 403 ? 'Переименовать может только автор проекта или администратор' : SKKKKErrors.text(detail, r.status);
+      renameErr.textContent = r.status === 403 ? 'Переименовать может только автор проекта или администратор' : PrimaryAnaliticsErrors.text(detail, r.status);
       renameErr.classList.remove('d-none');
       return;
     }
@@ -369,7 +369,7 @@ function companyHint(input, hintId, role) {
 }
 async function fillCompanyList() {
   try {
-    const r = await SKKKK.api('/companies');
+    const r = await PrimaryAnalitics.api('/companies');
     if (!r.ok) return;
     projectCompanies = (await r.json()).items.filter((c) => c.active);
     const list = document.getElementById('project-company-list');
@@ -410,8 +410,8 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
   payload.internal = internalBox.checked;
   if (payload.internal) { delete payload.customer_company; payload.customer_people = []; }
 
-  await SKKKK.guardSubmit(form, async () => {
-    const r = await SKKKK.api('/projects', {
+  await PrimaryAnalitics.guardSubmit(form, async () => {
+    const r = await PrimaryAnalitics.api('/projects', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
@@ -419,7 +419,7 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
     if (!r.ok) {
       let detail = '';
       try { detail = (await r.json()).detail; } catch (_) {}
-      err.textContent = r.status === 403 ? 'Недостаточно прав' : SKKKKErrors.text(detail, r.status);
+      err.textContent = r.status === 403 ? 'Недостаточно прав' : PrimaryAnaliticsErrors.text(detail, r.status);
       err.classList.remove('d-none');
       return;
     }

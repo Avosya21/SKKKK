@@ -2,7 +2,7 @@
 
 Это проверочный прогон этапа 3: три черновика на одном файле + сводка для сравнения.
 
-    python run_all.py --source "C:\\1C_NEW_SKKKK\\Test_video\\call.mp4"
+    python run_all.py --source "D:\\Primary_Analitics\\Test_video\\call.mp4"
     python run_all.py --source ... --only whisper,gigaam
 """
 

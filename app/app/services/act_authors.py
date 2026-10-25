@@ -22,7 +22,7 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.person import SIDE_CUSTOMER, SIDE_EXECUTOR
 
-logger = logging.getLogger("skkkk.act_authors")
+logger = logging.getLogger("primaryanalitics.act_authors")
 
 
 def _norm(text: str | None) -> str:

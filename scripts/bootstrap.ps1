@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне).
 
@@ -25,7 +25,7 @@ param(
     [switch]$Yes,
     [switch]$SkipSystem,
     [switch]$Asr,
-    [string]$OldRoot = 'C:\1C_NEW_SKKKK'
+    [string]$OldRoot = 'D:\1C_NEW_SKKKK'
 )
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -212,7 +212,7 @@ if (Test-Path -LiteralPath (Join-Path $root '.git\hooks')) {
 # ---------- 8. Итог ----------
 $manual.Add('LM Studio: скачать модель из .env (LMSTUDIO_MODEL) на вкладке Search и включить локальный сервер (порт 1234)')
 $manual.Add('Проверка всей системы: powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1')
-$manual.Add('Запуск: scripts\SKKKK-3-Запуск-LM-Studio.bat (локальная модель) или scripts\SKKKK-2-Запуск-Cursor.bat (Cursor API)')
+$manual.Add('Запуск: scripts\PrimaryAnalitics-3-Запуск-LM-Studio.bat (локальная модель) или scripts\PrimaryAnalitics-2-Запуск-Cursor.bat (Cursor API)')
 Write-Host "`n=== Осталось сделать вручную ===" -ForegroundColor Yellow
 $i = 1
 foreach ($m in $manual) { Write-Host ("{0}. {1}" -f $i++, $m); $report.Add("TODO: $m") }

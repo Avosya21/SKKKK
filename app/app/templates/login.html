@@ -40,7 +40,7 @@
             <input class="form-control" id="login-password" type="password" name="password" required autocomplete="off" enterkeyhint="go">
           </div>
           <div class="alert alert-danger d-none" id="login-error" role="alert"></div>
-          <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="login-submit" data-idle-label="Войти">Войти</button>
+          <button class="btn btn-primary w-100 primaryanalitics-action-btn" type="submit" id="login-submit" data-idle-label="Войти">Войти</button>
         </form>
 
         {# Шаг 2. Скрытое поле username — чтобы менеджер паролей браузера связал личный пароль с логином. #}
@@ -63,7 +63,7 @@
             </div>
           </div>
           <div class="alert alert-danger d-none" id="step-error" role="alert"></div>
-          <button class="btn btn-primary w-100 skkkk-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
+          <button class="btn btn-primary w-100 primaryanalitics-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
           <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
         </form>
 
@@ -110,7 +110,7 @@
             <details class="mt-1"><summary>Подробнее</summary><div class="mt-1" id="profile-consent-details"></div></details>
           </div>
           <div class="alert alert-danger d-none" id="profile-error" role="alert"></div>
-          <button class="btn btn-primary w-100 skkkk-action-btn mb-2" type="submit" id="profile-submit" data-idle-label="Сохранить и войти">Сохранить и войти</button>
+          <button class="btn btn-primary w-100 primaryanalitics-action-btn mb-2" type="submit" id="profile-submit" data-idle-label="Сохранить и войти">Сохранить и войти</button>
           <button type="button" class="btn btn-link px-0" id="profile-back">Назад</button>
         </form>
       </div>
@@ -130,7 +130,7 @@
 
   function errorText(payload, status) {
     const detail = payload && payload.detail;
-    return window.SKKKKErrors ? SKKKKErrors.text(detail, status) : String(detail || status);
+    return window.PrimaryAnaliticsErrors ? PrimaryAnaliticsErrors.text(detail, status) : String(detail || status);
   }
 
   function showError(el, text) {
@@ -150,7 +150,7 @@
   }
 
   function finish(payload) {
-    SKKKK.setSession(payload);
+    PrimaryAnalitics.setSession(payload);
     location.href = '/';
   }
 
@@ -282,7 +282,7 @@
     e.preventDefault();
     const body = Object.fromEntries(new FormData(loginForm).entries());
     showError($('login-error'), '');
-    await SKKKK.guardSubmit(loginForm, async () => {
+    await PrimaryAnalitics.guardSubmit(loginForm, async () => {
       const {r, payload} = await post('/auth/login', body);
       if (!r.ok) {
         showError($('login-error'), `Вход не выполнен: ${errorText(payload, r.status)}`);
@@ -323,7 +323,7 @@
       return;
     }
     showError($('step-error'), '');
-    await SKKKK.guardSubmit(stepForm, async () => {
+    await PrimaryAnalitics.guardSubmit(stepForm, async () => {
       const {r, payload} = await post(url, body);
       if (r.ok) {
         await afterStep(payload);
@@ -369,7 +369,7 @@
     fd.append('ticket', profile.ticket);
     for (const [k, v] of Object.entries(values)) fd.append(k, v);
     fd.append('avatar', profile.photo, profile.photo.name || 'photo.jpg');
-    await SKKKK.guardSubmit(profileForm, async () => {
+    await PrimaryAnalitics.guardSubmit(profileForm, async () => {
       const r = await fetch('/auth/login/profile', {method: 'POST', body: fd});
       let payload = null;
       try { payload = await r.json(); } catch (ex) { payload = null; }

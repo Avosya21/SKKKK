@@ -45,7 +45,7 @@ def test_mcp_info_counts_tools_and_does_not_claim_read_only(client, manager_toke
 
 def test_every_call_is_journaled_without_content(client, manager_token, admin_token, tmp_data, caplog):
     pid, key = _project_and_key(client, manager_token, admin_token, "read")
-    with caplog.at_level(logging.INFO, logger="skkkk.mcp"):
+    with caplog.at_level(logging.INFO, logger="primaryanalitics.mcp"):
         _rpc(client, pid, key, "tools/call", {"name": "get_project_summary", "arguments": {}})
         _rpc(client, pid, key, "tools/call", {"name": "get_quote", "arguments": {"requirement_id": "секретная-фраза-поиска"}})
     lines = [r.getMessage() for r in caplog.records if "mcp.call" in r.getMessage()]

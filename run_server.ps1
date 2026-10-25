@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Запуск сервера LM Studio и загрузка локальной модели строго по профилю SKKKK.
+    Запуск сервера LM Studio и загрузка локальной модели строго по профилю PrimaryAnalitics.
 
 .DESCRIPTION
     Единственный источник настроек модели — tools\lmstudio\qwen-profile.json

@@ -4,7 +4,7 @@
 // Цвета берутся из токенов дизайн-системы (--ds-*) в момент отрисовки — своих цветов здесь нет.
 (() => {
   'use strict';
-  if (!SKKKK.requireAuth()) return;
+  if (!PrimaryAnalitics.requireAuth()) return;
 
   const KIND_ORDER = ['symbol', 'route', 'ui', 'table', 'column', 'env', 'file', 'manifest', 'commit', 'external'];
   const KIND_TOKEN = {
@@ -103,7 +103,7 @@
   // ───────────────────────── запросы ─────────────────────────
 
   async function loadSummary() {
-    const response = await SKKKK.api('/admin/map/graph/summary');
+    const response = await PrimaryAnalitics.api('/admin/map/graph/summary');
     if (response.status === 403) {
       adminOnly('Нужна роль администратора.');
       return false;
@@ -137,7 +137,7 @@
       clearNode();
       return;
     }
-    const response = await SKKKK.api(`/admin/map/graph/data?${buildParams().toString()}`);
+    const response = await PrimaryAnalitics.api(`/admin/map/graph/data?${buildParams().toString()}`);
     if (response.status === 403) {
       adminOnly('Нужна роль администратора.');
       return;
@@ -293,7 +293,7 @@
   function renderCounters(payload) {
     const nodes = state.nodes.length;
     const edges = state.edges.length;
-    dom.counters.textContent = `${SKKKK.count(nodes, ['узел', 'узла', 'узлов'])} · ${SKKKK.count(edges, ['связь', 'связи', 'связей'])}` +
+    dom.counters.textContent = `${PrimaryAnalitics.count(nodes, ['узел', 'узла', 'узлов'])} · ${PrimaryAnalitics.count(edges, ['связь', 'связи', 'связей'])}` +
       (payload.total_nodes ? ` (всего ${payload.total_nodes} / ${payload.total_edges})` : '');
     dom.more.disabled = state.limit >= LIMIT_MAX || !payload.truncated;
   }
@@ -574,7 +574,7 @@
         showNotes(['Введите имя функции, файл или роут.']);
         return;
       }
-      SKKKK.guardButton(dom.search, async () => {
+      PrimaryAnalitics.guardButton(dom.search, async () => {
         state.view = 'entities';
         dom.viewEntities.checked = true;
         state.focus = query;

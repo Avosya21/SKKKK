@@ -2,17 +2,17 @@
 # GPU: Vulkan (driver 577+) or CUDA (driver 580+, CUDA 13 runtime in engine bundle).
 
 param(
-    [string]$Audio = "C:\1C_NEW_SKKKK\asr\work\input_16k.wav",
+    [string]$Audio = "D:\Primary_Analitics\asr\work\input_16k.wav",
     [double]$ClipSec = 0,
-    [string]$OutDir = "C:\1C_NEW_SKKKK\experiments\nemo-diar\out",
+    [string]$OutDir = "D:\Primary_Analitics\experiments\nemo-diar\out",
     [ValidateSet("auto", "cuda", "vulkan", "cpu")]
     [string]$Prefer = "auto"
 )
 
 $ErrorActionPreference = "Stop"
 $Gguf = "$env:USERPROFILE\.lmstudio\models\openresearchtools\diar_streaming_sortformer_4spk-v2.1-gguf\diar_streaming_sortformer_4spk-v2.1.gguf"
-$Py = "C:\1C_NEW_SKKKK\venvs\nemo-diar\Scripts\python.exe"
-$PickScript = "C:\1C_NEW_SKKKK\experiments\nemo-diar\pick_engine_backend.ps1"
+$Py = "D:\Primary_Analitics\venvs\nemo-diar\Scripts\python.exe"
+$PickScript = "D:\Primary_Analitics\experiments\nemo-diar\pick_engine_backend.ps1"
 
 if (-not (Test-Path $Gguf)) {
     throw "Sortformer GGUF not found: $Gguf"
@@ -67,12 +67,12 @@ Pop-Location
 
 $Elapsed = [math]::Round($sw.Elapsed.TotalSeconds, 1)
 $clipArg = if ($ClipSec -gt 0) { $ClipSec } else { 999999 }
-& $Py C:\1C_NEW_SKKKK\experiments\nemo-diar\parse_gguf_spans.py `
+& $Py D:\Primary_Analitics\experiments\nemo-diar\parse_gguf_spans.py `
     --spans $Spans `
     --audio $RunAudio `
     --out $Report `
     --elapsed-sec $Elapsed `
-    --baseline C:\1C_NEW_SKKKK\asr\out\pyannote_segments.json `
+    --baseline D:\Primary_Analitics\asr\out\pyannote_segments.json `
     --clip-sec $clipArg
 
 Write-Host "`nDone."

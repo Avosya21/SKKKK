@@ -1,12 +1,12 @@
 ---
-description: Jinja, HTML, and vanilla JS UI rules for SKKKK pages
+description: Jinja, HTML, and vanilla JS UI rules for PrimaryAnalitics pages
 globs: app/app/templates/**/*.html,app/app/static/**/*.js
 alwaysApply: false
 ---
 # Frontend UI
 
 - Prefer incremental improvements to the existing Jinja + Bootstrap + vanilla JS stack; do not introduce a new frontend framework casually.
-- Reuse existing DOM ids, page sections, and API helpers like `SKKKK.api(...)`.
+- Reuse existing DOM ids, page sections, and API helpers like `PrimaryAnalitics.api(...)`.
 - Keep project pages task-focused: summary, artifacts, reports, and chat should be visible with minimal navigation friction.
 - Render long knowledge outputs in readable HTML with headings, lists, and tables instead of raw text where feasible.
 - For agent/chat style UI, prioritize clarity, vertical rhythm, readable spacing, and obvious loading/error states.

@@ -26,11 +26,11 @@ import httpx
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.llm_keeper")
+logger = logging.getLogger("primaryanalitics.llm_keeper")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE_PATH = ROOT / "tools" / "lmstudio" / "qwen-profile.json"
-DISABLE_ENV = "SKKKK_DISABLE_LLM_KEEPER"  # тесты: не трогать настоящий LM Studio
+DISABLE_ENV = "PRIMARY_ANALITICS_DISABLE_LLM_KEEPER"  # тесты: не трогать настоящий LM Studio
 MODEL_LOCK = "llm_model.lock"
 LAST_USE_FILE = "llm_last_use"
 # Загруженную и сверенную модель в этом процессе повторно через `lms ps` не сверяем чаще, чем раз в столько секунд.

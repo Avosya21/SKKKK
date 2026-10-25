@@ -21,7 +21,7 @@ from app.app.models.user_activity_log import UserActivityLog
 # Совпадает с chat.CHAT_PENDING_TEXT — не импортируем chat.py (цикл).
 _PENDING_CHAT_TEXT = "Думаю над ответом..."
 
-logger = logging.getLogger("skkkk.activity")
+logger = logging.getLogger("primaryanalitics.activity")
 
 BLOCK_AUTH = "auth"
 BLOCK_PROJECT = "project"

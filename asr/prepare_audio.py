@@ -3,7 +3,7 @@
 Вход: любой видео- или аудиофайл.
 Выход: WAV 16 кГц моно (Whisper, GigaAM), WAV 8 кГц моно (T-one), метаданные.
 
-    python prepare_audio.py "C:\\1C_NEW_SKKKK\\Test_video\\call.mp4" --out-dir C:\\1C_NEW_SKKKK\\asr\\work
+    python prepare_audio.py "D:\\Primary_Analitics\\Test_video\\call.mp4" --out-dir D:\\Primary_Analitics\\asr\\work
 """
 
 import argparse

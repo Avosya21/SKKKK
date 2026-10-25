@@ -11,7 +11,7 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.services.storage import artifact_dir, ensure_artifact_workspace, parsed_dir
 
-logger = logging.getLogger("skkkk.pipeline")
+logger = logging.getLogger("primaryanalitics.pipeline")
 
 
 def _merge_step_ok(checklist_path: Path) -> bool:

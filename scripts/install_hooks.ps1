@@ -1,16 +1,16 @@
-﻿<#
+<#
 .SYNOPSIS
     Установить (или снять) git-хуки проекта: обновление индекса после коммита и слияния, проверка карты проекта перед коммитом.
 
 .DESCRIPTION
     Добавляет блоки между маркерами в .git/hooks; существующее содержимое хуков (например, Git LFS) не трогается.
 
-    SKKKK-INDEX (post-commit, post-merge): обновляет индекс проекта в фоне, только изменённые файлы; ошибка не ломает git.
-    SKKKK-PRIVACY (pre-commit): scripts/scan_personal_data.py --staged — в файлах коммита не должно быть имён людей и названий
+    PrimaryAnalitics-INDEX (post-commit, post-merge): обновляет индекс проекта в фоне, только изменённые файлы; ошибка не ломает git.
+    PrimaryAnalitics-PRIVACY (pre-commit): scripts/scan_personal_data.py --staged — в файлах коммита не должно быть имён людей и названий
       компаний из базы портала (находки видны только в консоли); совпадение отклоняет коммит. Без базы портала пропускается.
-    SKKKK-DATA (pre-commit): scripts/check_no_data_files.py --staged — в коммит не попадают БД, каталог data/, личные списки,
+    PrimaryAnalitics-DATA (pre-commit): scripts/check_no_data_files.py --staged — в коммит не попадают БД, каталог data/, личные списки,
       документы, медиа и веса моделей; исключения — синтетические фикстуры тестов и примеры настроек.
-    SKKKK-MAP (pre-commit, commit-msg): карта проекта должна соответствовать коммиту.
+    PrimaryAnalitics-MAP (pre-commit, commit-msg): карта проекта должна соответствовать коммиту.
       pre-commit  -> scripts/check_map_staged.py: сверяет карту с содержимым индекса git (роуты, таблицы БД, переменные
                      окружения, файлы кода, реестр модулей, манифест); расхождение отклоняет коммит.
       commit-msg  -> scripts/check_map_commit_msg.py: если меняются роутеры, модели, настройки, шаблоны или JS/CSS, а карты в
@@ -38,30 +38,30 @@ $indexBlock = @'
 
 $mapHead = @'
 # Проверки проекта работают на Python из venv; без venv они пропускаются.
-SKKKK_TOP="$(git rev-parse --show-toplevel)"
-SKKKK_PY="$SKKKK_TOP/venv/Scripts/python.exe"
-[ -x "$SKKKK_PY" ] || SKKKK_PY="$(git rev-parse --path-format=absolute --git-common-dir)/../venv/Scripts/python.exe"
+PRIMARY_ANALITICS_TOP="$(git rev-parse --show-toplevel)"
+PRIMARY_ANALITICS_PY="$PRIMARY_ANALITICS_TOP/venv/Scripts/python.exe"
+[ -x "$PRIMARY_ANALITICS_PY" ] || PRIMARY_ANALITICS_PY="$(git rev-parse --path-format=absolute --git-common-dir)/../venv/Scripts/python.exe"
 '@
 $preCommitBlock = $mapHead + @'
 
-if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/check_map_staged.py" ]; then
-  "$SKKKK_PY" "$SKKKK_TOP/scripts/check_map_staged.py" || exit 1
+if [ -x "$PRIMARY_ANALITICS_PY" ] && [ -f "$PRIMARY_ANALITICS_TOP/scripts/check_map_staged.py" ]; then
+  "$PRIMARY_ANALITICS_PY" "$PRIMARY_ANALITICS_TOP/scripts/check_map_staged.py" || exit 1
 else
-  echo "SKKKK: venv не найден, проверка карты проекта пропущена" >&2
+  echo "PrimaryAnalitics: venv не найден, проверка карты проекта пропущена" >&2
 fi
 '@
 $commitMsgBlock = $mapHead + @'
 
-if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/check_map_commit_msg.py" ]; then
-  "$SKKKK_PY" "$SKKKK_TOP/scripts/check_map_commit_msg.py" "$1" || exit 1
+if [ -x "$PRIMARY_ANALITICS_PY" ] && [ -f "$PRIMARY_ANALITICS_TOP/scripts/check_map_commit_msg.py" ]; then
+  "$PRIMARY_ANALITICS_PY" "$PRIMARY_ANALITICS_TOP/scripts/check_map_commit_msg.py" "$1" || exit 1
 fi
 '@
 
 $privacyBlock = $mapHead + @'
 
-if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/scan_personal_data.py" ]; then
-  "$SKKKK_PY" "$SKKKK_TOP/scripts/scan_personal_data.py" --staged || {
-    echo "SKKKK: в коммите имена людей или названия компаний из базы портала. Замените их вымышленными и повторите коммит (DECISIONS: приватность)." >&2
+if [ -x "$PRIMARY_ANALITICS_PY" ] && [ -f "$PRIMARY_ANALITICS_TOP/scripts/scan_personal_data.py" ]; then
+  "$PRIMARY_ANALITICS_PY" "$PRIMARY_ANALITICS_TOP/scripts/scan_personal_data.py" --staged || {
+    echo "PrimaryAnalitics: в коммите имена людей или названия компаний из базы портала. Замените их вымышленными и повторите коммит (DECISIONS: приватность)." >&2
     exit 1
   }
 fi
@@ -69,21 +69,21 @@ fi
 
 $dataBlock = $mapHead + @'
 
-if [ -x "$SKKKK_PY" ] && [ -f "$SKKKK_TOP/scripts/check_no_data_files.py" ]; then
-  "$SKKKK_PY" "$SKKKK_TOP/scripts/check_no_data_files.py" --staged || {
-    echo "SKKKK: в коммит попадают БД или рабочие данные проектов. Уберите их из индекса." >&2
+if [ -x "$PRIMARY_ANALITICS_PY" ] && [ -f "$PRIMARY_ANALITICS_TOP/scripts/check_no_data_files.py" ]; then
+  "$PRIMARY_ANALITICS_PY" "$PRIMARY_ANALITICS_TOP/scripts/check_no_data_files.py" --staged || {
+    echo "PrimaryAnalitics: в коммит попадают БД или рабочие данные проектов. Уберите их из индекса." >&2
     exit 1
   }
 fi
 '@
 
 $hooks = @(
-    @{ Name = 'post-commit'; Tag = 'SKKKK-INDEX'; Body = $indexBlock },
-    @{ Name = 'post-merge';  Tag = 'SKKKK-INDEX'; Body = $indexBlock },
-    @{ Name = 'pre-commit';  Tag = 'SKKKK-MAP';   Body = $preCommitBlock },
-    @{ Name = 'pre-commit';  Tag = 'SKKKK-PRIVACY'; Body = $privacyBlock },
-    @{ Name = 'pre-commit';  Tag = 'SKKKK-DATA';  Body = $dataBlock },
-    @{ Name = 'commit-msg';  Tag = 'SKKKK-MAP';   Body = $commitMsgBlock }
+    @{ Name = 'post-commit'; Tag = 'PrimaryAnalitics-INDEX'; Body = $indexBlock },
+    @{ Name = 'post-merge';  Tag = 'PrimaryAnalitics-INDEX'; Body = $indexBlock },
+    @{ Name = 'pre-commit';  Tag = 'PrimaryAnalitics-MAP';   Body = $preCommitBlock },
+    @{ Name = 'pre-commit';  Tag = 'PrimaryAnalitics-PRIVACY'; Body = $privacyBlock },
+    @{ Name = 'pre-commit';  Tag = 'PrimaryAnalitics-DATA';  Body = $dataBlock },
+    @{ Name = 'commit-msg';  Tag = 'PrimaryAnalitics-MAP';   Body = $commitMsgBlock }
 )
 
 foreach ($hook in $hooks) {

@@ -41,7 +41,7 @@ DEFAULT_WAV = ROOT / "asr/work/input_16k.wav"
 def wait_gigaam() -> None:
     from app.app.services.docker_runtime import ensure_container
 
-    ensure_container("skkkk-gigaam")
+    ensure_container("primaryanalitics-gigaam")
     deadline = time.time() + 180
     while time.time() < deadline:
         try:
@@ -49,7 +49,7 @@ def wait_gigaam() -> None:
             return
         except Exception:
             time.sleep(3)
-    raise SystemExit("skkkk-gigaam не поднялся")
+    raise SystemExit("primaryanalitics-gigaam не поднялся")
 
 
 def docker_embed(audio: Path, clips: dict[str, dict]) -> dict[str, dict]:
@@ -60,7 +60,7 @@ def docker_embed(audio: Path, clips: dict[str, dict]) -> dict[str, dict]:
     job = {"audio": docker_audio, "clips": clips}
     JOB_HOST.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
     proc = subprocess.run(
-        ["docker", "exec", "skkkk-gigaam", "python", "/data/embed_voice.py"],
+        ["docker", "exec", "primaryanalitics-gigaam", "python", "/data/embed_voice.py"],
         check=False,
     )
     if proc.returncode != 0:

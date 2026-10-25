@@ -17,7 +17,7 @@ from pathlib import Path
 
 from app.app.services.table_md import CAPTION_PREFIX, clean_cell, make_table, render_md
 
-logger = logging.getLogger("skkkk.docx")
+logger = logging.getLogger("primaryanalitics.docx")
 
 LEGACY_WORD_SUFFIXES = {".doc", ".docm", ".odt", ".rtf", ".dot", ".dotx"}
 _STYLE_HEADING = re.compile(r"(?:heading|заголовок)\s*(\d)", re.I)

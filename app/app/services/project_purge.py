@@ -38,7 +38,7 @@ from app.app.services.meeting_recordings import remove_room_recordings
 from app.app.services.storage import parsed_dir, project_root, raw_input_dir, structured_dir
 from app.app.services.vector_index import delete_vectors_for_chunks, delete_vectors_for_entities
 
-logger = logging.getLogger("skkkk.project")
+logger = logging.getLogger("primaryanalitics.project")
 
 CHILD_DIR_SEP = "__"
 

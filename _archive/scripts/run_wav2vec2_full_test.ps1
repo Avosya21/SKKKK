@@ -6,7 +6,7 @@ param(
     [int]$ProjectId = 12,
     [string]$Backend = "hf",
     [string]$Device = "cuda",
-    [string]$ModelDir = "C:\1C_NEW_SKKKK\data\models\wav2vec2-xls-r-1b-russian",
+    [string]$ModelDir = "D:\Primary_Analitics\data\models\wav2vec2-xls-r-1b-russian",
     [switch]$Full,
     [string[]]$Range = @(),
     [switch]$Serve,

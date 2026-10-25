@@ -31,13 +31,13 @@
   const frame = document.getElementById('amo-frame');
   const when = (ts) => ts ? new Date(ts * 1000).toLocaleString('ru-RU') : '—';
   async function refresh() {
-    const r = await SKKKK.api('/admin/map/overview/state');
+    const r = await PrimaryAnalitics.api('/admin/map/overview/state');
     if (r.ok) { const s = await r.json(); meta.textContent = s.exists ? 'Граф построен ' + when(s.built_at) : 'Граф ещё не построен — первый показ соберёт его (до минуты).'; }
   }
   btn.addEventListener('click', async () => {
     btn.disabled = true; btn.textContent = 'Строю…'; meta.textContent = 'Разбираю проект, считаю метрики и раскладку — это до минуты.';
     try {
-      const r = await SKKKK.api('/admin/map/overview/rebuild', { method: 'POST' });
+      const r = await PrimaryAnalitics.api('/admin/map/overview/rebuild', { method: 'POST' });
       if (r.status === 403) { meta.textContent = 'Нужна роль администратора.'; return; }
       if (!r.ok) { meta.textContent = 'Не удалось перестроить карту.'; return; }
       const s = await r.json();

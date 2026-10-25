@@ -1,4 +1,4 @@
-// Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука.
+// Раскладка плиток встречи (PrimaryAnaliticsLayout): порядок экранов и камер, флаги микрофона/камеры, план звука.
 (function (root) {
   const FLAG_NONE = "none";
   const FLAG_OFF = "off";
@@ -88,7 +88,7 @@
     return best || { cols: 1, rows: n, tileW: 0, tileH: 0, area: 0 };
   }
 
-  root.SKKKKLayout = {
+  root.PrimaryAnaliticsLayout = {
     bestGrid: bestGrid,
     flagState: flagState,
     soundPlan: soundPlan,

@@ -1,11 +1,11 @@
 ---
 name: project-layout
-description: Where SKKKK files live and how to add new docs, rules, skills, or app code. Use when creating files, choosing paths, or deciding app vs data vs docs.
+description: Where PrimaryAnalitics files live and how to add new docs, rules, skills, or app code. Use when creating files, choosing paths, or deciding app vs data vs docs.
 ---
 
-# Раскладка SKKKK
+# Раскладка PrimaryAnalitics
 
-Корень: `C:\1C_NEW_SKKKK`.
+Корень: `D:\Primary_Analitics`.
 
 | Что | Куда |
 |---|---|

@@ -26,7 +26,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.decision_memory import DecisionEvent, Subject, SubjectPosition
 from app.app.models.speech_act import SpeechAct
 
-logger = logging.getLogger("skkkk.subjects")
+logger = logging.getLogger("primaryanalitics.subjects")
 
 PROMPT_VERSION = "subject_match-v2"
 HIGH = 0.80  # выше — тот же предмет без вопроса модели

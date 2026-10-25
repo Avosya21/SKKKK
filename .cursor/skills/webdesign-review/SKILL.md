@@ -1,11 +1,11 @@
 ---
 name: webdesign-review
-description: Reviews or improves SKKKK web UI using practical frontend-design guidance. Use when working on layout, visual hierarchy, UX polish, dashboard composition, project pages, report readability, or embedded chat UX.
+description: Reviews or improves PrimaryAnalitics web UI using practical frontend-design guidance. Use when working on layout, visual hierarchy, UX polish, dashboard composition, project pages, report readability, or embedded chat UX.
 ---
 
 # Webdesign Review
 
-Use this as the umbrella frontend design skill for SKKKK pages.
+Use this as the umbrella frontend design skill for PrimaryAnalitics pages.
 
 ## Focus
 
@@ -21,7 +21,7 @@ Use this as the umbrella frontend design skill for SKKKK pages.
 - `accessibility` for labels, contrast, semantics
 - `agent-ui-design` for chat and AI answer presentation
 
-## SKKKK defaults
+## PrimaryAnalitics defaults
 
 - Stay inside Jinja + Bootstrap + vanilla JS unless the user asks for a framework change.
 - Long AI outputs should be rendered as readable HTML, not raw blobs.

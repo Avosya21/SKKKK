@@ -1,5 +1,5 @@
 {
-  "_comment": "Профиль локальной модели SKKKK — единственный источник настроек загрузки. Его читают services/llm_keeper.py и run_server.ps1. План: docs/plans/LLM-LANES-PLAN.md.",
+  "_comment": "Профиль локальной модели PrimaryAnalitics — единственный источник настроек загрузки. Его читают services/llm_keeper.py и run_server.ps1. План: docs/plans/LLM-LANES-PLAN.md.",
   "model_key": "swift-qwen3.8-27b-uncensored-dynamic-mtp",
   "context_length": 56000,
   "parallel": 2,

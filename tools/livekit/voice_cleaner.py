@@ -1,8 +1,8 @@
 """Рекордер голоса комнаты: пишет каждого человека в свою WAV-дорожку для двойного слуха. Не ASR, не GPU.
 
-Исторически здесь был серверный шумодав (DeepFilterNet, участник `skkkk-dfn` публиковал очищенные `clean-*`).
+Исторически здесь был серверный шумодав (DeepFilterNet, участник `primaryanalitics-dfn` публиковал очищенные `clean-*`).
 С 2026-10-05 шумодав работает в браузере говорящего (DFN3, см. DECISIONS «Живой звук комнаты»), а сюда браузер
-отдаёт отдельную сырую дорожку `skkkk-raw` — её и пишем. Имя файла и участника оставлены прежними: по ним работают
+отдаёт отдельную сырую дорожку `primaryanalitics-raw` — её и пишем. Имя файла и участника оставлены прежними: по ним работают
 защита от второй копии, `restart.ps1`, журналы и проверки запуска.
 """
 
@@ -21,13 +21,13 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path[:] = [item for item in sys.path if Path(item).resolve() != _SCRIPT_DIR]
 
 ROOT = Path(__file__).resolve().parents[2]
-CLEANER_ID = "skkkk-dfn"
+CLEANER_ID = "primaryanalitics-dfn"
 CLEANER_NAME = "запись голоса"
 SAMPLE_RATE = 48000
 FRAME_MS = 10
 POLL_SEC = 2.0
 # Сырая дорожка микрофона (до шумодава браузера), то же имя — RAW_TRACK_NAME в app/app/static/meeting_room.js
-RAW_TRACK_NAME = "skkkk-raw"
+RAW_TRACK_NAME = "primaryanalitics-raw"
 INTERNAL_URL = os.environ.get("LIVEKIT_RTC_INTERNAL", "ws://127.0.0.1:7880")
 HTTP_URL = os.environ.get("LIVEKIT_HTTP_INTERNAL", "http://127.0.0.1:7880")
 
@@ -81,7 +81,7 @@ def _recordings():
         import importlib.util
 
         path = ROOT / "app" / "app" / "services" / "meeting_recordings.py"
-        spec = importlib.util.spec_from_file_location("skkkk_meeting_recordings", path)
+        spec = importlib.util.spec_from_file_location("primary_analitics_meeting_recordings", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         _REC_MOD = mod
@@ -183,14 +183,14 @@ def _bind_recorders(room_name: str, rec, data_dir: Path):
             key,
             lambda: asyncio.create_task(_record_track(track, writer, locks[key])),
         )
-        task.skkkk_track = getattr(track, "sid", "") or ""
+        task.primary_analitics_track = getattr(track, "sid", "") or ""
         print("voice_cleaner: voice", room_name, identity, source, "raw" if is_raw_publication(pub) else "main", flush=True)
 
     def stop_record(track, pub, participant) -> None:
         key = _track_key(participant.identity, rec.source_from_publication(pub))
         task = tasks.get(key)
         sid = getattr(track, "sid", "") or ""
-        if task is None or (sid and getattr(task, "skkkk_track", "") != sid):
+        if task is None or (sid and getattr(task, "primary_analitics_track", "") != sid):
             return  # снимают не ту дорожку, что сейчас пишется (основную, пока пишем сырую)
         tasks.pop(key, None)
         task.cancel()
@@ -406,7 +406,7 @@ def _list_rooms(list_jwt: str) -> list[str]:
     names = []
     for row in payload.get("rooms") or []:
         name = row.get("name") or ""
-        if name.startswith("skkkk-"):
+        if name.startswith("primaryanalitics-"):
             names.append(name)
     return names
 

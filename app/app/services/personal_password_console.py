@@ -16,7 +16,7 @@ from app.app.logging_setup import log_event
 from app.app.services import personal_password
 from app.app.services.login_allowlist import load_allowlist, login_key
 
-logger = logging.getLogger("skkkk.auth")
+logger = logging.getLogger("primaryanalitics.auth")
 
 
 @dataclass(frozen=True)

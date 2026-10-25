@@ -9,7 +9,7 @@ from app.app.services.project_mcp_tokens import create_project_mcp_token
 def test_mcp_initialize_returns_tools_capability():
     resp = handle_jsonrpc(None, None, 1, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert resp["result"]["capabilities"]["tools"]
-    assert resp["result"]["serverInfo"]["name"] == "skkkk-project"
+    assert resp["result"]["serverInfo"]["name"] == "primaryanalitics-project"
 
 
 def test_mcp_tools_list_has_base_and_contract_tools():
@@ -38,7 +38,7 @@ def test_create_and_auth_mcp_token(db_engine, client, admin_token, manager_token
     )
     assert r.status_code == 201
     plain = r.json()["token"]
-    assert plain.startswith("skkkk_mcp_")
+    assert plain.startswith("primary_analitics_mcp_")
 
     db = SessionLocal()
     assert authenticate_project_mcp_token(db, project_id=pid, bearer=plain) is not None

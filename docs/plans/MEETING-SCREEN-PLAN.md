@@ -1,4 +1,4 @@
-# SKKKK — Запись экрана: полный план (C1–C4)
+# PrimaryAnalitics — Запись экрана: полный план (C1–C4)
 
 Дата: 2026-09-13. Приложение к [`MEETING-PLAN.md`](MEETING-PLAN.md) §7 этап C.  
 Источники: карта §5.13 / §7 `meeting_*`, `meeting_recordings.py`, `voice_cleaner.py`, `meeting_analyze.py`, `DECISIONS.md`.
@@ -15,7 +15,7 @@ C1 **не ждёт этап B**. B3 — это звук чужого видео 
 |---|---|
 | В комнате экран **видно** (плитка `meeting-tile-screen-{sid}`, `contentHint: detail`, 720p/5 fps) | Видео экрана **на диск** |
 | `voice_cleaner` пишет **звук** шаринга: `{identity}-screen.wav`, `source: "screen"` | Процесс-рекордер, mp4, `source: "screen_video"` |
-| `is_human_identity("skkkk-rec")` уже ложно (тест есть) | Сам `skkkk-rec`, pid, лог, `ensure_*` |
+| `is_human_identity("primaryanalitics-rec")` уже ложно (тест есть) | Сам `primaryanalitics-rec`, pid, лог, `ensure_*` |
 | `meeting.json` умеет дорожки с `identity / speaker / source / offset_sec` | Строка видео + `track_sid` / `fps` / имя **издателя** |
 | Purge комнаты сносит весь каталог | Явная проверка, что mp4 уходит вместе с WAV |
 | Лаб показывает `source` дорожки | Бейдж «экран» на видео, путь к mp4, кадры |
@@ -28,7 +28,7 @@ C1 **не ждёт этап B**. B3 — это звук чужого видео 
 
 Записать в `DECISIONS.md` вместе с кодом C0. Здесь — канон, чтобы шаги не спорили.
 
-1. **Рекордер — второй Python-процесс**, не LiveKit Egress и не Redis. Файл: `tools/livekit/screen_recorder.py`. Участник LiveKit: `skkkk-rec` (hidden, `CUDA_VISIBLE_DEVICES=-1`). Тот же паттерн, что `voice_cleaner`: ListRooms → join → subscribe. `voice_cleaner.py` **не трогаем** (DFN + сырые WAV; перезапуск посреди встречи и так режет архив).
+1. **Рекордер — второй Python-процесс**, не LiveKit Egress и не Redis. Файл: `tools/livekit/screen_recorder.py`. Участник LiveKit: `primaryanalitics-rec` (hidden, `CUDA_VISIBLE_DEVICES=-1`). Тот же паттерн, что `voice_cleaner`: ListRooms → join → subscribe. `voice_cleaner.py` **не трогаем** (DFN + сырые WAV; перезапуск посреди встречи и так режет архив).
 2. **Кучка одна.** Видео: `data/meetings/{room_name}/tracks/`. Учёт: тот же `manifest.json`. Часы: тот же `events.jsonl`. Связь со встречей: `meetings.room_name`.
 3. **Издатель = владелец файла, не «кто говорит в картинке».** `identity` видео = `participant.identity` того, кто опубликовал screen-track (`member:{id}` / `guest:{hex}`). Имя в `meeting.json` — `MeetingParticipant.display_name` этой identity. Звук шаринга (`source: "screen"`) по-прежнему `speaker="external_or_unknown"`: в колонках вкладки может говорить кто угодно.
 4. **Один шаринг — один файл.** Ключ манифеста для видео: `(identity, source, track_sid)`. Стоп и снова «Экран» → новый `track_sid` → новый mp4, обе строки остаются. Два человека шарят сразу → два файла, две identity.
@@ -128,7 +128,7 @@ stem = safe_track_stem(identity, "screen_video") + "-" + safe_sid(track_sid)
 | Издатель молчит, на экране чужой ролик | видео всё равно на издателе; звук ролика — `-screen.wav` / `external_or_unknown` |
 | Издатель говорит в свой мик, водя курсором | речь в его mic WAV; видео на нём же; связь в знаниях — через время (`t_rel` кадра ∩ `start_sec` реплики), не через «картинка сказала» |
 | Рекордер не успел join | нет строки `screen_video`, в лаб `NO_DATA`, имя не выдумываем |
-| identity `skkkk-*` | не пишем (`is_human_identity`) |
+| identity `primaryanalitics-*` | не пишем (`is_human_identity`) |
 
 Имя **не** берём из vision, из Sortformer, из того, кто «сейчас говорит» в `events.speakers`.
 
@@ -146,23 +146,23 @@ stem = safe_track_stem(identity, "screen_video") + "-" + safe_sid(track_sid)
 
 **Как.** Не расширять старый `upsert_track` новым смыслом ключа: аудио останется `(identity, source)`.
 
-**Тест.** stem; две сессии одного человека → две строки; тот же sid → одна строка, обновлённый path; purge удаляет mp4; `is_human_identity("skkkk-rec")` уже зелёный.
+**Тест.** stem; две сессии одного человека → две строки; тот же sid → одна строка, обновлённый path; purge удаляет mp4; `is_human_identity("primaryanalitics-rec")` уже зелёный.
 
 **Готово.** pytest зелёный; в `.env.example` группа Meeting: `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS=1`, `MEETING_SCREEN_MAX_W=1920`, `MEETING_SCREEN_HEIGHT=1080`, `MEETING_SCREEN_BITRATE=5M`.
 
-### C1. Процесс `skkkk-rec`
+### C1. Процесс `primaryanalitics-rec`
 
 #### C1.1 Скелет процесса
 
-**Где.** `tools/livekit/screen_recorder.py`. Поднять: `edge_runtime.ensure_screen_recorder()` после LiveKit, рядом с `ensure_voice_cleaner`. Pid: `data/locks/screen_recorder.pid`. Лог: `data/logs/screen_recorder.log`. JWT: `sub=skkkk-rec`, `hidden`, `canSubscribe`, **без** `canPublish`.
+**Где.** `tools/livekit/screen_recorder.py`. Поднять: `edge_runtime.ensure_screen_recorder()` после LiveKit, рядом с `ensure_voice_cleaner`. Pid: `data/locks/screen_recorder.pid`. Лог: `data/logs/screen_recorder.log`. JWT: `sub=primaryanalitics-rec`, `hidden`, `canSubscribe`, **без** `canPublish`.
 
-**Что.** ListRooms `skkkk-*` раз в 2 с → join → на `track_subscribed` KIND_VIDEO + source SCREEN → запись. Камеру и аудио пропускать. Unpublish/unsubscribe → закрыть ffmpeg, `track end`.
+**Что.** ListRooms `primaryanalitics-*` раз в 2 с → join → на `track_subscribed` KIND_VIDEO + source SCREEN → запись. Камеру и аудио пропускать. Unpublish/unsubscribe → закрыть ffmpeg, `track end`.
 
 **Как.** Скопировать у `voice_cleaner` только опрос комнат и join, не DFN и не WAV. Общий код часов/манифеста — вызовы `meeting_recordings`, не копипаста JSON.
 
-**Тест.** `test_screen_recorder.py` (importlib, как `test_voice_cleaner`): id `skkkk-rec`; join hidden subscribe-only; `canPublish` нет; start_record только SCREEN video; камера в тексте функции не пишется; `MEETING_SCREEN_RECORD=0` → return 0.
+**Тест.** `test_screen_recorder.py` (importlib, как `test_voice_cleaner`): id `primaryanalitics-rec`; join hidden subscribe-only; `canPublish` нет; start_record только SCREEN video; камера в тексте функции не пишется; `MEETING_SCREEN_RECORD=0` → return 0.
 
-**Готово.** `main` пишет `edge.screen status=started|already|off`. В комнате плитки людей без «запись экрана» в ростере (`isHidden`: `identity` начинается с `skkkk-`, не только `skkkk-dfn`). Denoise-логика `isCleaner` остаётся только про DFN.
+**Готово.** `main` пишет `edge.screen status=started|already|off`. В комнате плитки людей без «запись экрана» в ростере (`isHidden`: `identity` начинается с `primaryanalitics-`, не только `primaryanalitics-dfn`). Denoise-логика `isCleaner` остаётся только про DFN.
 
 #### C1.2 Кадры → mp4
 
@@ -180,7 +180,7 @@ stem = safe_track_stem(identity, "screen_video") + "-" + safe_sid(track_sid)
 
 **Где.** `docs/OPERATIONS.md`, тот же абзац, что про `voice_cleaner`.
 
-**Что.** Перезапуск `skkkk-rec` посреди шаринга открывает **новый** mp4 (новый процесс не знает старый stdin). Старый файл остаётся, если успели закрыть; иначе — обрезанный moov. Код менять только между встречами.
+**Что.** Перезапуск `primaryanalitics-rec` посреди шаринга открывает **новый** mp4 (новый процесс не знает старый stdin). Старый файл остаётся, если успели закрыть; иначе — обрезанный moov. Код менять только между встречами.
 
 **Тест.** Строковый: в OPERATIONS есть «screen_recorder» и запрет mid-call. В коде — `wave.open(..., "wb")` нет (это видео).
 
@@ -219,7 +219,7 @@ stem = safe_track_stem(identity, "screen_video") + "-" + safe_sid(track_sid)
 - длительность каждого файла ±2 с от `(end−start)` в логе;
 - после «Проанализировать» в `meeting.json` `speaker` = имена A и B, не `external_or_unknown`;
 - mic WAV на месте, DFN жив, стенограмма как раньше;
-- в комнате нет плитки «запись экрана» / `skkkk-rec`.
+- в комнате нет плитки «запись экрана» / `primaryanalitics-rec`.
 
 Телефон: шаринг с Android, если матрица §7.3 позволяет; iPhone — только если `canShareScreen()`. Нет шаринга → в матрице «не умеет», не дыра рекордера.
 
@@ -284,7 +284,7 @@ B3 может идти своим чередом. C1 от него не зави
 ## 7. Операции и отказ
 
 - Старт: `main all` после `:7880` поднимает `voice_cleaner`, затем `screen_recorder`. Нет `venvs/voice` → комната жива, видео нет, в логе `edge.screen=skip` (как DFN).
-- Рестарт портала **не** убивает `skkkk-rec` (сейчас так же с DFN: `already`). После смены кода C1 — снять pid и поднять заново, **между** встречами.
+- Рестарт портала **не** убивает `primaryanalitics-rec` (сейчас так же с DFN: `already`). После смены кода C1 — снять pid и поднять заново, **между** встречами.
 - Нет ffmpeg в PATH → процесс пишет ошибку и не врёт манифестом без файла.
 - Диск: 1 fps 1080p @ 5 Мбит/с ≈ 37 МБ/мин. Не автоудалять. Кнопка purge как сейчас.
 - Рекордер не публикует медиа — петли и «кто это в плитке» нет.
@@ -309,7 +309,7 @@ test_screen_recorder.py test_meeting_screen_video.py
 
 ```text
 C0 контракт + env + тесты манифеста
-→ C1.1 процесс + скрыть skkkk-rec в UI + edge_runtime
+→ C1.1 процесс + скрыть primaryanalitics-rec в UI + edge_runtime
 → C1.2 ffmpeg pump
 → C1.3 OPERATIONS
 → C1.4 meeting.json / не в ASR
@@ -330,7 +330,7 @@ C0 контракт + env + тесты манифеста
 
 ```text
 [ ] C0: screen_video в манифесте; purge сносит mp4; аудио-контракт не сломан
-[ ] C1: skkkk-rec пишет mp4 в tracks/; identity = издатель; speaker = его имя;
+[ ] C1: primaryanalitics-rec пишет mp4 в tracks/; identity = издатель; speaker = его имя;
         один sid — один файл; две сессии — два файла; камера не пишется;
         ASR jobs только на mic; R14 зелёный
 [ ] C2: кадры по смене сцены, потолок, vision за флагом, frame_id в чанке

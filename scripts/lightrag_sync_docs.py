@@ -1,4 +1,4 @@
-"""Скопировать документацию SKKKK в LightRAG inputs для /documents/scan.
+"""Скопировать документацию PrimaryAnalitics в LightRAG inputs для /documents/scan.
 
   venv\\Scripts\\python.exe scripts\\lightrag_sync_docs.py
 """
@@ -22,7 +22,7 @@ def _workspace_name() -> str:
                 val = line.split("=", 1)[1].strip().strip("'\"")
                 if val:
                     return val
-    return "SKKKK_PROJECT_MAP"
+    return "PRIMARY_ANALITICS_PROJECT_MAP"
 
 
 INPUTS = LIGHTRAG_ROOT / "data" / "inputs" / _workspace_name()
@@ -56,7 +56,7 @@ def _copy_file(src: Path, dst: Path) -> None:
 
 
 def _write_module_index(base: Path, label: str, out_name: str) -> None:
-    lines = [f"# SKKKK {label} — автогенерация для LightRAG", ""]
+    lines = [f"# PrimaryAnalitics {label} — автогенерация для LightRAG", ""]
     for path in sorted(base.rglob("*.py")):
         if "__pycache__" in path.parts or path.name.startswith("test_"):
             continue

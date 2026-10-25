@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 
 from common import *
 
-DATA = os.environ.get("SMOKE_DATA_DIR", r"C:\1C_NEW_SKKKK\data")
+DATA = os.environ.get("SMOKE_DATA_DIR", r"D:\Primary_Analitics\data")
 c, _ = api_login("admin")
 mid, tok = new_live_meeting(c)
 room = c.get(f"/projects/{PID}/meetings/{mid}").json()["room_name"]

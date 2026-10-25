@@ -1,4 +1,4 @@
-# Карта проекта SKKKK
+# Карта проекта PrimaryAnalitics
 
 > **Назначение:** единый ориентир «где что лежит, как связано, за что отвечает».  
 > **Обновлять вместе с кодом** при добавлении модулей, пайплайнов, API, скриптов.  
@@ -30,7 +30,7 @@ flowchart TB
     subgraph Edge["Edge (main all / api)"]
         Caddy[Caddy :777]
         LK[LiveKit :7880]
-        VC[voice_cleaner skkkk-dfn запись голоса]
+        VC[voice_cleaner primaryanalitics-dfn запись голоса]
     end
 
     subgraph Worker["GPU Worker (jobs queue)"]
@@ -44,7 +44,7 @@ flowchart TB
         LP[lab_pipeline.py]
         PKT[Parakeet ONNX]
         SF[Диаризация: Nemotron 3 / Sortformer]
-        GA[skkkk-gigaam :18102]
+        GA[primaryanalitics-gigaam :18102]
         PR[lab_proof Cursor]
         BT[build_transcript_view]
     end
@@ -95,7 +95,7 @@ flowchart TB
 |-----|------------|
 | ОС | Windows 11 (`10.0.26200`), одна GPU **RTX 3090 24 ГБ**, драйвер **577.00** |
 | CUDA (хост, lab ONNX) | Toolkit **12.8** (nvcc 12.8.61) + cuDNN **9.16.0.29** |
-| Корень | только `C:\1C_NEW_SKKKK` |
+| Корень | только `D:\Primary_Analitics` |
 | Python (портал `venv/`) | **3.10.9** |
 | Python (лаборатория `venvs\lab`) | **3.10.9** (отдельный venv: `onnxruntime-gpu` vs `onnxruntime` в app) |
 | Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
@@ -103,7 +103,7 @@ flowchart TB
 | Порт UI | Снаружи **Caddy `:777` HTTPS**. Портал — `WEB_HOST=127.0.0.1` `WEB_PORT=1777`. Порт **8000** занят MCP 1С |
 | БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `DATA_DIR/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id). Карточки: `user_profiles` (1:1 с `users`), `companies` (из `Companies.txt`); реестр людей проекта (платформа памяти решений, флаг `MEMORY_PLATFORM`): `people` (человек, в т. ч. без учётки), `person_aliases` (написания), `project_parties` (сторона компании в проекте), `unknown_actors` (очередь «Кто это?»), `people_log` (журнал правок); `speaker_profiles.person_id`, `meeting_participants.person_id`, `artifacts.recorded_at_precision`; фото — файлы `data/people/<user_id>/avatar-<ключ>-512|96.webp` |
 | Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
-| Auth | JWT + cookie `skkkk_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `pv` — версия пароля, `pp` — пароль пройден, `pf` — карточка заполнена; сессия проверяет ещё и саму карточку (сброс админом закрывает сессии) |
+| Auth | JWT + cookie `primary_analitics_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `pv` — версия пароля, `pp` — пароль пройден, `pf` — карточка заполнена; сессия проверяет ещё и саму карточку (сброс админом закрывает сессии) |
 | Очередь | таблица `jobs`, **один** GPU-воркер |
 | LLM | `LLM_PROVIDER=cursor` **или** `lmstudio` (переключатель при старте) |
 
@@ -114,14 +114,14 @@ flowchart TB
 | Слова + таймлайн (канон) | Parakeet-TDT | **0.6B v3**, HF `istupakov/parakeet-tdt-0.6b-v3-onnx` rev `8f23f0c` | `venvs\lab`, onnx-asr **0.12.0**, ONNX Runtime GPU **1.23.2** |
 | Кто говорит | Nemotron 3 Diarization | **до 8 спикеров**, отдельный процесс в `venvs\nemo-diar` (NeMo + torch) | `DIAR_MODEL`: `nemotron3` (по умолчанию); `sortformer4` — откат на Sortformer 4spk v2.1 ONNX `Scrybl/diar_streaming_sortformer_4spk-v2.1` rev `3be92087` в `venvs\lab` |
 | VAD | Silero | `istupakov/silero-vad-onnx` | onnx-asr load_vad |
-| Второй слух / вычитка | GigaAM-v3 e2e RNNT | HF `ai-sage/GigaAM-v3` rev **`e2e_rnnt`** | Docker `skkkk-gigaam` `:18102` |
+| Второй слух / вычитка | GigaAM-v3 e2e RNNT | HF `ai-sage/GigaAM-v3` rev **`e2e_rnnt`** | Docker `primaryanalitics-gigaam` `:18102` |
 | Голос (enroll/match) | WeSpeaker | `pipeline._embedding` внутри GigaAMGUI | lab_voice / docker exec |
 | Эмбеддинги текста | bge-m3 | Ollama, **CPU** (`OLLAMA_NUM_GPU=0`) | `:11434` |
 | LLM текст | Cursor SDK **1.0.28** или LM Studio `qwen/qwen3.8-27b` | `CURSOR_MODEL` (напр. composer-2.5) / `LMSTUDIO_MODEL` `:1234` | sense, proof, сущности, ТЗ, чат, vision |
 
 Whisper `large-v3` и T-one в compose с `profiles: [legacy]` — на диске для отката, **воркер не вызывает**.
 
-GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, CUDA **12.4**, torch **2.6+cu124**, `ASR_MODEL=v3_e2e_rnnt`, `MODEL_REVISION=e2e_rnnt`. Lab ONNX: onnxruntime-gpu **1.23.2**, onnx-asr **0.12.0**, cuDNN **9.16.0.29**. SHA256 весов и эталонный прогон — `asr/lab/FREEZE.md` / `asr/lab/freeze.json`.
+GigaAM-контейнер (`primaryanalitics-gigaam`): образ из `vendor/GigaAMGUI`, CUDA **12.4**, torch **2.6+cu124**, `ASR_MODEL=v3_e2e_rnnt`, `MODEL_REVISION=e2e_rnnt`. Lab ONNX: onnxruntime-gpu **1.23.2**, onnx-asr **0.12.0**, cuDNN **9.16.0.29**. SHA256 весов и эталонный прогон — `asr/lab/FREEZE.md` / `asr/lab/freeze.json`.
 
 #### Кодеки и звук (FFmpeg)
 
@@ -166,7 +166,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 
 | Путь | Назначение |
 |------|------------|
-| `C:\1C_NEW_SKKKK\` | Единственный корень проекта |
+| `D:\Primary_Analitics\` | Единственный корень проекта |
 | `app/app/` | FastAPI: роутеры, сервисы, модели, воркер, шаблоны |
 | `asr/` | Lab ASR (Parakeet + диаризация Nemotron/Sortformer + GigaAM-сверка), view, speaker match |
 | `asr/lab/` | Канонический конвейер расшифровки (изоляция прогонов) |
@@ -216,12 +216,12 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 |---------|---------|-------------|
 | **API + UI** | `python -m app.app.main` / `main all` | Preflight → `edge_runtime` (Caddy + LiveKit + `voice_cleaner`) → GPU-воркер → портал `WEB_PORT` (**1777**). Повторный `main` при живом `/health` — no-op |
 | **Только портал** | `python -m app.app.main api` | То же без воркера. Воркер (`main worker`) edge **не** поднимает |
-| **Caddy** | поднимает `main` (`ensure_tls_cert` → `ensure_caddy`); опц. служба `SKKKK-CADDY` | `:777` HTTPS (готовый файл, Chrome к IP часто без SNI) + `:8088` HTTP-01 + `:8443` выпуск/продление Let's Encrypt **на IP** (`shortlived`). При старте `main` проверяет файл сертификата и перевыпускает, если его нет или он недействителен. Конфиг — `tools/caddy/Caddyfile` |
+| **Caddy** | поднимает `main` (`ensure_tls_cert` → `ensure_caddy`); опц. служба `PrimaryAnalitics-CADDY` | `:777` HTTPS (готовый файл, Chrome к IP часто без SNI) + `:8088` HTTP-01 + `:8443` выпуск/продление Let's Encrypt **на IP** (`shortlived`). При старте `main` проверяет файл сертификата и перевыпускает, если его нет или он недействителен. Конфиг — `tools/caddy/Caddyfile` |
 | **LiveKit** | поднимает `main` (`ensure_livekit`) | Native `tools/livekit/livekit-server.exe` `:7880`. Не Docker (STUN ломается) |
-| **Voice recorder** | поднимает `main` после `:7880` | `venvs/voice` + `tools/livekit/voice_cleaner.py` (имя историческое), участник `skkkk-dfn`, hidden, ничего не публикует. Пишет голос каждого человека в `data/meetings/{room}/` (`MEETING_RECORD=1`): сырую дорожку `skkkk-raw` (браузер с DFN3), без неё — основную (`voice_pub_to_record`); пришла сырая после основной — та же WAV продолжается с сырой, пропала сырая — обратно на основную. Сам поднимает себе приоритет (above normal); раз в 10 с сверяет с сервером, что он в комнате (`MemberWatch`). Шумодава на сервере нет (он в браузере, см. «Гостевая страница»). Ставит `scripts/install_meeting_voice.py` (только livekit SDK). Нет venv — созвон без записи |
-| **Screen recorder** | поднимает `main` после `voice_cleaner` | `venvs/voice` + `tools/livekit/screen_recorder.py`, участник `skkkk-rec` (hidden, без publish; `MemberWatch` — перезаход, если сервер его потерял). Пишет `tracks/{identity}-screen_video-{sid}.mp4` в ту же кучу, 1 fps, холст 1920×1080, 5 Мбит/с. Камеру не пишет. `MEETING_SCREEN_RECORD=0` — без файлов |
+| **Voice recorder** | поднимает `main` после `:7880` | `venvs/voice` + `tools/livekit/voice_cleaner.py` (имя историческое), участник `primaryanalitics-dfn`, hidden, ничего не публикует. Пишет голос каждого человека в `data/meetings/{room}/` (`MEETING_RECORD=1`): сырую дорожку `primaryanalitics-raw` (браузер с DFN3), без неё — основную (`voice_pub_to_record`); пришла сырая после основной — та же WAV продолжается с сырой, пропала сырая — обратно на основную. Сам поднимает себе приоритет (above normal); раз в 10 с сверяет с сервером, что он в комнате (`MemberWatch`). Шумодава на сервере нет (он в браузере, см. «Гостевая страница»). Ставит `scripts/install_meeting_voice.py` (только livekit SDK). Нет venv — созвон без записи |
+| **Screen recorder** | поднимает `main` после `voice_cleaner` | `venvs/voice` + `tools/livekit/screen_recorder.py`, участник `primaryanalitics-rec` (hidden, без publish; `MemberWatch` — перезаход, если сервер его потерял). Пишет `tracks/{identity}-screen_video-{sid}.mp4` в ту же кучу, 1 fps, холст 1920×1080, 5 Мбит/с. Камеру не пишет. `MEETING_SCREEN_RECORD=0` — без файлов |
 | **GPU Worker** | `python -m app.app.main worker` | Очередь `jobs` — lab ASR, knowledge, один job за раз |
-| **GigaAM** | Docker `skkkk-gigaam` | `:18102` — второй слух + **embed_voice** |
+| **GigaAM** | Docker `primaryanalitics-gigaam` | `:18102` — второй слух + **embed_voice** |
 | **Whisper / T-one** | Docker (не стартуют) | `:18101` / `:18103` — откат, воркер не вызывает |
 | **Ollama** | вне проекта | `:11434` — `bge-m3`, CPU |
 | **LightRAG** | `docker compose up` в `tools/lightrag/` | `:9621` — граф карты проекта (agents) |
@@ -237,14 +237,14 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Задача | Команда | Что делает |
 |--------|---------|------------|
 | Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1`; проверка окружения — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`) |
-| Локальная LLM | `run_server.ps1` (корень) | выключает автозагрузку LM Studio, поднимает сервер `:1234` и грузит модель по профилю `tools/lmstudio/qwen-profile.json` через `scripts/llm_model.py load` (`-SkipLoad` — только сервер). Сервер SKKKK не поднимает |
+| Локальная LLM | `run_server.ps1` (корень) | выключает автозагрузку LM Studio, поднимает сервер `:1234` и грузит модель по профилю `tools/lmstudio/qwen-profile.json` через `scripts/llm_model.py load` (`-SkipLoad` — только сервер). Сервер PrimaryAnalitics не поднимает |
 | **Перезапуск (основной способ)** | `scripts/restart.ps1` [`-Llm saved\|gemma\|cursor`] [`-Force`] [`-SkipChecks`] | 1) **отказ, если идёт встреча** (`scripts/live_meetings.py`, код 3) — иначе оборвётся запись голоса; `-Force` перезапускает всё равно; 2) встреч нет — гасит все копии `voice_cleaner` / `screen_recorder` и их pid-файлы; 3) проверки: Ollama `:11434`, при `lmstudio` — LM Studio `:1234` и загружена ли `LMSTUDIO_MODEL`; 4) `start.ps1 -SkipChecks` в фоне, лог `data/logs/restart.log` (+ `.err`); 5) ждёт `/health` **и новый PID воркера** (старый сервер может ещё отвечать); 6) в фоне обновляет индекс проекта |
 | Запуск | `scripts/start.ps1` [`-Llm cursor\|gemma`] [`-NoStop`]; обёртки `start-saved.ps1` (LLM из `.env`), `start-gemma.ps1`, `start-cursor.ps1`, `run_all.ps1` | сначала останавливает старое (PID воркера + процесс на `WEB_PORT`, снимает `gpu_worker.lock/.pid`), затем `main all` |
 | Остановка | `scripts/stop.ps1` | гасит API и GPU-воркер |
 | Проверка без запуска | `scripts/check_systems.ps1` | только проверки всех систем |
-| Службы Windows | `scripts/install_services.ps1` (от администратора, NSSM) | службы `SKKKK-API` (`main api --use-saved-llm --llm-provider cursor`) и `SKKKK-GPU` (`main worker`); Caddy отдельной службой — `scripts/install_caddy.ps1` (`SKKKK-CADDY`) |
+| Службы Windows | `scripts/install_services.ps1` (от администратора, NSSM) | службы `PrimaryAnalitics-API` (`main api --use-saved-llm --llm-provider cursor`) и `PrimaryAnalitics-GPU` (`main worker`); Caddy отдельной службой — `scripts/install_caddy.ps1` (`PrimaryAnalitics-CADDY`) |
 | Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO`: `app-*.db` и `credentials-*.db` (личные пароли), фото — `people-*.zip`; проверка — `scripts/verify_backup.py` |
-| Автоподъём | `scripts/monitor_skkkk_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
+| Автоподъём | `scripts/monitor_primary_analitics_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
 
 Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`), модель в LM Studio — по требованию и строго по профилю, выгрузка после простоя (`llm_keeper.py`, §3.2). Сервер LM Studio — вручную или `run_server.ps1`.
 
@@ -252,11 +252,11 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 
 | Порт | Что | Куда |
 |------|-----|------|
-| `:777` (`SKKKK_HTTPS_PORT`) | вход для пользователей, TLS готовым файлом (`SKKKK_TLS_CERT` / `SKKKK_TLS_KEY`) | `/livekit/*` → LiveKit `127.0.0.1:7880`; всё остальное → портал `127.0.0.1:1777` (ожидание ответа до 15 мин) |
-| `:8088` (`SKKKK_ACME_HTTP_PORT`) | HTTP-01 проверка Let's Encrypt | `/.well-known/acme-challenge/*` отвечает Caddy; остальное — редирект на `https://SKKKK_PUBLIC_HOST:777` |
-| `:8443` (`SKKKK_ACME_TLS_PORT`) | выпуск и продление сертификата на IP (профиль `shortlived`) | отвечает `ok` |
+| `:777` (`PRIMARY_ANALITICS_HTTPS_PORT`) | вход для пользователей, TLS готовым файлом (`PRIMARY_ANALITICS_TLS_CERT` / `PRIMARY_ANALITICS_TLS_KEY`) | `/livekit/*` → LiveKit `127.0.0.1:7880`; всё остальное → портал `127.0.0.1:1777` (ожидание ответа до 15 мин) |
+| `:8088` (`PRIMARY_ANALITICS_ACME_HTTP_PORT`) | HTTP-01 проверка Let's Encrypt | `/.well-known/acme-challenge/*` отвечает Caddy; остальное — редирект на `https://PRIMARY_ANALITICS_PUBLIC_HOST:777` |
+| `:8443` (`PRIMARY_ANALITICS_ACME_TLS_PORT`) | выпуск и продление сертификата на IP (профиль `shortlived`) | отвечает `ok` |
 
-Сертификат: Caddy хранит его в `data/caddy/certificates/<CA>/<host>/<host>.crt|.key` (`SKKKK_CADDY_STORAGE`). При старте `tls_cert.py` проверяет файл для `:777`: есть ли, не staging ли, не истекает ли раньше `SKKKK_TLS_RENEW_HOURS`; иначе перевыпускает через `:8443` и перезагружает Caddy. Если явный `SKKKK_TLS_CERT` отсутствует или staging, а CA боевой — берётся файл из хранилища Caddy. Логи: `data/logs/caddy.log` (запросы `:777`), `data/logs/caddy-proc.log` (сам Caddy). Почта для ACME — `SKKKK_ACME_EMAIL`, CA — `SKKKK_ACME_CA`.
+Сертификат: Caddy хранит его в `data/caddy/certificates/<CA>/<host>/<host>.crt|.key` (`PRIMARY_ANALITICS_CADDY_STORAGE`). При старте `tls_cert.py` проверяет файл для `:777`: есть ли, не staging ли, не истекает ли раньше `PRIMARY_ANALITICS_TLS_RENEW_HOURS`; иначе перевыпускает через `:8443` и перезагружает Caddy. Если явный `PRIMARY_ANALITICS_TLS_CERT` отсутствует или staging, а CA боевой — берётся файл из хранилища Caddy. Логи: `data/logs/caddy.log` (запросы `:777`), `data/logs/caddy-proc.log` (сам Caddy). Почта для ACME — `PRIMARY_ANALITICS_ACME_EMAIL`, CA — `PRIMARY_ANALITICS_ACME_CA`.
 
 ### 3.1. Изоляция арtefactов (не смешивать файлы)
 
@@ -265,9 +265,9 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | **Канон арtefactа** | `data/projects/{id}/artifacts/{art_id}/` | audio, asr, reports — только этот job |
 | **Parsed / structured** | `data/projects/{id}/parsed/`, `structured/` | имена с `{artifact_id}_*` |
 | **Docker bridge** | `asr/work/` | общий mount GigaAM; прод-изоляция — `lab/runs/{run_id}/`, не чужой файл |
-| **Dev fallback** | `asr/work`, `asr/out` | только если `SKKKK_ASR_*` не заданы (локальный прогон) |
+| **Dev fallback** | `asr/work`, `asr/out` | только если `PRIMARY_ANALITICS_ASR_*` не заданы (локальный прогон) |
 | **GigaAM embed job** | `data/gigaam/embed_job.json` | общий файл; один GPU-воркер — OK; параллель без staging — нет |
-| **Tone sidecar txt** | `asr/out/input_raw_tone.txt` | dev-арtefact; prod пишет в `SKKKK_ASR_OUT/docker_tone.*` |
+| **Tone sidecar txt** | `asr/out/input_raw_tone.txt` | dev-арtefact; prod пишет в `PRIMARY_ANALITICS_ASR_OUT/docker_tone.*` |
 
 Инварианты: lab-прогон в `lab/runs/{run_id}/`; GigaAM embed — stage + hash-check; prod-код **не** читает `asr/out` как fallback. Whisper/T-one воркер не вызывает. `tone_for_align` — lex/duration guard; `finalize_audio_outputs` — всегда перезаписывает parsed raw-копии; prod-код **не** читает `asr/out` как fallback для арtefact-отчётов.
 
@@ -280,12 +280,12 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 |-----|-----|
 | Профиль | `tools/lmstudio/qwen-profile.json` — единственный источник настроек: ключ модели (= `LMSTUDIO_MODEL`), окно 56000, 2 потока, flash-attn, KV q8_0, MTP, выборка |
 | Загрузка | `llm_keeper.ensure_loaded`: под замком `data/locks/llm_model.lock` пишет профиль в конфиг модели LM Studio (`user-concrete-model-default-config`), `lms load --context-length --parallel --ttl`, сверяет `lms ps --json`; не по профилю — выгрузка и ошибка. Загружено ли — список `GET /api/v0/models` (`state`; при выключенной автозагрузке — только загруженные), не `/v1/models` |
-| Выгрузка | воркер при пустой очереди: простой ≥ `LMSTUDIO_IDLE_UNLOAD_SEC` (300 с) и обе полосы свободны → `lms unload` (`llm_keeper.maybe_unload_idle`); `LMSTUDIO_LOAD_TTL_SEC` — страховка LM Studio, если процессы SKKKK упали |
+| Выгрузка | воркер при пустой очереди: простой ≥ `LMSTUDIO_IDLE_UNLOAD_SEC` (300 с) и обе полосы свободны → `lms unload` (`llm_keeper.maybe_unload_idle`); `LMSTUDIO_LOAD_TTL_SEC` — страховка LM Studio, если процессы PrimaryAnalitics упали |
 | Фоновая полоса | только воркер и его процессы ASR (`asr/lab_proof.py`, `lab_sense.py`): расшифровки, документы, автопроверки, выжимки, кадры, кнопки-задачи `project_task`. Замок `data/locks/llm_lane_background.lock` |
 | Полоса чата | только процесс API: ответы чата и черновики MCP, строго по очереди прихода (`llm_lanes.chat_queue`, талоны), по одному; замок `llm_lane_chat.lock`. Позиция — `GET /projects/{id}/chat/status` |
 | Бюджет окна | окно общее (`kv_unified`): чату `LMSTUDIO_CHAT_TOKEN_BUDGET` (22000), фону остаток; фоновый запрос сверх доли (финальная сборка ТЗ) берёт и полосу чата — ждёт текущий ответ, следующий ответ ждёт его (`llm.lane.exclusive`) |
 | ASR | на время GPU-шагов ASR (`lab_onnx`, `lab_giga`, `lab_voice`) модель выгружена: `llm_keeper.asr_gpu_hold` в `pipeline_lab._run_cmd` ждёт текущие ответы (обе полосы), выгружает модель, пишет метку `data/locks/asr_gpu.hold` и не даёт загрузить модель до конца шага; чат в это время видит «Идёт распознавание речи…». Между шагами (вычитка, ответы) модель загружается снова. Замер 2026-10-05: модель 22,4 ГБ + ASR до 6,5 ГБ на карте 24 ГБ не помещаются (вынос в общую память, GigaAM стоял 12 мин). `LMSTUDIO_KEEP_DURING_ASR=true` — держать рядом (только если карта вмещает). GigaAM останавливается сразу после дорожек, до кадров экрана |
-| Страж | фоновый вызов модели из процесса API (`SKKKK_PROCESS_ROLE=api`) — предупреждение `llm.lane.violation`, в тестах ошибка (`SKKKK_STRICT_LLM_LANE`) |
+| Страж | фоновый вызов модели из процесса API (`PRIMARY_ANALITICS_PROCESS_ROLE=api`) — предупреждение `llm.lane.violation`, в тестах ошибка (`PRIMARY_ANALITICS_STRICT_LLM_LANE`) |
 | Вручную | `scripts/llm_model.py` (`status`, `load`, `unload`, `jit-off`); замер — `scripts/bench_llm_lanes.py` |
 
 ---
@@ -340,7 +340,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 ## 5. UI: страницы, кнопки, кто выполняет
 
 > **Правило:** кнопки, которым нужна модель (`POST /projects/…/rebuild-tz`, `…/reextract-entities`, `…/card/rebuild`, `POST /api/artifacts/{id}/rebuild-summary`), с 2026-10-05 **ставят задачу очереди** `project_task` и сразу отвечают `{queued, job_id, ahead}`; выполняет воркер по очереди (§3.2). Остальные `POST /api/artifacts/…` — **синхронно через FastAPI** (`:777`).  
-> **Блокировка повторного нажатия:** `SKKKK.guardButton` / `SKKKK.guardSubmit` (портал) и `guardActionButton` (стенограмма) — спиннер, фиксированная ширина, как у «Скачать».  
+> **Блокировка повторного нажатия:** `PrimaryAnalitics.guardButton` / `PrimaryAnalitics.guardSubmit` (портал) и `guardActionButton` (стенограмма) — спиннер, фиксированная ширина, как у «Скачать».  
 > **Долгие операции:** таблица `project_tasks`, `GET …/tasks/active`. Кнопка «Пересобрать» на `/projects/{id}` и `/projects/{id}/tz` опрашивает задачу каждые **3 с** (в том числе автосбор после документа) и блокируется так же, как при клике: `disabled` + spinner + `aria-busy`. Повторный POST → **409**.  
 > Загрузка файлов → **job в GPU-воркер**. Авто-опрос статусов на странице проекта — каждые **3 с**.
 
@@ -372,7 +372,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Логотип **Appa** · Primary Analytics (с 2026-10-16) | `/` | `base.html` `.navbar-brand-logo`: знак-слово `static/brand/appa-wordmark.svg` + подпись «Primary Analytics» (на телефоне скрыта), стили — `design.css`. Иконка вкладки — `static/brand/favicon.ico` / `favicon.svg` / `apple-touch-icon.png` в `<head>` `base.html` и `meeting_public.html`; полный комплект логотипа (варианты, иконки, памятка) хранится вне репозитория | Список проектов |
 | **Выйти** (иконка у ника) | `/auth/logout` | `base.html` `#nav-logout` | `POST /auth/logout`, сброс cookie и localStorage |
 | **к проектам** | `/` | `project.html` nav | То же |
-| `/login` | `/login` | `login.html` | Вход только для логинов из `Login_up.txt` (регистр не важен); JWT + cookie `skkkk_session` |
+| `/login` | `/login` | `login.html` | Вход только для логинов из `Login_up.txt` (регистр не важен); JWT + cookie `primary_analitics_session` |
 | Гостевая встреча | `/m/{token}` | `meeting_public.html` | Без JWT. Нет навигации по проектам. Сырой токен не хранится — только sha256 |
 | `routers/project_mcp.py` (посылки файлов) | `/mcp/projects/{id}/files/…`, `/projects/{id}/exchange-files` | посылки файлов от агента (карты конфигурации, дипмапы; сервис `services/exchange_files.py`, политика — `docs/agent-exchange/POLICY.md` §10). Каталог для любого ключа проекта: `GET /mcp/projects/{project_id}/files/catalog` (принятые посылки, файлы с sha256, README, текущие версии; то же — инструмент `files_catalog`, а при подключении строка «ФАЙЛЫ ПРОЕКТА» в `instructions` и поле `files` в `project_overview`). По Bearer-ключу MCP с правом `files_access`: `POST /mcp/projects/{project_id}/files/bundles` (открыть по манифесту путь/размер/sha256; повтор того же манифеста — докачка), `GET /mcp/projects/{project_id}/files/bundles` (список), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}` (`?files=missing` — что ещё не принято), `PUT /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (`?offset=`, тело до 64 МБ, `X-Chunk-Sha256`), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (скачать, Range, `X-Sha256`). Владелец/админ проекта: `GET /projects/{project_id}/exchange-files`, `DELETE /projects/{project_id}/exchange-files/{bundle_id}` (удалить с диска). Только портальный admin: `GET /projects/{project_id}/extra-files` — все посылки с файлами и отправителем (`source_label`: агент по имени ключа или пользователь) для карточки «Дополнительные файлы»; `GET /projects/{project_id}/extra-files/{bundle_id}/data/{path:path}` — скачать файл посылки (Range, `X-Sha256`; только admin). В те же посылки ложатся `.cf` и `.dt` из формы материалов (виды `config_cf`, `infobase_dt`, отправитель `user:<id>`; см. §5 «Загрузить») |
 | HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
@@ -416,7 +416,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 #### Блок «Материалы проекта» (`workspace-card`)
 
-Сворачиваемый, **свёрнут по умолчанию** (с 2026-10-15): заголовок — кнопка `.materials-toggle-btn` с подсказкой `#artifacts-toggle-hint` («(развернуть)» / «(свернуть)»), список — внутри `#artifacts-panel` (`collapse`). В шапке всегда видны сводка `#project-kpis` (Готово / Док. / Созвоны) и строка `#artifacts-status`. После успешной загрузки файлов блок раскрывается сам; строка полоски «Что нового» про материалы тоже его раскрывает (`px_digest.js`, `panel: 'artifacts-panel'`). Высота списка для резерва (`skkkk_artifacts_h_{id}`) запоминается только у раскрытого блока.
+Сворачиваемый, **свёрнут по умолчанию** (с 2026-10-15): заголовок — кнопка `.materials-toggle-btn` с подсказкой `#artifacts-toggle-hint` («(развернуть)» / «(свернуть)»), список — внутри `#artifacts-panel` (`collapse`). В шапке всегда видны сводка `#project-kpis` (Готово / Док. / Созвоны) и строка `#artifacts-status`. После успешной загрузки файлов блок раскрывается сам; строка полоски «Что нового» про материалы тоже его раскрывает (`px_digest.js`, `panel: 'artifacts-panel'`). Высота списка для резерва (`primary_analitics_artifacts_h_{id}`) запоминается только у раскрытого блока.
 
 Внутри, под ходом расшифровки `#pipeline-live`, для admin и manager — строка «Дальнейшая обработка» (`partials/background_progress.html`, `static/background.js`): очередь обработки проекта после расшифровки, раскрывается по нажатию; значок `#bg-badge` — в шапке блока (подробно — `GET /projects/{id}/background` в §5). До 2026-10-15 это была отдельная карточка «Фоновая работа» внизу страницы.
 
@@ -518,12 +518,12 @@ Enter в textarea — тоже отправка, Shift+Enter — новая ст
 | **Проанализировать** | `POST /projects/{id}/meetings/{mid}/analyze` | admin, manager. Один артефакт + job. Повтор `done`/`error` — **Повторить**, тот же артефакт. Воркер для встречи всегда гонит `process_meeting_artifact`, не `asr.resume` со старой стенограммы. queued/running — 409 |
 | **лаб встречи** | `GET /artifacts/{id}/report-meeting-lab` | только admin. В колонке анализа, если уже есть `analyze_jobs[0].artifact_id`; и в таблице файлов у артефакта встречи |
 | **Удалить созвон** | `DELETE /projects/{id}/meetings/{mid}` | admin, manager. Иконка корзины в строке (как у файлов). Стирает `meetings` / `meeting_participants`, `data/meetings/{room}/`, артефакт `встреча-{id}.wav` + дочерние lab-папки и jobs очереди |
-| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `SKKKK_MEETING_VOICE` из `pages.meeting_voice_flags`. Шумодав — **в браузере говорящего** (`MEETING_VOICE_DFN3=1`): DFN3 (`DeepFilterNoiseFilterProcessor`) — процессор livekit-client на моём микрофоне (`_startDfn3`/`_applyVoice`), захват без шумоподавления браузера; `#meeting-denoise` включает/выключает фильтр (`setEnabled`), серверу ничего не шлёт; по умолчанию шумодав выключен (`_denoiseOn: false`), DFN3 грузится при первом включении. Рядом — сырая дорожка `skkkk-raw` (клон исходника `_mediaStreamTrack`, `_syncRawTrack`: смена устройства, мьют, раз в 2 с) только для рекордера: слушатели от неё отписываются (`isRawPub`). Нет DFN3 (телефон, нет WASM, не загрузился) — шумоподавление браузера, кнопка перезахватывает микрофон, сырой дорожки нет. Что играть решает один `_routeAudio` (`voicePlan`): всё звуковое от людей, кроме `skkkk-raw`; «осиротевшие» `<audio>` снимаются; сверка по событиям LiveKit и раз в 2 с (`_startAudioRoute`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). `#meeting-sound` — отписка чужого аудио (`setSubscribed(false)`), не `muted`. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
+| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `PRIMARY_ANALITICS_MEETING_VOICE` из `pages.meeting_voice_flags`. Шумодав — **в браузере говорящего** (`MEETING_VOICE_DFN3=1`): DFN3 (`DeepFilterNoiseFilterProcessor`) — процессор livekit-client на моём микрофоне (`_startDfn3`/`_applyVoice`), захват без шумоподавления браузера; `#meeting-denoise` включает/выключает фильтр (`setEnabled`), серверу ничего не шлёт; по умолчанию шумодав выключен (`_denoiseOn: false`), DFN3 грузится при первом включении. Рядом — сырая дорожка `primaryanalitics-raw` (клон исходника `_mediaStreamTrack`, `_syncRawTrack`: смена устройства, мьют, раз в 2 с) только для рекордера: слушатели от неё отписываются (`isRawPub`). Нет DFN3 (телефон, нет WASM, не загрузился) — шумоподавление браузера, кнопка перезахватывает микрофон, сырой дорожки нет. Что играть решает один `_routeAudio` (`voicePlan`): всё звуковое от людей, кроме `primaryanalitics-raw`; «осиротевшие» `<audio>` снимаются; сверка по событиям LiveKit и раз в 2 с (`_startAudioRoute`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). `#meeting-sound` — отписка чужого аудио (`setSubscribed(false)`), не `muted`. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
 | Статус для гостя | `GET /api/meetings/public/{token}` | `project_id: null` |
-| **Войти во встречу** | `POST /api/meetings/public/{token}/join` `{display_name, guest_id, company_name?}` | `guest_id` из `localStorage` `skkkk-guest-{token}`; identity = `guest:` + sha256(hash токена + guest_id)[:32]; перезаход — та же identity и одна строка `meeting_participants`. Без `guest_id` — как раньше (`token_hex`). Невалидный id → 400. До start → 409; после → LiveKit JWT (`canPublish`, без `canPublishSources`). Обязательный выбор **Ваша компания** (`#guest-company-select` — компании сторон проекта `guest_companies`, пункт «Другая компания…» открывает поле `#guest-company`; у проекта без сторон — только поле) пишется в `meeting_participants.company_name`; после встречи (при включённой платформе) незнакомый гость — новый человек проекта с согласием на голос «согласие при входе во встречу», компания и сторона — от указанной стороны проекта (Р7, `people._guest_person`); «Кто это?» — только если одиночное имя подходит нескольким людям. **ЛГ5:** сотрудник, зашедший гостем («Имя Фамилия» или «Фамилия Имя Отчество»), — его человек по карточке (`people._staff_by_name`); гость «Гость …» — «Кто это?»; гость без компании — единственный заказчик проекта с пометкой `people.company_unconfirmed` (на подтверждение) |
-| **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. `#meeting-end` → `POST .../end` для всех. «Скопировать ссылку»: сырой токен не хранится (вариант A) — тост «ссылка во вкладке, где встречу создали, или через «Новая ссылка»»; `sessionStorage` `skkkk-meeting-invite-{id}` если ещё открыта вкладка создания |
-| Сигналинг LiveKit | `wss://<хост>:777/livekit` → Caddy → `:7880` | Поднимает `main` (`edge_runtime`). Native exe, не Docker. ICE = `node_ip` `SKKKK_PUBLIC_HOST` + LAN + 127.0.0.1, без STUN (иначе рекламируется чужой исходящий IP). TURN = тот же хост. Медиа: TCP 7881, UDP mux 50000, TURN 3478. Смена `livekit.yaml` перезапускает exe. Чистильщик ждёт `:7880`, затем `LIVEKIT_RTC_INTERNAL` |
-| Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:` (дорожка `skkkk-raw`, без неё — основная); `skkkk-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек, не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
+| **Войти во встречу** | `POST /api/meetings/public/{token}/join` `{display_name, guest_id, company_name?}` | `guest_id` из `localStorage` `primaryanalitics-guest-{token}`; identity = `guest:` + sha256(hash токена + guest_id)[:32]; перезаход — та же identity и одна строка `meeting_participants`. Без `guest_id` — как раньше (`token_hex`). Невалидный id → 400. До start → 409; после → LiveKit JWT (`canPublish`, без `canPublishSources`). Обязательный выбор **Ваша компания** (`#guest-company-select` — компании сторон проекта `guest_companies`, пункт «Другая компания…» открывает поле `#guest-company`; у проекта без сторон — только поле) пишется в `meeting_participants.company_name`; после встречи (при включённой платформе) незнакомый гость — новый человек проекта с согласием на голос «согласие при входе во встречу», компания и сторона — от указанной стороны проекта (Р7, `people._guest_person`); «Кто это?» — только если одиночное имя подходит нескольким людям. **ЛГ5:** сотрудник, зашедший гостем («Имя Фамилия» или «Фамилия Имя Отчество»), — его человек по карточке (`people._staff_by_name`); гость «Гость …» — «Кто это?»; гость без компании — единственный заказчик проекта с пометкой `people.company_unconfirmed` (на подтверждение) |
+| **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. `#meeting-end` → `POST .../end` для всех. «Скопировать ссылку»: сырой токен не хранится (вариант A) — тост «ссылка во вкладке, где встречу создали, или через «Новая ссылка»»; `sessionStorage` `primaryanalitics-meeting-invite-{id}` если ещё открыта вкладка создания |
+| Сигналинг LiveKit | `wss://<хост>:777/livekit` → Caddy → `:7880` | Поднимает `main` (`edge_runtime`). Native exe, не Docker. ICE = `node_ip` `PRIMARY_ANALITICS_PUBLIC_HOST` + LAN + 127.0.0.1, без STUN (иначе рекламируется чужой исходящий IP). TURN = тот же хост. Медиа: TCP 7881, UDP mux 50000, TURN 3478. Смена `livekit.yaml` перезапускает exe. Чистильщик ждёт `:7880`, затем `LIVEKIT_RTC_INTERNAL` |
+| Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:` (дорожка `primaryanalitics-raw`, без неё — основная); `primaryanalitics-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек, не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
 | Анализ дорожек | `data/meetings/{room_name}/analyze.json` + `events.jsonl` | `meeting_analyze.py`: очередь GPU на каждую WAV с речью; lab `03_diar` пишет одного `speaker_0` без Sortformer |
 
 **Пульт встречи (`#meeting-dock`, `static/meeting_room.js`)** — одинаков на гостевой странице и в комнате сотрудника; работает в браузере через LiveKit, без API портала (кроме выхода, завершения и пульса).
@@ -554,13 +554,13 @@ Enter в textarea — тоже отправка, Shift+Enter — новая ст
 
 **Закрытие комнаты и рекордеры:** `close_livekit_room` — по внутреннему `livekit_rtc_internal`, в своём потоке (работает и из асинхронного кода). Рекордеры (`voice_cleaner`, `screen_recorder`) заходят только в комнаты встреч со статусом `live` (`meeting_recordings.live_room_names`, база только на чтение; нет базы — пишут все, как раньше): комнату завершённой встречи мог заново создать клиент со старым токеном в момент завершения, и боты держали её открытой, записывая удалённую встречу.
 
-**Путь звука (с 2026-10-05, `scripts/qa_media_path.py`):** браузер: эхоподавление и AGC браузера → DFN3 (процессор livekit-client) → Opus/RED → LiveKit → слушатели (одна дорожка на человека); тот же захват до DFN3 уходит сырой дорожкой `skkkk-raw` → рекордер `skkkk-dfn` пишет WAV (96 000 Б/с). Замер стенда (Chromium, локальный LiveKit): фон в паузах у слушателя на ~52 дБ ниже сырой записи, речь −2 дБ, DFN3 добавляет ~22 мс; «Шумодав» выкл — фон как в сырой. Прежняя серверная схема (`clean-*` от бота) отставала на 0,25–0,56 с и давала эхо/задвоение (находки 80–89). Камера: simulcast 180/360/540, VP8; экран — один слой, 5 к/с.
+**Путь звука (с 2026-10-05, `scripts/qa_media_path.py`):** браузер: эхоподавление и AGC браузера → DFN3 (процессор livekit-client) → Opus/RED → LiveKit → слушатели (одна дорожка на человека); тот же захват до DFN3 уходит сырой дорожкой `primaryanalitics-raw` → рекордер `primaryanalitics-dfn` пишет WAV (96 000 Б/с). Замер стенда (Chromium, локальный LiveKit): фон в паузах у слушателя на ~52 дБ ниже сырой записи, речь −2 дБ, DFN3 добавляет ~22 мс; «Шумодав» выкл — фон как в сырой. Прежняя серверная схема (`clean-*` от бота) отставала на 0,25–0,56 с и давала эхо/задвоение (находки 80–89). Камера: simulcast 180/360/540, VP8; экран — один слой, 5 к/с.
 
 Камера у гостя выключена. Join до `start` — 409. Удаление созвона или проекта стирает `meetings`, `meeting_participants`, очередь GPU и `data/meetings/{room_name}/`.
 
 #### Удалённый доступ MCP (вкладка блока «Агенты и MCP»)
 
-MCP (Streamable HTTP) к знаниям **только этого проекта**: чтение — любому ключу, вопросы, вердикты и приём файлов — по правам ключа. Авторизация — ключ `skkkk_mcp_…`, не JWT портала. Блок «Агенты и MCP» **не рендерится при пароле `user`** (и нет «Выдать доступ»); `GET /projects/{id}/mcp/info` и выпуск ключей — **admin/manager**.
+MCP (Streamable HTTP) к знаниям **только этого проекта**: чтение — любому ключу, вопросы, вердикты и приём файлов — по правам ключа. Авторизация — ключ `primary_analitics_mcp_…`, не JWT портала. Блок «Агенты и MCP» **не рендерится при пароле `user`** (и нет «Выдать доступ»); `GET /projects/{id}/mcp/info` и выпуск ключей — **admin/manager**.
 
 **UI (с 2026-10-15):** первая вкладка «Удалённый доступ (MCP)» (`#mcp-access-pane`) сворачиваемого блока **«Агенты и MCP»** (`partials/agents_hub.html`, `#agents-hub-card`, панель `#agents-hub-panel`); до этого — отдельная карточка `.mcp-access-card` / `#mcp-access-panel`. Рядом вкладки «Обмен с агентами» и «Настройки для агентов» (см. ниже). Блок по умолчанию **сложен**; открытость и выбранную вкладку помнит `localStorage` (`agents_hub_open`, `agents_hub_tab`), переключение — общий для блоков с вкладками `static/tab_hubs.js` (разметка `data-hub` / `data-hub-panel` / `data-hub-tab` / `data-hub-pane`; событие `hub:show` {hub, tab} для ленивой загрузки, `window.PageHubs.open(tab)` для переходов). Так же устроен блок «О проекте» (§5.14). На телефоне вкладки — одна строка с прокруткой. Badge «права по ключу» — над содержимым вкладки (до 2026-10-08 — «только чтение», хотя запись по правам ключа уже была). Вкладка разложена на три секции (`.mcp-section`): **Подключение** (URL, «Копировать», «Копировать JSON», пример `.cursor/mcp.json` — под раскрывающейся строкой), **Новый ключ** (одна строка: метка `#mcp-label`, права `#mcp-rights-select` с пояснением `#mcp-rights-hint`, имя агента, лимит, «Создать ключ»; до 2026-10-15 — радиокнопки и метка через `prompt`), **Ключи доступа** — таблица на всю ширину: «Метка и ключ», «Права», «Файлы», «За 7 дней» (обращения, КБ, ошибки, лимит), «Статус» с кнопкой «Отозвать».
 
@@ -777,7 +777,7 @@ venvs\lab\Scripts\python.exe asr\lab_pipeline.py --project-id 1 --artifact-id ar
 
 Стадии: `01_audio` копия 16 кГц без денойза → `02_asr` Parakeet-TDT v3 (окна ≤80 с) →
 `03_diar` диаризация: Nemotron 3 (до 8 спикеров, `venvs\nemo-diar`), откат — Sortformer 4spk v2.1 (ONNX), сырые вероятности → `04_paint` покраска
-слов → `05_voice` WeSpeaker в `skkkk-gigaam` → `06_transcript` реплики без LLM →
+слов → `05_voice` WeSpeaker в `primaryanalitics-gigaam` → `06_transcript` реплики без LLM →
 `07_verify` второй проход через Silero VAD. Провал (`fail`) — только если слов
 на тишине больше 2%; слова на громком звуке, который VAD не принял за речь, дают
 `warn` с участками времени.
@@ -819,9 +819,9 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/admin/map/graph` | поиск узла, вид **Модули** / **Сущности**, фильтры видов узлов и связей, глубина, панель узла со ссылкой «открыть в PyCharm» | `GET /admin/map/graph/summary`, `GET /admin/map/graph/data?focus=…&depth=…` (только admin, §16) |
 | `/admin/map/overview` | **Обзор карты**: подсистемы и группы связности, цвет по подсистеме / группе / тепловой карте правок, размер по fan-in, fan-out или правкам, легенда-фильтр, поиск, карточка файла (метрики, роуты, таблицы, тесты, «открыть в PyCharm»), «Сводка», шкала времени; кнопка **Перестроить карту** | `GET /admin/map/overview/frame` (страница просмотрщика), `GET /admin/map/overview/state`, `POST /admin/map/overview/rebuild` (только admin; граф `.projectmap/out/graph.json`, §10 `projectmap`) |
 | `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
-| `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; шумодав DFN3 в браузере, сырая `skkkk-raw` — рекордеру | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
+| `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; шумодав DFN3 в браузере, сырая `primaryanalitics-raw` — рекордеру | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
-| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `skkkk_session`) |
+| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `primary_analitics_session`) |
 | все HTML-оболочки | **Выйти** (иконка у ника в шапке) | `POST /auth/logout` — сброс cookie + localStorage |
 | `/auth/logout` | *(JS `clearSession` / `#nav-logout`)* | `POST /auth/logout` — сброс cookie |
 
@@ -836,7 +836,7 @@ API без кнопок в UI (для будущего / интеграций):
 | Исполнитель | Что |
 |-------------|-----|
 | **GPU worker** | lab ASR, knowledge (entities, index, summary, graph) после upload и после confirm; кнопки-задачи `project_task`: rebuild-tz, reextract-entities, card/rebuild, rebuild-summary |
-| **`main` edge** | Caddy, LiveKit, рекордер голоса `voice_cleaner` (`skkkk-dfn`) — только `all`/`api`, не worker |
+| **`main` edge** | Caddy, LiveKit, рекордер голоса `voice_cleaner` (`primaryanalitics-dfn`) — только `all`/`api`, не worker |
 | **FastAPI sync** | recalculate, enroll, merge, reindex, chat (полоса чата), черновик MCP (полоса чата) |
 | **Docker GigaAM** | второй слух + voice embed |
 | **LLM** (Cursor / Local LLM) | sense, proof, summary, entities, TZ, chat |
@@ -1282,8 +1282,8 @@ data/projects/{project_id}/
 | `meeting_overlap.py` | same-room (rank→RMS→окно diar / CONFLICT), one-mic (`unknown`, не carry-forward) |
 | `lab_errors.py` | вычищает ANSI/ONNX warning из ошибки в таблице файлов |
 | `edge_runtime.py` | `main all`/`api`: сертификат → Caddy → LiveKit → `voice_cleaner` (рекордер голоса) → `screen_recorder`; LiveKit fail не валит портал; `voice_venv_ready` проверяет так же, как стартует рекордер (модуль + livekit SDK) |
-| `tls_cert.py` | при старте: файл `:777` есть и живой (не staging, не истекает раньше `SKKKK_TLS_RENEW_HOURS`); иначе перевыпуск Caddy `:8443` |
-| `livekit_env.py` | `livekit.yaml` + ключи; ICE LAN + `127.0.0.1`; TURN = `SKKKK_PUBLIC_HOST` |
+| `tls_cert.py` | при старте: файл `:777` есть и живой (не staging, не истекает раньше `PRIMARY_ANALITICS_TLS_RENEW_HOURS`); иначе перевыпуск Caddy `:8443` |
+| `livekit_env.py` | `livekit.yaml` + ключи; ICE LAN + `127.0.0.1`; TURN = `PRIMARY_ANALITICS_PUBLIC_HOST` |
 | `acme_challenge.py` | HTTP-01 для Let's Encrypt на IP |
 | `project_access.py` | `user_project_ids` (создал / загрузил / чат / `project_members`); `can_access_project` / `require_project` / `require_artifact_project`: admin — все; иначе свои; чужой/неактивный → 404. `project_role` / `can_grant_access` / `require_project_staff`. `require_admin` — лаб |
 | `project_members.py` | выдача доступа: роли `manager`/`user`, без `admin`; кандидаты из `Login_up.txt`; upsert по login, revoke |
@@ -1453,9 +1453,9 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 
 | Скрипт | Docker | Выход |
 |--------|--------|-------|
-| `run_whisper.py` | skkkk-whisper | docker_whisper.json |
-| `run_tone.py` | skkkk-tone | docker_tone.json |
-| `run_gigaam.py` | skkkk-gigaam | docker_gigaam.txt |
+| `run_whisper.py` | primaryanalitics-whisper | docker_whisper.json |
+| `run_tone.py` | primaryanalitics-tone | docker_tone.json |
+| `run_gigaam.py` | primaryanalitics-gigaam | docker_gigaam.txt |
 | `client.py` | HTTP к контейнерам | — |
 
 ### 8.3. Merge + качество
@@ -1478,7 +1478,7 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `clock_guard.py` | Выбор clock source |
 | `match_sortformer_speakers.py` | WeSpeaker embed (GigaAM docker) → match JSON |
 | `voice_turn_audit.py` | Проверка голос/текст, auto-fix |
-| `docker_stage.py` | Копия WAV из `SKKKK_ASR_WORK` → `asr/work` перед T-one/GigaAM embed (контейнеры не видят per-artifact каталог) |
+| `docker_stage.py` | Копия WAV из `PRIMARY_ANALITICS_ASR_WORK` → `asr/work` перед T-one/GigaAM embed (контейнеры не видят per-artifact каталог) |
 | `transcript_view.py` | HTML renderer + JS (recalc, summary, reindex); grouped words by segment (`wgrp`) с кнопкой `▣` (`screen-dot`) и бейджем реплики; модалка кадра (`#screen-modal-wrap`, `renderScreenModal`) со скриншотом `<img class="sm-img">` и сворачиваемым `<details class="sm-fold">` для текста; `fmtScreenText()` markdown→HTML |
 | `build_speaker_match_view.py` | HTML страница match |
 | `speaker_registry.py` | enroll/merge в UI |
@@ -1504,12 +1504,12 @@ lab_pipeline
   → 02_asr    (onnx-asr nemo-parakeet-tdt-0.6b-v3, окна ≤80 с, весь файл)
   → 03_diar   (sortformer.py, probs_clean.npy + свои пороги)
   → 04_paint  (слово × вероятности → assigned / contested / unassigned)
-  → 05_voice  (docker_stage → skkkk-gigaam embed_voice.py, БД только на чтение)
+  → 05_voice  (docker_stage → primaryanalitics-gigaam embed_voice.py, БД только на чтение)
   → 06_transcript (группировка, без LLM)
   → 07_verify (Parakeet + Silero VAD: слова в тишине — fail > 2%, громкий звук без речи — warn; расхождение проходов)
 lab_sense (этап 2, Cursor) → sense/  # не стадия 01–07
 lab_hint (имена с боя) → hint/      # не основа, не перенарезает
-lab_giga (этап 3a, skkkk-gigaam) → giga/
+lab_giga (этап 3a, primaryanalitics-gigaam) → giga/
   → lab_reconcile (этап 3b) → reconcile/   # спикеры: подтверждено / конфликт / открыт
   → lab_proof (этап 3в, Cursor) → proof/   # текст: выбор из двух услышанных вариантов
 lab_voice (этап 4, WeSpeaker) → voice/     # не стадия 05; БД только по кнопке report-lab
@@ -1611,10 +1611,10 @@ run_pipeline
 | `inspect_project_index.py` | Сверка чанков sqlite-vec с lab `_final.txt` (`--project 18`) |
 | `refresh_portal_knowledge.py` | Пересборка выжимок созвонов + индекс + сущности + ТЗ (`--project 19` / `--all`) |
 | `rebuild_artifact_report.py` | Пересборка отчёта артефакта |
-| `monitor_status.py` / `monitor_skkkk_loop.ps1` | Мониторинг сервера (`monitor_skkkk_loop.ps1` устарел — см. §3.0) |
-| `install_caddy.ps1` | бинарь Caddy + опциональная служба `SKKKK-CADDY` |
+| `monitor_status.py` / `monitor_primary_analitics_loop.ps1` | Мониторинг сервера (`monitor_primary_analitics_loop.ps1` устарел — см. §3.0) |
+| `install_caddy.ps1` | бинарь Caddy + опциональная служба `PrimaryAnalitics-CADDY` |
 | `install_meeting_voice.py` | изолированный `venvs/voice` + DeepFilterNet CPU (не app venv) |
-| `screen_recorder.py` | `skkkk-rec`: VideoStream I420 → packed yuv420p → ffmpeg mp4 1 fps в `data/meetings/{room}/tracks/`; смена WxH — scale в размер первого кадра, не сырой хвост буфера |
+| `screen_recorder.py` | `primaryanalitics-rec`: VideoStream I420 → packed yuv420p → ffmpeg mp4 1 fps в `data/meetings/{room}/tracks/`; смена WxH — scale в размер первого кадра, не сырой хвост буфера |
 | `fetch_meeting_dfn3.py` | WASM DFN3 в `static/vendor/dfn3/` — шумодав голоса в браузере (канон с 2026-10-05) |
 | `redescribe_screen_frames.py` | Vision-переописание кадров экрана и/или пересборка HTML стенограммы (`--rebuild-only`) |
 | `scripts/start.ps1` | Запуск API+воркер: `-Llm cursor|gemma` или из `.env` |
@@ -1631,8 +1631,8 @@ run_pipeline
 | `install_hooks.ps1` | git-хуки: `post-commit`/`post-merge` — фоновое обновление индекса; `pre-commit`/`commit-msg` — проверка карты, личных данных и рабочих файлов при коммите (ставят `INSTALL.bat` и `restart.ps1`) |
 | `projectmap.py` | запуск инструмента projectmap (`tools/projectmap`): `index`/`graph` — граф с метриками (`.projectmap/out/graph.json`, `graph` ещё и `atlas.md`), `export` — просмотрщик одним HTML-файлом (`.projectmap/out/map.html`) или json/graphml/dot, `serve` — открыть просмотрщик в браузере, `init` — определить стек и создать конфиг, `map` — документ карты по графу с описаниями от человека, `hooks` — git-хуки личных данных и карты, `mcp` — MCP-сервер карты, `check` — охват карты по слоям, `report` — строит граф и документ `docs/project-map/COVERAGE.md`; конфиг `.projectmap/config.yaml` |
 | `check_map_staged.py` | хук `pre-commit`: сверяет карту с содержимым индекса git (снимок коммита, не рабочая копия): файлы кода, роуты, таблицы БД, переменные окружения, реестр модулей, манифест |
-| `scan_personal_data.py` | хук `pre-commit` (блок `SKKKK-PRIVACY`): ищет в файлах коммита (версия из индекса git) имена людей, их написания, фамилии и названия компаний из базы портала; находка отклоняет коммит, имена видны только в консоли; без базы портала пропускается |
-| `check_no_data_files.py` | хук `pre-commit` (блок `SKKKK-DATA`): не пускает в коммит БД, каталог `data/`, личные списки, документы, медиа и веса моделей; исключения — синтетические фикстуры тестов и `.env.example` |
+| `scan_personal_data.py` | хук `pre-commit` (блок `PrimaryAnalitics-PRIVACY`): ищет в файлах коммита (версия из индекса git) имена людей, их написания, фамилии и названия компаний из базы портала; находка отклоняет коммит, имена видны только в консоли; без базы портала пропускается |
+| `check_no_data_files.py` | хук `pre-commit` (блок `PrimaryAnalitics-DATA`): не пускает в коммит БД, каталог `data/`, личные списки, документы, медиа и веса моделей; исключения — синтетические фикстуры тестов и `.env.example` |
 | `check_map_commit_msg.py` | хук `commit-msg`: при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку «Карта: не требуется — причина» |
 | `dev_changelog.py` | журнал разработки из git → `docs/CHANGELOG-DEV.md` |
 | `fast_summarize_tz.py` | быстрая сводка ТЗ из CLI: top-K по sqlite-vec + заметки → один reduce → `current_tz.md` + changelog |
@@ -1648,7 +1648,7 @@ run_pipeline
 | `qa_navbar.py` | проверка шапки на разных экранах |
 | `qa_room.py` | комната созвона в Chromium с фейковыми устройствами, без паролей (песочница `SMOKE_PROJECT_ID`); проверки индикатора связи изолированы от настоящих оценок LiveKit |
 | `qa_room_ui.py` | комната: раскладка телефона при повороте (с показом экрана и без), пульт (подсказки, переключатели, окна, Esc) на ПК и телефоне, камера после системного выключения, поток `mic_silent`, качество связи после переподключения |
-| `qa_media_path.py` | путь звука и видео: у гостя DFN3 на микрофоне и сырая `skkkk-raw`; что на сервере (микрофон, сырая, слои камеры, рекордер ничего не публикует), растёт ли WAV; у слушателя — одна дорожка на человека, сырую не качает, срез шума в паузах против записи рекордера, громкость речи, потери/джиттер, кадры камеры; «Шумодав» туда-обратно без тишины и двойного звука; выпадение рекордера не трогает звук, запись продолжается; экран одним слоем |
+| `qa_media_path.py` | путь звука и видео: у гостя DFN3 на микрофоне и сырая `primaryanalitics-raw`; что на сервере (микрофон, сырая, слои камеры, рекордер ничего не публикует), растёт ли WAV; у слушателя — одна дорожка на человека, сырую не качает, срез шума в паузах против записи рекордера, громкость речи, потери/джиттер, кадры камеры; «Шумодав» туда-обратно без тишины и двойного звука; выпадение рекордера не трогает звук, запись продолжается; экран одним слоем |
 | `qa_meeting_lifecycle.py` | жизненный цикл встречи на живом сервере: создание, вход до запуска, удаление без запуска, запуск, запись, повторный вход, пульс, отзыв и новая ссылка, запрет удалять идущую, завершение (комната закрыта, дорожки закрыты, не воскресает), удаление записанной встречи и проекта с идущей встречей; запись не возвращается на диск |
 | `qa_analysis.py`, `qa_publish_wav.py` | сквозная проверка «созвон → запись → анализ» на синтезированной русской речи |
 | `qa_call_stress.py` | стресс записи звонка на реальном сервере: рост дорожек, убийство рекордера |
@@ -1716,7 +1716,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Ollama bge-m3 | `OLLAMA_*` | Индекс артефактов, search |
 | Docker ASR | `GIGAAM_URL` | Прод: GigaAM (второй слух + embed). Whisper/T-one URL — откат |
 | LiveKit | `LIVEKIT_*`, `LIVEKIT_RTC_INTERNAL` | комнаты; native server поднимает `main` |
-| Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | шумодав DFN3 в браузере (`MEETING_VOICE_DFN3=1`, канон); `MEETING_VOICE_SERVER` — рекордер голоса; запись экрана `skkkk-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`) |
+| Meeting voice | `MEETING_VOICE_SERVER`, `MEETING_VOICE_DFN3`, `MEETING_VOICE_LOUDNESS`, `MEETING_RECORD`, `MEETING_SCREEN_RECORD`, `MEETING_SCREEN_FPS`, `MEETING_SCREEN_MAX_W`, `MEETING_SCREEN_HEIGHT`, `MEETING_SCREEN_BITRATE`, `MEETING_SCREEN_VISION`, `MEETING_FRAMES_MAX` | шумодав DFN3 в браузере (`MEETING_VOICE_DFN3=1`, канон); `MEETING_VOICE_SERVER` — рекордер голоса; запись экрана `primaryanalitics-rec` 1080p/5 Мбит; кадры/vision за флагом (`MEETING_SCREEN_VISION=1` — vision-описание кадров в `video_transcript.json`) |
 | tree-sitter (разбор многих языков) | пакеты `tree-sitter`, `tree-sitter-language-pack` (в `app/requirements.txt`); грамматики в `.projectmap/grammars` | projectmap: символы, импорты и вызовы не-Python кода; грамматики скачиваются один раз, дальше без интернета; кэш не в git |
 | Telegram | `TELEGRAM_*` | Уведомления (stub) |
 | Живые проверки страниц: Playwright + браузеры (Chromium, WebKit) | — (пакеты в `venv`) | `qa_pages.py`, `qa_flows.py`, `qa_room*.py`. Браузеры ставятся `venv\Scripts\python.exe -m playwright install chromium` (и `webkit`); если их нет — `--channel chrome` берёт системный Chrome. См. §12.1 |
@@ -1724,7 +1724,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 ### 12.1. Стенд живых проверок
 
-Живые проверки идут на **отдельном экземпляре** приложения: `scripts/qa_pages.py` и `scripts/qa_flows.py` поднимают uvicorn на `:18777` с **копией** `data/app.db`, своим `Login_up.txt` и временными паролями в памяти (`SECRET_KEY`, `SKKKK_DISABLE_EDGE=1`, `PERSONAL_PASSWORD=off`) — боевой сервер, его данные и сессии не затрагиваются.
+Живые проверки идут на **отдельном экземпляре** приложения: `scripts/qa_pages.py` и `scripts/qa_flows.py` поднимают uvicorn на `:18777` с **копией** `data/app.db`, своим `Login_up.txt` и временными паролями в памяти (`SECRET_KEY`, `PRIMARY_ANALITICS_DISABLE_EDGE=1`, `PERSONAL_PASSWORD=off`) — боевой сервер, его данные и сессии не затрагиваются.
 
 | Что | Команда | Заметки |
 |-----|---------|---------|
@@ -1737,7 +1737,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 ### 12.2. Переменные окружения: справочник по группам (актуально 2026-10-05)
 
-Задаются в `.env` (образец `.env.example`) или в окружении; почти все — поля `Settings` (`app/app/config.py`, имена в верхнем регистре). Секреты (ключи, токены, хеши паролей) в карту и в git не попадают. Системные переменные ОС и теста, а также внутренние, которые код подставляет подпроцессам и контейнерам сам (`SKKKK_ARTIFACT_ID`, `SKKKK_PROJECT_ID`, `SKKKK_AUDIO_URL`, `SKKKK_MATCH_JSON`, `APP_DIR`, `OUT_DIR`, `ASR_ENGINE`), здесь не перечисляются — они в списке исключений `ENV_IGNORE` проверки `scripts/check_map_drift.py`. Остальные переменные, которых нет в этом разделе и в §12, проверка считает расхождением.
+Задаются в `.env` (образец `.env.example`) или в окружении; почти все — поля `Settings` (`app/app/config.py`, имена в верхнем регистре). Секреты (ключи, токены, хеши паролей) в карту и в git не попадают. Системные переменные ОС и теста, а также внутренние, которые код подставляет подпроцессам и контейнерам сам (`PRIMARY_ANALITICS_ARTIFACT_ID`, `PRIMARY_ANALITICS_PROJECT_ID`, `PRIMARY_ANALITICS_AUDIO_URL`, `PRIMARY_ANALITICS_MATCH_JSON`, `APP_DIR`, `OUT_DIR`, `ASR_ENGINE`), здесь не перечисляются — они в списке исключений `ENV_IGNORE` проверки `scripts/check_map_drift.py`. Остальные переменные, которых нет в этом разделе и в §12, проверка считает расхождением.
 
 | Группа | Переменная | По умолчанию | Зачем |
 |--------|------------|--------------|-------|
@@ -1760,7 +1760,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Обработка | `DECISION_MEMORY_AUTO_LIVE` | `true` | после построения проект сам переходит `shadow` → `live`, когда пройдены автоматические проверки готовности (без ручной разметки) |
 | Модель | `LMSTUDIO_BASE_URL`, `LMSTUDIO_API_KEY` | `http://127.0.0.1:1234/v1`, `lm-studio` | локальная модель (LM Studio) |
 | Модель | `LMSTUDIO_IDLE_UNLOAD_SEC` | `300` | выгрузить модель после стольких секунд простоя без задач и чата (§3.2, Р3); `0` — не выгружать |
-| Модель | `LMSTUDIO_LOAD_TTL_SEC` | `1800` | TTL загрузки в LM Studio — страховка, если процессы SKKKK упали |
+| Модель | `LMSTUDIO_LOAD_TTL_SEC` | `1800` | TTL загрузки в LM Studio — страховка, если процессы PrimaryAnalitics упали |
 | Модель | `LMSTUDIO_KEEP_DURING_ASR` | `false` | `false` — модель выгружается на время GPU-шагов ASR, чат ждёт (Р1 по замеру 2026-10-05); `true` — держать модель рядом с ASR, если карта вмещает обе |
 | Модель | `LMSTUDIO_CHAT_TOKEN_BUDGET` | `22000` | доля общего окна модели под полосу чата; фоновый запрос сверх остатка ждёт ответа чата |
 | Модель | `LMSTUDIO_HOME` | не задана (`~/.lmstudio`) | каталог LM Studio: `lms.exe`, конфиги моделей, настройки сервера |
@@ -1775,16 +1775,16 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Слух | `GIGAAM_API_KEY` | пусто | ключ контейнера GigaAM, передаётся конвейеру |
 | Слух | `ALLOW_LEGACY_ASR` | не задана | `1` — перезапуск прежних контейнеров вместе с GigaAM; по умолчанию перезапускается только GigaAM |
 | Комнаты | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | пусто | сервер комнат LiveKit |
-| Комнаты | `SKKKK_TLS_ISSUE_TIMEOUT_SEC` | `120` | сколько ждать выпуска сертификата при старте |
+| Комнаты | `PRIMARY_ANALITICS_TLS_ISSUE_TIMEOUT_SEC` | `120` | сколько ждать выпуска сертификата при старте |
 | Уведомления | `TELEGRAM_BOT_TOKEN` | пусто | токен бота (уведомления, заглушка) |
 | Инструменты | `FFMPEG_DIR`, `FFMPEG_BIN` (и `FFPROBE_BIN`) | не заданы | где искать `ffmpeg` / `ffprobe` вместо поиска по `PATH` |
 | Инструменты | `TESSERACT_CMD` / `TESSERACT_BIN`, `TESSDATA_DIR`, `TESSDATA_PREFIX` | не заданы | OCR: исполняемый файл Tesseract и каталог языков; `TESSDATA_PREFIX` код выставляет сам |
 | Инструменты | `LIGHTRAG_URL`, `LIGHTRAG_API_KEY` | `http://127.0.0.1:9621`, пусто | граф знаний LightRAG для `scripts/lightrag_index.py` |
-| Отладка и тесты | `SKKKK_STRICT_DB_HOLD` | не задана | `1` — вызов модели при открытой транзакции БД падает исключением вместо предупреждения в журнале |
-| Отладка и тесты | `SKKKK_DISABLE_LLM_SELFCHECK` | не задана | `1` — не проверять LM Studio при старте (тесты не должны будить модель в GPU) |
-| Отладка и тесты | `SKKKK_DISABLE_LLM_KEEPER` | не задана | `1` — хранитель модели не вызывает `lms` (тесты) |
-| Отладка и тесты | `SKKKK_STRICT_LLM_LANE` | не задана | `1` — фоновый вызов модели из процесса API падает исключением (тесты), иначе предупреждение `llm.lane.violation` |
-| Отладка и тесты | `SKKKK_PROCESS_ROLE` | `worker` | роль процесса для полос модели: `api` ставит `main._serve`, воркеру — `worker` |
+| Отладка и тесты | `PRIMARY_ANALITICS_STRICT_DB_HOLD` | не задана | `1` — вызов модели при открытой транзакции БД падает исключением вместо предупреждения в журнале |
+| Отладка и тесты | `PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK` | не задана | `1` — не проверять LM Studio при старте (тесты не должны будить модель в GPU) |
+| Отладка и тесты | `PRIMARY_ANALITICS_DISABLE_LLM_KEEPER` | не задана | `1` — хранитель модели не вызывает `lms` (тесты) |
+| Отладка и тесты | `PRIMARY_ANALITICS_STRICT_LLM_LANE` | не задана | `1` — фоновый вызов модели из процесса API падает исключением (тесты), иначе предупреждение `llm.lane.violation` |
+| Отладка и тесты | `PRIMARY_ANALITICS_PROCESS_ROLE` | `worker` | роль процесса для полос модели: `api` ставит `main._serve`, воркеру — `worker` |
 
 ---
 
@@ -1822,7 +1822,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 6. После архитектурных изменений → `venv\Scripts\python.exe scripts\index_project_map.py` (нужен Ollama bge-m3). Граф агентов: `lightrag_sync_docs.py` + `lightrag_index.py --wait`.
 7. **Граф зависимостей** (§16): после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py` (пересобирает `data/project_map_graph.json`, `docs/project-map/graph-modules.json` и атлас `DEPENDENCIES.md`).
 8. **Инвентарь стенда** (§17): появилось новое окружение, инструмент, каталог данных или модель — допишите `docs/project-map/stand.yaml` и выполните `venv\Scripts\python.exe scripts\check_stand_inventory.py --docs` (тест `app/app/tests/test_stand_inventory.py` следит, чтобы карта не отставала от диска).
-9. **Принуждение.** Карту держат git-хуки: `pre-commit` (`scripts/check_map_staged.py`) сверяет карту с индексом git — проверяются те же вещи, что в `check_map_drift.py` и `test_map_coverage.py`, — а `commit-msg` (`scripts/check_map_commit_msg.py`) при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку `Карта: не требуется — причина`. Хуки ставит `scripts/install_hooks.ps1` (его зовут `INSTALL.bat` и `restart.ps1`); состояние — `scripts/index_doctor.py`. Тем же `pre-commit` (блок `SKKKK-PRIVACY`) `scripts/scan_personal_data.py --staged` не пускает в коммит имена людей и названия компаний из базы портала, а блок `SKKKK-DATA` (`scripts/check_no_data_files.py --staged`) — БД, `data/`, личные списки, документы, медиа и веса моделей. Обход (`--no-verify`) запрещён, `AGENTS.md`.
+9. **Принуждение.** Карту держат git-хуки: `pre-commit` (`scripts/check_map_staged.py`) сверяет карту с индексом git — проверяются те же вещи, что в `check_map_drift.py` и `test_map_coverage.py`, — а `commit-msg` (`scripts/check_map_commit_msg.py`) при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку `Карта: не требуется — причина`. Хуки ставит `scripts/install_hooks.ps1` (его зовут `INSTALL.bat` и `restart.ps1`); состояние — `scripts/index_doctor.py`. Тем же `pre-commit` (блок `PrimaryAnalitics-PRIVACY`) `scripts/scan_personal_data.py --staged` не пускает в коммит имена людей и названия компаний из базы портала, а блок `PrimaryAnalitics-DATA` (`scripts/check_no_data_files.py --staged`) — БД, `data/`, личные списки, документы, медиа и веса моделей. Обход (`--no-verify`) запрещён, `AGENTS.md`.
 10. Агенты: правило `.cursor/rules/07-project-map.mdc`.
 
 *Актуальность карты: дата последней проверки инвентаря стенда — в §17, история правок — `git log docs/PROJECT-MAP.md`; журнал прежних обновлений — в «Архиве разработки».*
@@ -1850,7 +1850,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `logging_setup.py` | Единая настройка логов: консоль (PyCharm) плюс файл в `data/logs`. |
 | `main.py` | — |
 | `preflight.py` | Проверка всех систем перед запуском. |
-| `startup_llm.py` | Выбор LLM при запуске SKKKK: LM Studio (локально) или Cursor API. |
+| `startup_llm.py` | Выбор LLM при запуске PrimaryAnalitics: LM Studio (локально) или Cursor API. |
 
 **`app/app/mcp/`**
 
@@ -2080,11 +2080,11 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `admin_map_graph.js` | Страница «Граф зависимостей» (/admin/map/graph): Cytoscape-схема узлов и связей проекта. |
 | `app.css` | Общие стили портала Primary Analytics: шапка, адаптив под телефон и планшет, таблицы, кнопки |
-| `app.js` | Общий JS портала (объект SKKKK): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения. |
+| `app.js` | Общий JS портала (объект PrimaryAnalitics): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения. |
 | `background.js` | Дальнейшая обработка проекта (ПФ9, бывшая карточка «Фоновая работа»): ход разбора, перепроверка, переизвлечение, повтор ошибок. |
 | `design.css` | Единая дизайн-система Primary Analytics (v2, 2026-09-19). |
 | `errors_ru.js` | Единая карта «английский detail API → русский текст» (пункт плана 3.14). |
-| `meeting_layout.js` | Раскладка плиток встречи (SKKKKLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
+| `meeting_layout.js` | Раскладка плиток встречи (PrimaryAnaliticsLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
 | `meeting_layout.selfcheck.js` | Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка. |
 | `meeting_room.js` | Клиент встречи LiveKit: вход, микрофон/камера/экран, смена устройств на ходу, плитки, список участников. |
 | `memory.js` | Память решений проекта: список предметов, история решения, состояние на дату, поправка итога человеком. |
@@ -2150,10 +2150,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `build_sortformer_transcript_view.py` | Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF). |
 | `build_speaker_match_view.py` | Страница голосов созвона: диаризация + match/запоминание голосов (Bootstrap 5). |
 | `build_transcript_view.py` | Собрать реплики: Sortformer + Gemma + (опционально) база голосов → HTML. |
-| `client.py` | Клиент SKKKK к трём ASR-контейнерам. |
+| `client.py` | Клиент PrimaryAnalitics к трём ASR-контейнерам. |
 | `clock_guard.py` | Диагностика петель Whisper и выбор надёжного якоря часов для alignment. |
 | `docker_stage.py` | Синхронизация аудио в asr/work для Docker-контейнеров ASR. |
-| `dump_pyannote.py` | Снять сырые интервалы PyAnnote из контейнера skkkk-gigaam. |
+| `dump_pyannote.py` | Снять сырые интервалы PyAnnote из контейнера primaryanalitics-gigaam. |
 | `dump_sortformer.py` | Sortformer v2.1 GGUF → sortformer_segments.json в OUT (и reports/ артефакта). |
 | `engine_timeline.py` | Фильтрация таймлайнов ASR-движков перед склейкой и alignment. |
 | `hallucination_guard.py` | Защита стенограммы от галлюцинаций ASR на тишине и от «простыни в 4 секунды». |
@@ -2216,7 +2216,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `audit_integrity.py` | Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы, устаревший индекс поиска. Только чтение. |
 | `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
 | `backfill_turn_hints.py` | Подсказки реплик для пунктов созвонов без источника (2026-10-15, продолжение находки 91). |
-| `backup_db.ps1` | SKKKK — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db |
+| `backup_db.ps1` | PrimaryAnalitics — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db |
 | `bench_llm_lanes.py` | Замер этапа 0 плана docs/plans/LLM-LANES-PLAN.md: память и скорость локальной модели в два потока. |
 | `bind_document_units.py` | Привязать уже извлечённые пункты документов к абзацам P<n> без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
 | `bootstrap.ps1` | Полная установка проекта на новом ПК одной командой (запускается через INSTALL.bat в корне). |
@@ -2229,7 +2229,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `check_map_staged.py` | Проверка карты проекта перед коммитом: сверяет карту с тем, что реально попадает в коммит. |
 | `check_no_data_files.py` | Проверка гигиены репозитория: в git не попадают БД, проекты и рабочие документы. |
 | `check_stand_inventory.py` | Проверка полноты карты: всё, что лежит на стенде, должно быть в инвентаре `docs/project-map/stand.yaml`. |
-| `check_systems.ps1` | SKKKK — только проверка всех систем, без запуска |
+| `check_systems.ps1` | PrimaryAnalitics — только проверка всех систем, без запуска |
 | `collect_ui_copy.py` | Реестр текстов интерфейса (пункт плана 3.9): собирает русские подписи, подсказки, aria-label и строки JS. |
 | `compare_memory_vs_review.py` | Сравнение памяти решений с прежним контуром актуальности пунктов (docs/plans/DECISION-MEMORY-STAGES-6-8.md, Э7). |
 | `dedupe_speaker_profiles.py` | Удалить дубликаты speaker_profiles (имена и похожие голоса). |
@@ -2248,15 +2248,15 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `index_doctor.py` | Диагностика индекса проекта: всё ли в порядке и что чинить. Только чтение. |
 | `index_project_map.py` | Индексатор проекта (карта, код Python/JS/шаблонов/CSS, документы, символы, роуты, БД, окружение, история). |
 | `inspect_project_index.py` | Сверка векторного индекса проекта: чанки ↔ sqlite-vec ↔ lab _final.txt. |
-| `install_caddy.ps1` | SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора) |
+| `install_caddy.ps1` | PrimaryAnalitics — Caddy как HTTPS-прокси перед порталом (запуск от администратора) |
 | `install_hooks.ps1` | Установить (или снять) git-хуки проекта: обновление индекса после коммита и слияния, проверка карты проекта перед коммитом. |
 | `install_meeting_voice.py` | Isolated venv for the LiveKit voice recorder (tools/livekit/voice_cleaner.py). Not the app venv. |
-| `install_services.ps1` | SKKKK — установка служб Windows через NSSM (запуск от администратора) |
+| `install_services.ps1` | PrimaryAnalitics — установка служб Windows через NSSM (запуск от администратора) |
 | `kb_inbox.py` | Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю). |
 | `lightrag_doctor.py` | Проверка LightRAG: Docker, Ollama embed, LLM, inputs. |
 | `lightrag_index.py` | Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline. |
-| `lightrag_query.py` | Запрос к LightRAG по карте SKKKK. |
-| `lightrag_sync_docs.py` | Скопировать документацию SKKKK в LightRAG inputs для /documents/scan. |
+| `lightrag_query.py` | Запрос к LightRAG по карте PrimaryAnalitics. |
+| `lightrag_sync_docs.py` | Скопировать документацию PrimaryAnalitics в LightRAG inputs для /documents/scan. |
 | `link_meeting_people.py` | Участники прошлых встреч → люди проектов (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ5). |
 | `link_members_people.py` | Участники проектов → люди проектов (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ3). |
 | `link_project_parties.py` | Свести стороны проектов со справочником компаний (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ1). |
@@ -2268,8 +2268,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `mcp_audit.py` | Аудит проектного MCP на живых данных (docs/plans/MCP-KB-PLAN.md): что и сколько получает внешний агент. |
 | `memory_documents.py` | Документы в память решений (docs/plans/DOCUMENT-MEMORY-PLAN.md): дочитать уже загруженные документы проекта. |
 | `memory_scorecard.py` | Табло памяти решений: числа, по которым видно, приближаемся ли мы к цели (docs/plans/DECISION-MEMORY-PLAN.md, §4.3). |
-| `monitor_skkkk_loop.ps1` | SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0) |
-| `monitor_status.py` | Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
+| `monitor_primary_analitics_loop.ps1` | PrimaryAnalitics — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-M |
+| `monitor_status.py` | Лёгкий монитор PrimaryAnalitics: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log. |
 | `people_flow_report.py` | Отчёт расхождений «компания → сторона → человек → учётка → голос» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ0). |
 | `people_voice.py` | Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5). |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
@@ -2298,12 +2298,12 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `reprocess_documents.py` | Переобработка загруженных документов новым извлечением таблиц (docs/plans/DOCUMENT-TABLES-PLAN.md, шаг 8). |
 | `rerun_cursor_merge.py` | Пересклейка merge + view для артефакта (Cursor, без ASR и без Gemma). |
 | `rerun_transcript_integrity.py` | Пересчёт global integrity + plain без повторного LLM-merge. |
-| `restart.ps1` | SKKKK — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health |
+| `restart.ps1` | PrimaryAnalitics — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health |
 | `resume_knowledge.py` | Resume knowledge pipeline for an artifact with finished ASR/transcript. |
 | `review_project.py` | Разобрать проект локальной моделью целиком: пусть система решит всё, что может, и оставит человеку только спорное. |
-| `run_all.ps1` | SKKKK — весь проект одной командой (LLM из .env) |
-| `run_api.ps1` | SKKKK — только API (LLM из .env) |
-| `run_worker.ps1` | SKKKK — GPU-воркер очереди |
+| `run_all.ps1` | PrimaryAnalitics — весь проект одной командой (LLM из .env) |
+| `run_api.ps1` | PrimaryAnalitics — только API (LLM из .env) |
+| `run_worker.ps1` | PrimaryAnalitics — GPU-воркер очереди |
 | `scan_personal_data.py` | Проверка перед коммитом и отправкой: нет ли в файлах git имён людей и компаний из базы портала. |
 | `search_project_map.py` | Поиск по индексу проекта: смысл + точные имена + связи. Каждый ответ — с адресом `путь:строка`. |
 | `seed_people.py` | Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2). |
@@ -2312,15 +2312,15 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `start-cursor.ps1` | — |
 | `start-gemma.ps1` | — |
 | `start-saved.ps1` | — |
-| `start.ps1` | SKKKK — запуск API + GPU-воркер с выбором LLM |
-| `stop.ps1` | SKKKK — остановить API и GPU-воркер |
+| `start.ps1` | PrimaryAnalitics — запуск API + GPU-воркер с выбором LLM |
+| `stop.ps1` | PrimaryAnalitics — остановить API и GPU-воркер |
 | `unpack_exchange_bundle.py` | Разложить принятую посылку файлов агента в рабочую копию проекта (data/projects/<id>/config): карта, дипмапы, README. |
 | `user_profile.py` | Карточки пользователей из командной строки — когда портал запущен службой, а не из PyCharm. |
 | `verify_backup.py` | Проверка бэкапа БД (пункт плана 5.6): резервная копия целая и её можно восстановить. |
 | `voice_duplicates.py` | Возможные дубли в общей базе голосов — список на проверку человеком; слияние только выбранных пар. |
 | `voice_people_report.py` | Отчёт: чьи голоса уже есть в общей базе и как они соотносятся с реестром людей проекта (PLATFORM-FOUNDATION-PLAN, ПФ5). |
 | `voice_review.py` | Разбор базы голосов и людей проектов на слух: локальная страница, решения владельца, применение. |
-| `watch_server.py` | Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log). |
+| `watch_server.py` | Watch PrimaryAnalitics server, queue, and pipeline errors (stdout + monitor_loop.log). |
 
 **`scripts/smoke/`**
 
@@ -2448,7 +2448,7 @@ venv\Scripts\python.exe scripts\export_project_graph.py                         
 
 Страница для человека — `/admin/map/graph` (только admin): модульный вид целиком, окрестность сущности на глубину 1–4,
 фильтры по видам узлов и связей, панель выбранного узла со ссылкой «открыть в PyCharm». Для ИИ-агентов те же данные — через
-MCP-сервер `skkkk-index` (инструменты `graph_neighbors`, `module_deps`, `orphans`, `import_cycles`).
+MCP-сервер `primaryanalitics-index` (инструменты `graph_neighbors`, `module_deps`, `orphans`, `import_cycles`).
 
 Общая картина — `/admin/map/overview` («Обзор карты», только admin): тот же проект глазами инструмента projectmap (`tools/projectmap`, граф `.projectmap/out/graph.json`, раскладка посчитана заранее): подсистемы кругами со сворачиванием, группы связности, тепловая карта правок и шкала времени. Страница-фрейм отдаётся `services/projectmap_view.py` (кэш по времени графа); кнопка «Перестроить карту» запускает `projectmap index` под замком. Старая страница «Граф зависимостей» остаётся для окрестности отдельной сущности (роуты, таблицы, кнопки, переменные из индекса портала).
 
@@ -2482,7 +2482,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `.gitignore` | git | что не попадает в репозиторий | да |
 | `.kiloignore` | чужой инструмент | исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел) | нет |
 | `.kilo` | чужой инструмент | рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится) | нет |
-| `.mcp.json` | MCP | локальные MCP-серверы: skkkk-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) | да |
+| `.mcp.json` | MCP | локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) | да |
 | `.claude` | агент | конфиг Claude Code: launch.json, worktrees | да |
 | `.projectmap` | конфиг | конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты | да |
 | `.cursor` | агент | правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max) | да |
@@ -2500,7 +2500,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `opencode.json` | агент | конфиг агента opencode: модель LM Studio qwen3.8-27b | да |
 | `pytest.ini` | тесты | настройки pytest (маркеры gpu/slow, пути тестов) | да |
 | `README.md` | документ | обзор проекта для человека | да |
-| `run_server.ps1` | запуск | сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер SKKKK не поднимает) | да |
+| `run_server.ps1` | запуск | сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер PrimaryAnalitics не поднимает) | да |
 | `app` | код | портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7) | да |
 | `asr` | код | ASR: лабораторный контур, легаси-движки, docker, модели (§8) | да |
 | `data` | данные | БД, файлы проектов, записи встреч, логи, индексы | нет (не в git) |
@@ -2564,7 +2564,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 |---|---|---|---|
 | `venvs/lab` | окружение | ONNX-контур ASR: Parakeet-TDT, Sortformer, Silero VAD _(может отсутствовать)_ | нет |
 | `venvs/nemo-diar` | окружение | Nemotron 3 Diarization (NeMo + torch) отдельным процессом _(может отсутствовать)_ | нет |
-| `venvs/voice` | окружение | livekit SDK: рекордер голоса (skkkk-dfn) и запись экрана (skkkk-rec) _(может отсутствовать)_ | нет |
+| `venvs/voice` | окружение | livekit SDK: рекордер голоса (primaryanalitics-dfn) и запись экрана (primaryanalitics-rec) _(может отсутствовать)_ | нет |
 | `venvs/gigaam` | окружение | легаси-движок GigaAM (asr/engines.json), в рабочем контуре не вызывается _(может отсутствовать)_ | нет |
 | `venvs/tone` | окружение | легаси-движок T-one, откат _(может отсутствовать)_ | нет |
 | `venvs/whisper` | окружение | легаси-движок Whisper large-v3, откат _(может отсутствовать)_ | нет |
@@ -2633,9 +2633,9 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 
 | Путь | Вид | Назначение | В git |
 |---|---|---|---|
-| `scripts/SKKKK-1-Остановить.bat` | лаунчер | двойной щелчок: остановить портал и воркер | да |
-| `scripts/SKKKK-2-Запуск-Cursor.bat` | лаунчер | двойной щелчок: запуск с LLM в облаке (Cursor API) | да |
-| `scripts/SKKKK-3-Запуск-LM-Studio.bat` | лаунчер | двойной щелчок: запуск с локальной моделью (LM Studio) | да |
+| `scripts/PrimaryAnalitics-1-Остановить.bat` | лаунчер | двойной щелчок: остановить портал и воркер | да |
+| `scripts/PrimaryAnalitics-2-Запуск-Cursor.bat` | лаунчер | двойной щелчок: запуск с LLM в облаке (Cursor API) | да |
+| `scripts/PrimaryAnalitics-3-Запуск-LM-Studio.bat` | лаунчер | двойной щелчок: запуск с локальной моделью (LM Studio) | да |
 | `scripts/index_config.yaml` | конфиг | что индексировать: файлы, исключения, версия схемы, маскирование секретов | да |
 | `scripts/index_glossary.yaml` | конфиг | словарь синонимов для поиска по карте | да |
 | `scripts/voice_review.html` | шаблон | страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/ | да |
@@ -2687,35 +2687,35 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `docs/prompts/subject_window.md` | Промпт: раскладка окна реплик по предметам (Э3, вариант «один проход по окну») |
 | `docs/prompts/suggest_speaker_names.md` | Промпт: подсказка имени неизвестного голоса (автопроверка, этап 3) |
 | `docs/prompts/tz_sections.md` | Промпт: итоговое резюме по разделам из памяти решений |
-| `docs/plans/AUTO-REVIEW-PLAN.md` | SKKKK — Автопроверка локальной моделью: меньше ручных подтверждений |
-| `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | SKKKK — Автономное разрешение противоречий: созвоны и документы без ручного разбора |
-| `docs/plans/DECISION-MEMORY-PLAN.md` | SKKKK — Память решений: что решено, что отклонено, что заменено |
+| `docs/plans/AUTO-REVIEW-PLAN.md` | PrimaryAnalitics — Автопроверка локальной моделью: меньше ручных подтверждений |
+| `docs/plans/CONFLICT-AUTONOMY-PLAN.md` | PrimaryAnalitics — Автономное разрешение противоречий: созвоны и документы без ручного разбора |
+| `docs/plans/DECISION-MEMORY-PLAN.md` | PrimaryAnalitics — Память решений: что решено, что отклонено, что заменено |
 | `docs/plans/DECISION-MEMORY-STAGES-6-8.md` | Память решений: оставшиеся этапы Э6 (экран), Э7 (тень и включение), Э8 (инкремент) — подготовка |
 | `docs/plans/DOCUMENT-MEMORY-PLAN.md` | Документы в памяти решений |
 | `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
-| `docs/plans/final-plan.md` | SKKKK: идеальная расшифровка созвона — итоговый план |
-| `docs/plans/LLM-LANES-PLAN.md` | SKKKK — Две полосы локальной модели: чат отвечает во время обработки |
-| `docs/plans/MCP-KB-PLAN.md` | SKKKK — MCP базы знаний: полный текст, порции, память решений, честные инструкции |
+| `docs/plans/final-plan.md` | PrimaryAnalitics: идеальная расшифровка созвона — итоговый план |
+| `docs/plans/LLM-LANES-PLAN.md` | PrimaryAnalitics — Две полосы локальной модели: чат отвечает во время обработки |
+| `docs/plans/MCP-KB-PLAN.md` | PrimaryAnalitics — MCP базы знаний: полный текст, порции, память решений, честные инструкции |
 | `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |
-| `docs/plans/MEETING-PLAN.md` | SKKKK — Созвон: единый план до production-ready (комната → запись → расшифровка → знания) |
-| `docs/plans/meeting-room-plan.md` | SKKKK: страница созвона — план доработки по тестовому созвону 12 |
-| `docs/plans/MEETING-SCREEN-PLAN.md` | SKKKK — Запись экрана: полный план (C1–C4) |
+| `docs/plans/MEETING-PLAN.md` | PrimaryAnalitics — Созвон: единый план до production-ready (комната → запись → расшифровка → знания) |
+| `docs/plans/meeting-room-plan.md` | PrimaryAnalitics: страница созвона — план доработки по тестовому созвону 12 |
+| `docs/plans/MEETING-SCREEN-PLAN.md` | PrimaryAnalitics — Запись экрана: полный план (C1–C4) |
 | `docs/plans/NEMOTRON-DIARIZATION-PLAN.md` | Диаризация на Nemotron 3 (8 спикеров) вместо Sortformer 4spk — план |
-| `docs/plans/PEOPLE-FLOW-PLAN.md` | SKKKK — Люди, компании, учётки и голоса: сквозной путь |
+| `docs/plans/PEOPLE-FLOW-PLAN.md` | PrimaryAnalitics — Люди, компании, учётки и голоса: сквозной путь |
 | `docs/plans/PERSONAL-PASSWORD-PLAN.md` | Личный пароль пользователя — план реализации |
 | `docs/plans/plan-review.md` | Ревизия планов v4 / v5 относительно кода |
-| `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | SKKKK — Подготовка платформы к памяти решений |
+| `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | PrimaryAnalitics — Подготовка платформы к памяти решений |
 | `docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md` | План: точность контекста, задачи и «что нового» для менеджера |
 | `docs/plans/PROJECT-INDEX-PLAN.md` | План: индекс проекта, которым можно управлять (поиск по смыслу, коду, связям и истории) |
 | `docs/plans/PROJECTMAP-PLAN.md` | План: инструмент `projectmap` — полная карта любого проекта |
 | `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Просмотрщик projectmap: пробная сборка G6 и Cytoscape |
-| `docs/plans/REQUIREMENTS-PLAN.md` | SKKKK — Требования: понятные, с источником «кто и когда», актуальные |
-| `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | SKKKK — Кадры экрана: время, момент, дубли, база знаний |
-| `docs/plans/SKKKK-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | SKKKK — План полного закрытия дыр в конвейере созвона |
-| `docs/plans/SOURCE-ANCHORS-PLAN.md` | SKKKK — Якоря источников: даты сообщений переписки и переход к месту в стенограмме |
-| `docs/plans/TRANSCRIPT-PROVENANCE-PLAN.md` | SKKKK — «Кто и когда»: стенограмма → база → чат (план внедрения) |
+| `docs/plans/REQUIREMENTS-PLAN.md` | PrimaryAnalitics — Требования: понятные, с источником «кто и когда», актуальные |
+| `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | PrimaryAnalitics — Кадры экрана: время, момент, дубли, база знаний |
+| `docs/plans/PrimaryAnalitics-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | PrimaryAnalitics — План полного закрытия дыр в конвейере созвона |
+| `docs/plans/SOURCE-ANCHORS-PLAN.md` | PrimaryAnalitics — Якоря источников: даты сообщений переписки и переход к месту в стенограмме |
+| `docs/plans/TRANSCRIPT-PROVENANCE-PLAN.md` | PrimaryAnalitics — «Кто и когда»: стенограмма → база → чат (план внедрения) |
 | `docs/plans/USER-PROFILE-PLAN.md` | Карточка пользователя — план реализации |
-| `docs/stages/README.md` | Этапы SKKKK |
+| `docs/stages/README.md` | Этапы PrimaryAnalitics |
 | `docs/stages/STAGE-00-environment.md` | Этап 0. Стенд Windows |
 | `docs/stages/STAGE-01-skeleton.md` | Этап 1. Каркас портала |
 | `docs/stages/STAGE-02-upload-queue.md` | Этап 2. Загрузка и очередь |
@@ -2737,12 +2737,12 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 
 | Что | Вид | Назначение |
 |---|---|---|
-| Git LFS | git | git-lfs 3.7.0 установлен, .gitattributes нет; хуки post-checkout/post-commit/post-merge/pre-push — от LFS, к ним в post-commit и post-merge добавлен блок SKKKK-INDEX (обновление индекса в фоне) |
-| Службы Windows (NSSM) | runtime | SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1 |
-| Планировщик заданий | runtime | задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел |
+| Git LFS | git | git-lfs 3.7.0 установлен, .gitattributes нет; хуки post-checkout/post-commit/post-merge/pre-push — от LFS, к ним в post-commit и post-merge добавлен блок PrimaryAnalitics-INDEX (обновление индекса в фоне) |
+| Службы Windows (NSSM) | runtime | PrimaryAnalitics-API, PrimaryAnalitics-GPU, PrimaryAnalitics-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1 |
+| Планировщик заданий | runtime | задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_primary_analitics_loop.ps1 устарел |
 | Ollama | внешнее | bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает |
 | LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 56000; загружает и выгружает портал, JIT-автозагрузка выключена |
-| Docker Desktop | внешнее | контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621) |
+| Docker Desktop | внешнее | контейнеры primaryanalitics-gigaam (рабочий), primaryanalitics-whisper и primaryanalitics-tone (откат), LightRAG (:9621) |
 | Caddy | внешнее | HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP) |
 | LiveKit | внешнее | native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478 |
 | FFmpeg / Tesseract / LibreOffice | внешнее | звук (16 кГц моно), OCR rus+eng, конвертация старых офисных форматов; портативные копии в tools/ |

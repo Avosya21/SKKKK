@@ -16,7 +16,7 @@ from app.app.services.pipeline_resume import try_resume_transcript
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_root
 
-logger = logging.getLogger("skkkk.pipeline")
+logger = logging.getLogger("primaryanalitics.pipeline")
 
 
 def process_artifact(db: Session, settings: Settings, artifact: Artifact) -> None:

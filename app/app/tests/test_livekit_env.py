@@ -56,7 +56,7 @@ def test_ensure_livekit_files_writes_lan_node_ip(monkeypatch, tmp_path):
     env.write_text(
         "\n".join(
             [
-                "SKKKK_PUBLIC_HOST=203.0.113.10",
+                "PRIMARY_ANALITICS_PUBLIC_HOST=203.0.113.10",
                 "LIVEKIT_API_KEY=devkey",
                 "LIVEKIT_API_SECRET=devsecret",
                 "LIVEKIT_URL=wss://203.0.113.10:777/livekit",

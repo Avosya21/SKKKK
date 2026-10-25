@@ -1,9 +1,9 @@
 """Ultra Diar Streaming Sortformer 8spk v1 (NeMo) vs Sortformer 4spk GGUF / PyAnnote.
 
 Example:
-  C:\\1C_NEW_SKKKK\\venvs\\nemo-diar\\Scripts\\python.exe experiments\\nemo-diar\\run_ultra_8spk_test.py
+  D:\\Primary_Analitics\\venvs\\nemo-diar\\Scripts\\python.exe experiments\\nemo-diar\\run_ultra_8spk_test.py
   ... --clip-sec 240
-  ... --audio C:\\1C_NEW_SKKKK\\asr\\work\\input_16k.wav
+  ... --audio D:\\Primary_Analitics\\asr\\work\\input_16k.wav
 """
 
 from __future__ import annotations

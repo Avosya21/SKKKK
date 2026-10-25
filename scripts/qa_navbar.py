@@ -15,7 +15,7 @@ import qa_pages as qp  # noqa: E402
 
 JS = """() => {
   const q = s => document.querySelector(s);
-  const nav = q('.navbar-skkkk'), proj = q('.navbar-project'), brand = q('.navbar-brand[href="/"]');
+  const nav = q('.navbar-primaryanalitics'), proj = q('.navbar-project'), brand = q('.navbar-brand[href="/"]');
   const r = e => e ? e.getBoundingClientRect() : null;
   const rows = new Set([...nav.querySelectorAll('.navbar-brand[href="/"], .navbar-project, .navbar-back, #nav-session')]
     .filter(e => e.offsetParent).map(e => Math.round(r(e).top / 8)));

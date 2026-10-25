@@ -1,4 +1,4 @@
-# SKKKK — агент проекта
+# PrimaryAnalitics — агент проекта
 
 Читай и следуй:
 
@@ -35,12 +35,12 @@ venv\Scripts\python.exe scripts\search_project_map.py --import-cycles           
 - После правок кода: `venv\Scripts\python.exe scripts\index_project_map.py` (только изменённые файлы, секунды). Хуки git и `restart.ps1` делают это сами.
 - Граф зависимостей: атлас `docs/project-map/DEPENDENCIES.md`, свод `docs/project-map/graph-modules.json`, страница `/admin/map/graph` (§16 карты). Пересборка после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py`.
 - Диагностика: `scripts\index_doctor.py`; расхождения карты с кодом: `scripts\check_map_drift.py` (`--fix` пересоздаёт реестр модулей).
-- Для ИИ-агентов тот же поиск доступен как MCP-сервер `skkkk-index` (`.mcp.json`, `tools/projindex_mcp.py`); для людей — страница `/admin/map`.
+- Для ИИ-агентов тот же поиск доступен как MCP-сервер `primaryanalitics-index` (`.mcp.json`, `tools/projindex_mcp.py`); для людей — страница `/admin/map`.
 
 
 **LightRAG (граф кнопок/API/БД):** Docker `tools/lightrag`, запросы — `py scripts/lightrag_query.py "вопрос"`. См. `tools/lightrag/README.md`.
 
-Работай только внутри `C:\1C_NEW_SKKKK`.
+Работай только внутри `D:\Primary_Analitics`.
 
 ## Карта проекта всегда актуальна (обязательно, для любого ИИ и человека)
 

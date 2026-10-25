@@ -25,7 +25,7 @@ from app.app.models.speaker_profile import SpeakerProfile
 from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
 
-logger = logging.getLogger("skkkk.identity")
+logger = logging.getLogger("primaryanalitics.identity")
 
 _USER_ID_COLUMNS: list[tuple[type, str]] = [
     (Artifact, "user_id"),

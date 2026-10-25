@@ -21,7 +21,7 @@ from pathlib import Path
 from app.app.logging_setup import log_event
 from app.app.services.table_md import clean_cell, make_table, render_md
 
-logger = logging.getLogger("skkkk.xlsx")
+logger = logging.getLogger("primaryanalitics.xlsx")
 
 SPREADSHEET_SUFFIXES = {".xlsx", ".xlsm", ".xltx", ".xls", ".ods"}
 CSV_SUFFIXES = {".csv", ".tsv"}

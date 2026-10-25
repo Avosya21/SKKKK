@@ -31,7 +31,7 @@ from speakers import Turn, format_turns_txt  # noqa: E402
 from paths import OUT  # noqa: E402
 from llm_client import chat, ensure_llm_ready, llm_name  # noqa: E402
 
-logger = logging.getLogger("skkkk.call_summary")
+logger = logging.getLogger("primaryanalitics.call_summary")
 
 PROMPT = ROOT / "docs" / "prompts" / "call_summary.md"
 BRIEF_PROMPT = ROOT / "docs" / "prompts" / "call_brief.md"

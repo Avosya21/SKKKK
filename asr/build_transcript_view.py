@@ -65,7 +65,7 @@ from transcript_view import load_call_summary_files, write_transcript_html  # no
 
 
 def _match_json_path() -> Path | None:
-    custom = os.environ.get("SKKKK_MATCH_JSON", "").strip()
+    custom = os.environ.get("PRIMARY_ANALITICS_MATCH_JSON", "").strip()
     if custom:
         return Path(custom)
     sibling = OUT.parent / "reports" / "sortformer_speaker_match.json"
@@ -75,8 +75,8 @@ def _match_json_path() -> Path | None:
 
 
 def _artifact_meta() -> tuple[str | None, int | None]:
-    aid = os.environ.get("SKKKK_ARTIFACT_ID", "").strip() or None
-    pid_raw = os.environ.get("SKKKK_PROJECT_ID", "").strip()
+    aid = os.environ.get("PRIMARY_ANALITICS_ARTIFACT_ID", "").strip() or None
+    pid_raw = os.environ.get("PRIMARY_ANALITICS_PROJECT_ID", "").strip()
     pid = int(pid_raw) if pid_raw.isdigit() else None
     return aid, pid
 

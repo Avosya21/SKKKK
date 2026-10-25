@@ -65,7 +65,7 @@ PRESETS: dict[str, dict[str, str]] = {
 
 
 def wait_gigaam(timeout_sec: float = 240.0) -> None:
-    subprocess.run(["docker", "start", "skkkk-gigaam"], check=False)
+    subprocess.run(["docker", "start", "primaryanalitics-gigaam"], check=False)
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         try:
@@ -73,7 +73,7 @@ def wait_gigaam(timeout_sec: float = 240.0) -> None:
             return
         except Exception:
             time.sleep(3)
-    raise SystemExit("skkkk-gigaam не поднялся")
+    raise SystemExit("primaryanalitics-gigaam не поднялся")
 
 
 def run_preset(name: str, env: dict[str, str]) -> Path:
@@ -89,7 +89,7 @@ def run_preset(name: str, env: dict[str, str]) -> Path:
             "docker",
             "exec",
             *docker_env,
-            "skkkk-gigaam",
+            "primaryanalitics-gigaam",
             "python",
             "/data/dump_pyannote.py",
         ],

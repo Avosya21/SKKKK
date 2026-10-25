@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 
-os.environ.setdefault("SKKKK_STRICT_DB_HOLD", "1")  # вызов LLM при открытой транзакции БД в тестах — ошибка (держит соединение пула)
-os.environ.setdefault("SKKKK_DISABLE_LLM_SELFCHECK", "1")  # самопроверка LLM при старте приложения будила бы настоящий LM Studio
-os.environ.setdefault("SKKKK_DISABLE_LLM_KEEPER", "1")  # хранитель модели не вызывает lms: иначе тест загрузил бы 18 ГБ в GPU
-os.environ.setdefault("SKKKK_STRICT_LLM_LANE", "1")  # фоновый вызов модели из процесса API в тестах — ошибка (llm_lanes)
-os.environ.setdefault("SKKKK_DISABLE_EDGE", "1")  # тесты не запускают настоящие рекордеры записи (см. edge_runtime.edge_disabled)
+os.environ.setdefault("PRIMARY_ANALITICS_STRICT_DB_HOLD", "1")  # вызов LLM при открытой транзакции БД в тестах — ошибка (держит соединение пула)
+os.environ.setdefault("PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK", "1")  # самопроверка LLM при старте приложения будила бы настоящий LM Studio
+os.environ.setdefault("PRIMARY_ANALITICS_DISABLE_LLM_KEEPER", "1")  # хранитель модели не вызывает lms: иначе тест загрузил бы 18 ГБ в GPU
+os.environ.setdefault("PRIMARY_ANALITICS_STRICT_LLM_LANE", "1")  # фоновый вызов модели из процесса API в тестах — ошибка (llm_lanes)
+os.environ.setdefault("PRIMARY_ANALITICS_DISABLE_EDGE", "1")  # тесты не запускают настоящие рекордеры записи (см. edge_runtime.edge_disabled)
 
 from collections.abc import Generator
 
@@ -343,7 +343,7 @@ def anon_client(client: TestClient) -> TestClient:
 
 def cookie_auth_client(client: TestClient, admin_token: str) -> TestClient:
 
-    """Same TestClient after admin login: HttpOnly skkkk_session is in the cookie jar.
+    """Same TestClient after admin login: HttpOnly primary_analitics_session is in the cookie jar.
 
     admin_token is the Bearer twin of that cookie. Packet 1: cookie alone is enough
     for get_current_user; Bearer still works. Packet 2 will close anonymous reports.

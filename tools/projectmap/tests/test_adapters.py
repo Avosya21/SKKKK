@@ -170,7 +170,7 @@ def test_tests_that_call_routes_through_a_client_cover_the_handler(tmp_path):
 
 
 def test_system_and_configured_environment_variables_are_ignored_by_the_sample_check():
-    config = parse_config({"ignore_env": ["SMOKE_*", "SKKKK_INTERNAL"]})
-    for name in ("PATH", "Path", "LocalAppData", "ProgramFiles(x86)", "SMOKE_BASE", "skkkk_internal"):
+    config = parse_config({"ignore_env": ["SMOKE_*", "PRIMARY_ANALITICS_INTERNAL"]})
+    for name in ("PATH", "Path", "LocalAppData", "ProgramFiles(x86)", "SMOKE_BASE", "primary_analitics_internal"):
         assert config.is_env_ignored(name), name
     assert not config.is_env_ignored("DATABASE_URL")

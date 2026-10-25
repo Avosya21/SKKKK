@@ -33,7 +33,7 @@ from app.app.services.storage import (
 )
 from app.app.services.upload import ffprobe_duration
 
-logger = logging.getLogger("skkkk.artifact_audio")
+logger = logging.getLogger("primaryanalitics.artifact_audio")
 
 # Speech-oriented AAC: ~10–20× smaller than 16 kHz PCM WAV, streams on iOS/Android.
 _PLAYBACK_BITRATE = "48k"
@@ -320,12 +320,12 @@ def _rebuild_transcript_report(settings: Settings, artifact: Artifact) -> Path |
     )
 
     env = os.environ.copy()
-    env["SKKKK_ASR_WORK"] = str(ws / "audio")
-    env["SKKKK_ASR_OUT"] = str(asr_out)
-    env["SKKKK_AUDIO_URL"] = f"/artifacts/{artifact.artifact_id}/audio"
-    env["SKKKK_ARTIFACT_ID"] = artifact.artifact_id
-    env["SKKKK_PROJECT_ID"] = str(artifact.project_id)
-    env["SKKKK_MATCH_JSON"] = str(match_json)
+    env["PRIMARY_ANALITICS_ASR_WORK"] = str(ws / "audio")
+    env["PRIMARY_ANALITICS_ASR_OUT"] = str(asr_out)
+    env["PRIMARY_ANALITICS_AUDIO_URL"] = f"/artifacts/{artifact.artifact_id}/audio"
+    env["PRIMARY_ANALITICS_ARTIFACT_ID"] = artifact.artifact_id
+    env["PRIMARY_ANALITICS_PROJECT_ID"] = str(artifact.project_id)
+    env["PRIMARY_ANALITICS_MATCH_JSON"] = str(match_json)
 
     proc = subprocess.run(
         [sys.executable, str(ROOT / "asr" / "build_transcript_view.py")],

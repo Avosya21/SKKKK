@@ -56,7 +56,7 @@ def setup_logging(component: str, log_dir, level: int = logging.INFO) -> None:
     for name in ("httpx", "httpcore", "urllib3", "PIL"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
-    logging.getLogger("skkkk").setLevel(level)
+    logging.getLogger("primaryanalitics").setLevel(level)
     _CONFIGURED.add(component)
 
 

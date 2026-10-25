@@ -22,7 +22,7 @@ from typing import Any
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.speakers")
+logger = logging.getLogger("primaryanalitics.speakers")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "suggest_speaker_names.md"

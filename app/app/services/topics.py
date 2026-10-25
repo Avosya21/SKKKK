@@ -23,7 +23,7 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Topic
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "assign_topics.md"

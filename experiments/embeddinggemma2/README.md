@@ -55,7 +55,7 @@
 ## Запуск
 
 ```powershell
-cd C:C_NEW_SKKKK\experiments\embeddinggemma2
+cd C:C_NEW_PrimaryAnalitics\experiments\embeddinggemma2
 .venv\Scripts\python.exe snapshot.py            # 1. копия базы, фрагменты, векторы BGE-M3, список кадров
 .venv\Scripts\python.exe gold_tools.py build    #    эталон: out/gold/spec_*.json -> questions_gold.json
 .venv\Scripts\python.exe embed.py chunks        # 2. векторы Gemma для фрагментов

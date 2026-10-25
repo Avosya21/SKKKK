@@ -64,8 +64,8 @@ from app.app.services.llm import check_llm_provider, provider_uses_lmstudio  # n
 from app.app.services.ollama_client import ollama_tags  # noqa: E402
 from app.app.services.vector_index import init_vector_store  # noqa: E402
 
-logger = logging.getLogger("skkkk.api")
-startup_logger = logging.getLogger("skkkk.startup")
+logger = logging.getLogger("primaryanalitics.api")
+startup_logger = logging.getLogger("primaryanalitics.startup")
 
 
 @asynccontextmanager
@@ -457,7 +457,7 @@ def _spawn_worker() -> subprocess.Popen:
     """Воркер поднимается отдельным процессом: у него свой цикл GPU-фаз."""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_PROJECT_ROOT), env.get("PYTHONPATH", "")]))
-    env["SKKKK_PROCESS_ROLE"] = "worker"  # не наследовать роль процесса портала (llm_lanes)
+    env["PRIMARY_ANALITICS_PROCESS_ROLE"] = "worker"  # не наследовать роль процесса портала (llm_lanes)
     process = subprocess.Popen(
         [sys.executable, "-m", "app.app.main", "worker", "--skip-checks", "--use-saved-llm"],
         cwd=str(_PROJECT_ROOT),
@@ -496,7 +496,7 @@ def _serve(host: str, port: int, *, reload: bool) -> None:
     # моменту уже подготовлен родительским процессом.
     target = "app.app.main:app" if reload else app
     # Процесс портала: модель для него — только полоса чата (services/llm_lanes.py); переменная доходит и до reload-воркера.
-    os.environ["SKKKK_PROCESS_ROLE"] = "api"
+    os.environ["PRIMARY_ANALITICS_PROCESS_ROLE"] = "api"
     uvicorn.run(target, host=host, port=port, log_level="info", reload=reload)
 
 
@@ -629,7 +629,7 @@ def _reset_role_passwords_interactive(host: str, port: int) -> None:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(prog="skkkk", description="Единая точка входа Primary Analytics")
+    parser = argparse.ArgumentParser(prog="primaryanalitics", description="Единая точка входа Primary Analytics")
     parser.add_argument(
         "mode",
         nargs="?",

@@ -8,8 +8,8 @@
 <script src="/static/vendor/cytoscape/cytoscape.min.js?v=3.30.2"></script>
 <script>
 (async () => {
-  if (!SKKKK.requireAuth()) return;
-  const r = await SKKKK.api('/projects/{{ project_id }}/graph/data');
+  if (!PrimaryAnalitics.requireAuth()) return;
+  const r = await PrimaryAnalitics.api('/projects/{{ project_id }}/graph/data');
   const data = await r.json();
   cytoscape({
     container: document.getElementById('cy'),

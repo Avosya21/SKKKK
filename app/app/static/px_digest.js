@@ -51,7 +51,7 @@
   async function addWaiting() {
     if (!staff || box.dataset.waitingLoaded === '1') return;
     try {
-      const r = await SKKKK.api(`/projects/${PID}/agent-exchange/summary`);
+      const r = await PrimaryAnalitics.api(`/projects/${PID}/agent-exchange/summary`);
       if (!r.ok) return;
       const s = await r.json();
       const n = s.requirements_unconfirmed || 0;
@@ -69,13 +69,13 @@
   });
   document.getElementById('project-digest-hide')?.addEventListener('click', async () => {
     box.hidden = true;
-    try { await SKKKK.api(`/projects/${PID}/digest/dismiss`, { method: 'POST' }); } catch (e) { /* скрыто на экране и так */ }
+    try { await PrimaryAnalitics.api(`/projects/${PID}/digest/dismiss`, { method: 'POST' }); } catch (e) { /* скрыто на экране и так */ }
   });
 
   window.PXDigest = {
     async reload() {
       try {
-        const r = await SKKKK.api(`/projects/${PID}/digest`);
+        const r = await PrimaryAnalitics.api(`/projects/${PID}/digest`);
         if (r.ok) { box.dataset.waitingLoaded = ''; render(await r.json()); }
       } catch (e) { /* полоска не критична */ }
     },

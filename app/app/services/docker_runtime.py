@@ -11,14 +11,14 @@ from pathlib import Path
 
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.docker")
+logger = logging.getLogger("primaryanalitics.docker")
 
 ROOT = Path(__file__).resolve().parents[3]
 COMPOSE_FILE = ROOT / "asr" / "docker-compose.yml"
 ENV_FILE = ROOT / ".env"
 
-ASR_CONTAINERS: tuple[str, ...] = ("skkkk-gigaam",)
-GIGAAM_CONTAINER = "skkkk-gigaam"
+ASR_CONTAINERS: tuple[str, ...] = ("primaryanalitics-gigaam",)
+GIGAAM_CONTAINER = "primaryanalitics-gigaam"
 GIGAAM_HEALTH_WAIT_SEC = 180
 GIGAAM_HEALTH_POLL_SEC = 3
 

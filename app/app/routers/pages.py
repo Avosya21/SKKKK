@@ -60,7 +60,7 @@ from fastapi.templating import Jinja2Templates
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 MANIFEST_MEDIA = "application/manifest+json"
-MANIFEST_NAME = "Встреча SKKKK"
+MANIFEST_NAME = "Встреча PrimaryAnalitics"
 MANIFEST_DISPLAY = "standalone"
 MANIFEST_ICON = "/static/meeting-icon.svg"
 
@@ -275,7 +275,7 @@ def project_page(
     try:
         digest = digest_for_page(db, get_settings(), project, user, role)
     except Exception:  # полоска не должна ломать страницу проекта
-        logging.getLogger("skkkk.pages").exception("project digest failed project=%s", project_id)
+        logging.getLogger("primaryanalitics.pages").exception("project digest failed project=%s", project_id)
         digest = {"lines": []}
     return templates.TemplateResponse(
         request,

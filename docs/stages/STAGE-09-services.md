@@ -17,8 +17,8 @@
 3. **Ollama** — служба, автозапуск, переменная окружения с ограничением GPU при необходимости.
 
 4. **NSSM для нашего кода**:
-   - `SKKKK-API`: `venv\Scripts\python.exe -m app.app.main api --host 127.0.0.1 --port 1111`, рабочий каталог `C:\1C_NEW_SKKKK`, логи в `data\logs`;
-   - `SKKKK-GPU`: `venv\Scripts\python.exe -m app.app.main worker`;
+   - `PrimaryAnalitics-API`: `venv\Scripts\python.exe -m app.app.main api --host 127.0.0.1 --port 1111`, рабочий каталог `D:\Primary_Analitics`, логи в `data\logs`;
+   - `PrimaryAnalitics-GPU`: `venv\Scripts\python.exe -m app.app.main worker`;
    - автоперезапуск при падении с задержкой;
    - учётная запись, у которой есть доступ к GPU и к каталогу проекта.
 
@@ -30,7 +30,7 @@
 
 ## Что появляется
 
-Службы `SKKKK-API`, `SKKKK-GPU` в `services.msc`, документ `docs/OPERATIONS.md`.
+Службы `PrimaryAnalitics-API`, `PrimaryAnalitics-GPU` в `services.msc`, документ `docs/OPERATIONS.md`.
 
 ## Полезные проекты на GitHub
 
@@ -56,7 +56,7 @@
 
 Проверка «GPU из-под службы» обязательна: доступ к видеокарте из сервисного контекста Windows — известная точка отказа, и обнаружиться она должна здесь, а не в день демонстрации.
 
-Скриншот `services.msc` с обоими сервисами (`SKKKK-API`, `SKKKK-GPU`) в статусе «Выполняется» после перезагрузки и скриншот портала, открытого с другой машины в сети, — минимальное визуальное подтверждение перед закрытием этапа.
+Скриншот `services.msc` с обоими сервисами (`PrimaryAnalitics-API`, `PrimaryAnalitics-GPU`) в статусе «Выполняется» после перезагрузки и скриншот портала, открытого с другой машины в сети, — минимальное визуальное подтверждение перед закрытием этапа.
 
 ## Тесты
 

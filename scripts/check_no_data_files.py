@@ -5,7 +5,7 @@
 
 Запрещены пути из data/, private/ и onec/, файлы баз (*.db, *.sqlite*), офисные
 документы, аудио/видео и веса моделей. Исключения — синтетические фикстуры
-тестов и примеры настроек. Хук pre-commit (блок SKKKK-DATA) вызывает --staged.
+тестов и примеры настроек. Хук pre-commit (блок PrimaryAnalitics-DATA) вызывает --staged.
 """
 from __future__ import annotations
 

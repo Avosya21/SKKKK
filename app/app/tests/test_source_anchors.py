@@ -215,7 +215,7 @@ def test_report_pages_get_jump_script_and_chat_anchors(client, admin_token, tmp_
         aid = art.artifact_id
     finally:
         db.close()
-    client.cookies.set("skkkk_token", admin_token)
+    client.cookies.set("primary_analitics_token", admin_token)
     r = client.get(f"/artifacts/{aid}/report?m=107", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200, r.text[:300]
     assert "/static/report-jump.js" in r.text and 'id="m107"' in r.text and 'class="chat-msg"' in r.text

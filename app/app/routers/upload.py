@@ -57,7 +57,7 @@ from app.app.services.upload import (
 from app.app.services.user_activity import ACTION_DELETE, ACTION_REVIEW, ACTION_UPLOAD, BLOCK_UPLOAD, log_activity
 
 router = APIRouter(prefix="/projects", tags=["upload"])
-logger = logging.getLogger("skkkk.upload")
+logger = logging.getLogger("primaryanalitics.upload")
 
 
 class UploadInitIn(BaseModel):

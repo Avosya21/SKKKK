@@ -33,7 +33,7 @@ def use_db_copy_for_dry_run() -> Path:
     import tempfile
 
     src = ROOT / "data" / "app.db"
-    dst = Path(tempfile.mkdtemp(prefix="skkkk-dry-")) / "app.db"
+    dst = Path(tempfile.mkdtemp(prefix="primaryanalitics-dry-")) / "app.db"
     with sqlite3.connect(src) as a, sqlite3.connect(dst) as b:
         a.backup(b)
     os.environ["DATABASE_URL"] = "sqlite:///" + dst.as_posix()

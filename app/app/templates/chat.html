@@ -27,14 +27,14 @@
                 aria-label="Вопрос по материалам проекта"
                 enterkeyhint="send"
                 autocomplete="off"></textarea>
-      <button id="chat-send" class="btn btn-primary btn-sm skkkk-action-btn" data-idle-label="Спросить">Спросить</button>
+      <button id="chat-send" class="btn btn-primary btn-sm primaryanalitics-action-btn" data-idle-label="Спросить">Спросить</button>
     </div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-if (!SKKKK.requireAuth()) throw new Error('auth');
+if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 
 const projectId = {{ project_id }};
 const chatLog = document.getElementById('chat-log');
@@ -52,7 +52,7 @@ function escapeAttr(text) {
 }
 
 function renderMarkdown(text) {
-  let safe = escapeHtml(SKKKK.cleanSummaryOutput(text || ''));
+  let safe = escapeHtml(PrimaryAnalitics.cleanSummaryOutput(text || ''));
   safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
   safe = safe.replace(/\n/g, '<br>');
@@ -94,7 +94,7 @@ function isChatPending(messages) {
 }
 
 function setChatBusy(busy) {
-  SKKKK.setButtonBusy(sendBtn, busy, { label: busy ? 'Думаю…' : undefined });
+  PrimaryAnalitics.setButtonBusy(sendBtn, busy, { label: busy ? 'Думаю…' : undefined });
   qInput.disabled = busy;
   qInput.placeholder = busy ? 'ИИ готовит ответ…' : 'Задайте вопрос по материалам проекта';
   if (!chatStatus) return;
@@ -119,7 +119,7 @@ function renderHistoryMessage(msg) {
 async function refreshChatLabel() {
   if (!chatStatus) return;
   try {
-    const r = await SKKKK.api(`/projects/${projectId}/chat/status`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/chat/status`);
     if (!r.ok) return;
     const s = await r.json();
     if (s.label) chatStatus.textContent = s.label;
@@ -129,7 +129,7 @@ async function refreshChatLabel() {
 }
 
 async function reloadChatLog() {
-  const r = await SKKKK.api(`/projects/${projectId}/chat/history`);
+  const r = await PrimaryAnalitics.api(`/projects/${projectId}/chat/history`);
   if (!r.ok) return null;
   const data = await r.json();
   const empty = document.getElementById('chat-empty');
@@ -184,7 +184,7 @@ async function askChat() {
     startChatPoll();
     return;
   }
-  await SKKKK.guardButton(sendBtn, async () => {
+  await PrimaryAnalitics.guardButton(sendBtn, async () => {
     qInput.value = '';
     growQuestion();
     appendMessage('q', escapeHtml(question));
@@ -193,7 +193,7 @@ async function askChat() {
     setChatBusy(true);
     const labelTimer = setInterval(refreshChatLabel, 3000);
     try {
-      const r = await SKKKK.api('/chat', {
+      const r = await PrimaryAnalitics.api('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId, question }),

@@ -18,7 +18,7 @@ from app.app.services.llm import chat_completion_no_think
 from app.app.services.prompts import load_prompt_block
 from app.app.services.table_md import split_blocks
 
-logger = logging.getLogger("skkkk.normalize")
+logger = logging.getLogger("primaryanalitics.normalize")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "normalize_document.md"
 SECTION_MAX_CHARS = 8000

@@ -121,9 +121,9 @@ def main() -> int:
             a.click("#meeting-cam")
             wait_until(lambda: a.locator(".meeting-tile-local .meeting-tile-stream").count() >= 1, 20)
             check(a.locator(".meeting-tile-local .meeting-tile-stream.is-mirror").count() == 1, "фронтальная камера: своё изображение зеркалится")
-            a.evaluate("window.__facing = 'environment'; SKKKKMeeting._syncLocalMirror()")
+            a.evaluate("window.__facing = 'environment'; PrimaryAnaliticsMeeting._syncLocalMirror()")
             check(a.locator(".meeting-tile-local .meeting-tile-stream.is-mirror").count() == 0, "тыловая камера: зеркала нет")
-            a.evaluate("window.__facing = 'user'; SKKKKMeeting._syncLocalMirror()")
+            a.evaluate("window.__facing = 'user'; PrimaryAnaliticsMeeting._syncLocalMirror()")
             check(a.locator(".meeting-tile-local .meeting-tile-stream.is-mirror").count() == 1, "снова фронтальная: зеркало вернулось")
             check(bb.locator(".meeting-tile-stream.is-mirror").count() == 0, "у других участников чужое видео не зеркалится")
 
@@ -138,12 +138,12 @@ def main() -> int:
                 a.click("#meeting-mic-pick-btn")
                 items = a.locator("#meeting-mic-pick-menu .meeting-speaker-item")
                 check(items.count() >= 2, f"меню микрофонов содержит устройства ({items.count()})")
-                before = a.evaluate("SKKKKMeeting._currentMicId()")
+                before = a.evaluate("PrimaryAnaliticsMeeting._currentMicId()")
                 target = items.nth(1 if items.nth(0).get_attribute("aria-current") == "true" else 0)
                 target.click()
-                changed = wait_until(lambda: a.evaluate("SKKKKMeeting._currentMicId()") != before, 12)
+                changed = wait_until(lambda: a.evaluate("PrimaryAnaliticsMeeting._currentMicId()") != before, 12)
                 check(bool(changed), "микрофон переключён в комнате (устройство трека сменилось)")
-                check(a.evaluate("SKKKKMeeting.room.localParticipant.isMicrophoneEnabled") is True, "после смены микрофон остался включённым")
+                check(a.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.isMicrophoneEnabled") is True, "после смены микрофон остался включённым")
             else:
                 print("  SKIP выбор микрофона: в браузере одно устройство", flush=True)
 
@@ -155,9 +155,9 @@ def main() -> int:
             # Настоящие оценки LiveKit в том же браузере перебивали проверочные (на этой машине камера гостя оценивается
             # «good/poor» попеременно), и проверка возврата к 4 палочкам падала не из-за кода. На время проверок в индикатор
             # попадают только события сценария; после — всё как было.
-            a.evaluate("""() => { const m = SKKKKMeeting; m.__qaLinkQuality = m._linkQuality; window.__qaEmit = false;
+            a.evaluate("""() => { const m = PrimaryAnaliticsMeeting; m.__qaLinkQuality = m._linkQuality; window.__qaEmit = false;
               m._linkQuality = function (q) { if (window.__qaEmit) return m.__qaLinkQuality.call(m, q); }; }""")
-            emit = ("(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; window.__qaEmit = true;"
+            emit = ("(q) => { const LK = window.LivekitClient; const r = PrimaryAnaliticsMeeting.room; window.__qaEmit = true;"
                     " try { r.emit(LK.RoomEvent.ConnectionQualityChanged, q, r.localParticipant); } finally { window.__qaEmit = false; } }")
             level = lambda: a.evaluate("(document.getElementById('meeting-signal')||{dataset:{}}).dataset.level")  # noqa: E731
             status_before = a.evaluate("document.querySelector('#meeting-room-status').textContent")
@@ -184,10 +184,10 @@ def main() -> int:
             check(wait_until(lambda: level() == "4", 6) is not None and level() == "4", f"связь стабильно отличная: снова 4 палочки (сейчас {level()})")
             title = a.evaluate("document.getElementById('meeting-signal').title")
             check("отличное" in title, f"подсказка по наведению словами: «{title}»")
-            a.evaluate("() => { SKKKKMeeting._linkQuality = SKKKKMeeting.__qaLinkQuality; }")
+            a.evaluate("() => { PrimaryAnaliticsMeeting._linkQuality = PrimaryAnaliticsMeeting.__qaLinkQuality; }")
 
             # --- единообразие: у каждого участника на плитке те же палочки
-            remote = "(q) => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; const p = Array.from(r.remoteParticipants.values()).find((x) => !String(x.identity).startsWith('skkkk-')); r.emit(LK.RoomEvent.ConnectionQualityChanged, q, p); }"
+            remote = "(q) => { const LK = window.LivekitClient; const r = PrimaryAnaliticsMeeting.room; const p = Array.from(r.remoteParticipants.values()).find((x) => !String(x.identity).startsWith('primaryanalitics-')); r.emit(LK.RoomEvent.ConnectionQualityChanged, q, p); }"
             a.evaluate(remote, "poor"); time.sleep(0.6)
             tile_levels = a.evaluate("Array.from(document.querySelectorAll('.meeting-tile:not(.meeting-tile-local) .meeting-signal.is-tile')).map(x => x.dataset.level)")
             check(tile_levels == ["1"], f"чужая плитка: плохая связь показана одной красной палочкой (сейчас {tile_levels})")
@@ -198,25 +198,25 @@ def main() -> int:
             ctx_a.set_offline(True)
             time.sleep(5)
             ctx_a.set_offline(False)
-            ok = wait_until(lambda: a.evaluate("SKKKKMeeting.room && SKKKKMeeting.room.state") == "connected", 40)
+            ok = wait_until(lambda: a.evaluate("PrimaryAnaliticsMeeting.room && PrimaryAnaliticsMeeting.room.state") == "connected", 40)
             check(ok, "после обрыва сети на 5 с гость А в комнате")
             check(wait_until(lambda: tiles(bb) >= 2, 20) is not None and tiles(bb) >= 2, "Б всё ещё видит А")
 
             # --- длительный обрыв (45 с): библиотека сдаётся, наш цикл возвращает в комнату
-            a.click("#meeting-mic") if not a.evaluate("SKKKKMeeting.room.localParticipant.isMicrophoneEnabled") else None
+            a.click("#meeting-mic") if not a.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.isMicrophoneEnabled") else None
             ctx_a.set_offline(True)
             seen: list[str] = []
             for _ in range(max(1, args.outage // 10)):
                 time.sleep(10)
-                st = a.evaluate("SKKKKMeeting.room.state")
+                st = a.evaluate("PrimaryAnaliticsMeeting.room.state")
                 txt = a.evaluate("document.querySelector('#meeting-room-status').textContent").strip()[:60]
                 seen.append(f"{st}|{txt}")
             print(f"  за {args.outage} с офлайна у А: " + " -> ".join(dict.fromkeys(seen)), flush=True)
             ctx_a.set_offline(False)
-            back = wait_until(lambda: a.evaluate("SKKKKMeeting.room && SKKKKMeeting.room.state") == "connected", 90)
+            back = wait_until(lambda: a.evaluate("PrimaryAnaliticsMeeting.room && PrimaryAnaliticsMeeting.room.state") == "connected", 90)
             check(bool(back), f"после длительного обрыва ({args.outage} с) гость А сам вернулся в комнату")
             check(wait_until(lambda: tiles(bb) >= 2 and tiles(a) >= 2, 30) is not None, "оба снова видят друг друга после возврата")
-            mic_after = a.evaluate("SKKKKMeeting.room.localParticipant.isMicrophoneEnabled")
+            mic_after = a.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.isMicrophoneEnabled")
             check(mic_after is True, "микрофон после возврата снова включён")
             check(a.evaluate("document.querySelector('#meeting-room-status').textContent").strip() != "", "статус отображается")
 

@@ -1,9 +1,9 @@
 ---
 name: knowledge-pipeline
-description: Implements the SKKKK artifact pipeline from upload to TZ and RAG chat. Use when adding processing modules, artifact statuses, entities, graph links, conflict resolution, TZ rebuild, or chat-over-graph.
+description: Implements the PrimaryAnalitics artifact pipeline from upload to TZ and RAG chat. Use when adding processing modules, artifact statuses, entities, graph links, conflict resolution, TZ rebuild, or chat-over-graph.
 ---
 
-# Конвейер знаний SKKKK
+# Конвейер знаний PrimaryAnalitics
 
 Полная последовательность и статусы — в `docs/PLAN.md` (модули 0–12). Промпты — в `docs/prompts/`.
 
@@ -15,7 +15,7 @@ description: Implements the SKKKK artifact pipeline from upload to TZ and RAG ch
 
 ## Файлы на диске
 
-Корень артефактов: `C:\1C_NEW_SKKKK\data\projects\{project_id}\`.
+Корень артефактов: `D:\Primary_Analitics\data\projects\{project_id}\`.
 
 Аудио после lab-публикации в `parsed\calls\`:
 
