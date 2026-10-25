@@ -1,0 +1,4 @@
+Bootstrap 5.3.3
+Source: https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/
+Files: bootstrap.min.css, bootstrap.bundle.min.js
+Vendored so the portal UI does not load jsDelivr at runtime.

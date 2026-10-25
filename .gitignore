@@ -1,6 +1,10 @@
 venv/
 venvs/
 vendor/
+# UI-статика портала (Bootstrap, LiveKit, …) — в git; корень vendor/ (GigaAMGUI) — нет
+!app/app/static/vendor/
+!app/app/static/vendor/**
+# тяжёлые wasm/onnx шумодава встреч (~23 МБ) — по-прежнему локально
 app/app/static/vendor/dfn3/v3/
 data/gigaam/
 data/tools/
