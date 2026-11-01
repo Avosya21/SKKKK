@@ -116,7 +116,11 @@ experiments/promo_video/node_modules/
 experiments/promo_video/renders/
 experiments/fishspeech/repo/
 experiments/fishspeech/out/
-experiments/procedural-film/
+# procedural-film: всё локально, кроме share-видео (исключение — в конце файла, после глобального *.mp4)
+experiments/procedural-film/*
+!experiments/procedural-film/primary-infographic/
+experiments/procedural-film/primary-infographic/*
+!experiments/procedural-film/primary-infographic/exports/
 experiments/**/*.wav
 experiments/**/*.mp4
 experiments/**/*.log
@@ -171,6 +175,8 @@ onec/
 *.flac
 *.ogg
 *.mp4
+# share-версия инфографики (87 МБ) — публикуется в репо; полный рендер 317 МБ остаётся локально
+!experiments/procedural-film/primary-infographic/exports/primary-infographic-share.mp4
 *.mkv
 *.mov
 *.avi
