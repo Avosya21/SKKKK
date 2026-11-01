@@ -32,7 +32,7 @@ ALLOWED_FILES = {
     "scripts/qa_data_speech_a.wav",
     "scripts/qa_data_speech_b.wav",
     # share-видео инфографики Primary (87 МБ) — публикуется в репо по решению команды
-    "app/app/static/videos/primary-infographic-share.mp4",
+    "experiments/procedural-film/primary-infographic/exports/primary-infographic-share.mp4",
 }
 
 

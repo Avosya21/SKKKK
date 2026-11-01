@@ -4,20 +4,6 @@
 <button type="button" class="btn btn-sm btn-outline-light nav-changelog" data-bs-toggle="modal" data-bs-target="#changelogModal">Исправлено</button>
 {% endblock %}
 {% block content %}
-{# Видео-инфографика: самое первое на главной, с описанием до списка проектов #}
-<section aria-label="Как работает портал" class="mb-4 border rounded p-3 p-md-4">
-  <h2 class="h4 fw-semibold mb-2">Портал SKKKK — как он работает</h2>
-  <p class="text-body-secondary mb-3" style="max-width:75ch;">
-    Портал для созвонов и документов: распознаёт речь (у каждого участника своя дорожка, WebRTC),
-    понимает, кто что сказал, находит решения, задачи и противоречия между материалами,
-    отвечает на вопросы со ссылкой на источник. Всё работает локально — одна GPU, без внешних API.
-    Видео ниже — процедурная инфографика: весь конвейер за 60 секунд.
-  </p>
-  <video class="w-100 rounded" controls preload="metadata" poster="/static/videos/primary-infographic-poster.jpg">
-    <source src="/static/videos/primary-infographic-share.mp4" type="video/mp4">
-    Ваш браузер не поддерживает воспроизведение видео.
-  </video>
-</section>
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap projects-page-header">
   <h1 class="h3 mb-0">Проекты</h1>
   {% if current_role in ('admin', 'manager') %}

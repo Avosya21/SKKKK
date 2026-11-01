@@ -386,8 +386,6 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 ### 5.3. Список проектов — `/` (`index.html`)
 
-В самом начале страницы (выше списка проектов) — видео-блок «Портал SKKKK — как он работает»: описание + `<video controls preload="metadata" poster>` с процедурной инфографикой конвейера за 60 секунд. Видео и постер лежат в репо: `app/app/static/videos/primary-infographic-share.mp4` (87 МБ, исключён из `.gitignore` и allow-list `scripts/check_no_data_files.py`) + `primary-infographic-poster.jpg`. Полноформатный рендер остаётся локально.
-
 | Кнопка / элемент | API | Кто | Роль | Результат |
 |------------------|-----|-----|------|-----------|
 | **Новый проект** | — | UI | admin, manager | Открывает модалку |
