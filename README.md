@@ -4,7 +4,7 @@
 
 Процедурная инфографика всего конвейера: от записи созвона и документов к проверяемой базе знаний — «двойной слух» распознавания речи, говорящие по голосу, решения, задачи и противоречия, чат со ссылками на источник. Всё работает локально — одна GPU 24 ГБ, без внешних API.
 
-[![Как работает портал — процедурная инфографика](experiments/procedural-film/primary-infographic/exports/primary-infographic-poster.jpg)](https://github.com/Avosya21/SKKKK/blob/main/experiments/procedural-film/primary-infographic/exports/primary-infographic-share.mp4)
+[![Как работает портал — процедурная инфографика](experiments/procedural-film/primary-infographic/exports/primary-infographic-poster.jpg)](https://github.com/user-attachments/assets/ad01b12f-6eac-4583-a50c-509680d5abf5)
 
 **SKKKK** (внутреннее имя портала — *Primary Analytics*) — локальный веб-портал для команды, который превращает поток проектных материалов — записи созвонов, живые встречи, документы, таблицы, скриншоты, заметки — в **проверяемую базу знаний проекта**: стенограммы с подписанными спикерами, решения и задачи, противоречия, актуальное ТЗ и чат со ссылками на источники.
 
