@@ -73,7 +73,7 @@ LiveKit — обычный процесс `tools/livekit/livekit-server.exe`, н
 **Потолок:** перезапуск `voice_cleaner` посреди живой встречи открывает WAV заново (`wave.open(..., "wb")`) и обрезает уже записанное. То же для `screen_recorder` (`skkkk-rec`): mid-call рестарт бросает текущий ffmpeg и начинает новый mp4. Код рекордеров менять только между встречами; в комнате — дождаться «Завершить». После смены кода перезапустить портал (или только `voice_cleaner` / `screen_recorder`).
 
 Пороги проверок шкалы и протечек — группа Meeting в `.env.example`: `MEETING_CHECK_OK_SEC`, `MEETING_CHECK_WARN_SEC`, `MEETING_HEAD_LOSS_WARN_SEC`, `MEETING_GAP_MUTE_WINDOW_SEC`, `MEETING_RMS_TIE_RATIO`, `MEETING_SPEECH_MIN_SEC`, `MEETING_SPEECH_RMS_MIN`.
-Docker Desktop на Windows ломает WebRTC (STUN отвечает адресом `172.17.0.1`).
+Docker Desktop на Windows ломает WebRTC (STUN отвечает адресом `172.17.0.1` — стандартный шлюз docker-моста).
 Сигналинг через `:777`. LiveKit рекламирует `SKKKK_PUBLIC_HOST` как ICE `node_ip` (не STUN: исходящий IP у машины другой). Медиа: TCP 7881, UDP 50000, TURN 3478 / relay 50001–50011.
 
 Порядок установки (от администратора):

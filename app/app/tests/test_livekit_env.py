@@ -1,3 +1,4 @@
+# Все адреса ниже синтетические (RFC1918 / TEST-NET) — реальные LAN-адреса машин не используются.
 from pathlib import Path
 
 from app.app.services.livekit_env import (
