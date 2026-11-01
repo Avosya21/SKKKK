@@ -1,8 +1,10 @@
+
+
+https://github.com/user-attachments/assets/ad01b12f-6eac-4583-a50c-509680d5abf5
+
+
+
 # SKKKK — живая память проекта
-
-## Как работает портал — 60 секунд
-
-Процедурная инфографика всего конвейера: от записи созвона и документов к проверяемой базе знаний — «двойной слух» распознавания речи, говорящие по голосу, решения, задачи и противоречия, чат со ссылками на источник. Всё работает локально — одна GPU 24 ГБ, без внешних API.
 
 [![Как работает портал — процедурная инфографика](experiments/procedural-film/primary-infographic/exports/primary-infographic-poster.jpg)](experiments/procedural-film/primary-infographic/exports/primary-infographic-share.mp4)
 
