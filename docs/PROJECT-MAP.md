@@ -278,9 +278,9 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 
 | Что | Как |
 |-----|-----|
-| Профиль | `tools/lmstudio/qwen-profile.json` — единственный источник настроек: ключ модели (= `LMSTUDIO_MODEL`), окно 56000, 2 потока, flash-attn, KV q8_0, MTP, выборка |
-| Загрузка | `llm_keeper.ensure_loaded`: под замком `data/locks/llm_model.lock` пишет профиль в конфиг модели LM Studio (`user-concrete-model-default-config`), `lms load --context-length --parallel --ttl`, сверяет `lms ps --json`; не по профилю — выгрузка и ошибка. Загружено ли — список `GET /api/v0/models` (`state`; при выключенной автозагрузке — только загруженные), не `/v1/models` |
-| Выгрузка | воркер при пустой очереди: простой ≥ `LMSTUDIO_IDLE_UNLOAD_SEC` (300 с) и обе полосы свободны → `lms unload` (`llm_keeper.maybe_unload_idle`); `LMSTUDIO_LOAD_TTL_SEC` — страховка LM Studio, если процессы SKKKK упали |
+| Профиль | `tools/lmstudio/qwen-profile.json` — единственный источник настроек: ключ модели (= `LMSTUDIO_MODEL`), предпочтительный квант UD-Q4_K_XL, mmproj-BF16 рядом с GGUF, окно **32768**, 2 потока, flash-attn, KV q8_0, MTP (max 3), thinking **выкл**, temp 0.1 |
+| Загрузка | `llm_keeper.ensure_loaded`: под замком `data/locks/llm_model.lock` пишет профиль в конфиг модели LM Studio (`user-concrete-model-default-config`), `lms load --context-length --parallel --ttl --speculative-draft-mtp`, сверяет `lms ps --json` (окно профиля или выравнивание flash-attn до кратного 256); предупреждает, если на диске не XL или нет mmproj, но не блокирует загрузку. Загружено ли — список `GET /api/v0/models` (`state`; при выключенной автозагрузке — только загруженные), не `/v1/models` |
+| Выгрузка | воркер при пустой очереди: простой ≥ `LMSTUDIO_IDLE_UNLOAD_SEC` (300 с) и обе полосы свободны → `lms unload` (`llm_keeper.maybe_unload_idle`); `LMSTUDIO_LOAD_TTL_SEC` — страховка LM Studio, если процессы PrimaryAnalitics упали |
 | Фоновая полоса | только воркер и его процессы ASR (`asr/lab_proof.py`, `lab_sense.py`): расшифровки, документы, автопроверки, выжимки, кадры, кнопки-задачи `project_task`. Замок `data/locks/llm_lane_background.lock` |
 | Полоса чата | только процесс API: ответы чата и черновики MCP, строго по очереди прихода (`llm_lanes.chat_queue`, талоны), по одному; замок `llm_lane_chat.lock`. Позиция — `GET /projects/{id}/chat/status` |
 | Бюджет окна | окно общее (`kv_unified`): чату `LMSTUDIO_CHAT_TOKEN_BUDGET` (22000), фону остаток; фоновый запрос сверх доли (финальная сборка ТЗ) берёт и полосу чата — ждёт текущий ответ, следующий ответ ждёт его (`llm.lane.exclusive`) |
@@ -2550,7 +2550,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `tools/caddy` | сервис | caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git _(может отсутствовать)_ | да |
 | `tools/ffmpeg` | бинарник | портативный FFmpeg (если нет в PATH); не в git _(может отсутствовать)_ | нет |
 | `tools/libreoffice` | бинарник | LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git _(может отсутствовать)_ | нет |
-| `tools/lmstudio` | конфиг | qwen-profile.json — профиль локальной модели (окно, 2 потока, flash-attn, KV q8_0, MTP); читают llm_keeper и run_server.ps1 | да |
+| `tools/lmstudio` | конфиг | qwen-profile.json — профиль локальной модели (ключ, окно 32768, mmproj, 2 потока, flash-attn, KV q8_0, MTP, thinking off); читают llm_keeper и run_server.ps1 | да |
 | `tools/lightrag` | сервис | LightRAG в Docker (:9621): граф знаний по документации | да |
 | `tools/livekit` | сервис | livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py | да |
 | `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
@@ -2741,8 +2741,8 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | Службы Windows (NSSM) | runtime | SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1 |
 | Планировщик заданий | runtime | задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел |
 | Ollama | внешнее | bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает |
-| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 56000; загружает и выгружает портал, JIT-автозагрузка выключена |
-| Docker Desktop | внешнее | контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621) |
+| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 32768, mmproj vision, thinking выкл; загружает и выгружает портал, JIT-автозагрузка выключена |
+| Docker Desktop | внешнее | контейнеры primaryanalitics-gigaam (рабочий), primaryanalitics-whisper и primaryanalitics-tone (откат), LightRAG (:9621) |
 | Caddy | внешнее | HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP) |
 | LiveKit | внешнее | native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478 |
 | FFmpeg / Tesseract / LibreOffice | внешнее | звук (16 кГц моно), OCR rus+eng, конвертация старых офисных форматов; портативные копии в tools/ |

@@ -165,10 +165,31 @@ def test_repo_profile_matches_default_settings_model():
 
     profile = llm_keeper.load_profile()
     assert profile.model_key == Settings.model_fields["lmstudio_model"].default
-    assert profile.parallel == 2 and profile.context_length >= 56000
+    assert profile.parallel == 2 and profile.context_length == 32768
+    assert profile.preferred_quant == "Q4_K_XL"
+    assert profile.mmproj == "mmproj-BF16.gguf"
     keys = {f["key"] for f in profile.load_fields}
     assert {"llm.load.llama.flashAttention", "llm.load.llama.kCacheQuantizationType",
             "llm.load.llama.speculativeDecoding.draftMtp"} <= keys
+    thinking = next(
+        f["value"] for f in profile.operation_fields
+        if f.get("key") == "llm.prediction.reasoning.enableThinking"
+    )
+    assert thinking is False
+    temp = next(
+        f["value"] for f in profile.operation_fields
+        if f.get("key") == "llm.prediction.temperature"
+    )
+    assert temp == 0.1
+
+
+def test_profile_mismatch_allows_flash_attn_context_align():
+    profile = LmProfile("m", 56000, 2)
+    assert llm_keeper.aligned_context_length(56000) == 56064
+    assert llm_keeper.profile_mismatch(profile, {"contextLength": 56000, "parallel": 2}) == []
+    assert llm_keeper.profile_mismatch(profile, {"contextLength": 56064, "parallel": 2}) == []
+    assert llm_keeper.profile_mismatch(profile, {"contextLength": 32000, "parallel": 2})
+    assert llm_keeper.profile_mismatch(profile, {"contextLength": 56064, "parallel": 1})
 
 
 def test_model_config_and_load_args_follow_profile(monkeypatch, tmp_path):
@@ -185,6 +206,8 @@ def test_model_config_and_load_args_follow_profile(monkeypatch, tmp_path):
     args = llm_keeper.load_args(profile, ttl_sec=1800)
     assert args[:2] == ["load", "m"]
     assert args[args.index("--context-length") + 1] == "56000" and args[args.index("--parallel") + 1] == "2"
+    assert "--speculative-draft-mtp" in args
+    assert args[args.index("--speculative-draft-max-tokens") + 1] == "3"
     assert "--ttl" in args
 
 

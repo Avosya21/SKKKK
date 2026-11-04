@@ -1,7 +1,12 @@
 {
-  "_comment": "Профиль локальной модели SKKKK — единственный источник настроек загрузки. Его читают services/llm_keeper.py и run_server.ps1. План: docs/plans/LLM-LANES-PLAN.md.",
+  "_comment": "Профиль локальной модели PrimaryAnalitics — единственный источник настроек загрузки. Его читают services/llm_keeper.py и run_server.ps1. План: docs/plans/LLM-LANES-PLAN.md. Production 2026-10: окно 32768 + vision (mmproj) + parallel 2 на 24 ГБ; thinking выкл. Предпочтительный квант UD-Q4_K_XL — если на диске только Q4_K_S, model_key тот же, загрузка не ломается.",
   "model_key": "swift-qwen3.8-27b-uncensored-dynamic-mtp",
-  "context_length": 56000,
+  "preferred_quant": "Q4_K_XL",
+  "preferred_gguf": "Swift-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q4_K_XL.gguf",
+  "mmproj": "mmproj-BF16.gguf",
+  "mmproj_download": "https://huggingface.co/ajgazin/Swift-Qwen3.8-27B-Uncensored-Dynamic-MTP-GGUF/resolve/main/mmproj-BF16.gguf",
+  "weights_download": "https://huggingface.co/ajgazin/Swift-Qwen3.8-27B-Uncensored-Dynamic-MTP-GGUF (файл UD-Q4_K_XL; в LM Studio: lms get ajgazin/Swift-Qwen3.8-27B-Uncensored-Dynamic-MTP-GGUF --gguf --select)",
+  "context_length": 32768,
   "parallel": 2,
   "gpu": "max",
   "load": {
@@ -19,12 +24,12 @@
   },
   "operation": {
     "fields": [
-      { "key": "llm.prediction.temperature", "value": 1.0 },
+      { "key": "llm.prediction.temperature", "value": 0.1 },
       { "key": "llm.prediction.topPSampling", "value": 0.95 },
       { "key": "llm.prediction.topKSampling", "value": 20 },
       { "key": "llm.prediction.minPSampling", "value": 0.0 },
       { "key": "llm.prediction.repeatPenalty", "value": 1.0 },
-      { "key": "llm.prediction.reasoning.enableThinking", "value": true }
+      { "key": "llm.prediction.reasoning.enableThinking", "value": false }
     ]
   }
 }
