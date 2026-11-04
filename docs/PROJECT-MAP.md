@@ -236,8 +236,9 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 
 | Задача | Команда | Что делает |
 |--------|---------|------------|
-| Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1`; проверка окружения — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`) |
-| Локальная LLM | `run_server.ps1` (корень) | выключает автозагрузку LM Studio, поднимает сервер `:1234` и грузит модель по профилю `tools/lmstudio/qwen-profile.json` через `scripts/llm_model.py load` (`-SkipLoad` — только сервер). Сервер SKKKK не поднимает |
+| Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1` (предпочитает `tools\Python310`, не слепому `py -3.10`); проверка — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`). Инструкция: `INSTALL.md` (clone ≠ стенд, чеклист до старта, pip/`cursor-sdk`) |
+| Локальная LLM | `run_server.ps1` (корень) | выключает автозагрузку LM Studio, поднимает сервер `:1234` и грузит модель по профилю `tools/lmstudio/qwen-profile.json` через `scripts/llm_model.py load` (`-SkipLoad` — только сервер). Сервер PrimaryAnalitics не поднимает |
+| Автозапуск сервера LM Studio | `scripts/install_lmstudio_autostart.ps1` [`-Unregister`] [`-LoadModel`] [`-RunNow`] | задача планировщика `PrimaryAnalitics-LMStudio` при входе в Windows → `run_server.ps1 -SkipLoad` |
 | **Перезапуск (основной способ)** | `scripts/restart.ps1` [`-Llm saved\|gemma\|cursor`] [`-Force`] [`-SkipChecks`] | 1) **отказ, если идёт встреча** (`scripts/live_meetings.py`, код 3) — иначе оборвётся запись голоса; `-Force` перезапускает всё равно; 2) встреч нет — гасит все копии `voice_cleaner` / `screen_recorder` и их pid-файлы; 3) проверки: Ollama `:11434`, при `lmstudio` — LM Studio `:1234` и загружена ли `LMSTUDIO_MODEL`; 4) `start.ps1 -SkipChecks` в фоне, лог `data/logs/restart.log` (+ `.err`); 5) ждёт `/health` **и новый PID воркера** (старый сервер может ещё отвечать); 6) в фоне обновляет индекс проекта |
 | Запуск | `scripts/start.ps1` [`-Llm cursor\|gemma`] [`-NoStop`]; обёртки `start-saved.ps1` (LLM из `.env`), `start-gemma.ps1`, `start-cursor.ps1`, `run_all.ps1` | сначала останавливает старое (PID воркера + процесс на `WEB_PORT`, снимает `gpu_worker.lock/.pid`), затем `main all` |
 | Остановка | `scripts/stop.ps1` | гасит API и GPU-воркер |
@@ -246,7 +247,7 @@ GigaAM-контейнер (`skkkk-gigaam`): образ из `vendor/GigaAMGUI`, 
 | Бэкап БД | `scripts/backup_db.ps1` [`-Keep 7`] | копия SQLite через `VACUUM INTO`: `app-*.db` и `credentials-*.db` (личные пароли), фото — `people-*.zip`; проверка — `scripts/verify_backup.py` |
 | Автоподъём | `scripts/monitor_skkkk_loop.ps1` | раз в 5 мин `GET /health`, при сбое убивает все `app.app.main` и поднимает `main all --llm-provider cursor`. **Устарел:** проверяет `http://127.0.0.1:777/health`, а на `:777` теперь HTTPS (Caddy) — проверка не пройдёт; встречи не учитывает. Не запускать, пока не исправлен |
 
-Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`), модель в LM Studio — по требованию и строго по профилю, выгрузка после простоя (`llm_keeper.py`, §3.2). Сервер LM Studio — вручную или `run_server.ps1`.
+Зависимости, которые портал поднимает сам: Docker Desktop и контейнер GigaAM перед аудио (`docker_runtime.py`), Ollama перед индексом (`ollama_runtime.py`), модель в LM Studio — по требованию и строго по профилю, выгрузка после простоя (`llm_keeper.py`, §3.2). Сервер LM Studio — вручную, `run_server.ps1` или автозапуск `scripts/install_lmstudio_autostart.ps1` (задача Windows).
 
 **HTTPS (Caddy, `tools/caddy/Caddyfile`).**
 
@@ -2250,6 +2251,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `inspect_project_index.py` | Сверка векторного индекса проекта: чанки ↔ sqlite-vec ↔ lab _final.txt. |
 | `install_caddy.ps1` | SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора) |
 | `install_hooks.ps1` | Установить (или снять) git-хуки проекта: обновление индекса после коммита и слияния, проверка карты проекта перед коммитом. |
+| `install_lmstudio_autostart.ps1` | Автозапуск сервера LM Studio (:1234) при входе в Windows для PrimaryAnalitics. |
 | `install_meeting_voice.py` | Isolated venv for the LiveKit voice recorder (tools/livekit/voice_cleaner.py). Not the app venv. |
 | `install_services.ps1` | SKKKK — установка служб Windows через NSSM (запуск от администратора) |
 | `kb_inbox.py` | Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю). |
@@ -2307,7 +2309,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `scan_personal_data.py` | Проверка перед коммитом и отправкой: нет ли в файлах git имён людей и компаний из базы портала. |
 | `search_project_map.py` | Поиск по индексу проекта: смысл + точные имена + связи. Каждый ответ — с адресом `путь:строка`. |
 | `seed_people.py` | Первичное наполнение реестра людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ2). |
-| `setup_env.ps1` | Установка окружения проекта после переноса папки на другой ПК (или с нуля). |
+| `setup_env.ps1` | Установка окружения после переноса папки / с нуля: Python из tools\Python310 или живой py/python 3.10; venv/venvs; пути в .env. |
 | `smoke_cycle.py` | Прогон полного цикла через HTTP API: вход, проект, загрузка, обработка. |
 | `start-cursor.ps1` | — |
 | `start-gemma.ps1` | — |
