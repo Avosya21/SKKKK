@@ -2040,7 +2040,7 @@ nodes:
   - id: ext_lmstudio
     kind: external
     path: ""
-    title: "LM Studio :1234 — LMSTUDIO_MODEL (swift-qwen3.8-27b) с пресетом swift-qwen-24gb, JIT-автозагрузка выключена"
+    title: "LM Studio :1234 — LMSTUDIO_MODEL (swift-qwen3.8-27b) по qwen-profile (32768, mmproj, MTP, thinking off)"
     tags: [external, llm]
 
   - id: ext_docker
