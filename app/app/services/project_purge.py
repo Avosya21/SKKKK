@@ -32,7 +32,6 @@ from app.app.models.manual_task import ManualTask
 from app.app.models.project_visit import ProjectVisit
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.speech_act import SpeechAct
-from app.app.models.user_activity_log import UserActivityLog
 from app.app.services.graph import delete_entities_with_deps
 from app.app.services.meeting_recordings import remove_room_recordings
 from app.app.services.storage import parsed_dir, project_root, raw_input_dir, structured_dir
@@ -245,7 +244,7 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     db.execute(delete(SpeakerProfile).where(SpeakerProfile.project_id == pid))
     db.execute(delete(ChatMessage).where(ChatMessage.project_id == pid))
     db.execute(delete(ChatGuidance).where(ChatGuidance.project_id == pid))
-    db.execute(delete(UserActivityLog).where(UserActivityLog.project_id == pid))
+    # user_activity_log append-only: строки аудита не удаляем (project_id остаётся как история).
     db.execute(delete(Changelog).where(Changelog.project_id == pid))
     db.execute(delete(ProjectMember).where(ProjectMember.project_id == pid))
     db.execute(delete(ProjectMcpToken).where(ProjectMcpToken.project_id == pid))
@@ -259,7 +258,13 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
         db.execute(delete(MeetingParticipant).where(MeetingParticipant.meeting_id.in_(meeting_ids)))
     db.execute(delete(Meeting).where(Meeting.project_id == pid))
     db.execute(delete(Artifact).where(Artifact.project_id == pid))
+    # Журнал аудита хранит project_id без каскада: на удаление строки проекта временно гасим FK.
+    from sqlalchemy import text
+
+    db.execute(text("PRAGMA foreign_keys=OFF"))
     db.delete(project)
+    db.commit()
+    db.execute(text("PRAGMA foreign_keys=ON"))
     db.commit()
     # Идущие встречи удалённого проекта: закрыть комнаты, иначе участники и боты записи оставались в них, и запись
     # писалась в каталог удалённой встречи.

@@ -63,6 +63,31 @@ def test_mcp_rejects_without_token(client, manager_token):
     assert r.status_code == 401
 
 
+def test_mcp_token_project_a_cannot_read_project_b(client, db_engine, manager_token):
+    """Ключ, выданный на проект A, на URL проекта B не читает данные B."""
+    headers = {"Authorization": f"Bearer {manager_token}"}
+    pid_a = client.post("/projects", json={"name": "MCP Scope A"}, headers=headers).json()["id"]
+    pid_b = client.post("/projects", json={"name": "MCP Scope B"}, headers=headers).json()["id"]
+
+    from app.app.db import SessionLocal
+
+    db = SessionLocal()
+    _, plain_a = create_project_mcp_token(db, project_id=pid_a, label="scope-a", user_id=1)
+    db.close()
+
+    r = client.post(
+        f"/mcp/projects/{pid_b}",
+        headers={"Authorization": f"Bearer {plain_a}", "Content-Type": "application/json"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "project_overview", "arguments": {}},
+        },
+    )
+    assert r.status_code == 401
+
+
 def test_mcp_project_overview_tool(client, db_engine, admin_token, manager_token):
     headers = {"Authorization": f"Bearer {manager_token}"}
     pid = client.post("/projects", json={"name": "MCP Overview"}, headers=headers).json()["id"]

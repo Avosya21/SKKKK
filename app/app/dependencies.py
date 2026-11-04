@@ -31,14 +31,22 @@ def create_access_token(
     pv: int | None = None,
     pp: bool | None = None,
     pf: bool | None = None,
+    sv: int | None = None,
 ) -> str:
     """Роль сессии — из пароля при входе; в БД (общая учётка) она не перезаписывается.
 
     `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль пройден,
-    `pf` — карточка заполнена (см. `_check_session_gates`).
+    `pf` — карточка заполнена, `sv` — глобальная версия сессий (см. `_check_session_gates`).
     """
+    from app.app.services.session_version import current as current_session_version
+
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": str(user.id), "role": role or user.role, "exp": expire}
+    payload = {
+        "sub": str(user.id),
+        "role": role or user.role,
+        "exp": expire,
+        "sv": int(sv) if sv is not None else current_session_version(),
+    }
     if pv is not None:
         payload["pv"] = int(pv)
     if pp is not None:
@@ -107,12 +115,16 @@ def authenticate_new_user(settings: Settings, password: str) -> tuple[str, str] 
 
 
 def _check_session_gates(settings: Settings, user: User, payload: dict) -> None:
-    """Сессия действительна, только пока версия личного пароля логина не менялась.
+    """Сессия действительна, пока совпадают `sv` (глобальная) и `pv` (личный пароль).
 
-    Смена или сброс личного пароля увеличивает версию — старые сессии логина получают 401.
-    В режиме `required` сессия без пройденного личного пароля (`pp`) или без заполненной
-    карточки (`pf`) тоже недействительна: человек уходит на вход и проходит недостающие шаги.
+    Смена/сброс личного пароля или bump `session_version` (пароли ролей / «разлогинить всех»)
+    → 401. В режиме `required` без `pp`/`pf` сессия тоже недействительна.
     """
+    from app.app.services.session_version import current as current_session_version
+
+    if int(payload.get("sv") or 0) != current_session_version():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+
     if settings.personal_password == "off":
         return
     from app.app.services.personal_password import current_version
@@ -122,7 +134,7 @@ def _check_session_gates(settings: Settings, user: User, payload: dict) -> None:
     if stale or (required and not (payload.get("pp") and payload.get("pf"))):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     if required:
-        # Админ сбросил карточку — открытые сессии человека закрываются сразу, а не через 30 дней.
+        # Админ сбросил карточку — открытые сессии человека закрываются сразу.
         from app.app.services.user_profile import get_profile, is_complete
 
         db = object_session(user)

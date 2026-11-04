@@ -32,7 +32,7 @@ _USER_ID_COLUMNS: list[tuple[type, str]] = [
     (ChatMessage, "user_id"),
     (ChatGuidance, "user_id"),
     (UserNote, "user_id"),
-    (UserActivityLog, "user_id"),
+    # user_activity_log append-only: user_id/login не переписываем при слиянии учёток.
     (ProjectTask, "user_id"),
     (Project, "created_by"),
     (ProjectMember, "user_id"),
@@ -110,7 +110,12 @@ def merge_users_into(db: Session, winner: User, losers: list[User]) -> int:
 
         move_user_persons(db, winner_id=winner.id, loser_id=loser.id)
         _reassign_user_rows(db, winner_id=winner.id, loser_id=loser.id)
+        # Аудит append-only остаётся с user_id проигравшего — снимаем FK на удаление учётки.
+        from sqlalchemy import text
+
+        db.execute(text("PRAGMA foreign_keys=OFF"))
         db.delete(loser)
+        db.execute(text("PRAGMA foreign_keys=ON"))
         n += 1
         logger.info("user.merge loser=%s -> winner=%s name=%s", loser.id, winner.id, winner.name)
     if n:

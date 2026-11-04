@@ -3,8 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from starlette.middleware.cors import CORSMiddleware
-
 # Запуск файлом (`python app/app/main.py`) не кладёт корень проекта в sys.path.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
@@ -240,6 +238,13 @@ async def add_security_headers(request, call_next):
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
     return response
+
+
+# CSRF и Host: add_middleware — «луковица»; последний добавленный срабатывает первым на запросе.
+from app.app.middleware import CsrfOriginMiddleware, TrustedHostAllowlistMiddleware  # noqa: E402
+
+app.add_middleware(CsrfOriginMiddleware)
+app.add_middleware(TrustedHostAllowlistMiddleware)
 
 
 static_dir = Path(__file__).resolve().parent / "static"
@@ -570,9 +575,13 @@ def _run_credentials(*, reset: bool, host: str, port: int) -> None:
         passwords = reset_role_passwords()
         get_settings.cache_clear()
         updated = _sync_existing_users(passwords)
+        from app.app.services.session_version import bump as bump_session_version
+
+        bump_session_version(reason="credentials_reset")
         _print_credentials(passwords, host=host, port=port)
         if updated:
             print(f"Обновлено существующих пользователей: {updated}")
+        print("Открытые сессии закрыты (session_version).")
         return
 
     if _NEW_CREDENTIALS:
@@ -618,7 +627,7 @@ def _reset_role_passwords_interactive(host: str, port: int) -> None:
     """Пункт 9 меню запуска: перевыпуск паролей всех ролей с подтверждением."""
     print()
     print("Будут перевыпущены пароли всех трёх ролей (admin, manager, user).")
-    print("Старые перестанут подходить для входа сразу; уже открытые сессии продолжат работать.")
+    print("Старые перестанут подходить для входа; все открытые сессии будут закрыты.")
     if not _confirm("Перевыпустить?"):
         print("Отменено.")
         return

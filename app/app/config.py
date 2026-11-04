@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     web_port: int = 1111
     # Публичный URL для ссылок и MCP (если портал доступен из интернета).
     web_public_url: str = ""
+    # Доп. Host для TrustedHost/CSRF (через запятую; плюс всегда loopback, WEB_HOST, WEB_PUBLIC_URL, PUBLIC_HOST).
+    allowed_hosts: str = ""
     # HTTPS / ACME (Caddy). Публичный :80 приходит в портал, не в Apache.
     primary_analitics_public_host: str = ""
     primary_analitics_https_port: int = 777
@@ -107,7 +109,7 @@ class Settings(BaseSettings):
     search_min_score: float = 0.35
     tz_rebuild_every_n: int = 3
     dry_run: bool = False
-    jwt_expire_minutes: int = 43_200
+    jwt_expire_minutes: int = 480  # 8 часов (рабочий день); смена — DECISIONS «Периметр HTTP»
     job_max_attempts: int = 3
     login_allowlist_path: Path = ROOT / "Login_up.txt"
     # Личный пароль после пароля роли: required (всегда) | off — только тесты и аварийный откат.

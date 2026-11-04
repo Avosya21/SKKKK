@@ -111,8 +111,17 @@ def log_activity(
         bind = db.get_bind() if db is not None else None
         factory = sessionmaker(bind=bind) if bind is not None else SessionLocal
         with factory() as session:
+            user = session.get(User, user_id)
+            login = user.name if user else None
+            profile_id = None
+            if user is not None:
+                from app.app.services.user_profile import get_profile
+
+                profile_id = user_id if get_profile(session, user_id) is not None else None
             row = UserActivityLog(
                 user_id=user_id,
+                login=login,
+                profile_id=profile_id,
                 project_id=project_id,
                 block=block,
                 action=action,
@@ -294,9 +303,12 @@ def backfill_chat_activity(db: Session) -> int:
             action, title = ACTION_ANSWER, "Ответ ИИ"
         else:
             continue
+        user = db.get(User, msg.user_id)
         db.add(
             UserActivityLog(
                 user_id=msg.user_id,
+                login=user.name if user else None,
+                profile_id=msg.user_id if user else None,
                 project_id=msg.project_id,
                 block=BLOCK_CHAT,
                 action=action,

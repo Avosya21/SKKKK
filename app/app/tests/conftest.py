@@ -55,6 +55,8 @@ os.environ["USER_PASSWORD_HASH"] = USER_PASSWORD_HASH
 os.environ["DRY_RUN"] = "1"
 # Личный пароль по умолчанию обязателен; старые тесты входят одним шагом — режим включают только тесты личного пароля.
 os.environ["PERSONAL_PASSWORD"] = "off"
+# Перебиваем боевой .env (там мог остаться старый TTL 30 суток): канон — 8 часов.
+os.environ["JWT_EXPIRE_MINUTES"] = "480"
 
 
 
@@ -211,6 +213,12 @@ def db_engine(tmp_data: Path, monkeypatch):
 
     Base.metadata.create_all(bind=engine)
 
+    from app.app.db import ensure_audit_append_only
+
+    with engine.connect() as conn:
+        ensure_audit_append_only(conn)
+        conn.commit()
+
     TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -264,7 +272,8 @@ def client(db_engine) -> Generator[TestClient, None, None]:
 
 
     with TestClient(app) as c:
-
+        # CSRF: мутации с cookie требуют Origin/Referer; TestClient сам их не шлёт.
+        c.headers["Origin"] = "http://testserver"
         yield c
 
 

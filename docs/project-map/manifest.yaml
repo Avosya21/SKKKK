@@ -94,6 +94,36 @@ nodes:
     title: "Own-project guard + project_members; 404 foreign; project_role; lab admin; staff match/rebuild"
     tags: [service, auth, projects]
 
+  - id: mw_csrf
+    kind: service
+    path: "app/app/middleware/csrf.py"
+    title: "CSRF Origin/Referer allowlist on cookie-authenticated mutations"
+    tags: [service, auth, security]
+
+  - id: mw_trusted_host
+    kind: service
+    path: "app/app/middleware/trusted_host.py"
+    title: "Host header allowlist (DNS rebinding); ALLOWED_HOSTS + WEB_PUBLIC_URL"
+    tags: [service, auth, security]
+
+  - id: mw_hosts
+    kind: service
+    path: "app/app/middleware/hosts.py"
+    title: "Shared Host allowlist for CSRF and TrustedHost"
+    tags: [service, auth, security]
+
+  - id: svc_session_version
+    kind: service
+    path: "app/app/services/session_version.py"
+    title: "Global session_version bump; JWT sv gate"
+    tags: [service, auth, security]
+
+  - id: model_portal_setting
+    kind: model
+    path: "app/app/models/portal_setting.py"
+    title: "portal_settings key/value (session_version)"
+    tags: [db, auth]
+
   - id: svc_project_purge
     kind: service
     path: "app/app/services/project_purge.py"
@@ -1617,7 +1647,7 @@ nodes:
   - id: asr_build_sortformer_transcript_view
     kind: file
     path: asr/build_sortformer_transcript_view.py
-    title: "Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF)."
+    title: "Пробная стенограмма: текст ASR + интервалы Sortformer v2.1 (GGUF)."
     tags: [auto]
     auto: true
 
@@ -3758,6 +3788,7 @@ nodes:
     title: "Проверка гигиены репозитория: в git не попадают БД, проекты и рабочие документы."
     tags: [auto]
     auto: true
+
 
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}

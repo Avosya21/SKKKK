@@ -103,7 +103,7 @@ flowchart TB
 | Порт UI | Снаружи **Caddy `:777` HTTPS**. Портал — `WEB_HOST=127.0.0.1` `WEB_PORT=1777`. Порт **8000** занят MCP 1С |
 | БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `DATA_DIR/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id). Карточки: `user_profiles` (1:1 с `users`), `companies` (из `Companies.txt`); реестр людей проекта (платформа памяти решений, флаг `MEMORY_PLATFORM`): `people` (человек, в т. ч. без учётки), `person_aliases` (написания), `project_parties` (сторона компании в проекте), `unknown_actors` (очередь «Кто это?»), `people_log` (журнал правок); `speaker_profiles.person_id`, `meeting_participants.person_id`, `artifacts.recorded_at_precision`; фото — файлы `data/people/<user_id>/avatar-<ключ>-512|96.webp` |
 | Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
-| Auth | JWT + cookie `primary_analitics_session` на **30 дней**; вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `pv` — версия пароля, `pp` — пароль пройден, `pf` — карточка заполнена; сессия проверяет ещё и саму карточку (сброс админом закрывает сессии) |
+| Auth | JWT + cookie `primary_analitics_session` на **8 часов** (HttpOnly, SameSite=Lax, Secure при HTTPS); вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `sv` — глобальная версия сессий (`portal_settings`), `pv` — версия личного пароля, `pp`/`pf` — шаги входа; bump `sv` при `credentials --reset` и `POST /admin/users/sessions/revoke-all`. Мутации с cookie: CSRF Origin/Referer; Host — allowlist (`ALLOWED_HOSTS`) |
 | Очередь | таблица `jobs`, **один** GPU-воркер |
 | LLM | `LLM_PROVIDER=cursor` **или** `lmstudio` (переключатель при старте) |
 
@@ -1266,7 +1266,12 @@ data/projects/{project_id}/
 | `chat_query.py` | Разбор вопроса чата перед поиском: `is_pushback` (возражение: «почему ты не сказал…», «ты ошибся», «разве не», «так получается»), `claim_of` (утверждение без вводных), `expand_query` — слова из групп `SYNONYM_GROUPS` (склад, статусы, оценка, сроки, аудит, обещания, конфигуратор), которых нет в вопросе |
 | `user_activity.py` | Журнал действий логина (`user_activity_log`) для аудита; чат в промпт берёт `chat_messages`, не этот журнал; прошлый ответ ИИ на повторённый вопрос (≥80% общих слов) заменяется пометкой `REPEAT_HIDDEN` |
 | `models/chat_message.py` | Per-user chat UI log (`project_id` + `user_id`) |
-| `models/user_activity_log.py` | Append-only журнал: auth, upload, chat, tz, speakers, knowledge |
+| `models/user_activity_log.py` | Журнал аудита append-only: `login`, `profile_id`; INSERT через `log_activity`; SQLite-триггеры запрещают UPDATE/DELETE; purge проекта строки не удаляет |
+| `models/portal_setting.py` / `session_version.py` | `portal_settings.session_version` — отзыв всех JWT (`sv` в токене) |
+| `POST /admin/users/sessions/revoke-all` | Панель пользователей: разлогинить всех (bump `session_version`) |
+| `middleware/csrf.py` | CSRF: POST/PUT/PATCH/DELETE с cookie-сессией — Origin или Referer из allowlist (исключения: `/auth/login*`, public meetings, `/mcp/`, ACME, `/client-log`) |
+| `middleware/trusted_host.py` | Host вне allowlist → 400 (DNS rebinding) |
+| `middleware/hosts.py` | Общий расчёт allowlist Host для CSRF и TrustedHost |
 | `chunking.py` | документы — `chunk_document`: проза абзацами с разделом, таблица — фрагментами целых строк с разделом, подписью и шапкой (широкая > 8 столбцов — записями «Столбец: значение»); стенограмма → окна подряд идущих реплик (строки `_final.txt` дословно, перекрытие 1 реплика, экран отдельно), `start_sec`/`end_sec` окна; `speaker` только у окна одного говорящего; переписка — `chunk_messages`: сообщения одного дня до 512 токенов (пауза > 30 мин режет наполовину полный фрагмент), шапка с днём, `unit_first`/`unit_last` = `M…`, при обрезке по размеру последнее сообщение повторяется; созвон: «Речь на экране» (дубль речи по отрезку кадра) в индекс не идёт, описания экрана — отдельными окнами |
 | `storage.py` | paths: artifact_root, parsed, structured |
 | `project_purge.py` | полное удаление проекта, артефакта или **созвона**: БД + файлы; `purge_meeting` снимает jobs, артефакт встречи, `meeting_participants` и `data/meetings/{room_name}/` (идущую — 409; каталог — с повторами 15/45/120 с: рекордер держит файлы после закрытия комнаты); `purge_project` закрывает комнаты идущих встреч проекта (`close_livekit_room`), каталоги записей удаляет с теми же повторами, занятый каталог проекта — предупреждение, а не 500 после записи в БД |
@@ -1391,7 +1396,8 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `note_refs` | `entity.py` | на что ссылается заметка (`target_kind` / `target_id`); пишут `knowledge.create_note` и `graph.delete_entities_with_deps`, чистит `project_purge` |
 | `chat_messages` | `chat_message.py` | сообщения чата проекта, в том числе ожидающие ответа |
 | `chat_guidance` | `chat_guidance.py` | указания пользователя из чата: влияют на поиск, не меняют граф и сущности |
-| `user_activity_log` | `user_activity_log.py` | журнал действий: кто, в каком блоке, что сделал (лента на `/admin/users`) |
+| `user_activity_log` | `user_activity_log.py` | журнал действий: login, profile_id, блок, действие (лента на `/admin/users`); append-only |
+| `portal_settings` | `portal_setting.py` | ключ/значение: `session_version` для отзыва JWT |
 | `meetings` | `meeting.py` | встречи проекта: комната, статус, хеш публичного токена, начало и конец |
 | `meeting_participants` | `meeting.py` | присутствие участников встречи: сотрудник или гость, вход, выход, связь с человеком проекта; `company_name` — компания, которую гость указал при входе (Р7) |
 | `speaker_profiles` | `speaker_profile.py` | отпечаток голоса: `global` — общая база подтверждённых, `project` — локальная копия; связь с учёткой и человеком |
@@ -1743,9 +1749,12 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |--------|------------|--------------|-------|
 | Вход | `ADMIN_PASSWORD_HASH`, `MANAGER_PASSWORD_HASH`, `USER_PASSWORD_HASH` | пусто | хеши паролей ролей — первый шаг входа; следом личный пароль |
 | Вход | `PERSONAL_PASSWORD_MIN_LEN` | `10` | минимальная длина личного пароля |
-| Вход | `JWT_EXPIRE_MINUTES` | `43200` (30 суток) | срок жизни токена сессии |
+| Вход | `JWT_EXPIRE_MINUTES` | `480` (8 часов) | срок жизни токена сессии |
 | Вход | `LOGIN_ALLOWLIST_PATH` | `Login_up.txt` | кому разрешён вход |
 | Вход | `PANEL_USERS_PATH` | `Panel_users.txt` | чьи логины открывают панель `/admin/users`; нет файла — доступа нет ни у кого |
+| Сеть | `WEB_HOST`, `WEB_PORT` | `127.0.0.1`, `1777` | bind портала (только loopback) |
+| Сеть | `WEB_PUBLIC_URL` | пусто | публичный URL для ссылок/MCP; host входит в TrustedHost и CSRF-allowlist |
+| Сеть | `ALLOWED_HOSTS` | пусто | доп. Host через запятую для TrustedHost/CSRF (плюс всегда loopback, `WEB_HOST`, host из `WEB_PUBLIC_URL` и `PRIMARY_ANALITICS_PUBLIC_HOST`) |
 | Данные | `DATABASE_URL` | `sqlite:///data/app.db` | основная БД |
 | Данные | `COMPANIES_PATH` | `Companies.txt` | справочник компаний (§5.17) |
 | Данные | `EXECUTOR_ALIASES` | пусто | как модель называет компанию-исполнителя в поле «исполнитель» задачи (через запятую): такой исполнитель общий, при склейке задач его заменяет конкретный человек |
@@ -1799,7 +1808,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 - Секреты только в `.env`
 - Обход reasoning имеет самопроверку (`llm.lmstudio_no_think_selfcheck`, `LMSTUDIO_NO_THINK=0` — принудительный откат на chat-эндпоинт): сразу после загрузки модели хранителем и при старте процесса, если модель уже в памяти (старт модель не будит); статус — `/health/ready.llm_no_think`
 - Локальная модель поднимается только хранителем `llm_keeper` по профилю `tools/lmstudio/qwen-profile.json` (прямой `lms load` в коде портала запрещён — страж `test_llm_lanes.py`); к модели не больше двух запросов: фоновая полоса (воркер) + полоса чата (API, строго по очереди); состояние — `/health/ready.llm_model` (§3.2)
-- Вход ограничен по попыткам (`services/rate_limit.py`: 8 неудач/5 мин на IP и логин → 429; неверный личный пароль считается так же, счётчик логина сбрасывает только полный вход); заголовки безопасности в `main.SECURITY_HEADERS` (HSTS/CSP сознательно нет)
+- Вход ограничен по попыткам (`services/rate_limit.py`: 8 неудач/5 мин на IP и логин → 429; неверный личный пароль считается так же, счётчик логина сбрасывает только полный вход); заголовки безопасности в `main.SECURITY_HEADERS` (HSTS/CSP сознательно нет); CSRF Origin/Referer на мутациях с cookie; TrustedHost по allowlist (`ALLOWED_HOSTS` + публичные host)
 - Стили: `static/app.css` (структура) + `static/design.css` (единая дизайн-система, токены `--ds-*`), см. DECISIONS; отчёты (документ и стенограмма) — сгенерированные HTML, тема `static/report-theme.css` подключается при отдаче в `_serve_report`, файлы отчётов не меняются
 - Обмен с внешним агентом: `services/agent_gateway.py` (белый список, журнал `agent_exchange_log`), контракт — `services/contract.py` + `project_mcp_contract.py` (MCP-инструменты 16 шт., файлы `contract/*.json` виртуальные), правила — `docs/agent-exchange/`; файлы `analysis_reply_/analysis_request_*.json` в конвейер не идут
 - `POST /client-log` принимает JS-ошибки браузеров (лимит), событие `client.js_error`; зависимость `livekit-api` обязательна (закрытие комнаты при завершении встречи)
@@ -1858,6 +1867,14 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `project_protocol.py` | Проектный MCP по JSON-RPC: инструменты чтения знаний проекта и приёма данных агента, разбор запросов и инструкции клиенту. |
 
+**`app/app/middleware/`**
+
+| Файл | Назначение |
+|---|---|
+| `csrf.py` | CSRF: для мутаций с cookie-сессией Origin/Referer должен быть из allowlist. |
+| `hosts.py` | Общий allowlist имён Host для CSRF и TrustedHost. |
+| `trusted_host.py` | Проверка заголовка Host (защита от DNS rebinding). |
+
 **`app/app/models/`**
 
 | Файл | Назначение |
@@ -1876,6 +1893,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `manual_task.py` | Модель ManualTask — задача проекта, которую менеджер добавил вручную (таблица manual_tasks, PORTAL-ACCURACY-MANAGER-PLAN Ш4). |
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
 | `person.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1). |
+| `portal_setting.py` | Модель PortalSetting — ключ/значение настроек портала (session_version и др.). |
 | `project.py` | Модель Project — проект и его настройки. |
 | `project_mcp_token.py` | Модели ключа проектного MCP: ProjectMcpToken (хеш, права, отзыв) и McpCallStat (сколько и чего ключ читал по дням). |
 | `project_member.py` | Модель ProjectMember — выданный доступ пользователя к проекту (роль manager/user, кто выдал). |
@@ -2031,6 +2049,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `review_conflicts.py` | Автопроверка конфликтов (POTENTIAL_CONFLICT) локальной моделью — этап 4 docs/plans/AUTO-REVIEW-PLAN.md, |
 | `review_relevance.py` | Актуальность пунктов по теме (docs/plans/REQUIREMENTS-PLAN.md, этапы 6–7; решения А1, А3–А6). |
 | `review_requirements.py` | Автопроверка требований (decision / task) локальной моделью по источнику — этап 2 docs/plans/AUTO-REVIEW-PLAN.md. |
+| `session_version.py` | Глобальная версия сессий: смена паролей ролей / «разлогинить всех» инвалидирует JWT. |
 | `single_instance.py` | Защита от запуска второго GPU-воркера. |
 | `source_links.py` | Ссылка на место источника (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 4): момент созвона, сообщение переписки, абзац документа. |
 | `speaker_auto.py` | Спикеры без лишних подтверждений (этап 3 docs/plans/AUTO-REVIEW-PLAN.md). |
@@ -2147,7 +2166,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 |---|---|
 | `build_lab_view.py` | Страница лабораторного прогона: стадии, хеши, A/B, тепловая карта, стенограмма. |
 | `build_raw_diar_view.py` | Сырая диаризация для прослушивания: без Gemma, без сглаживания, несколько треков. |
-| `build_sortformer_transcript_view.py` | Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF). |
+| `build_sortformer_transcript_view.py` | Пробная стенограмма: текст ASR + интервалы Sortformer v2.1 (GGUF). |
 | `build_speaker_match_view.py` | Страница голосов созвона: диаризация + match/запоминание голосов (Bootstrap 5). |
 | `build_transcript_view.py` | Собрать реплики: Sortformer + Gemma + (опционально) база голосов → HTML. |
 | `client.py` | Клиент PrimaryAnalitics к трём ASR-контейнерам. |
