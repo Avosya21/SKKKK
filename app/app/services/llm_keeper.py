@@ -54,6 +54,10 @@ class LmProfile:
     gpu: str = "max"
     load_fields: list[dict[str, Any]] = field(default_factory=list)
     operation_fields: list[dict[str, Any]] = field(default_factory=list)
+    # Метаданные профиля (не флаги `lms load`): предпочтительный квант и vision-проектор рядом с GGUF.
+    preferred_quant: str | None = None
+    preferred_gguf: str | None = None
+    mmproj: str | None = None
 
 
 def load_profile(path: Path = PROFILE_PATH) -> LmProfile:
@@ -65,6 +69,9 @@ def load_profile(path: Path = PROFILE_PATH) -> LmProfile:
         gpu=str(data.get("gpu") or "max"),
         load_fields=list((data.get("load") or {}).get("fields") or []),
         operation_fields=list((data.get("operation") or {}).get("fields") or []),
+        preferred_quant=str(data.get("preferred_quant") or "").strip() or None,
+        preferred_gguf=str(data.get("preferred_gguf") or "").strip() or None,
+        mmproj=str(data.get("mmproj") or "").strip() or None,
     )
 
 
@@ -148,15 +155,77 @@ def load_args(profile: LmProfile, *, ttl_sec: int) -> list[str]:
         "--gpu", profile.gpu,
         "--context-length", str(profile.context_length),
         "--parallel", str(profile.parallel),
+        "--speculative-draft-mtp",
+        "--speculative-draft-max-tokens", "3",
+        "--speculative-draft-min-tokens", "0",
     ]
     if ttl_sec > 0:
         args += ["--ttl", str(ttl_sec)]
     return [*args, "-y"]
 
 
+def _quant_name(info: dict[str, Any]) -> str:
+    q = info.get("quantization")
+    if isinstance(q, dict):
+        return str(q.get("name") or "").strip()
+    return str(q or "").strip()
+
+
+def warn_profile_assets(profile: LmProfile, info: dict[str, Any]) -> None:
+    """Не блокирует загрузку: XL может быть ещё не скачан; mmproj подхватывает LM Studio из папки модели."""
+    quant = _quant_name(info)
+    path = str(info.get("path") or "")
+    if profile.preferred_quant and quant and profile.preferred_quant.upper() not in quant.upper():
+        log_event(
+            logger,
+            "llm.load.quant_not_preferred",
+            level=logging.WARNING,
+            have=quant or path,
+            want=profile.preferred_quant,
+            hint=profile.preferred_gguf or "",
+        )
+    if profile.preferred_gguf and path and profile.preferred_gguf not in path.replace("\\", "/"):
+        log_event(
+            logger,
+            "llm.load.gguf_not_preferred",
+            level=logging.WARNING,
+            have=path,
+            want=profile.preferred_gguf,
+        )
+    if not profile.mmproj:
+        return
+    models_root = lmstudio_home() / "models"
+    gguf = models_root / Path(path) if path else None
+    mmproj_path = (gguf.parent / profile.mmproj) if gguf else None
+    if mmproj_path is None or not mmproj_path.is_file():
+        log_event(
+            logger,
+            "llm.load.mmproj_missing",
+            level=logging.WARNING,
+            mmproj=profile.mmproj,
+            beside=str(gguf.parent) if gguf else "",
+        )
+    else:
+        # LM Studio сам цепляет mmproj из каталога GGUF при vision=true; в KV-схеме отдельного ключа нет.
+        log_event(logger, "llm.load.mmproj_ready", mmproj=str(mmproj_path), bytes=mmproj_path.stat().st_size)
+
+
+# Flash-attn / llama.cpp в LM Studio поднимает n_ctx до кратного 256 (напр. 56000 → 56064; 32768 уже кратно).
+CONTEXT_ALIGN = 256
+
+
+def aligned_context_length(n: int) -> int:
+    """Фактическое окно после выравнивания движка — то, что покажет `lms ps`."""
+    if n <= 0:
+        return n
+    return ((n + CONTEXT_ALIGN - 1) // CONTEXT_ALIGN) * CONTEXT_ALIGN
+
+
 def profile_mismatch(profile: LmProfile, entry: dict[str, Any]) -> list[str]:
     problems = []
-    if int(entry.get("contextLength") or 0) != profile.context_length:
+    reported = int(entry.get("contextLength") or 0)
+    expected = aligned_context_length(profile.context_length)
+    if reported not in (profile.context_length, expected):
         problems.append(f"окно {entry.get('contextLength')} вместо {profile.context_length}")
     if int(entry.get("parallel") or 0) != profile.parallel:
         problems.append(f"потоков {entry.get('parallel')} вместо {profile.parallel}")
@@ -272,6 +341,7 @@ def _load_locked(settings: Settings, profile: LmProfile, *, reason: str) -> dict
     info = downloaded_model(profile.model_key)
     if not info:
         raise LlmLoadError(f"модель {profile.model_key} не скачана в LM Studio")
+    warn_profile_assets(profile, info)
     config_path = write_model_config(profile, str(info.get("indexedModelIdentifier") or ""))
     _wait_vram_for_load(profile, int(info.get("sizeBytes") or 0))
     started = time.monotonic()
@@ -363,9 +433,16 @@ def maybe_unload_idle(settings: Settings) -> bool:
     if model_state(settings) != "loaded":
         return False
     with model_lock(settings):
-        if idle_seconds(settings) < settings.lmstudio_idle_unload_sec or not lanes_idle(settings):
+        idle = idle_seconds(settings)
+        if idle < settings.lmstudio_idle_unload_sec or not lanes_idle(settings):
             return False
-        return _unload_locked(settings, reason=f"простой {int(idle_seconds(settings))} с")
+        # Нет llm_last_use (модель подняли вне портала) — idle=inf; int(inf) падает.
+        reason = (
+            "нет метки последнего использования"
+            if idle == float("inf")
+            else f"простой {int(idle)} с"
+        )
+        return _unload_locked(settings, reason=reason)
 
 
 STATUS_CACHE_SEC = 15  # /health/ready опрашивается часто, а `lms ps` — отдельный процесс
