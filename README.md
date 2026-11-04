@@ -144,13 +144,24 @@ _archive/                Выведенные из работы скрипты
 
 Требуется: Python 3.10, Docker Desktop, FFmpeg, Ollama (`bge-m3`), LM Studio или ключ Cursor API, NVIDIA GPU с CUDA 12.8.
 
+**`git clone` сам по себе стенд не поднимает** — в репозитории нет весов моделей, `venv` и секретов. Полная установка: [INSTALL.md](INSTALL.md).
+
+Перед порталом при локальной LLM нужен **сервер LM Studio** (`run_server.ps1` или автозапуск `scripts\install_lmstudio_autostart.ps1`). Сам `main` сервер не стартует (только проверяет `:1234` и потом грузит модель). Ollama и Docker желательны заранее; контейнер GigaAM портал может поднять при обработке аудио.
+
 ```powershell
-INSTALL.bat                                   # первичная установка окружения (см. INSTALL.md)
+INSTALL.bat                                   # первичная установка (см. INSTALL.md)
+# после переноса папки / битого venv:
+# powershell -ExecutionPolicy Bypass -File scripts\setup_env.ps1 -Force
 copy .env.example .env                        # настройки и секреты
 copy Login_up.example.txt Login_up.txt        # допущенные логины
+.\run_server.ps1 -SkipLoad                    # только если LLM_PROVIDER=lmstudio
+scripts\SKKKK-3-Запуск-LM-Studio.bat              # или SKKKK-2-Запуск-Cursor.bat
+# либо:
 .\venv\Scripts\python.exe -m app.app.main check   # проверить стенд без запуска
 .\venv\Scripts\python.exe -m app.app.main         # портал + воркер + edge
 ```
+
+В IDE указывайте интерпретатор `venv\Scripts\python.exe`; удобнее запускать через bat / `scripts\restart.ps1`, чем «голый» `main.py`.
 
 Тесты: `.\venv\Scripts\python.exe -m pytest` (подробно — `docs/TESTING.md`).
 
