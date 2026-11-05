@@ -89,6 +89,8 @@ tools/android/sdk/
 tools/android/avd/
 
 # портативные бинарники (кладёт scripts/setup_env.ps1 / копируются вручную), в git не нужны
+tools/Python310/
+tools/python-*.exe
 tools/libreoffice/
 tools/ffmpeg/
 tools/tesseract/*
@@ -184,3 +186,8 @@ onec/
 # Исключения: синтетические фикстуры тестов.
 !app/app/tests/fixtures/**
 !scripts/qa_data_speech_*.wav
+
+# Локальный мусор стенда (не часть репозитория)
+unsloth_compiled_cache/
+.env*.bak
+*.from-example.bak

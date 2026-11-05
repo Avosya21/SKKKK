@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {# Страница проекта: загрузка материалов, таблица артефактов, выжимка, чат, дедлайны, встречи, MCP, доступ, обмен с агентом #}
+{% block body_class %}nav-in-project{% endblock %}
 {% block nav_project %}
 <span class="navbar-divider" aria-hidden="true"></span>
-<span class="navbar-brand navbar-project mb-0 py-1" title="#{{ project_id }} — «{{ project_name }}»">#{{ project_id }} — «{{ project_name }}»</span>
+<span class="navbar-project mb-0 py-1" title="#{{ project_id }} — «{{ project_name }}»">#{{ project_id }} — «{{ project_name }}»</span>
 {% endblock %}
 {% block nav_actions %}
 <a class="btn btn-sm btn-outline-light navbar-back" href="/">к проектам</a>
@@ -661,8 +662,9 @@
   </div>
 </div>
 
-<!-- Что нового с прошлого захода (PORTAL-ACCURACY-MANAGER-PLAN Ш5): рисует сервер, переходы и «Скрыть» — static/px_digest.js -->
-<div id="project-digest" class="project-digest mb-3 mb-md-4" aria-live="polite"{% if not (digest and digest.lines) %} hidden{% endif %}>
+<!-- Что нового с прошлого захода (PORTAL-ACCURACY-MANAGER-PLAN Ш5): рисует сервер, переходы и «Скрыть» — static/px_digest.js.
+     Временно скрыто в UI (2026-11-05): блок и API остаются, вернуть — убрать hidden и флаг DISABLED в px_digest.js. -->
+<div id="project-digest" class="project-digest mb-3 mb-md-4" aria-live="polite" hidden>
   <div class="project-digest-head">
     <strong>Что нового{% if digest and digest.since_label %} с {{ digest.since_label }}{% endif %}</strong>
     <button type="button" class="btn btn-sm btn-link p-0 project-digest-hide" id="project-digest-hide">Скрыть</button>
@@ -3295,6 +3297,6 @@ if (grantMembersBody) {
 }
 </script>
 <script src="/static/px_tasks.js?v=2"></script>
-<script src="/static/px_digest.js?v=6"></script>
-{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=7"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=3"></script><script src="/static/background.js?v=3"></script><script src="/static/memory.js?v=3"></script>{% endif %}
+<script src="/static/px_digest.js?v=7"></script>
+{% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=8"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=3"></script><script src="/static/background.js?v=3"></script><script src="/static/memory.js?v=3"></script>{% endif %}
 {% endblock %}

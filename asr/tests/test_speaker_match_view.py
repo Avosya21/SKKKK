@@ -86,12 +86,21 @@ def test_nemotron_page_shows_model_speech_and_low_speech(tmp_path: Path):
             "speakers": [{"speaker": "speaker_0", "seconds": 600.0}, {"speaker": "speaker_6", "seconds": 2.0}]}
     html = _render(_lab_workspace(tmp_path, diar, matches))
     assert "Голоса созвона" in html and "Sortformer + запоминание" not in html
-    assert "Nemotron 3 Diarization" in html and "Найдено голосов: <strong>2</strong>" in html
+    # Подпись модели в hero/шапке больше не показывается (2026-11-05)
+    assert "Nemotron 3 Diarization" not in html and "Найдено голосов" not in html
     assert "Заняты все" not in html
+    # подсказка пересчёта — только title кнопки, не отдельной строкой на странице
+    assert "подтверждённые вами" in html
+    assert html.count("подтверждённые вами") == 1
     assert "Говорил</span> 10 мин 00 с" in html and "&lt;1%" in html
     assert "мало речи" in html
     assert "Похож на <strong>Яна</strong> (67%) — в поле не подставлено" in html
     assert 'value="Яна"' not in html  # слабая подсказка не попадает в поле имени
+    assert "Эталон" not in html
+    assert "отрыв" not in html
+    assert "Без имени" in html or "Иван" in html
+    # служебные метки speaker_N — только в data-*, не как видимый текст карточки
+    assert "(speaker_" not in html
 
 
 def test_sortformer_at_ceiling_warns_about_merged_voices(tmp_path: Path):
@@ -99,8 +108,8 @@ def test_sortformer_at_ceiling_warns_about_merged_voices(tmp_path: Path):
     diar = {"model": "diar_streaming_sortformer_4spk-v2.1.onnx", "max_speakers": 4,
             "speakers": [{"speaker": f"speaker_{i}", "seconds": 300.0} for i in range(4)]}
     html = _render(_lab_workspace(tmp_path, diar, matches))
-    assert "Sortformer 4spk v2.1" in html
     assert "Заняты все 4 канала Sortformer" in html
+    assert "Кто говорит" not in html
 
 
 def test_page_without_lab_run_still_renders(tmp_path: Path):

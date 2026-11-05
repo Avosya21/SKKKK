@@ -209,6 +209,8 @@ pytest app -m "not gpu" -q
 | Симптом | Что проверить |
 |---|---|
 | Портал не открывается | Служба PrimaryAnalitics-API, порт 1111 |
+| Preflight: LM Studio недоступен | При `LLM_PROVIDER=lmstudio` нужен сервер `:1234` — `run_server.ps1` или Start Server в LM Studio; автозапуск при входе: `scripts\install_lmstudio_autostart.ps1`. Сам `main` сервер не поднимает |
+| `No module named 'encodings'` / путь к чужой папке в `sys.path` | Скопированный или перенесённый `venv` — удалить и `scripts\setup_env.ps1 -Force` (берёт `tools\Python310`, если есть) |
 | `/login` отвечает 401 | Имя уже есть и хранит другой хеш роли: верный пароль этой учётки или `credentials --reset` |
 | Файлы висят в uploaded | PrimaryAnalitics-GPU, `worker.log`, LM Studio/Ollama |
 | `database is locked` | Запущено два воркера: проверить `data\locks\gpu_worker.pid` и остановить лишний |

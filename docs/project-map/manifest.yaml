@@ -697,7 +697,7 @@ nodes:
   - id: ui_meeting_mic_silent_toast
     kind: ui_action
     path: "app/app/static/meeting_room.js"
-    title: "Тост «Микрофон молчит» + Перезапустить; setAttributes({mic_silent:1}), не metadata"
+    title: "Тост «Микрофон молчит» + Перезапустить только для Microphone/LocalAudioSilence; Camera/ScreenShare — отдельные тосты без mic_silent"
     tags: [ui, meetings, voice]
 
   - id: ui_meeting_screen_tile
@@ -2196,7 +2196,14 @@ nodes:
   - id: script_setup_env
     kind: file
     path: scripts/setup_env.ps1
-    title: "Установка окружения проекта после переноса папки на другой ПК (или с нуля)."
+    title: "Окружение после переноса/с нуля: tools\\Python310 или живой Python 3.10; venv/venvs; пути в .env."
+    tags: [auto]
+    auto: true
+
+  - id: script_install_lmstudio_autostart
+    kind: file
+    path: scripts/install_lmstudio_autostart.ps1
+    title: "Задача Windows PrimaryAnalitics-LMStudio: при входе — run_server.ps1 -SkipLoad (:1234)."
     tags: [auto]
     auto: true
 
@@ -3788,7 +3795,6 @@ nodes:
     title: "Проверка гигиены репозитория: в git не попадают БД, проекты и рабочие документы."
     tags: [auto]
     auto: true
-
 
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}

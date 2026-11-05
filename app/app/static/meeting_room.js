@@ -43,6 +43,7 @@ const ICE_HINT =
 const TEXT_SOUND_OFF = "Звук выключен: вы никого не слышите";
 const TEXT_MIC_SILENT = "Микрофон молчит. Проверьте устройство";
 const TEXT_MIC_RESTART = "Перезапустить";
+const TEXT_MIC_RESTARTED = "Микрофон перезапущен";
 const TEXT_NO_MIC = "нет микрофона";
 const TEXT_NO_CAM = "нет камеры";
 const TEXT_MIC_OFF = "Микрофон выключен";
@@ -687,6 +688,7 @@ const PrimaryAnaliticsMeeting = {
         await this._applyVoice();
         this._watchLocalMic();
       } else {
+        this._stopLocalMicWatch();
         this._stopMicLevelWatch();
         this._clearMicSilent();
         await this._syncRawTrack();
@@ -708,6 +710,7 @@ const PrimaryAnaliticsMeeting = {
       const opts = picked.videoDeviceId ? { deviceId: picked.videoDeviceId } : undefined;
       await this.room.localParticipant.setCameraEnabled(next, opts);
     } catch (err) {
+      this._toast(mediaErrorText(err, "камеру"));
       this._setStatus(publishErrorText("Камера", err));
     }
     this._syncControls(this._roomEls);
@@ -783,6 +786,12 @@ const PrimaryAnaliticsMeeting = {
     if (this._rejoinWake) this._rejoinWake();
     this._releaseWakeLock();
     this._stopAllTimers();
+    // Сразу убираем сцену: иначе при медленном disconnect/перезагрузке гость ещё «в комнате» (смоук 4.9).
+    if (this._roomEls && this._roomEls.stageEl) {
+      this._roomEls.stageEl.hidden = true;
+      this._roomEls.stageEl.classList.remove("is-open");
+    }
+    document.body.classList.remove("meeting-is-live");
     await this._stopVoice();
     const leaveApiUrl = this._roomEls && this._roomEls.leaveApiUrl;
     const identity = this._roomEls && this._roomEls.identity;
@@ -831,6 +840,7 @@ const PrimaryAnaliticsMeeting = {
       clearInterval(this._endedTimer);
       this._endedTimer = 0;
     }
+    this._stopLocalMicWatch();
     this._stopMicLevelWatch();
   },
 
@@ -923,7 +933,7 @@ const PrimaryAnaliticsMeeting = {
       } catch (err) {
         return;
       }
-    }, 4000);
+    }, 2000);
   },
 
   inviteUrl() {
@@ -1372,7 +1382,10 @@ const PrimaryAnaliticsMeeting = {
         await this.room.connect(cred.url, cred.token, { peerConnectionTimeout: ICE_TIMEOUT_MS });
       } catch (err) {
         if (err && err.meetingGone) {
+          // Встречу завершили/удалили во время обрыва: не оставляем гостя на «сцене» без leaveRoom
+          // (иначе смоук и человек видят комнату, хотя join уже невозможен).
           this._netStatus(err.message || "Встреча завершена или недоступна.", false);
+          await this.leaveRoom();
           return;
         }
         continue;
@@ -1739,12 +1752,16 @@ const PrimaryAnaliticsMeeting = {
     await this._stopDfn3();
     if (!mic || !this.room.localParticipant.isMicrophoneEnabled) {
       await this._syncRawTrack();
+      this._clearMicSilent();
       return true;
     }
     try {
       await mic.restartTrack(micCaptureOpts(this._pickedMicId || picked.audioDeviceId, this._captureNs()));
       this._watchLocalMic();
       await this._applyVoice();
+      this._clearMicSilent();
+      if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
+      this._toast(TEXT_MIC_RESTARTED);
       return true;
     } catch (err) {
       this._setStatus("Микрофон: " + (err && err.message ? err.message : err));
@@ -2028,17 +2045,21 @@ const PrimaryAnaliticsMeeting = {
   },
 
   // Атрибут «молчит» уходит на сервер только при смене состояния: раньше снятие шло на каждый кадр звука
-  // (12 запросов в секунду у говорящего).
+  // (12 запросов в секунду у говорящего). Тост — один раз, пока метка не снята.
   _onMicSilent() {
     const local = this.room && this.room.localParticipant;
-    if (local && local.setAttributes && !this._micSilentSent) {
+    if (!local || !local.isMicrophoneEnabled) return;
+    const first = !this._micSilentSent;
+    if (local.setAttributes && first) {
       this._micSilentSent = true;
       local.setAttributes({ mic_silent: "1" });
     }
-    this._toast(TEXT_MIC_SILENT, {
-      label: TEXT_MIC_RESTART,
-      run: () => this._restartMic(),
-    });
+    if (first) {
+      this._toast(TEXT_MIC_SILENT, {
+        label: TEXT_MIC_RESTART,
+        run: () => this._restartMic(),
+      });
+    }
     if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
   },
 
@@ -2048,6 +2069,15 @@ const PrimaryAnaliticsMeeting = {
     if (local && local.setAttributes) {
       this._micSilentSent = false;
       local.setAttributes({ mic_silent: "" });
+    } else {
+      this._micSilentSent = false;
+    }
+  },
+
+  _stopLocalMicWatch() {
+    if (this._micWatchAbort) {
+      this._micWatchAbort.abort();
+      this._micWatchAbort = null;
     }
   },
 
@@ -2055,11 +2085,18 @@ const PrimaryAnaliticsMeeting = {
     const track = localMicTrack(this.room);
     const media = track && track.mediaStreamTrack;
     if (!media) return;
-    // Используем addEventListener вместо прямой перезаписи onmute/onended
-    media.addEventListener("mute", () => this._onMicSilent());
-    media.addEventListener("ended", () => this._onMicSilent());
+    this._stopLocalMicWatch();
+    const ac = new AbortController();
+    this._micWatchAbort = ac;
+    const opts = { signal: ac.signal };
+    const onSilent = () => {
+      if (!this.room || !this.room.localParticipant || !this.room.localParticipant.isMicrophoneEnabled) return;
+      this._onMicSilent();
+    };
+    media.addEventListener("mute", onSilent, opts);
+    media.addEventListener("ended", onSilent, opts);
     // Смена аудиомаршрута (наушники) глушит трек на миг: ожил — метка «молчит» у всех снимается, не дожидаясь речи
-    media.addEventListener("unmute", () => this._clearMicSilent());
+    media.addEventListener("unmute", () => this._clearMicSilent(), opts);
     this._watchMicLevel(media);
   },
 
@@ -2206,12 +2243,33 @@ const PrimaryAnaliticsMeeting = {
         redraw();
       });
     }
-    // ВАЖНО: Не спамим предупреждением о сломанном микрофоне при обычном молчании пользователя
+    // LiveKit шлёт (err, source): ошибка камеры/экрана не должна ставить mic_silent и тост «Микрофон молчит».
     if (LK.RoomEvent.MediaDevicesError) {
-      room.on(LK.RoomEvent.MediaDevicesError, (err) => {
-        this._toast(mediaErrorText(err, "Микрофон"));
-        this._onMicSilent();
+      room.on(LK.RoomEvent.MediaDevicesError, (err, source) => {
+        const Src = LK.Track && LK.Track.Source;
+        if (Src && source === Src.Microphone) {
+          this._toast(mediaErrorText(err, "микрофон"));
+          this._onMicSilent();
+          return;
+        }
+        if (Src && source === Src.Camera) {
+          this._toast(mediaErrorText(err, "камеру"));
+          return;
+        }
+        if (Src && source === Src.ScreenShare) {
+          const msg = err && err.message ? String(err.message) : "";
+          this._toast(
+            /not supported|getDisplayMedia|permission|denied/i.test(msg)
+              ? SCREEN_HINT
+              : mediaErrorText(err, "экран"),
+          );
+          return;
+        }
+        this._toast(mediaErrorText(err, "устройство"));
       });
+    }
+    if (LK.RoomEvent.LocalAudioSilenceDetected) {
+      room.on(LK.RoomEvent.LocalAudioSilenceDetected, () => this._onMicSilent());
     }
     room.on(LK.RoomEvent.LocalTrackPublished, onPublished);
     room.on(LK.RoomEvent.LocalTrackUnpublished, () => {

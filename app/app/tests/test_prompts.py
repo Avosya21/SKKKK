@@ -58,3 +58,18 @@ def test_report_pages_get_design_theme_without_touching_file():
     assert body.count("report-theme.css") == 1
     again = _serve_report(body, SimpleNamespace(role="admin"), embed=True, kind="audio", role="admin").body.decode("utf-8")
     assert again.count("report-theme.css") == 1  # повторная подстановка не дублирует
+
+
+def test_speaker_match_page_keeps_own_theme_without_design_css():
+    """design.css на /report-speaker-match ломает бейджи и таблицу базы голосов."""
+    from types import SimpleNamespace
+
+    from app.app.routers.pages import _serve_report
+
+    html = (
+        '<html><head></head><body>'
+        '<article class="speaker-card h-100" data-speaker="speaker_0"></article>'
+        "</body></html>"
+    )
+    body = _serve_report(html, SimpleNamespace(role="admin"), embed=False, kind="audio", role="admin").body.decode("utf-8")
+    assert "design.css" not in body and "report-theme.css" not in body

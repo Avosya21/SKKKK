@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {# Комната встречи для сотрудника (/projects/{id}/meetings/{mid}/room) #}
+{% block body_class %}nav-in-project{% endblock %}
 {% block extra_head %}
 <link rel="manifest" href="/meeting.webmanifest?start=/projects/{{ project_id }}/meetings/{{ meeting_id }}/room">
 <style>
@@ -56,7 +57,7 @@
 {% block scripts %}
 <script src="/static/vendor/livekit/livekit-client.umd.js"></script>
 <script src="/static/meeting_layout.js?v=a5"></script>
-<script src="/static/meeting_room.js?v=a59"></script>
+<script src="/static/meeting_room.js?v=a61"></script>
 <script>
 window.PRIMARY_ANALITICS_MEETING_VOICE = {{ meeting_voice | tojson }};
 const projectId = {{ project_id }};

@@ -522,10 +522,28 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "_silentMeterCtx" in js
     assert "_onMicSilent" in js
     assert "MediaDevicesError" in js
+    assert "LocalAudioSilenceDetected" in js
     assert "mic_silent" in js
     assert "setAttributes" in js
     assert "ParticipantAttributesChanged" in js
     assert "ConnectionQualityChanged" in js
+    # Ошибка камеры/экрана не ставит mic_silent: MediaDevicesError ветвится по Track.Source
+    assert "source === Src.Camera" in js
+    assert "source === Src.ScreenShare" in js
+    assert "source === Src.Microphone" in js
+    assert "_stopLocalMicWatch" in js
+    assert "TEXT_MIC_RESTARTED" in js
+    # Ошибка камеры — тост про камеру, без _onMicSilent в catch toggleCam
+    cam_catch = js.split("async toggleCam")[1].split("async switchCamera")[0]
+    assert 'mediaErrorText(err, "камеру")' in cam_catch
+    assert "_onMicSilent" not in cam_catch
+    # Обработчик MediaDevicesError: mic → _onMicSilent; camera → тост без _onMicSilent
+    assert "room.on(LK.RoomEvent.MediaDevicesError, (err, source) => {" in js
+    mic_branch = js.split("source === Src.Microphone")[1].split("source === Src.Camera")[0]
+    assert "_onMicSilent()" in mic_branch
+    cam_branch = js.split("source === Src.Camera")[1].split("source === Src.ScreenShare")[0]
+    assert 'mediaErrorText(err, "камеру")' in cam_branch
+    assert "_onMicSilent" not in cam_branch
     assert "videoSimulcastLayers" in js
     assert "VideoPresets.h360" in js
     assert "meeting-tile-screen-" in js

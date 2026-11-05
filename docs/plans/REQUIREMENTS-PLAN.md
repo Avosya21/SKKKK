@@ -168,7 +168,7 @@
 
 ### Этап 12 — документация
 
-`DECISIONS.md` (А1–А10), `PROJECT-MAP.md`, manifest (`check_map_drift.py --fix` с копией файлов до правки), индекс. Записи в «Исправлено» (`app/app/changelog.json`) — после этапов 1, 2, 4, 8.
+`DECISIONS.md` (А1–А10), `PROJECT-MAP.md`, manifest (`check_map_drift.py --fix` с копией файлов до правки), индекс. Предложить записи в «Исправлено» после этапов 1, 2, 4, 8 — писать в `changelog.json` только после согласия пользователя (`AGENTS.md`).
 
 ## 6. Порядок
 

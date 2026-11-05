@@ -61,6 +61,55 @@ def test_restore_confirmed_matches_overwrites_auto_suggestions():
     assert payload["matches"]["SPEAKER_03"]["profile_name"] == "Мужчина 1"
 
 
+def test_restore_confirmed_skips_auto_needs_human():
+    """Автопринятые (needs_human) после пересчёта не остаются «подтверждёнными» — только кнопка человека."""
+    prev = {
+        "matches": {
+            "speaker_0": {
+                "diar_label": "speaker_0",
+                "profile_id": 1,
+                "profile_name": "Елена Соколова",
+                "status": "confirmed",
+            },
+            "speaker_1": {
+                "diar_label": "speaker_1",
+                "profile_id": 2,
+                "profile_name": "Олег Петров",
+                "status": "confirmed",
+                "needs_human": True,
+                "auto": {"score": 0.93, "margin": 0.2},
+            },
+        },
+        "merge_map": {"speaker_0": "speaker_0", "speaker_1": "speaker_1"},
+    }
+    payload = {
+        "matches": {
+            "speaker_0": {
+                "diar_label": "speaker_0",
+                "status": "new",
+                "suggested_profile_id": 9,
+                "suggested_profile_name": "другой",
+                "suggested_score": 0.5,
+            },
+            "speaker_1": {
+                "diar_label": "speaker_1",
+                "status": "new",
+                "suggested_profile_id": 2,
+                "suggested_profile_name": "Олег Петров",
+                "suggested_score": 0.95,
+            },
+        },
+        "merge_map": {"speaker_0": "speaker_0", "speaker_1": "speaker_1"},
+        "display_names": {},
+    }
+    _restore_confirmed_matches(payload, prev)
+    assert payload["matches"]["speaker_0"]["status"] == "confirmed"
+    assert payload["matches"]["speaker_0"]["profile_name"] == "Елена Соколова"
+    assert payload["matches"]["speaker_1"]["status"] == "new"
+    assert payload["matches"]["speaker_1"].get("profile_id") is None
+    assert payload["matches"]["speaker_1"]["suggested_profile_name"] == "Олег Петров"
+
+
 def test_dedupe_all_speaker_profiles_merges_by_name(db_engine):
     from sqlalchemy.orm import sessionmaker
 

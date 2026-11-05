@@ -379,7 +379,14 @@
       let r;
       if (act === 'draft') r = await post(`/agent-inbox/${id}/draft`, {});
       else if (act === 'approve') r = await post(`/agent-inbox/${id}/answer`, { approve_draft: true });
-      else { const text = document.querySelector(`[data-q-text="${id}"]`).value.trim(); if (!text) { say('exchange', 'Напишите ответ', true); return; } r = await post(`/agent-inbox/${id}/answer`, { text }); }
+      else {
+        // Текст берём из той же карточки, что и кнопка (не первый textarea в документе).
+        const box = btn.closest('.px-item');
+        const field = (box && box.querySelector(`[data-q-text="${id}"]`)) || document.querySelector(`[data-q-text="${id}"]`);
+        const text = (field && field.value || '').trim();
+        if (!text) { say('exchange', 'Напишите ответ', true); return; }
+        r = await post(`/agent-inbox/${id}/answer`, { text });
+      }
       if (!r.ok) { say('exchange', await errText(r), true); return; }
       say('exchange', act === 'draft' ? 'Черновик готов: проверьте и одобрите.' : 'Ответ отправлен агенту.');
       await loadQuestions(); loadSummary();

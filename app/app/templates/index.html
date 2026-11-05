@@ -399,6 +399,12 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
   err.classList.add('d-none');
 
   const payload = Object.fromEntries(fd.entries());
+  if (!String(payload.name || '').trim()) {
+    err.textContent = 'Введите название проекта.';
+    err.classList.remove('d-none');
+    form.querySelector('input[name=name]')?.focus();
+    return;
+  }
   // Люди заказчика: «Имя Фамилия, должность» по строке; «*» в конце — может утверждать решения
   payload.customer_people = document.getElementById('project-customer-people').value.split(/\r?\n/).map((line) => {
     let text = line.trim(); if (!text) return null;

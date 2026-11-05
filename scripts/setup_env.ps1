@@ -29,12 +29,32 @@ $torchIdx = @('--extra-index-url', 'https://download.pytorch.org/whl/cu121',
               '--extra-index-url', 'https://download.pytorch.org/whl/cu124',
               '--extra-index-url', 'https://download.pytorch.org/whl/cpu')
 
+function Test-Python310Command([string[]]$cmd) {
+    # py -3.10 после переноса папки может ссылаться на мёртвый путь («Unable to create process»).
+    try {
+        if ($cmd.Count -gt 1) {
+            $v = & $cmd[0] @($cmd[1..($cmd.Count - 1)] + '--version') 2>&1
+        } else {
+            $v = & $cmd[0] '--version' 2>&1
+        }
+        $text = "$v"
+        if ($text -match 'Unable to create process|cannot find|не удается найти') { return $false }
+        return ($text -match 'Python 3\.10\.')
+    } catch { return $false }
+}
+
 function Find-Python310 {
+    # Сначала портативный интерпретатор в проекте — не зависит от сломанного py-лаунчера.
+    $bundled = Join-Path $root 'tools\Python310\python.exe'
+    if ((Test-Path -LiteralPath $bundled) -and (Test-Python310Command @($bundled))) {
+        Write-Host "[OK  ] Python 3.10: $bundled"
+        return , @($bundled)
+    }
     foreach ($c in @(@('py', '-3.10'), @('python'), @('python3'))) {
-        try {
-            $v = & $c[0] @($c[1..($c.Count - 1)] + '--version') 2>&1
-            if ("$v" -match 'Python 3\.10\.') { return , $c }
-        } catch { }
+        if (Test-Python310Command $c) {
+            Write-Host ("[OK  ] Python 3.10: {0}" -f ($c -join ' '))
+            return , $c
+        }
     }
     return $null
 }
@@ -49,13 +69,22 @@ function New-Env($dir, $requirements, [string[]]$pipArgs) {
     if ((Test-Venv $dir) -and -not $Force) { Write-Host "[OK  ] $dir уже работает (-Force чтобы пересоздать)"; return }
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
     $py = Find-Python310
-    if (-not $py) { throw 'Python 3.10 не найден. Установите: winget install Python.Python.3.10' }
+    if (-not $py) { throw 'Python 3.10 не найден. Установите: winget install Python.Python.3.10 (или положите tools\Python310)' }
     Write-Host "[....] создаю $dir"
-    & $py[0] @($py[1..($py.Count - 1)] + @('-m', 'venv', $dir))
+    $venvArgs = @('-m', 'venv', $dir)
+    if ($py.Count -gt 1) {
+        & $py[0] @($py[1..($py.Count - 1)] + $venvArgs)
+    } else {
+        & $py[0] @($venvArgs)
+    }
     $vpy = Join-Path $dir 'Scripts\python.exe'
     & $vpy -m pip install --upgrade pip | Out-Null
     & $vpy -m pip install -r $requirements @pipArgs
-    if ($LASTEXITCODE -ne 0) { Write-Host "[FAIL] $dir : pip завершился с ошибкой" -ForegroundColor Red; return }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[FAIL] $dir : pip завершился с ошибкой" -ForegroundColor Red
+        Write-Host "       При обрыве на cursor-sdk (большой wheel): повторите pip или поставьте пакет отдельно — см. INSTALL.md" -ForegroundColor Yellow
+        return
+    }
     Write-Host "[OK  ] $dir"
 }
 

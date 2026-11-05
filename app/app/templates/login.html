@@ -1,8 +1,84 @@
 {% extends "base.html" %}
 {# Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести);
-   шаг 3 — карточка (ФИО, компания, должность, фото), если ещё не заполнена #}
+   шаг 3 — карточка (ФИО, компания, должность, фото), если ещё не заполнена.
+   Десктоп: слева крупный бренд Appa, справа плашка форм. #}
+{% block body_class %}login-page{% endblock %}
 {% block extra_head %}
 <style>
+  /* Полноэкранный вход: шапка скрыта — бренд слева; main без контейнера */
+  body.login-page { min-height: 100dvh; }
+  body.login-page .navbar-primaryanalitics { display: none; }
+  body.login-page > main.container {
+    max-width: none;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+  .login-split {
+    display: grid;
+    grid-template-columns: 1fr;
+    min-height: 100dvh;
+  }
+  .login-brand {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.75rem;
+    padding: 2.5rem 2rem;
+    background: var(--ds-surface);
+  }
+  .login-brand-logo {
+    width: min(42vw, 280px);
+    height: auto;
+    display: block;
+  }
+  .login-brand-title {
+    margin: 0;
+    font-size: clamp(0.95rem, 1.6vw, 1.15rem);
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ds-muted);
+    line-height: 1.25;
+    text-align: center;
+  }
+  .login-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem 2.5rem;
+    background: var(--ds-bg);
+  }
+  .login-panel-inner {
+    width: 100%;
+    max-width: 420px;
+  }
+  .login-brand-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .85rem;
+    margin-bottom: 1.5rem;
+  }
+  .login-brand-mobile img {
+    width: 88px;
+    height: auto;
+  }
+  .login-brand-mobile .login-brand-title {
+    font-size: .72rem;
+  }
+  @media (min-width: 992px) {
+    .login-split {
+      grid-template-columns: 1fr 1fr;
+    }
+    .login-brand { display: flex; }
+    .login-brand-mobile { display: none; }
+    .login-panel {
+      padding: 2.5rem 2rem;
+      min-height: 100dvh;
+    }
+  }
   .profile-photo { display: flex; gap: 1rem; align-items: center; }
   .profile-photo-preview {
     width: 96px; height: 96px; flex: 0 0 96px; border-radius: 50%; overflow: hidden;
@@ -17,102 +93,112 @@
 </style>
 {% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-md-5">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h1 class="h4 mb-3">Вход</h1>
-        <form id="login-form">
-          <div class="mb-3">
-            <label class="form-label" for="login-name">Имя (логин)</label>
-            <input class="form-control" id="login-name" name="name" required autocomplete="username" enterkeyhint="next" autocapitalize="none" spellcheck="false">
-            <div class="form-text">Как в списке допущенных: почта или имя. Регистр не важен. Одинаковый логин — одна учётка.</div>
-          </div>
-          {# Telegram ID пока скрыт (решение владельца 2026-09-28): уведомлений в Telegram нет, вход работает без него.
-             Скрывает маршрут (`hide_telegram` в pages.login_page), поле disabled — не уходит с формой. Вернуть — убрать признак. #}
-          <div class="mb-3"{% if hide_telegram %} hidden{% endif %}>
-            <label class="form-label" for="login-telegram">Telegram ID</label>
-            <input class="form-control" id="login-telegram" name="telegram_id" {% if hide_telegram %}disabled{% else %}required{% endif %} autocomplete="nickname" enterkeyhint="next">
-            <div class="form-text">Обязательное поле: сохраняется у вашей учётки. На проверку пароля не влияет.</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="login-password">Пароль роли</label>
-            <input class="form-control" id="login-password" type="password" name="password" required autocomplete="off" enterkeyhint="go">
-          </div>
-          <div class="alert alert-danger d-none" id="login-error" role="alert"></div>
-          <button class="btn btn-primary w-100 primaryanalitics-action-btn" type="submit" id="login-submit" data-idle-label="Войти">Войти</button>
-        </form>
-
-        {# Шаг 2. Скрытое поле username — чтобы менеджер паролей браузера связал личный пароль с логином. #}
-        <form id="step-form" class="d-none" novalidate>
-          <input type="text" id="step-username" name="username" autocomplete="username" class="d-none" tabindex="-1" aria-hidden="true">
-          <p class="mb-3" id="step-hint"></p>
-          <div class="mb-3" id="step-personal-group">
-            <label class="form-label" for="step-personal">Личный пароль</label>
-            <input class="form-control" id="step-personal" type="password" autocomplete="current-password" enterkeyhint="go">
-          </div>
-          <div id="step-setup-group">
+<div class="login-split">
+  <aside class="login-brand" aria-hidden="true">
+    <img class="login-brand-logo" src="/static/brand/appa-mascot.png?v=2" alt="">
+    <p class="login-brand-title">Appa: Primary Analitics</p>
+  </aside>
+  <div class="login-panel">
+    <div class="login-panel-inner">
+      <div class="login-brand-mobile">
+        <img src="/static/brand/appa-mascot.png?v=2" alt="">
+        <p class="login-brand-title">Appa: Primary Analitics</p>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h1 class="h4 mb-3">Вход</h1>
+          <form id="login-form">
             <div class="mb-3">
-              <label class="form-label" for="step-new">Новый пароль</label>
-              <input class="form-control" id="step-new" type="password" autocomplete="new-password" enterkeyhint="next" aria-describedby="step-new-help">
-              <div class="form-text" id="step-new-help"></div>
+              <label class="form-label" for="login-name">Логин</label>
+              <input class="form-control" id="login-name" name="name" required autocomplete="username" enterkeyhint="next" autocapitalize="none" spellcheck="false">
+            </div>
+            {# Telegram ID пока скрыт (решение владельца 2026-09-28): уведомлений в Telegram нет, вход работает без него.
+               Скрывает маршрут (`hide_telegram` в pages.login_page), поле disabled — не уходит с формой. Вернуть — убрать признак. #}
+            <div class="mb-3"{% if hide_telegram %} hidden{% endif %}>
+              <label class="form-label" for="login-telegram">Telegram ID</label>
+              <input class="form-control" id="login-telegram" name="telegram_id" {% if hide_telegram %}disabled{% else %}required{% endif %} autocomplete="nickname" enterkeyhint="next">
+              <div class="form-text">Обязательное поле: сохраняется у вашей учётки. На проверку пароля не влияет.</div>
             </div>
             <div class="mb-3">
-              <label class="form-label" for="step-confirm">Повторите пароль</label>
-              <input class="form-control" id="step-confirm" type="password" autocomplete="new-password" enterkeyhint="go">
+              <label class="form-label" for="login-password">Пароль доступа к сервису</label>
+              <input class="form-control" id="login-password" type="password" name="password" required autocomplete="off" enterkeyhint="go">
+              <div class="form-text">manager/admin/user</div>
             </div>
-          </div>
-          <div class="alert alert-danger d-none" id="step-error" role="alert"></div>
-          <button class="btn btn-primary w-100 primaryanalitics-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
-          <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
-        </form>
+            <div class="alert alert-danger d-none" id="login-error" role="alert"></div>
+            <button class="btn btn-primary w-100 primaryanalitics-action-btn" type="submit" id="login-submit" data-idle-label="Войти">Войти</button>
+          </form>
 
-        {# Шаг 3. Карточка: всё обязательно, отправляется одним запросом вместе с фото. #}
-        <form id="profile-form" class="d-none" novalidate>
-          <p class="mb-3" id="profile-hint"></p>
-          <div class="profile-photo mb-3">
-            <div class="profile-photo-preview" id="profile-photo-preview">
-              <span id="profile-photo-empty">Фото</span>
-              <img id="profile-photo-img" alt="Ваше фото" class="d-none">
+          {# Шаг 2. Скрытое поле username — чтобы менеджер паролей браузера связал личный пароль с логином. #}
+          <form id="step-form" class="d-none" novalidate>
+            <input type="text" id="step-username" name="username" autocomplete="username" class="d-none" tabindex="-1" aria-hidden="true">
+            <p class="mb-3" id="step-hint"></p>
+            <div class="mb-3" id="step-personal-group">
+              <label class="form-label" for="step-personal">Личный пароль</label>
+              <input class="form-control" id="step-personal" type="password" autocomplete="current-password" enterkeyhint="go">
             </div>
-            <div>
-              <label class="btn btn-outline-secondary btn-sm mb-1" for="profile-photo">Выбрать фото</label>
-              <input type="file" id="profile-photo" accept="image/*" class="visually-hidden">
-              <label class="btn btn-outline-secondary btn-sm mb-1 d-none" for="profile-camera" id="profile-camera-btn">Сделать снимок</label>
-              <input type="file" id="profile-camera" accept="image/*" capture="user" class="visually-hidden">
-              <div class="form-text">Лицо крупно, по центру: фото обрежется в квадрат. Будет видно в окне созвона.</div>
-              <div class="invalid-feedback" data-for="avatar"></div>
+            <div id="step-setup-group">
+              <div class="mb-3">
+                <label class="form-label" for="step-new">Новый пароль</label>
+                <input class="form-control" id="step-new" type="password" autocomplete="new-password" enterkeyhint="next" aria-describedby="step-new-help">
+                <div class="form-text" id="step-new-help"></div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="step-confirm">Повторите пароль</label>
+                <input class="form-control" id="step-confirm" type="password" autocomplete="new-password" enterkeyhint="go">
+              </div>
             </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="profile-last">Фамилия</label>
-            <input class="form-control" id="profile-last" name="last_name" autocomplete="family-name" enterkeyhint="next" maxlength="100">
-            <div class="invalid-feedback" data-for="last_name"></div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="profile-first">Имя</label>
-            <input class="form-control" id="profile-first" name="first_name" autocomplete="given-name" enterkeyhint="next" maxlength="100">
-            <div class="invalid-feedback" data-for="first_name"></div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="profile-company">Компания</label>
-            <select class="form-select" id="profile-company" name="company_id"></select>
-            <div class="form-text d-none" id="profile-company-locked">Компанию назначил администратор.</div>
-            <div class="invalid-feedback" data-for="company_id"></div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" for="profile-job">Должность</label>
-            <input class="form-control" id="profile-job" name="job_title" autocomplete="organization-title" enterkeyhint="done" maxlength="150">
-            <div class="invalid-feedback" data-for="job_title"></div>
-          </div>
-          <div class="form-text profile-consent mb-3" id="profile-consent">
-            <span id="profile-consent-text"></span>
-            <details class="mt-1"><summary>Подробнее</summary><div class="mt-1" id="profile-consent-details"></div></details>
-          </div>
-          <div class="alert alert-danger d-none" id="profile-error" role="alert"></div>
-          <button class="btn btn-primary w-100 primaryanalitics-action-btn mb-2" type="submit" id="profile-submit" data-idle-label="Сохранить и войти">Сохранить и войти</button>
-          <button type="button" class="btn btn-link px-0" id="profile-back">Назад</button>
-        </form>
+            <div class="alert alert-danger d-none" id="step-error" role="alert"></div>
+            <button class="btn btn-primary w-100 primaryanalitics-action-btn mb-2" type="submit" id="step-submit" data-idle-label="Войти">Войти</button>
+            <button type="button" class="btn btn-link px-0" id="step-back">Назад</button>
+          </form>
+
+          {# Шаг 3. Карточка: всё обязательно, отправляется одним запросом вместе с фото. #}
+          <form id="profile-form" class="d-none" novalidate>
+            <p class="mb-3" id="profile-hint"></p>
+            <div class="profile-photo mb-3">
+              <div class="profile-photo-preview" id="profile-photo-preview">
+                <span id="profile-photo-empty">Фото</span>
+                <img id="profile-photo-img" alt="Ваше фото" class="d-none">
+              </div>
+              <div>
+                <label class="btn btn-outline-secondary btn-sm mb-1" for="profile-photo">Выбрать фото</label>
+                <input type="file" id="profile-photo" accept="image/*" class="visually-hidden">
+                <label class="btn btn-outline-secondary btn-sm mb-1 d-none" for="profile-camera" id="profile-camera-btn">Сделать снимок</label>
+                <input type="file" id="profile-camera" accept="image/*" capture="user" class="visually-hidden">
+                <div class="form-text">Лицо крупно, по центру: фото обрежется в квадрат. Будет видно в окне созвона.</div>
+                <div class="invalid-feedback" data-for="avatar"></div>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="profile-last">Фамилия</label>
+              <input class="form-control" id="profile-last" name="last_name" autocomplete="family-name" enterkeyhint="next" maxlength="100">
+              <div class="invalid-feedback" data-for="last_name"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="profile-first">Имя</label>
+              <input class="form-control" id="profile-first" name="first_name" autocomplete="given-name" enterkeyhint="next" maxlength="100">
+              <div class="invalid-feedback" data-for="first_name"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="profile-company">Компания</label>
+              <select class="form-select" id="profile-company" name="company_id"></select>
+              <div class="form-text d-none" id="profile-company-locked">Компанию назначил администратор.</div>
+              <div class="invalid-feedback" data-for="company_id"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="profile-job">Должность</label>
+              <input class="form-control" id="profile-job" name="job_title" autocomplete="organization-title" enterkeyhint="done" maxlength="150">
+              <div class="invalid-feedback" data-for="job_title"></div>
+            </div>
+            <div class="form-text profile-consent mb-3" id="profile-consent">
+              <span id="profile-consent-text"></span>
+              <details class="mt-1"><summary>Подробнее</summary><div class="mt-1" id="profile-consent-details"></div></details>
+            </div>
+            <div class="alert alert-danger d-none" id="profile-error" role="alert"></div>
+            <button class="btn btn-primary w-100 primaryanalitics-action-btn mb-2" type="submit" id="profile-submit" data-idle-label="Сохранить и войти">Сохранить и войти</button>
+            <button type="button" class="btn btn-link px-0" id="profile-back">Назад</button>
+          </form>
+        </div>
       </div>
     </div>
   </div>

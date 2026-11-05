@@ -19,8 +19,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ASR = ROOT / "asr"
 sys.path.insert(0, str(ASR))
 
-from speakers import format_clock  # noqa: E402
-
 STATUS_BADGE = {
     "confirmed": ("bg-success", "подтверждён"),
     "suggested": ("bg-warning text-dark", "подсказка"),
@@ -65,10 +63,6 @@ ICON_REFRESH = (
     'viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" '
     'd="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>'
     '<path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></svg>'
-)
-ICON_CHECK = (
-    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" '
-    'viewBox="0 0 16 16" aria-hidden="true"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 0 1 1.06-1.06l2.094 2.093 3.473-4.425z"/></svg>'
 )
 ICON_MERGE = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" '
@@ -139,28 +133,24 @@ def _speech_text(seconds: float, total: float) -> str:
 
 
 def _diar_summary(info: dict | None) -> str:
-    """Строка под заголовком: чья разметка, сколько голосов, упёрлась ли модель в потолок."""
+    """Предупреждение, если Sortformer упёрся в потолок каналов. Подпись модели в hero больше не показываем."""
     if not info:
         return ""
     found, cap = info["found"], info.get("max_speakers")
-    text = f"Кто говорит: <strong>{html.escape(info['label'])}</strong>"
-    if cap and info["key"] != "native_track":
-        text += f", до {cap} голосов"
-    text += f". Найдено голосов: <strong>{found}</strong>."
-    out = f'<p class="diar-summary small mt-3 mb-0">{text}</p>'
     if info["key"] == "sortformer4" and cap and found >= cap:
-        out += (
+        return (
             '<div class="alert alert-warning small mt-3 mb-0 py-2" role="status">'
             f"Заняты все {cap} канала Sortformer: людей на созвоне могло быть больше, и тогда их голоса "
             "слиты с этими. Пересчёт на Nemotron 3 разделит до 8 голосов."
             "</div>"
         )
-    return out
+    return ""
 
 
 def _badge(status: str) -> str:
     css, label = STATUS_BADGE.get(status, ("bg-secondary", status))
-    return f'<span class="badge {css}">{html.escape(label)}</span>'
+    # rounded-pill + status-badge: мягкие пилюли своей палитры (раньше давал design.css)
+    return f'<span class="badge rounded-pill status-badge {css}">{html.escape(label)}</span>'
 
 
 def _speaker_card_groups(matches: dict, merge_map: dict) -> list[dict]:
@@ -205,8 +195,8 @@ def _merge_target_options(primary: str, labels: list[str], groups: list[dict]) -
         if tgt == primary or tgt in own:
             continue
         m = g.get("match") or {}
-        pname = (m.get("profile_name") or "").strip()
-        title = f"{pname} ({tgt})" if pname else tgt
+        pname = (m.get("profile_name") or m.get("suggested_profile_name") or "").strip()
+        title = pname or "Без имени"
         opts.append(f'<option value="{html.escape(tgt, quote=True)}">{html.escape(title)}</option>')
     if len(opts) <= 1:
         return ""
@@ -250,29 +240,36 @@ def _speaker_cards(
         sug_score = m.get("suggested_score")
         cs, ce = m.get("clip_start"), m.get("clip_end")
         inp_id = f"name-{sp.replace('_', '-')}"
-        headline = html.escape(pname) if pname else html.escape(sp)
+        headline = html.escape(pname) if pname else "Без имени"
         unchecked = st == "confirmed" and bool(m.get("needs_human"))  # узнан автоматически, ждёт проверки человеком
         enroll_btn = "Подтвердить" if st != "confirmed" or unchecked else "Обновить"
-        labels_txt = html.escape(" · ".join(labels))
-        merge_note = (
-            f'<p class="speaker-merge mb-2"><span class="badge rounded-pill text-bg-light border">'
-            f"Объединено: {labels_txt}</span></p>"
-            if len(labels) > 1
-            else f'<p class="speaker-id mb-2 font-monospace">{labels_txt}</p>'
-        )
-        for alias in labels[1:]:
-            alias_spoken = speech.get(alias)
-            alias_speech = f" · {html.escape(_speech_text(alias_spoken, total_speech))}" if alias_spoken is not None else ""
-            merge_note += (
-                f'<p class="small text-muted mb-2">{html.escape(alias)}{alias_speech} — '
-                f'<button type="button" class="btn btn-link btn-sm p-0 align-baseline split-btn" '
-                f'data-label="{html.escape(alias, quote=True)}" title="Голоса склеились ошибочно — вернуть отдельной карточкой">'
-                f"Отделить</button></p>"
+        # Метки speaker_N пользователю не показываем — только «Объединено» и «Отделить»
+        merge_note = ""
+        if len(labels) > 1:
+            n = len(labels)
+            word = (
+                "голос" if n % 10 == 1 and n % 100 != 11
+                else "голоса" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14
+                else "голосов"
             )
+            merge_note = (
+                f'<p class="speaker-merge mb-2"><span class="badge rounded-pill text-bg-light border">'
+                f"Объединено: {n} {word}</span></p>"
+            )
+            for alias in labels[1:]:
+                merge_note += (
+                    f'<p class="small text-muted mb-2">Ещё один голос — '
+                    f'<button type="button" class="btn btn-link btn-sm p-0 align-baseline split-btn" '
+                    f'data-label="{html.escape(alias, quote=True)}" title="Голоса склеились ошибочно — вернуть отдельной карточкой">'
+                    f"Отделить</button></p>"
+                )
         if voice_merge_target:
+            # voice_merge_target — служебная метка; в UI показываем имя, если уже есть
+            other = matches.get(voice_merge_target) or {}
+            other_name = (other.get("profile_name") or other.get("suggested_profile_name") or "").strip() or "другой голос"
             merge_note += (
                 f'<p class="small text-muted mb-2">Голос похож на '
-                f"<strong>{html.escape(voice_merge_target)}</strong> (авто, можно разделить)</p>"
+                f"<strong>{html.escape(other_name)}</strong> (авто, можно разделить)</p>"
             )
         score_txt = (
             f'<p class="small text-muted mb-2">Совпадение: <strong>{int(score * 100)}%</strong></p>'
@@ -288,9 +285,7 @@ def _speaker_cards(
         if auto:
             score_txt += (
                 f'<p class="small text-muted mb-2">Узнан автоматически по голосу '
-                f'({int(float(auto.get("score") or 0) * 100)}%, отрыв {int(float(auto.get("margin") or 0) * 100)}%). '
-                + ("Проверьте имя, компанию и сторону и нажмите «Подтвердить».</p>" if unchecked
-                   else "Если это не он — введите имя и нажмите «Обновить».</p>")
+                f'({int(float(auto.get("score") or 0) * 100)}%).</p>'
             )
         hint = m.get("llm_hint") if st == "new" else None
         if hint and not (m.get("profile_name") or "").strip():
@@ -324,7 +319,6 @@ def _speaker_cards(
                 )
                 score_txt = ""
         score_txt = speech_txt + score_txt
-        confirmed_icon = f'<span class="speaker-check" aria-hidden="true">{ICON_CHECK}</span>' if st == "confirmed" else ""
         merge_opts = _merge_target_options(sp, labels, groups)
         merge_block = ""
         if merge_opts and len(labels) == 1:
@@ -344,7 +338,7 @@ def _speaker_cards(
             f'data-labels="{html.escape(",".join(labels), quote=True)}" style="--speaker-color:{color}">'
             f'<div class="speaker-card-inner h-100 d-flex flex-column">'
             f'<div class="d-flex align-items-start gap-3 mb-3">'
-            f'<div class="speaker-avatar" aria-hidden="true">{html.escape(_initials(pname or sp, sp))}</div>'
+            f'<div class="speaker-avatar" aria-hidden="true">{html.escape(_initials(pname, "?") if pname else "?")}</div>'
             f'<div class="flex-grow-1 min-w-0">'
             f'<div class="d-flex justify-content-between align-items-start gap-2">'
             f'<h3 class="speaker-name h6 mb-0">{headline}</h3>'
@@ -353,13 +347,8 @@ def _speaker_cards(
             f"{merge_note}"
             f"{score_txt}"
             f"</div></div>"
-            f'<p class="speaker-clip small mb-3">'
-            f'<span class="text-muted">Эталон</span> '
-            f"{format_clock(cs or 0)}–{format_clock(ce or 0)} "
-            f'<span class="text-muted">({m.get("clip_duration", 0):.1f} с)</span>'
-            f"</p>"
-            f'<button type="button" class="btn btn-sm btn-soft play-clip mb-2 align-self-start" '
-            f'data-start="{cs}" data-end="{ce}" aria-label="Прослушать эталонный клип">'
+            f'<button type="button" class="btn btn-sm btn-soft play-clip mb-3 align-self-start" '
+            f'data-start="{cs}" data-end="{ce}" aria-label="Прослушать">'
             f'{ICON_PLAY}<span class="ms-1">Прослушать</span></button>'
             f'<div class="mt-auto pt-2 border-top">'
             f'<label class="form-label small fw-medium mb-1" for="{inp_id}">Имя спикера</label>'
@@ -369,7 +358,6 @@ def _speaker_cards(
             f'<button type="button" class="btn btn-soft-accent enroll">{enroll_btn}</button>'
             f"</div></div>"
             f"{merge_block}"
-            f"{confirmed_icon}"
             f"</div></article></div>"
         )
     return "".join(parts)
@@ -379,14 +367,13 @@ def render_html(
     *, title: str, audio_url: str, payload: dict, profiles: list[dict], diar: dict | None = None
 ) -> str:
     matches = payload.get("matches") or {}
-    diar_short = diar["short"] if diar else "Sortformer"
     diar_summary = _diar_summary(diar)
     merge_map = payload.get("merge_map") or {}
     is_lab = payload.get("source") == "lab"
     voices_title = "Голоса встречи" if is_lab else "Голоса Sortformer"
     recalc_label = "Пересчитать подсказки" if is_lab else "Обновить и пересчитать"
     recalc_hint = (
-        "неотмеченные ↔ база голосов; подтверждённые не сбрасываются"
+        "подсказки заново по базе голосов; сохраняются только подтверждённые вами карточки"
         if is_lab
         else "~20 с · Docker WeSpeaker"
     )
@@ -432,6 +419,9 @@ def render_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html.escape(title)} — Primary Analytics</title>
+  <link rel="icon" href="/static/brand/favicon.ico?v=2" sizes="any">
+  <link rel="icon" href="/static/brand/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="{FONTS}" rel="stylesheet">
@@ -446,6 +436,13 @@ def render_html(
       --color-muted-fg: {TOKENS["muted_fg"]};
       --color-border: {TOKENS["border"]};
       --color-surface: {TOKENS["surface"]};
+      --ds-surface: #ffffff;
+      --ds-line: #e4e4e7;
+      --ds-text: #09090b;
+      --ds-text-2: #3f3f46;
+      --ds-muted: #71717a;
+      --ds-surface-2: #f4f4f5;
+      --ds-r-sm: 8px;
       --font-display: "Poppins", system-ui, sans-serif;
       --font-body: "Open Sans", system-ui, sans-serif;
       --radius: .75rem;
@@ -459,18 +456,107 @@ def render_html(
       background: var(--color-surface);
       line-height: 1.5;
     }}
-    h1, h2, h3, .navbar-brand, .page-title {{
+    h1, h2, h3, .page-title {{
       font-family: var(--font-display);
     }}
+    /* Шапка как у портала: светлая полоса, Appa + caps-подпись */
     .app-nav {{
-      background: linear-gradient(180deg, #1a2332 0%, var(--color-fg) 100%) !important;
-      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: var(--ds-surface) !important;
+      border-bottom: 1px solid var(--ds-line);
+      min-height: 56px;
+    }}
+    .app-nav .navbar-inner {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      min-height: 56px;
+      width: 100%;
+      max-width: 1320px;
+      margin-inline: auto;
+    }}
+    .app-nav .navbar-brand-row {{
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      flex: 1 1 auto;
+    }}
+    .app-nav .navbar-brand-logo {{
+      display: inline-flex;
+      align-items: center;
+      gap: .6rem;
+      color: var(--ds-text);
+      text-decoration: none;
+      flex-shrink: 0;
+    }}
+    .app-nav .navbar-brand-logo img {{
+      display: block;
+      height: 36px;
+      width: auto;
+    }}
+    .app-nav .navbar-brand-sub {{
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--ds-muted);
+      padding-left: .6rem;
+      border-left: 1px solid var(--ds-line);
+      line-height: 1.1;
+    }}
+    .app-nav .navbar-back {{
+      color: var(--ds-muted);
+      background: transparent;
+      border: 0;
+      border-radius: var(--ds-r-sm);
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      line-height: 1.1;
+      text-decoration: none;
+      padding: .45rem .55rem;
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }}
+    .app-nav .navbar-back:hover {{
+      color: var(--ds-text);
+      background: var(--ds-surface-2);
+    }}
+    @media (max-width: 575.98px) {{
+      .app-nav .navbar-brand-sub {{ display: none; }}
     }}
     .page-hero {{
       background: var(--color-bg);
       border: 1px solid var(--color-border);
       border-radius: var(--radius);
       box-shadow: var(--shadow-sm);
+      /* report-theme.css режет header до 1040px — герой должен быть шириной контента ниже */
+      max-width: none !important;
+      width: 100%;
+    }}
+    /* Статусы карточек: мягкие пилюли как в design.css (его на этой странице намеренно нет) */
+    .speaker-card .status-badge {{
+      font-weight: 600;
+      letter-spacing: 0;
+      border-radius: 999px;
+      padding: .32em .7em;
+    }}
+    .speaker-card .status-badge.bg-success {{
+      color: #067647 !important;
+      background: #e7f6ee !important;
+    }}
+    .speaker-card .status-badge.bg-warning {{
+      color: #93370d !important;
+      background: #fef3e2 !important;
+    }}
+    .speaker-card .status-badge.bg-secondary {{
+      color: #71717a !important;
+      background: #f2f4f7 !important;
+    }}
+    .speaker-card .status-badge.bg-info {{
+      color: #175cd3 !important;
+      background: #e8f0fe !important;
     }}
     .progress-enroll {{
       height: .5rem;
@@ -536,13 +622,31 @@ def render_html(
       color: var(--color-accent);
     }}
     .btn-accent {{
-      background: color-mix(in srgb, var(--color-accent) 88%, #1e293b);
+      /* Bootstrap 5 читает --bs-btn-* на :hover — задаём явно, иначе кнопка белеет */
+      --bs-btn-color: #fff;
+      --bs-btn-bg: color-mix(in srgb, var(--color-accent) 88%, #1e293b);
+      --bs-btn-border-color: transparent;
+      --bs-btn-hover-color: #fff;
+      --bs-btn-hover-bg: color-mix(in srgb, var(--color-accent) 72%, #0f172a);
+      --bs-btn-hover-border-color: transparent;
+      --bs-btn-active-color: #fff;
+      --bs-btn-active-bg: color-mix(in srgb, var(--color-accent) 65%, #0f172a);
+      --bs-btn-active-border-color: transparent;
+      --bs-btn-disabled-color: #fff;
+      --bs-btn-disabled-bg: color-mix(in srgb, var(--color-accent) 88%, #1e293b);
+      background: var(--bs-btn-bg);
       border-color: transparent;
       color: #fff;
       font-weight: 600;
-      transition: all var(--transition);
+      transition: background var(--transition), color var(--transition);
     }}
-    .btn-accent:hover {{ filter: brightness(1.06); color: #fff; }}
+    .btn-accent:hover,
+    .btn-accent:focus-visible,
+    .btn-accent:active {{
+      background: var(--bs-btn-hover-bg);
+      border-color: transparent;
+      color: #fff;
+    }}
     .merge-row .form-select {{ max-width: 100%; }}
     .speaker-card {{
       --speaker-color: var(--color-muted-fg);
@@ -576,12 +680,6 @@ def render_html(
     }}
     .speaker-name {{ color: var(--color-fg); }}
     .speaker-id {{ color: var(--color-muted-fg); font-size: .75rem; }}
-    .speaker-check {{
-      position: absolute;
-      top: .75rem;
-      right: .75rem;
-      color: #6B9080;
-    }}
     .workflow-step {{
       display: flex;
       gap: .75rem;
@@ -639,10 +737,17 @@ def render_html(
   </style>
 </head>
 <body>
-<nav class="navbar navbar-dark app-nav mb-0">
-  <div class="container-fluid px-3 px-lg-4" style="max-width: 1320px">
-    <a class="navbar-brand fw-semibold" href="/">Primary Analytics</a>
-    <span class="navbar-text text-white-50 small d-none d-sm-inline">Голоса · {html.escape(diar_short)}</span>
+<nav class="navbar app-nav mb-0" aria-label="Навигация">
+  <div class="container-fluid px-3 px-lg-4">
+    <div class="navbar-inner">
+      <div class="navbar-brand-row">
+        <a class="navbar-brand-logo" href="/" title="Appa · Primary Analytics">
+          <img src="/static/brand/appa-mascot.png?v=2" alt="Appa" width="36" height="36">
+          <span class="navbar-brand-sub">Primary Analytics</span>
+        </a>
+      </div>
+      <a class="navbar-back" href="{project_href}">к проекту</a>
+    </div>
   </div>
 </nav>
 
@@ -684,10 +789,10 @@ def render_html(
           <audio id="player" class="w-100 mb-4" controls preload="metadata" playsinline
             src="{html.escape(audio_url, quote=True)}">Ваш браузер не поддерживает аудио.</audio>
           <div class="d-flex flex-wrap align-items-center gap-3">
-            <button id="recalc" type="button" class="btn btn-accent d-inline-flex align-items-center gap-2">
+            <button id="recalc" type="button" class="btn btn-accent d-inline-flex align-items-center gap-2"
+              title="{html.escape(recalc_hint, quote=True)}">
               {ICON_REFRESH}<span>{html.escape(recalc_label)}</span>
             </button>
-            <span class="small" style="color:var(--color-muted-fg)">{html.escape(recalc_hint)}</span>
           </div>
         </div>
       </section>
@@ -743,31 +848,40 @@ const player = document.getElementById("player");
 const toastEl = document.getElementById("toast");
 const toastBody = document.getElementById("toast-body");
 const bsToast = bootstrap.Toast.getOrCreateInstance(toastEl, {{ delay: 3500 }});
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
 function showToast(msg) {{
   toastBody.textContent = msg;
   bsToast.show();
 }}
-function seek(sec) {{
+async function seek(sec) {{
+  // Клик = жест пользователя: play() нужно успеть в этом стеке (или в await от него).
+  // Раньше при неготовом <audio> play() откладывался на loadedmetadata — браузер блокировал
+  // автозапуск, ошибка глоталась, «Прослушать» казалась мёртвой до перезагрузки страницы.
   const t = Number(sec);
-  if (!Number.isFinite(t)) return;
-  const go = () => {{
-    try {{ player.currentTime = t; }} catch (_) {{}}
-    if (!reducedMotion) {{
-      const p = player.play();
-      if (p && typeof p.catch === "function") p.catch(() => {{}});
-    }}
-  }};
-  if (player.readyState >= 1) {{
-    go();
+  if (!Number.isFinite(t)) {{
+    showToast("Нет фрагмента для прослушивания");
     return;
   }}
-  player.addEventListener("loadedmetadata", go, {{ once: true }});
-  try {{ player.load(); }} catch (_) {{}}
+  if (!player) return;
+  try {{
+    if (player.readyState < 1) {{
+      player.load();
+      await new Promise((resolve, reject) => {{
+        const ok = () => resolve();
+        const fail = () => reject(new Error("аудио не загрузилось"));
+        player.addEventListener("loadedmetadata", ok, {{ once: true }});
+        player.addEventListener("error", fail, {{ once: true }});
+      }});
+    }}
+    player.currentTime = t;
+    await player.play();
+  }} catch (err) {{
+    showToast("Не удалось воспроизвести: обновите страницу или нажмите ▶ у плеера сверху");
+  }}
 }}
 
-document.querySelectorAll(".play-clip").forEach(btn => btn.addEventListener("click", () => seek(Number(btn.dataset.start))));
+document.querySelectorAll(".play-clip").forEach(btn => btn.addEventListener("click", () => {{
+  seek(Number(btn.dataset.start));
+}}));
 
 document.querySelectorAll(".speaker-card .enroll").forEach(btn => {{
   btn.addEventListener("click", async () => {{

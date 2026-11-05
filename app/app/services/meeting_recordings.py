@@ -12,6 +12,8 @@ from pathlib import Path
 
 CLEANER_ID = "primaryanalitics-dfn"
 HIDDEN_PREFIX = "primaryanalitics-"
+# Старые комнаты/боты с префиксом skkkk- (данные до переименования) — читать и считать скрытыми.
+_ROOM_PREFIXES = (HIDDEN_PREFIX, "skkkk-")
 RECORD_DIRNAME = "meetings"
 TRACKS_DIRNAME = "tracks"
 MANIFEST_NAME = "manifest.json"
@@ -136,7 +138,7 @@ def screen_video_relpath(identity: str, track_sid: str) -> str:
 
 
 def is_human_identity(identity: str) -> bool:
-    return bool(identity) and not identity.startswith(HIDDEN_PREFIX)
+    return bool(identity) and not any(identity.startswith(p) for p in _ROOM_PREFIXES)
 
 
 def should_record_identity(identity: str) -> bool:
@@ -155,7 +157,7 @@ def recordings_root(data_dir: Path) -> Path:
 
 
 def room_dir(data_dir: Path, room_name: str) -> Path:
-    if not room_name.startswith(HIDDEN_PREFIX):
+    if not any(room_name.startswith(p) for p in _ROOM_PREFIXES):
         raise ValueError("room_name")
     if any(part in room_name for part in ("/", "\\", "..")):
         raise ValueError("room_name")

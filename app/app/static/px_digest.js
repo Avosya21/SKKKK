@@ -1,10 +1,16 @@
 /* Полоска «Что нового с прошлого захода» (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш5).
    Строки рисует сервер (pages.project_page → project_digest); здесь — переход к нужной карточке, «Скрыть», обновление после
-   тоста «файл обработан» и строка «Ждут вас»: её счёт тяжёлый (контракт), поэтому он не задерживает открытие страницы. */
+   тоста «файл обработан» и строка «Ждут вас»: её счёт тяжёлый (контракт), поэтому он не задерживает открытие страницы.
+   DISABLED: временно не показываем в UI (2026-11-05); API и разметка остаются. */
 (function () {
+  const DISABLED = true;
   const box = document.getElementById('project-digest');
   const list = document.getElementById('project-digest-list');
-  if (!box || !list || !window.PX) return;
+  if (DISABLED || !box || !list || !window.PX) {
+    if (box) box.hidden = true;
+    window.PXDigest = { async reload() {} };
+    return;
+  }
   const PID = window.PX.projectId;
   const staff = window.PX.role === 'admin' || window.PX.role === 'manager';
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

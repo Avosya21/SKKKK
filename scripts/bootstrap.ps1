@@ -62,9 +62,17 @@ function Winget-Install($id, $title) {
     return $true
 }
 function Find-Python310 {
+    $bundled = Join-Path $root 'tools\Python310\python.exe'
+    if (Test-Path -LiteralPath $bundled) {
+        try {
+            $v = & $bundled --version 2>&1
+            if ("$v" -match 'Python 3\.10\.') { return $true }
+        } catch { }
+    }
     foreach ($c in @(@('py', '-3.10'), @('python'))) {
         try {
             $v = & $c[0] @($c[1..($c.Count - 1)] + '--version') 2>&1
+            if ("$v" -match 'Unable to create process|cannot find|не удается найти') { continue }
             if ("$v" -match 'Python 3\.10\.') { return $true }
         } catch { }
     }
@@ -210,7 +218,8 @@ if (Test-Path -LiteralPath (Join-Path $root '.git\hooks')) {
 }
 
 # ---------- 8. Итог ----------
-$manual.Add('LM Studio: скачать модель из .env (LMSTUDIO_MODEL) на вкладке Search и включить локальный сервер (порт 1234)')
+$manual.Add('LM Studio: скачать модель из .env (LMSTUDIO_MODEL) на вкладке Search; перед порталом — run_server.ps1 (или Start Server на :1234)')
+$manual.Add('Опционально автозапуск сервера LM Studio при входе в Windows: powershell -ExecutionPolicy Bypass -File scripts\install_lmstudio_autostart.ps1')
 $manual.Add('Проверка всей системы: powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1')
 $manual.Add('Запуск: scripts\PrimaryAnalitics-3-Запуск-LM-Studio.bat (локальная модель) или scripts\PrimaryAnalitics-2-Запуск-Cursor.bat (Cursor API)')
 Write-Host "`n=== Осталось сделать вручную ===" -ForegroundColor Yellow
