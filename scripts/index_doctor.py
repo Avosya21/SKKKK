@@ -30,11 +30,11 @@ from app.app.services.project_index.config import CHUNKER_VERSION, DB_PATH, LOCK
 
 
 # хук -> маркеры блоков, которые должны в нём стоять (ставит scripts/install_hooks.ps1)
-MAP_HOOKS = {"pre-commit": ("SKKKK-MAP", "SKKKK-PRIVACY"), "commit-msg": ("SKKKK-MAP",)}
+MAP_HOOKS = {"pre-commit": ("PrimaryAnalitics-MAP", "PrimaryAnalitics-PRIVACY"), "commit-msg": ("PrimaryAnalitics-MAP",)}
 
 
 def hooks_missing() -> list[str] | None:
-    """Хуки проверки карты и личных данных (маркеры SKKKK-MAP, SKKKK-PRIVACY), которых нет в этой копии репозитория;
+    """Хуки проверки карты и личных данных (маркеры PrimaryAnalitics-MAP, PrimaryAnalitics-PRIVACY), которых нет в этой копии репозитория;
     None — каталога хуков нет (не git)."""
     import subprocess
 

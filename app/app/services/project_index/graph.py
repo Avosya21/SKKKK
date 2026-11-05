@@ -919,7 +919,7 @@ def to_dot(graph: dict[str, Any], *, modules_only: bool = False) -> str:
         label = lambda n: n["label"]  # noqa: E731
     else:
         label = lambda n: f'{n["label"]}\\n{n.get("path", "")}:{n.get("line") or ""}'.strip(":")  # noqa: E731
-    out = ["digraph skkkk {", '  rankdir=LR;', '  node [shape=box, fontsize=9, style=rounded];']
+    out = ["digraph primaryanalitics {", '  rankdir=LR;', '  node [shape=box, fontsize=9, style=rounded];']
     kinds = {"file": "folder", "symbol": "box", "route": "component", "table": "cylinder", "env": "note",
              "ui": "ellipse", "external": "plaintext", "commit": "point", "manifest": "hexagon",
              "column": "box"}

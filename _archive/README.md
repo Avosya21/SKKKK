@@ -17,7 +17,7 @@
 | `venvs/llmpm/` (+ lock) | окружение менеджера LLM-пакетов | 0,8 ГБ |
 | `tools/wav2vec2.cpp/`, `data/models/wav2vec2-*` | эксперимент wav2vec2 | ~3,7 ГБ |
 | `logs/`, `p.out`, `data/llmpm-*.log` | логи прогонов экспериментов | мало |
-| `data/_gap_*`, `data/_invest_*`, `data/_tmp_*`, `data/_pytest_out.txt`, `data/skkkk.db` (пустая БД) | разовые отладочные файлы | мало |
+| `data/_gap_*`, `data/_invest_*`, `data/_tmp_*`, `data/_pytest_out.txt`, `data/primaryanalitics.db` (пустая БД) | разовые отладочные файлы | мало |
 | `scripts/` (11 файлов) | разовые скрипты: `backfill_audio_reports`, `confirm_test_speakers`, `debug_search`, `export_qa_manual_docx`, `migrate_fusion_artifacts`, `run_triple_isolation`, `run_wav2vec2_*`, `reextract_entities`, `requeue_audio_artifact`, `requeue_text_artifacts` | мало |
 | `asr/` (3 файла) | `format_whisper_speakers.py`, `run_docker_gigaam_diar.py`, `run_docker_gigaam_tone.py` | мало |
 

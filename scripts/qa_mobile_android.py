@@ -69,11 +69,11 @@ def set_network(on: bool) -> None:
 
 
 def _default_base() -> str:
-    """Публичный адрес сервера из настроек (SKKKK_PUBLIC_HOST в .env): телефон ходит по нему, как настоящий гость."""
+    """Публичный адрес сервера из настроек (PRIMARY_ANALITICS_PUBLIC_HOST в .env): телефон ходит по нему, как настоящий гость."""
     try:
         from app.app.config import get_settings
 
-        host = (get_settings().skkkk_public_host or "").strip()
+        host = (get_settings().primary_analitics_public_host or "").strip()
     except Exception:  # noqa: BLE001
         host = ""
     return f"https://{host or '127.0.0.1'}:777"
@@ -139,7 +139,7 @@ def main() -> int:
             got_video = wait_until(lambda: phone.locator(".meeting-tile-local .meeting-tile-stream").count() >= 1, 30)
             check(bool(got_video), "камера телефона включилась")
             if got_video:
-                facing = phone.evaluate("(()=>{const t=SKKKKMeeting.room.localParticipant.getTrackPublication('camera');const s=t&&t.track&&t.track.mediaStreamTrack;return s?(s.getSettings().facingMode||'?')+' | '+s.label:'-'})()")
+                facing = phone.evaluate("(()=>{const t=PrimaryAnaliticsMeeting.room.localParticipant.getTrackPublication('camera');const s=t&&t.track&&t.track.mediaStreamTrack;return s?(s.getSettings().facingMode||'?')+' | '+s.label:'-'})()")
                 print("  камера:", facing, flush=True)
                 mirrored = phone.locator(".meeting-tile-local .meeting-tile-stream.is-mirror").count() == 1
                 front = "environment" not in facing and not any(w in facing.lower() for w in ("back", "rear"))
@@ -149,7 +149,7 @@ def main() -> int:
                 if sw.is_visible():
                     before = phone.locator(".meeting-tile-local .meeting-tile-stream.is-mirror").count()
                     sw.click()
-                    cam_js = "(()=>{const t=SKKKKMeeting.room.localParticipant.getTrackPublication('camera');const s=t&&t.track&&t.track.mediaStreamTrack;return s?(s.getSettings().facingMode||'?')+' | '+s.label:'-'})()"
+                    cam_js = "(()=>{const t=PrimaryAnaliticsMeeting.room.localParticipant.getTrackPublication('camera');const s=t&&t.track&&t.track.mediaStreamTrack;return s?(s.getSettings().facingMode||'?')+' | '+s.label:'-'})()"
                     switched = wait_until(lambda: phone.evaluate(cam_js) != facing and "back" in phone.evaluate(cam_js).lower(), 25)
                     after_facing = phone.evaluate(cam_js)
                     print("  после переключения:", after_facing, flush=True)
@@ -165,12 +165,12 @@ def main() -> int:
                 phone.screenshot(path=str(shots / "android_room.png"))
 
             # --- микрофон, динамик, Wake Lock, кнопки
-            mic = phone.evaluate("SKKKKMeeting.room.localParticipant.isMicrophoneEnabled")
+            mic = phone.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.isMicrophoneEnabled")
             print(f"  микрофон включён: {mic} (в эмуляторе без звука это нормально: печатается для сведения)", flush=True)
             wrap = phone.locator("#meeting-speaker-wrap")
             phone.click("#meeting-more") if phone.locator("#meeting-more").is_visible() else None
             check(wrap.count() == 1 and wrap.get_attribute("hidden") is None, "кнопка динамика видна на телефоне")
-            wl = phone.evaluate("!!SKKKKMeeting._wakeLock")
+            wl = phone.evaluate("!!PrimaryAnaliticsMeeting._wakeLock")
             check(wl or not info[3], f"экран телефона удерживается включённым (Wake Lock {'активен' if wl else 'нет'})")
             small = phone.evaluate("Array.from(document.querySelectorAll('#meeting-dock button')).filter(b=>{const r=b.getBoundingClientRect();return r.width>0&&(r.width<36||r.height<36)}).map(b=>b.id)")
             check(not small, f"кнопки панели не меньше 36 px (мелкие: {small})")
@@ -181,7 +181,7 @@ def main() -> int:
             set_network(False)
             time.sleep(args.outage)
             set_network(True)
-            back = wait_until(lambda: phone.evaluate("SKKKKMeeting.room && SKKKKMeeting.room.state") == "connected", 120)
+            back = wait_until(lambda: phone.evaluate("PrimaryAnaliticsMeeting.room && PrimaryAnaliticsMeeting.room.state") == "connected", 120)
             check(bool(back), f"после обрыва сети на {args.outage} с телефон снова в комнате")
             check(wait_until(lambda: desk.locator(".meeting-tile").count() >= 2, 30) is not None and desk.locator(".meeting-tile").count() >= 2, "компьютер по-прежнему видит телефон")
             real = [e for e in errors if "ERR_INTERNET_DISCONNECTED" not in e and "favicon" not in e]

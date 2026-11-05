@@ -1,4 +1,4 @@
-# SKKKK — глубокий технический аудит кодовой базы
+# PrimaryAnalitics — глубокий технический аудит кодовой базы
 
 **Дата съёмки:** 2026-08-27  
 **Контур:** монолит FastAPI + GPU-воркер + SQLite WAL + lab-ASR (Parakeet/Sortformer/GigaAM) + LLM (Cursor/LM Studio) + Ollama bge-m3  
@@ -17,7 +17,7 @@
 ### 🚨 [Критичность: Blocker] | [Категория: Безопасность]
 *   **Локация:** `app/app/routers/pages.py` — `artifact_report_page` (стр. ~233–257), `artifact_sortformer_report_page`, `artifact_raw_diar_report_page`, `artifact_speaker_match_page`, `artifact_two_voice_diar_page`, `artifact_lab_report_page`, `artifact_lab_file`, `artifact_audio_file` (стр. ~124–155). Отсутствует `Depends(get_current_user)`.
 *   **Суть дефекта:** канонические HTML-стенограммы, match-отчёты, lab-снимки, произвольные файлы прогона и поток аудио отдаются анонимным GET.
-*   **Чем вызвана (Первопричина / Root Cause):** портальные страницы (`/`, `/projects/{id}`) закрыты **только клиентским** `SKKKK.requireAuth()` в шаблонах (`app/app/templates/index.html:28`, `project.html:754`). Сгенерированный `transcript.html` — не Jinja-шелл, а `HTMLResponse` сырого файла с диска (`report_path.read_text`). В нём нет `requireAuth`. Исторически плеер `<audio src="/artifacts/{id}/audio">` не умеет слать `Authorization`; вместо cookie/media-token авторы оставили GET открытым. `artifact_id` вида `art_YYYY-MM-DD_HHMMSS_{6 hex}` попадает в ТЗ, чат, MCP `list_artifacts` и URL. Скачивание MP3/txt/docx в тех же файлах **защищено** JWT (`artifact_download_file` и соседние) — асимметрия внутри одного роутера доказывает, что забыли не «весь модуль», а именно просмотр.
+*   **Чем вызвана (Первопричина / Root Cause):** портальные страницы (`/`, `/projects/{id}`) закрыты **только клиентским** `PrimaryAnalitics.requireAuth()` в шаблонах (`app/app/templates/index.html:28`, `project.html:754`). Сгенерированный `transcript.html` — не Jinja-шелл, а `HTMLResponse` сырого файла с диска (`report_path.read_text`). В нём нет `requireAuth`. Исторически плеер `<audio src="/artifacts/{id}/audio">` не умеет слать `Authorization`; вместо cookie/media-token авторы оставили GET открытым. `artifact_id` вида `art_YYYY-MM-DD_HHMMSS_{6 hex}` попадает в ТЗ, чат, MCP `list_artifacts` и URL. Скачивание MP3/txt/docx в тех же файлах **защищено** JWT (`artifact_download_file` и соседние) — асимметрия внутри одного роутера доказывает, что забыли не «весь модуль», а именно просмотр.
 *   **На что влияет (Влияние / Impact Analysis):**
     - *В рантайме:* любой TCP-клиент, знающий id, получает полный текст созвона и PCM/AAC в теле ответа. Браузер не участвует. Lab `file/{relative}` ограничен `LabRun.resolve` (path escape закрыт тестом), но **всё внутри прогона** (WAV 16 kHz, json proof, npy теплокарты) читается без сессии.
     - *При нагрузке:* нет auth → нет квоты на пользователя. `ensure_audio_report` / `ensure_lab_report` на GET могут пересобрать HTML (lab — `importlib.reload` + полный rebuild). 10k анонимных хитов по разным id — диск + CPU uvicorn worker (по умолчанию 1 поток обработки sync-handler), event loop блокируется чтением больших HTML.
@@ -64,7 +64,7 @@
 ### 🚨 [Критичность: Blocker] | [Категория: Безопасность]
 *   **Локация:** `app/app/routers/speaker_profiles.py` — весь роутер (`prefix="/api"`). Функции: `artifact_active_tasks`, `api_list_profiles`, `api_enroll_speaker`, `api_merge_speakers`, `api_lab_enroll_speaker`, `api_lab_merge_speakers`, `api_recalculate_speakers`, `api_speakers_status`, `api_speakers_confirm`, `api_rebuild_summary`, `api_reindex_artifact`. Импорт `get_current_user` **отсутствует** (grep по файлу пуст).
 *   **Суть дефекта:** мутации голосов, подтверждение спикеров (старт knowledge-job), пересборка LLM-выжимки и переиндексация Ollama доступны без JWT.
-*   **Чем вызвана (Первопричина / Root Cause):** отчёты `/report` и `/report-speaker-match` — автономный HTML. Fetch из них к `/api/artifacts/...` не проходил бы CORS/Authorization, если бы сервер требовал Bearer, а в HTML нет `SKKKK.api`. Вместо cookie-сессии или вшитого токена слой auth сняли целиком. UI (`project.html` `bindSpeakerConfirmButtons`, `app.js` `SKKKK.api`) токен всё же шлёт — мёртвый заголовок, сервер его не читает. Тесты закрепляют дыру: `app/app/tests/test_lab_enroll.py`, `test_lab_report.py`, `test_audio_playback.py` ходят без `Authorization`.
+*   **Чем вызвана (Первопричина / Root Cause):** отчёты `/report` и `/report-speaker-match` — автономный HTML. Fetch из них к `/api/artifacts/...` не проходил бы CORS/Authorization, если бы сервер требовал Bearer, а в HTML нет `PrimaryAnalitics.api`. Вместо cookie-сессии или вшитого токена слой auth сняли целиком. UI (`project.html` `bindSpeakerConfirmButtons`, `app.js` `PrimaryAnalitics.api`) токен всё же шлёт — мёртвый заголовок, сервер его не читает. Тесты закрепляют дыру: `app/app/tests/test_lab_enroll.py`, `test_lab_report.py`, `test_audio_playback.py` ходят без `Authorization`.
 *   **На что влияет (Влияние / Impact Analysis):**
     - *В рантайме:* POST enroll пишет `speaker_profiles` (BLOB эмбеддинга), переписывает `docker_gigaam_speakers.json` и HTML. POST confirm при `speakers_pending` вставляет `jobs(phase=knowledge)`. POST rebuild-summary вызывает LLM минуты. Исключения отдаются клиенту `detail=str(exc)` (стр. ~100–102, 177–179).
     - *При нагрузке:* нет rate limit. Параллельные enroll/reindex бьют в тот же SQLite writer, что и GPU-воркер → `database is locked`, срыв очереди ASR. LLM/Cursor — прямой финансовый и GPU-расход с анонимного IP.
@@ -103,7 +103,7 @@
         - **Как выполнить:** На `conflicts_page` дополнительно `Depends(require_role("admin"))` — 403 с сессией user. Данные API conflicts уже admin; выровнять HTML.
     3. Оставить `requireAuth()` в JS как UX, не как периметр.
         - **План:** JS-проверка остаётся подсказкой, не периметром.
-        - **Как выполнить:** Оставить `SKKKK.requireAuth()` в шаблонах для UX редиректа, не убирать до cookie. Не считать это закрытием дыры.
+        - **Как выполнить:** Оставить `PrimaryAnalitics.requireAuth()` в шаблонах для UX редиректа, не убирать до cookie. Не считать это закрытием дыры.
 
 ### 🚨 [Критичность: High] | [Категория: Безопасность]
 *   **Локация:** `app/app/routers/auth.py` `login`; `app/app/dependencies.py` `authenticate_new_user`; `app/app/models/user.py`.
@@ -132,16 +132,16 @@
 *   **Суть дефекта:** JWT в `localStorage`, TTL 12 часов, нет `jti`, нет revoke, нет logout на сервере. XSS на любой странице с `innerHTML` = кража сессии.
 *   **Чем вызвана (Первопричина / Root Cause):** FastAPI `HTTPBearer` заточен под SPA. Cookie httpOnly не использовали, чтобы не решать CSRF. XSS на портале частично закрыт `escapeHtml` в `project.html`, но `/report` — чужой HTML-генератор (`asr/transcript_view.py`) без CSP.
 *   **На что влияет (Влияние / Impact Analysis):**
-    - *В рантайме:* любой скрипт в origin читает `skkkk_token`. `role` в токене дублируется; `get_current_user` берёт роль из БД — подделка role в JWT сама по себе не эскалирует, но `sub` = user id.
+    - *В рантайме:* любой скрипт в origin читает `primary_analitics_token`. `role` в токене дублируется; `get_current_user` берёт роль из БД — подделка role в JWT сама по себе не эскалирует, но `sub` = user id.
     - *При нагрузке:* n/a.
     - *Для бизнеса:* украденный токен 12 часов = полный доступ API (проекты, чат, загрузка, MCP-выпуск для manager+).
 *   **Шаги решения:**
     1. Перенести access token в httpOnly Secure cookie; CSRF: SameSite=Lax + проверка Origin на мутациях.
         - **План:** Access token недоступен JS.
-        - **Как выполнить:** Cookie `skkkk_session` = JWT (или opaque id). `app.js` `SKKKK.api`: `credentials: 'include'`, удалить `Authorization` header. CSRF: SameSite=Lax; на POST проверять `Origin`/`Referer` совпадает с host портала (`dependencies.py`).
+        - **Как выполнить:** Cookie `primary_analitics_session` = JWT (или opaque id). `app.js` `PrimaryAnalitics.api`: `credentials: 'include'`, удалить `Authorization` header. CSRF: SameSite=Lax; на POST проверять `Origin`/`Referer` совпадает с host портала (`dependencies.py`).
     2. Укоротить TTL (15–60 мин) + refresh cookie или re-login.
         - **План:** 12 часов — слишком длинный stolen-token window.
-        - **Как выполнить:** `jwt_expire_minutes` в config: 30–60. Refresh: вторая cookie `skkkk_refresh` (дольше, path=/auth/refresh) или повторный логин. Обновить `.env.example`.
+        - **Как выполнить:** `jwt_expire_minutes` в config: 30–60. Refresh: вторая cookie `primary_analitics_refresh` (дольше, path=/auth/refresh) или повторный логин. Обновить `.env.example`.
     3. `jti` + таблица revoked при logout / смене SECRET_KEY.
         - **План:** Logout и смена SECRET_KEY должны инвалидировать живые JWT.
         - **Как выполнить:** В payload `jti=uuid4()`. Таблица `revoked_jti(jti PK, exp)`. Logout INSERT. `get_current_user` SELECT; промах — 401. Смена SECRET_KEY сама инвалидирует все HS256 без таблицы.
@@ -242,7 +242,7 @@
         - **Как выполнить:** В `preflight.py`: fail если len<32 или `change-me` in key, если нет `--skip-checks`. Сообщение — сменить через bootstrap.
     3. Запретить старт API при слабом ключе даже в skip для prod-флага.
         - **План:** Prod-флаг не обходится skip.
-        - **Как выполнить:** Если `WEB_PUBLIC_URL` не localhost или `SKKKK_ENV=prod`: игнорировать skip для secret_key, `sys.exit`. Тест preflight с коротким ключом.
+        - **Как выполнить:** Если `WEB_PUBLIC_URL` не localhost или `PRIMARY_ANALITICS_ENV=prod`: игнорировать skip для secret_key, `sys.exit`. Тест preflight с коротким ключом.
 
 ---
 
@@ -599,7 +599,7 @@
         - **Как выполнить:** `_asr_env(step)`: sense/proof — CURSOR_*; giga docker — GIGAAM_*; voice — без Cursor. Не класть все ключи во все шаги.
     2. Не `os.environ.copy()` целиком, если можно минимальный env.
         - **План:** Не копировать весь os.environ, если достаточно whitelist.
-        - **Как выполнить:** Собрать dict: PATH, VIRTUAL_ENV, DATA_DIR, SKKKK_*, нужный ключ, SYSTEMROOT на Windows. Не HOME с лишними секретами если можно.
+        - **Как выполнить:** Собрать dict: PATH, VIRTUAL_ENV, DATA_DIR, PRIMARY_ANALITICS_*, нужный ключ, SYSTEMROOT на Windows. Не HOME с лишними секретами если можно.
     3. Запретить дочерним печатать env; scrub в логах.
         - **План:** Логи/исключения не печатают env.
         - **Как выполнить:** Запретить `print(os.environ)` в lab-скриптах. В `_run_cmd` scrub `API_KEY|TOKEN|SECRET` в хвосте лога перед RuntimeError.
@@ -607,7 +607,7 @@
 ### 🚨 [Критичность: Medium] | [Категория: Архитектура]
 *   **Локация:** `app/app/services/pipeline_lab.py` `write_prod_view` / `replicas_to_turns` — `sys.path.insert` + импорт `asr/speakers.py`, `transcript_view.py`.
 *   **Суть дефекта:** домен ASR вшит в app-сервис. Два интерпретатора (venv vs venvs\lab) уже разделены для ONNX; публикация снова смешивает.
-*   **Чем вызвана (Первопричина / Root Cause):** cutover lab→prod без стабильного пакета `skkkk_asr`.
+*   **Чем вызвана (Первопричина / Root Cause):** cutover lab→prod без стабильного пакета `primary_analitics_asr`.
 *   **На что влияет (Влияние / Impact Analysis):**
     - *В рантайме:* importlib побочные эффекты, конфликт зависимостей если asr потянет иной numpy.
     - *При нагрузке:* n/a.
@@ -615,7 +615,7 @@
 *   **Шаги решения:**
     1. Вынести публикацию (`write_prod_view`, Turn) в пакет, который app ставит как dependency, без `sys.path.insert`.
         - **План:** Публикация prod-view — зависимость app, не import с диска asr/.
-        - **Как выполнить:** Вынести `Turn`, `write_prod_view`, форматтеры в пакет `skkkk_transcript` (или `app/app/services/transcript_view.py` копия стабильного API) без onnx. App requirements ставят его. Убрать `sys.path.insert`.
+        - **Как выполнить:** Вынести `Turn`, `write_prod_view`, форматтеры в пакет `primary_analitics_transcript` (или `app/app/services/transcript_view.py` копия стабильного API) без onnx. App requirements ставят его. Убрать `sys.path.insert`.
     2. Не импортировать `transcript_view` из lab venv.
         - **План:** Lab venv не импортируется в API/worker Python.
         - **Как выполнить:** Worker venv≠lab: subprocess lab, публикация в app venv. Не `import transcript_view` из `venvs/lab`.
@@ -643,7 +643,7 @@
         - **Как выполнить:** DECISIONS: legacy ASR только ручной CLI. PROJECT-MAP: ветка else = error. `lightrag_sync_docs`.
 
 ### 🚨 [Критичность: Medium] | [Категория: Архитектура]
-*   **Локация:** `app/app/services/docker_runtime.py` `ASR_CONTAINERS = (whisper, gigaam, tone)`; `_compose_up` = `docker compose up -d` **всего** файла; `ensure_container("skkkk-gigaam")` при отсутствии контейнера вызывает полный compose.
+*   **Локация:** `app/app/services/docker_runtime.py` `ASR_CONTAINERS = (whisper, gigaam, tone)`; `_compose_up` = `docker compose up -d` **всего** файла; `ensure_container("primaryanalitics-gigaam")` при отсутствии контейнера вызывает полный compose.
 *   **Суть дефекта:** поднятие GigaAM может стартануть Whisper и T-one вопреки инварианту «воркер их не вызывает». Они занимают GPU (`gpus: all` в `asr/docker-compose.yml`).
 *   **Чем вызвана (Первопричина / Root Cause):** compose как «пакет ASR», точечный start не отделён. `pipeline_lab` зовёт только gigaam, но create-path широкий.
 *   **На что влияет (Влияние / Impact Analysis):**
@@ -651,9 +651,9 @@
     - *При нагрузке:* один GPU — взаимное вытеснение.
     - *Для бизнеса:* «лаб не влезает в память» без понимания, что поднялись откатные контейнеры.
 *   **Шаги решения:**
-    1. `ensure_container("skkkk-gigaam")`: `docker compose up -d gigaam` **сервис**, не весь файл.
+    1. `ensure_container("primaryanalitics-gigaam")`: `docker compose up -d gigaam` **сервис**, не весь файл.
         - **План:** Поднять только сервис gigaam.
-        - **Как выполнить:** `docker compose up -d gigaam` (имя сервиса из `asr/docker-compose.yml`), не `up -d` всего файла. `ensure_container("skkkk-gigaam")` только этот сервис.
+        - **Как выполнить:** `docker compose up -d gigaam` (имя сервиса из `asr/docker-compose.yml`), не `up -d` всего файла. `ensure_container("primaryanalitics-gigaam")` только этот сервис.
     2. `ASR_CONTAINERS` для prod = только gigaam.
         - **План:** Прод-список контейнеров не включает whisper/tone.
         - **Как выполнить:** `ASR_CONTAINERS` prod = `(gigaam,)`. Whisper/tone не в ensure path воркера.
@@ -723,7 +723,7 @@
         - **Как выполнить:** Связка с G2: unique running. Роутер ловит TaskAlreadyRunning → 409.
     4. `guardButton` на UI confirm.
         - **План:** Двойной клик в UI не должен уходить двумя fetch до ответа.
-        - **Как выполнить:** `SKKKK.guardButton` на `.speaker-confirm-btn` в `project.html` (как на reindex). Сервер всё равно атомарный.
+        - **Как выполнить:** `PrimaryAnalitics.guardButton` на `.speaker-confirm-btn` в `project.html` (как на reindex). Сервер всё равно атомарный.
 
 ### 🚨 [Критичность: Medium] | [Категория: Логика]
 *   **Локация:** `sync_confirmed_to_global` (~138–176): грузит **все** `scope=global` профили в Python, cosine в цикле, порог merge, `_blend_embedding`, commit.
@@ -768,7 +768,7 @@
 *   **Суть дефекта:** внутренние пути, traceback-сообщения, отсутствие файлов lab утекают клиенту.
 *   **Чем вызвана (Первопричина / Root Cause):** отладка UI «почему enroll не встал».
 *   **На что влияет (Влияние / Impact Analysis):**
-    - *В рантайме:* разведка FS layout `C:\1C_NEW_SKKKK\data\projects\...`.
+    - *В рантайме:* разведка FS layout `D:\Primary_Analitics\data\projects\...`.
     - *При нагрузке:* n/a.
     - *Для бизнеса:* облегчение целевой атаки на открытый API.
 *   **Шаги решения:**
@@ -984,7 +984,7 @@
         - **Как выполнить:** `BEGIN IMMEDIATE` в `begin_task` до SELECT/INSERT. Коротко.
 
 ### 🚨 [Критичность: Medium] | [Категория: Безопасность]
-*   **Локация:** `app/app/services/llm.py` `cursor_chat_raw`: `LocalAgentOptions(cwd=str(ROOT))` — корень **всего** репозитория `C:\1C_NEW_SKKKK`. Промпт просит не вызывать инструменты, SDK Agent.prompt исторически может иметь tools. `timeout` параметр **не abort'ит** run: только warning если `duration_ms > timeout*1000`.
+*   **Локация:** `app/app/services/llm.py` `cursor_chat_raw`: `LocalAgentOptions(cwd=str(ROOT))` — корень **всего** репозитория `D:\Primary_Analitics`. Промпт просит не вызывать инструменты, SDK Agent.prompt исторически может иметь tools. `timeout` параметр **не abort'ит** run: только warning если `duration_ms > timeout*1000`.
 *   **Суть дефекта:** агент с cwd=монорепо теоретически видит `.env`, `data/`, исходники. Таймаут не убивает процесс агента.
 *   **Чем вызвана (Первопричина / Root Cause):** Cursor SDK local runtime «работает из проекта». Sense/proof гоняются теми же опциями.
 *   **На что влияет (Влияние / Impact Analysis):**
@@ -1199,7 +1199,7 @@
 
 ### 🚨 [Критичность: High] | [Категория: Безопасность]
 *   **Локация:** `app/app/routers/project_mcp.py` `mcp_project_endpoint` GET+POST; `app/app/services/project_mcp_tokens.py` SHA-256 без pepper; `authenticate_project_mcp_token` commit `last_used_at` **на каждый** вызов.
-*   **Суть дефекта:** токен `skkkk_mcp_` + 32 urlsafe — энтропия ок, хранение sha256 ок для high-entropy. Но: нет срока жизни, нет ротации, нет привязки IP, read-only tools отдают **полные стенограммы** (`get_artifact_content`). `WEB_PUBLIC_URL` вшивается в cursor_config. Commit last_used на read — write amp.
+*   **Суть дефекта:** токен `primary_analitics_mcp_` + 32 urlsafe — энтропия ок, хранение sha256 ок для high-entropy. Но: нет срока жизни, нет ротации, нет привязки IP, read-only tools отдают **полные стенограммы** (`get_artifact_content`). `WEB_PUBLIC_URL` вшивается в cursor_config. Commit last_used на read — write amp.
 *   **Чем вызвана (Первопричина / Root Cause):** MCP как «ключ на проект вместо JWT портала». Удобство Cursor с интернета.
 *   **На что влияет (Влияние / Impact Analysis):**
     - *В рантайме:* украденный ключ из чата/скрина = постоянный read всего проекта, в обход 12h JWT. last_used commit конфликтует с воркером (locked).
@@ -1347,9 +1347,9 @@
     - *При нагрузке:* n/a.
     - *Для бизнеса:* см. confirm race.
 *   **Шаги решения:**
-    1. `SKKKK.guardButton` на `.speaker-confirm-btn`.
+    1. `PrimaryAnalitics.guardButton` на `.speaker-confirm-btn`.
         - **План:** Кнопка confirm с тем же guard, что тяжёлые действия.
-        - **Как выполнить:** `bindSpeakerConfirmButtons`: `SKKKK.guardButton` до fetch. disabled до ответа.
+        - **Как выполнить:** `bindSpeakerConfirmButtons`: `PrimaryAnalitics.guardButton` до fetch. disabled до ответа.
     2. Серверная атомарность (E1) важнее UI.
         - **План:** UI не заменяет атомарный UPDATE (E1).
         - **Как выполнить:** Не считать задачу закрытой после guardButton. Сервер — источник. Тест UI не обязателен, серверный тест E1 обязателен.
@@ -1463,7 +1463,7 @@
 ### 🚨 [Критичность: Low] | [Категория: Безопасность]
 *   **Локация:** git status в рабочей копии содержит `data/app.db`, артефакты прогонов, `data/gigaam/embed_*.json`. `.env.example` с `GIGAAM_API_KEY=gam_change_me`.
 *   **Суть дефекта:** если db/артефакты попадут в commit — полная утечка созвонов. Default GigaAM key если не сменён — открытый второй слух на localhost (compose 127.0.0.1, риск ниже).
-*   **Чем вызвана (Первопричина / Root Cause):** data/ должен быть в gitignore; локальные прогоны рядом с кодом по инварианту «всё в C:\1C_NEW_SKKKK».
+*   **Чем вызвана (Первопричина / Root Cause):** data/ должен быть в gitignore; локальные прогоны рядом с кодом по инварианту «всё в D:\Primary_Analitics».
 *   **На что влияет (Влияние / Impact Analysis):**
     - *В рантайме:* n/a.
     - *При нагрузке:* n/a.
@@ -1522,14 +1522,14 @@
 |---|---|---|
 | Cookie `Secure` при `WEB_PUBLIC_URL=http://203.0.113.10:777` | Браузер **не сохранит** cookie на HTTP. После «успешного» логина снова `/login`. Весь портал недоступен с белого IP. | `Secure` только если request/URL https. На текущем http — SameSite=Lax **без** Secure. |
 | CSP `default-src 'self'` до выноса JS | Все экраны пустые: `base.html` + `project.html` (~2000 строк) — **inline** `<script>`. Bootstrap с CDN тоже умрёт, пока vendor не локальный. | Сначала vendor Bootstrap (A9), потом `static/*.js`, **потом** CSP. Не наоборот. |
-| `Depends(get_current_user)` на report/audio **до** cookie | Плеер `<audio src>` и закладки отчёта — 401, тишина. Скачивание через `SKKKK.api` ещё работает (Bearer). «Отчёт открылся, звука нет». | Сначала login ставит cookie **и** по-прежнему принимает Bearer. Потом закрыть GET. Старые JWT в localStorage живут до истечения 720 мин. |
-| Auth на весь `speaker_profiles.py` **до** cookie | Кнопки в match-HTML (`fetch` без `Authorization`) — 401. «Запомнить голос» / confirm с отчёта мертвы. С проекта (`SKKKK.api`) ещё живы. | Тот же двойной контур: cookie на same-origin `fetch` уходит сама (`credentials` по умолчанию same-origin). Bearer оставить для `app.js`. |
+| `Depends(get_current_user)` на report/audio **до** cookie | Плеер `<audio src>` и закладки отчёта — 401, тишина. Скачивание через `PrimaryAnalitics.api` ещё работает (Bearer). «Отчёт открылся, звука нет». | Сначала login ставит cookie **и** по-прежнему принимает Bearer. Потом закрыть GET. Старые JWT в localStorage живут до истечения 720 мин. |
+| Auth на весь `speaker_profiles.py` **до** cookie | Кнопки в match-HTML (`fetch` без `Authorization`) — 401. «Запомнить голос» / confirm с отчёта мертвы. С проекта (`PrimaryAnalitics.api`) ещё живы. | Тот же двойной контур: cookie на same-origin `fetch` уходит сама (`credentials` по умолчанию same-origin). Bearer оставить для `app.js`. |
 | INSERT артефакта+job **queued**, потом `move` | Воркер успеет claim до появления файла → `error`, созвон «сломан», повтор complete невозможен. | Статус `uploading` / не queued, пока move не ок; **затем** enqueue. Либо pending-каталог, который воркер не берёт. |
 | `PRAGMA foreign_keys=ON` на живой БД с сиротами | Первый INSERT/DELETE с FK — `IntegrityError`, 500 на загрузке/confirm. | Сначала скрипт сирот на **копии** db, потом pragma. |
 | Unique `(project_id, sha256)` при уже существующих дублях | Alembic/upgrade падает, API не поднимается. | Схлопнуть дубли, потом индекс. |
 | `create_all` убрать из lifespan, alembic не stamp | Тесты и стенд: «таблицы нет». | Тесты оставляют create_all; прод — `stamp` + upgrade. Один деплой. |
 | `except` → `speakers_pending`, Telegram всё ещё шлёт PK sqlite | Созвон честно встанет на confirm (правильно), но пуш «подтвердите» **по-прежнему не дойдёт**. Оператор без открытой вкладки не узнает. | В том же изменении: `user.telegram_id`. Иначе «безболезненно» только для тех, кто смотрит UI. |
-| `docker compose up -d gigaam` + `profiles: legacy`, а `ASR_CONTAINERS` и `ensure_asr_containers` ещё тройка | `docker start skkkk-whisper` → ошибка / GPU снова забит, если старые контейнеры живут. Прод-воркер lab зовёт `ensure_container(gigaam)`, но CLI `asr/run_pipeline.py` зовёт **всю** тройку. | Менять кортеж, `_compose_up`, CLI и тесты `test_docker_runtime.py` одним коммитом. Существующие whisper/tone — `docker stop` отдельно, не в горячем ASR. |
+| `docker compose up -d gigaam` + `profiles: legacy`, а `ASR_CONTAINERS` и `ensure_asr_containers` ещё тройка | `docker start primaryanalitics-whisper` → ошибка / GPU снова забит, если старые контейнеры живут. Прод-воркер lab зовёт `ensure_container(gigaam)`, но CLI `asr/run_pipeline.py` зовёт **всю** тройку. | Менять кортеж, `_compose_up`, CLI и тесты `test_docker_runtime.py` одним коммитом. Существующие whisper/tone — `docker stop` отдельно, не в горячем ASR. |
 | `process_audio_artifact` вырезать, старые артефакты без lab run | Повтор job → `error` «нужен rerun lab». Старый корпус без lab не доедет сам. | Сообщение в UI + явная кнопка lab; не молчаливый Whisper (это цель), но не «тихий fail» без текста. |
 | Чат/TZ 409 GPU busy без текста в UI | `throw new Error('chat failed')` — красное «Не удалось получить ответ», не «идёт расшифровка». | Маппинг 409 → человеческая строка в `askProjectChat` / TZ. Поведение правильное, формулировка сейчас сломает доверие. |
 

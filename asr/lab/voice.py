@@ -5,7 +5,7 @@
 ``reports/sortformer_speaker_match.json`` не трогает.
 
 Клипы — прогоны уверенных слов (снимок 1) плюс слова оверлея этапа 2.
-Эмбеддинги считает тот же WeSpeaker в ``skkkk-gigaam``, иначе косинусы
+Эмбеддинги считает тот же WeSpeaker в ``primaryanalitics-gigaam``, иначе косинусы
 несопоставимы с ``speaker_profiles``.
 """
 
@@ -32,7 +32,7 @@ VOICE_JSON = "voice.json"
 MATCH_JSON = "match.json"
 EMBED_RAW_JSON = "embed_raw.json"
 
-GIGAAM_CONTAINER = "skkkk-gigaam"
+GIGAAM_CONTAINER = "primaryanalitics-gigaam"
 JOB_HOST = ROOT / "data" / "gigaam" / "embed_job.json"
 RESULT_HOST = ROOT / "data" / "gigaam" / "embed_result.json"
 

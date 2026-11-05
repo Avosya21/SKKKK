@@ -2,7 +2,7 @@
 
 Три изолированных окружения. Это не перестраховка: `faster-whisper`/CTranslate2, PyTorch для GigaAM и ONNX-стек T-one тянут разные сборки CUDA и cuDNN, а в одном процессе Windows это приводит к конфликту DLL. Отдельные venv плюс отдельные процессы решают проблему и заодно гарантируют возврат VRAM после завершения.
 
-Все команды выполняются в PowerShell из `C:\1C_NEW_SKKKK`.
+Все команды выполняются в PowerShell из `D:\Primary_Analitics`.
 
 ---
 
@@ -15,7 +15,7 @@
 ## 1. Общие зависимости
 
 ```powershell
-cd C:\1C_NEW_SKKKK
+cd D:\Primary_Analitics
 mkdir venvs -Force
 ```
 
@@ -56,7 +56,7 @@ deactivate
 
 `pyannote.audio` нужен только для `transcribe_longform` (разбиение длинного аудио по речи). Модели pyannote закрыты лицензией: нужно принять условия на Hugging Face и задать `HF_TOKEN` в окружении. Если этого не сделать, `run_gigaam.py` сообщит причину и перейдёт на обычный `transcribe`.
 
-Рабочий GigaAM **должен идти на GPU**. Старые CPU-флаги в `AudioToText/` (`CUDA_VISIBLE_DEVICES=""`, `model.to("cpu")`, `devices: []` в compose) — наследие чужой слабой машины, не дизайн. И `AudioToText\main.py`, и `asr\run_gigaam.py` берут CUDA при наличии (`float16`), CPU только как fallback. В конвейере SKKKK используется нативный `asr\run_gigaam.py`.
+Рабочий GigaAM **должен идти на GPU**. Старые CPU-флаги в `AudioToText/` (`CUDA_VISIBLE_DEVICES=""`, `model.to("cpu")`, `devices: []` в compose) — наследие чужой слабой машины, не дизайн. И `AudioToText\main.py`, и `asr\run_gigaam.py` берут CUDA при наличии (`float16`), CPU только как fallback. В конвейере PrimaryAnalitics используется нативный `asr\run_gigaam.py`.
 
 ---
 
@@ -84,7 +84,7 @@ pip install sherpa-onnx numpy
 deactivate
 ```
 
-Затем скачать `sherpa-onnx-streaming-t-one-russian-2025-09-08` из релизов `k2-fsa/sherpa-onnx` (раздел asr-models), распаковать в `C:\1C_NEW_SKKKK\asr\models\t-one\` так, чтобы там оказались `model.onnx` и `tokens.txt`.
+Затем скачать `sherpa-onnx-streaming-t-one-russian-2025-09-08` из релизов `k2-fsa/sherpa-onnx` (раздел asr-models), распаковать в `D:\Primary_Analitics\asr\models\t-one\` так, чтобы там оказались `model.onnx` и `tokens.txt`.
 
 `run_tone.py` сам выберет доступный путь.
 
@@ -92,7 +92,7 @@ deactivate
 
 ## 5. Тестовый файл
 
-Папка `C:\1C_NEW_SKKKK\Test_video` сейчас пуста — положите туда видео или аудио созвона.
+Папка `D:\Primary_Analitics\Test_video` сейчас пуста — положите туда видео или аудио созвона.
 
 ---
 
@@ -101,14 +101,14 @@ deactivate
 Все три движка параллельно:
 
 ```powershell
-cd C:\1C_NEW_SKKKK\asr
-python run_all.py --source "C:\1C_NEW_SKKKK\Test_video\ваш_файл.mp4"
+cd D:\Primary_Analitics\asr
+python run_all.py --source "D:\Primary_Analitics\Test_video\ваш_файл.mp4"
 ```
 
 По одному, если нужно разобраться с конкретным движком:
 
 ```powershell
-python prepare_audio.py "C:\1C_NEW_SKKKK\Test_video\ваш_файл.mp4" --out-dir work
+python prepare_audio.py "D:\Primary_Analitics\Test_video\ваш_файл.mp4" --out-dir work
 
 ..\venvs\whisper\Scripts\python.exe run_whisper.py --audio work\ваш_файл_16k.wav --out-dir out
 ..\venvs\gigaam\Scripts\python.exe  run_gigaam.py  --audio work\ваш_файл_16k.wav --out-dir out

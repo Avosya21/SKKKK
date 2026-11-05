@@ -467,7 +467,7 @@ def mcp_connection_info(
         "access": "чтение — любому ключу; вопросы, вердикты и приём файлов — по правам ключа",
         "cursor_config_example": {
             "mcpServers": {
-                f"skkkk-project-{project_id}": {
+                f"primaryanalitics-project-{project_id}": {
                     "url": f"{base}/mcp/projects/{project_id}",
                     "headers": {"Authorization": "Bearer <ваш MCP-токен>"},
                 }
@@ -491,7 +491,7 @@ async def mcp_project_endpoint(
     if request.method == "GET":
         return JSONResponse(
             {
-                "name": "skkkk-project",
+                "name": "primaryanalitics-project",
                 "project_id": project_id,
                 "transport": "streamable-http",
                 "hint": "POST JSON-RPC MCP messages to this URL with Authorization: Bearer token",

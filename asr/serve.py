@@ -14,7 +14,7 @@ ENGINE = os.environ.get("ASR_ENGINE", "whisper")
 OUT_DIR = Path(os.environ.get("OUT_DIR", "/out"))
 APP_DIR = Path(os.environ.get("APP_DIR", "/app"))
 
-app = FastAPI(title=f"SKKKK ASR {ENGINE}", version="1.0")
+app = FastAPI(title=f"PrimaryAnalitics ASR {ENGINE}", version="1.0")
 
 
 class TranscribeRequest(BaseModel):
@@ -36,7 +36,7 @@ def _cli(audio: str, out_dir: Path) -> list[str]:
 @app.get("/")
 def root():
     return {
-        "service": "skkkk-asr",
+        "service": "primaryanalitics-asr",
         "engine": ENGINE,
         "health": "/health",
         "transcribe": "POST /transcribe {\"audio\": \"/data/file.wav\"}",

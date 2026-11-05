@@ -102,16 +102,19 @@ def _parse_day(raw: str | None, *, end: bool) -> datetime | None:
     return day.replace(hour=23, minute=59, second=59) if end else day
 
 
-def activity_feed(db: Session, *, user_id: int | None = None, project_id: int | None = None, block: str | None = None,
+def activity_feed(db: Session, *, user_id: int | None = None, profile_id: int | None = None,
+                  project_id: int | None = None, block: str | None = None,
                   action: str | None = None, date_from: str | None = None, date_to: str | None = None, text: str | None = None,
                   before_id: int | None = None, limit: int = 50) -> dict[str, Any]:
     """Лента действий по всем проектам, новые сверху. Курсор — ``before_id`` (id последней показанной записи)."""
     limit = max(1, min(int(limit or 50), FEED_MAX))
     q = (select(UserActivityLog, User.name, Project.name)
-         .join(User, User.id == UserActivityLog.user_id)
+         .outerjoin(User, User.id == UserActivityLog.user_id)
          .outerjoin(Project, Project.id == UserActivityLog.project_id))
     if user_id is not None:
         q = q.where(UserActivityLog.user_id == user_id)
+    if profile_id is not None:
+        q = q.where(UserActivityLog.profile_id == profile_id)
     if project_id is not None:
         q = q.where(UserActivityLog.project_id == project_id)
     if block:
@@ -134,7 +137,9 @@ def activity_feed(db: Session, *, user_id: int | None = None, project_id: int | 
     for row, user_name, project_name in rows[:limit]:
         content = (row.content or "").strip()
         items.append({
-            "id": row.id, "at": _iso(row.created_at), "user_id": row.user_id, "user": user_name,
+            "id": row.id, "at": _iso(row.created_at), "user_id": row.user_id,
+            "login": row.login or user_name or "", "profile_id": row.profile_id,
+            "user": row.login or user_name or "",
             "project_id": row.project_id, "project": project_name or "", "block": row.block, "block_label": block_label(row.block),
             "action": row.action, "title": row.title, "content": content[:CONTENT_PREVIEW] + ("…" if len(content) > CONTENT_PREVIEW else ""),
             "target": f"{row.target_kind or ''} {row.target_id or ''}".strip(),

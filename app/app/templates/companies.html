@@ -31,7 +31,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-if (!SKKKK.requireAuth()) throw new Error('auth');
+if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const say = (t, bad) => { const el = document.getElementById('co-status'); el.textContent = t || ''; el.classList.toggle('text-danger', !!bad); };
 let items = [];
@@ -39,7 +39,7 @@ const SIDE = { executor: 'Исполнитель', customer: 'Заказчик' 
 
 async function call(method, body) {
   try {
-    const r = await SKKKK.api('/companies', { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+    const r = await PrimaryAnalitics.api('/companies', { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
     if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (e) {} say(typeof d === 'string' && d ? d : 'Ошибка ' + r.status, true); return null; }
     return await r.json();
   } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }

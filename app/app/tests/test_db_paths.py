@@ -13,4 +13,4 @@ def test_creates_parent_dir(tmp_path):
 
 def test_memory_and_other_databases_are_untouched():
     _ensure_sqlite_parent("sqlite://")
-    _ensure_sqlite_parent("postgresql://localhost/skkkk")
+    _ensure_sqlite_parent("postgresql://localhost/primaryanalitics")

@@ -44,7 +44,7 @@ def guest(browser, base: str, token: str, name: str, cam: bool = False, **ctx):
     page = browser.new_context(ignore_https_errors=True, permissions=["microphone", "camera", "clipboard-read", "clipboard-write"], **kw).new_page()
     page.on("pageerror", lambda e: JS_ERRORS.append(str(e)))
     join(page, base, token, name)
-    wait_until(lambda: page.evaluate("!!(SKKKKMeeting.room && SKKKKMeeting.room.localParticipant)"), 10)
+    wait_until(lambda: page.evaluate("!!(PrimaryAnaliticsMeeting.room && PrimaryAnaliticsMeeting.room.localParticipant)"), 10)
     if cam:
         page.click("#meeting-cam")
     return page
@@ -66,7 +66,7 @@ def phone_layout(browser, base: str, shots: Path | None) -> None:
         wait_until(lambda: phone.locator(".meeting-tile video").count() >= 4, 30)
         for step in ("без экрана", "с показом экрана"):
             if step == "с показом экрана":
-                others[0].evaluate("SKKKKMeeting.room.localParticipant.setScreenShareEnabled(true, {contentHint: 'detail'}, {simulcast: false})")
+                others[0].evaluate("PrimaryAnaliticsMeeting.room.localParticipant.setScreenShareEnabled(true, {contentHint: 'detail'}, {simulcast: false})")
                 wait_until(lambda: phone.locator(".meeting-tile-screen video").count() >= 1, 20)
             for orient, size in (("вертикально", {"width": 412, "height": 839}), ("горизонтально", {"width": 839, "height": 412})):
                 phone.set_viewport_size(size)
@@ -119,14 +119,14 @@ def dock(browser, base: str) -> None:
                 check(before != mid and state(sel) == before, f"[{tag}] «{name}» переключается и возвращается")
             more()
             if shown("#meeting-layout"):
-                was = page.evaluate("SKKKKMeeting._layout")
+                was = page.evaluate("PrimaryAnaliticsMeeting._layout")
                 page.click("#meeting-layout")
                 time.sleep(0.4)
-                now = page.evaluate("SKKKKMeeting._layout")
+                now = page.evaluate("PrimaryAnaliticsMeeting._layout")
                 more()
                 page.click("#meeting-layout")
                 time.sleep(0.4)
-                check(was != now and page.evaluate("SKKKKMeeting._layout") == was, f"[{tag}] «Спикер/Сетка» переключается и возвращается")
+                check(was != now and page.evaluate("PrimaryAnaliticsMeeting._layout") == was, f"[{tag}] «Спикер/Сетка» переключается и возвращается")
             more()
             if shown("#meeting-roster"):
                 page.click("#meeting-roster")
@@ -167,14 +167,14 @@ def resilience(browser, base: str) -> None:
     try:
         a = guest(browser, base, token, "Гость А")
         bb = guest(browser, base, token, "Гость Б")
-        a_id = a.evaluate("SKKKKMeeting.room.localParticipant.identity")
-        a.evaluate("""() => { window.__setAttr = 0; const lp = SKKKKMeeting.room.localParticipant; const orig = lp.setAttributes.bind(lp);
+        a_id = a.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.identity")
+        a.evaluate("""() => { window.__setAttr = 0; const lp = PrimaryAnaliticsMeeting.room.localParticipant; const orig = lp.setAttributes.bind(lp);
           lp.setAttributes = (x) => { window.__setAttr += 1; return orig(x); }; }""")
         time.sleep(15)
         n = a.evaluate("window.__setAttr")
         check(n <= 2, f"говорящий не шлёт setAttributes на каждый кадр (за 15 с: {n})")
-        cam_on = lambda: a.evaluate("SKKKKMeeting.room.localParticipant.isCameraEnabled")  # noqa: E731
-        mute = "SKKKKMeeting.room.localParticipant.getTrackPublication('camera').track.mute()"
+        cam_on = lambda: a.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.isCameraEnabled")  # noqa: E731
+        mute = "PrimaryAnaliticsMeeting.room.localParticipant.getTrackPublication('camera').track.mute()"
         a.click("#meeting-cam")
         check(bool(wait_until(lambda: bb.locator(".meeting-tile:not(.meeting-tile-local).meeting-tile-has-video").count() >= 1, 20)), "Б видит камеру А")
         a.evaluate(mute)  # так livekit-client глушит камеру, которую не смог перезапустить
@@ -187,14 +187,14 @@ def resilience(browser, base: str) -> None:
         a.click("#meeting-cam")
         time.sleep(6)
         check(cam_on() is False, "камера, выключенная человеком, сама не включается")
-        bb.evaluate(f"SKKKKMeeting._quality['{a_id}'] = 'lost'")
+        bb.evaluate(f"PrimaryAnaliticsMeeting._quality['{a_id}'] = 'lost'")
         a.reload()
         a.wait_for_selector("#guest-name")
         if a.locator("#guest-join").is_visible():
             a.fill("#guest-name", "Гость А")
             a.click("#guest-join")
         a.wait_for_selector("#meeting-stage.is-open", timeout=30000)
-        check(bool(wait_until(lambda: bb.evaluate(f"SKKKKMeeting._quality['{a_id}'] === undefined"), 20)),
+        check(bool(wait_until(lambda: bb.evaluate(f"PrimaryAnaliticsMeeting._quality['{a_id}'] === undefined"), 20)),
               "после переподключения А у Б нет устаревшего «нет связи» для А")
     finally:
         end_meeting(db, meeting)

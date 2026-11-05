@@ -27,7 +27,7 @@ const DFN3_SAMPLE_RATE = 48000;
 const DFN3_LEVEL = 50;
 const DFN3_HINT = "Очистка звука недоступна, работает шумоподавление браузера.";
 // Имя сырой дорожки микрофона для записи (то же — RAW_TRACK_NAME в tools/livekit/voice_cleaner.py)
-const RAW_TRACK_NAME = "skkkk-raw";
+const RAW_TRACK_NAME = "primaryanalitics-raw";
 const AUDIO_ROUTE_EVERY_MS = 2000;
 const LOUDNESS_THRESHOLD = -24;
 const LOUDNESS_KNEE = 12;
@@ -35,7 +35,7 @@ const LOUDNESS_RATIO = 3;
 const LOUDNESS_ATTACK = 0.02;
 const LOUDNESS_RELEASE = 0.25;
 const LOUDNESS_GAIN = 1.1;
-const INVITE_KEY = "skkkk-meeting-invite-";
+const INVITE_KEY = "primaryanalitics-meeting-invite-";
 const KIND_AUDIO_OUT = "audiooutput";
 const ICE_TIMEOUT_MS = 45000;
 const ICE_HINT =
@@ -43,6 +43,7 @@ const ICE_HINT =
 const TEXT_SOUND_OFF = "Звук выключен: вы никого не слышите";
 const TEXT_MIC_SILENT = "Микрофон молчит. Проверьте устройство";
 const TEXT_MIC_RESTART = "Перезапустить";
+const TEXT_MIC_RESTARTED = "Микрофон перезапущен";
 const TEXT_NO_MIC = "нет микрофона";
 const TEXT_NO_CAM = "нет камеры";
 const TEXT_MIC_OFF = "Микрофон выключен";
@@ -64,7 +65,7 @@ const TEXT_SCREEN_PREFIX = "Экран — ";
 const TEXT_PWA_HINT = "Добавить на экран";
 const TEXT_INVITE_CARD =
   "Ссылка гостя есть во вкладке, где встречу создали, или через «Новая ссылка».";
-const PWA_HINT_KEY = "skkkk-pwa-hint";
+const PWA_HINT_KEY = "primaryanalitics-pwa-hint";
 const TOAST_MS = 4000;
 const SCREEN_TILE_PREFIX = "meeting-tile-screen-";
 const KIND_AUDIO_IN = "audioinput";
@@ -157,10 +158,10 @@ function applyPhoneGrid(tilesEl, count) {
 
 const DESKTOP_GRID_GAP = 12;
 
-// Десктоп: колонки и размер плитки — по ширине И высоте сцены (SKKKKLayout.bestGrid); телефон и режимы
+// Десктоп: колонки и размер плитки — по ширине И высоте сцены (PrimaryAnaliticsLayout.bestGrid); телефон и режимы
 // «фокус/экран сверху» живут на своих правилах CSS.
 function applyDesktopGrid(tilesEl, count) {
-  if (!tilesEl || !window.SKKKKLayout || !window.SKKKKLayout.bestGrid) return;
+  if (!tilesEl || !window.PrimaryAnaliticsLayout || !window.PrimaryAnaliticsLayout.bestGrid) return;
   const auto =
     !isPhoneStage() &&
     !tilesEl.classList.contains("has-focus") &&
@@ -171,7 +172,7 @@ function applyDesktopGrid(tilesEl, count) {
     tilesEl.style.removeProperty("--meeting-tile-w");
     return;
   }
-  const grid = window.SKKKKLayout.bestGrid(count, tilesEl.clientWidth, tilesEl.clientHeight, DESKTOP_GRID_GAP, 16 / 9);
+  const grid = window.PrimaryAnaliticsLayout.bestGrid(count, tilesEl.clientWidth, tilesEl.clientHeight, DESKTOP_GRID_GAP, 16 / 9);
   tilesEl.style.setProperty("--meeting-cols", String(grid.cols));
   tilesEl.style.setProperty("--meeting-tile-w", grid.tileW + "px");
 }
@@ -181,7 +182,7 @@ function isDockMoreLayout() {
 }
 
 function voiceFlags() {
-  const raw = window.SKKKK_MEETING_VOICE || {};
+  const raw = window.PRIMARY_ANALITICS_MEETING_VOICE || {};
   return { dfn3: raw.dfn3 === true, loudness: raw.loudness !== false };
 }
 
@@ -205,7 +206,7 @@ function canUseDfn3() {
 
 function isHidden(person) {
   const id = person && person.identity;
-  return Boolean(id && String(id).indexOf("skkkk-") === 0);
+  return Boolean(id && String(id).indexOf("primaryanalitics-") === 0);
 }
 
 function trackPublishName(track, pub) {
@@ -443,7 +444,7 @@ function meterRatio(analyser, buffer) {
   return Math.sqrt(sum / buffer.length);
 }
 
-const SKKKKMeeting = {
+const PrimaryAnaliticsMeeting = {
   room: null,
   _joined: false,
   _spotlightId: "",
@@ -557,9 +558,9 @@ const SKKKKMeeting = {
       return null;
     }
     // Библиотека пишет в консоль как error безобидное «track for a participant that's not present» (серверный бот
-    // публикует трек раньше события входа). Оставляем лог только по флагу localStorage.skkkk_lk_debug=1.
+    // публикует трек раньше события входа). Оставляем лог только по флагу localStorage.primary_analitics_lk_debug=1.
     try {
-      if (LK.setLogLevel && LK.LogLevel && localStorage.getItem("skkkk_lk_debug") !== "1") {
+      if (LK.setLogLevel && LK.LogLevel && localStorage.getItem("primary_analitics_lk_debug") !== "1") {
         LK.setLogLevel(LK.LogLevel.silent);
       }
     } catch (_) {}
@@ -687,6 +688,7 @@ const SKKKKMeeting = {
         await this._applyVoice();
         this._watchLocalMic();
       } else {
+        this._stopLocalMicWatch();
         this._stopMicLevelWatch();
         this._clearMicSilent();
         await this._syncRawTrack();
@@ -708,6 +710,7 @@ const SKKKKMeeting = {
       const opts = picked.videoDeviceId ? { deviceId: picked.videoDeviceId } : undefined;
       await this.room.localParticipant.setCameraEnabled(next, opts);
     } catch (err) {
+      this._toast(mediaErrorText(err, "камеру"));
       this._setStatus(publishErrorText("Камера", err));
     }
     this._syncControls(this._roomEls);
@@ -783,13 +786,19 @@ const SKKKKMeeting = {
     if (this._rejoinWake) this._rejoinWake();
     this._releaseWakeLock();
     this._stopAllTimers();
+    // Сразу убираем сцену: иначе при медленном disconnect/перезагрузке гость ещё «в комнате» (смоук 4.9).
+    if (this._roomEls && this._roomEls.stageEl) {
+      this._roomEls.stageEl.hidden = true;
+      this._roomEls.stageEl.classList.remove("is-open");
+    }
+    document.body.classList.remove("meeting-is-live");
     await this._stopVoice();
     const leaveApiUrl = this._roomEls && this._roomEls.leaveApiUrl;
     const identity = this._roomEls && this._roomEls.identity;
     if (leaveApiUrl && identity) {
       try {
         const body = JSON.stringify({ identity });
-        if (window.SKKKK && SKKKK.apiJson) await SKKKK.apiJson(leaveApiUrl, { method: "POST", body });
+        if (window.PrimaryAnalitics && PrimaryAnalitics.apiJson) await PrimaryAnalitics.apiJson(leaveApiUrl, { method: "POST", body });
         else await fetch(leaveApiUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
       } catch (_) {}
     }
@@ -831,6 +840,7 @@ const SKKKKMeeting = {
       clearInterval(this._endedTimer);
       this._endedTimer = 0;
     }
+    this._stopLocalMicWatch();
     this._stopMicLevelWatch();
   },
 
@@ -839,8 +849,8 @@ const SKKKKMeeting = {
     const beat = () => {
       if (!this._joined) return;
       const body = JSON.stringify({ identity: els.identity });
-      if (els.authedApi && window.SKKKK && SKKKK.apiJson) {
-        Promise.resolve(SKKKK.apiJson(els.heartbeatUrl, { method: "POST", body })).catch(() => undefined);
+      if (els.authedApi && window.PrimaryAnalitics && PrimaryAnalitics.apiJson) {
+        Promise.resolve(PrimaryAnalitics.apiJson(els.heartbeatUrl, { method: "POST", body })).catch(() => undefined);
         return;
       }
       fetch(els.heartbeatUrl, {
@@ -891,7 +901,7 @@ const SKKKKMeeting = {
     if (!url) return;
     if (!(await this._confirm("Завершить встречу для всех участников?", "Завершить для всех"))) return;
     try {
-      if (window.SKKKK && SKKKK.apiJson) await SKKKK.apiJson(url, { method: "POST" });
+      if (window.PrimaryAnalitics && PrimaryAnalitics.apiJson) await PrimaryAnalitics.apiJson(url, { method: "POST" });
       else await fetch(url, { method: "POST" });
     } catch (err) {
       this._setStatus("Не удалось завершить встречу: " + (err && err.message ? err.message : err));
@@ -923,7 +933,7 @@ const SKKKKMeeting = {
       } catch (err) {
         return;
       }
-    }, 4000);
+    }, 2000);
   },
 
   inviteUrl() {
@@ -1372,7 +1382,10 @@ const SKKKKMeeting = {
         await this.room.connect(cred.url, cred.token, { peerConnectionTimeout: ICE_TIMEOUT_MS });
       } catch (err) {
         if (err && err.meetingGone) {
+          // Встречу завершили/удалили во время обрыва: не оставляем гостя на «сцене» без leaveRoom
+          // (иначе смоук и человек видят комнату, хотя join уже невозможен).
           this._netStatus(err.message || "Встреча завершена или недоступна.", false);
+          await this.leaveRoom();
           return;
         }
         continue;
@@ -1452,7 +1465,7 @@ const SKKKKMeeting = {
   toggleSound() {
     this._soundOn = !this._soundOn;
     const pubs = this._remoteAudioPubs();
-    window.SKKKKLayout.soundPlan(this._soundOn, pubs).forEach((row) => {
+    window.PrimaryAnaliticsLayout.soundPlan(this._soundOn, pubs).forEach((row) => {
       if (row.pub && row.pub.setSubscribed) row.pub.setSubscribed(row.subscribed);
     });
     if (!this._soundOn) {
@@ -1739,12 +1752,16 @@ const SKKKKMeeting = {
     await this._stopDfn3();
     if (!mic || !this.room.localParticipant.isMicrophoneEnabled) {
       await this._syncRawTrack();
+      this._clearMicSilent();
       return true;
     }
     try {
       await mic.restartTrack(micCaptureOpts(this._pickedMicId || picked.audioDeviceId, this._captureNs()));
       this._watchLocalMic();
       await this._applyVoice();
+      this._clearMicSilent();
+      if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
+      this._toast(TEXT_MIC_RESTARTED);
       return true;
     } catch (err) {
       this._setStatus("Микрофон: " + (err && err.message ? err.message : err));
@@ -2028,17 +2045,21 @@ const SKKKKMeeting = {
   },
 
   // Атрибут «молчит» уходит на сервер только при смене состояния: раньше снятие шло на каждый кадр звука
-  // (12 запросов в секунду у говорящего).
+  // (12 запросов в секунду у говорящего). Тост — один раз, пока метка не снята.
   _onMicSilent() {
     const local = this.room && this.room.localParticipant;
-    if (local && local.setAttributes && !this._micSilentSent) {
+    if (!local || !local.isMicrophoneEnabled) return;
+    const first = !this._micSilentSent;
+    if (local.setAttributes && first) {
       this._micSilentSent = true;
       local.setAttributes({ mic_silent: "1" });
     }
-    this._toast(TEXT_MIC_SILENT, {
-      label: TEXT_MIC_RESTART,
-      run: () => this._restartMic(),
-    });
+    if (first) {
+      this._toast(TEXT_MIC_SILENT, {
+        label: TEXT_MIC_RESTART,
+        run: () => this._restartMic(),
+      });
+    }
     if (this.room && this._roomEls) this._renderTiles(this.room, this._roomEls);
   },
 
@@ -2048,6 +2069,15 @@ const SKKKKMeeting = {
     if (local && local.setAttributes) {
       this._micSilentSent = false;
       local.setAttributes({ mic_silent: "" });
+    } else {
+      this._micSilentSent = false;
+    }
+  },
+
+  _stopLocalMicWatch() {
+    if (this._micWatchAbort) {
+      this._micWatchAbort.abort();
+      this._micWatchAbort = null;
     }
   },
 
@@ -2055,11 +2085,18 @@ const SKKKKMeeting = {
     const track = localMicTrack(this.room);
     const media = track && track.mediaStreamTrack;
     if (!media) return;
-    // Используем addEventListener вместо прямой перезаписи onmute/onended
-    media.addEventListener("mute", () => this._onMicSilent());
-    media.addEventListener("ended", () => this._onMicSilent());
+    this._stopLocalMicWatch();
+    const ac = new AbortController();
+    this._micWatchAbort = ac;
+    const opts = { signal: ac.signal };
+    const onSilent = () => {
+      if (!this.room || !this.room.localParticipant || !this.room.localParticipant.isMicrophoneEnabled) return;
+      this._onMicSilent();
+    };
+    media.addEventListener("mute", onSilent, opts);
+    media.addEventListener("ended", onSilent, opts);
     // Смена аудиомаршрута (наушники) глушит трек на миг: ожил — метка «молчит» у всех снимается, не дожидаясь речи
-    media.addEventListener("unmute", () => this._clearMicSilent());
+    media.addEventListener("unmute", () => this._clearMicSilent(), opts);
     this._watchMicLevel(media);
   },
 
@@ -2206,12 +2243,33 @@ const SKKKKMeeting = {
         redraw();
       });
     }
-    // ВАЖНО: Не спамим предупреждением о сломанном микрофоне при обычном молчании пользователя
+    // LiveKit шлёт (err, source): ошибка камеры/экрана не должна ставить mic_silent и тост «Микрофон молчит».
     if (LK.RoomEvent.MediaDevicesError) {
-      room.on(LK.RoomEvent.MediaDevicesError, (err) => {
-        this._toast(mediaErrorText(err, "Микрофон"));
-        this._onMicSilent();
+      room.on(LK.RoomEvent.MediaDevicesError, (err, source) => {
+        const Src = LK.Track && LK.Track.Source;
+        if (Src && source === Src.Microphone) {
+          this._toast(mediaErrorText(err, "микрофон"));
+          this._onMicSilent();
+          return;
+        }
+        if (Src && source === Src.Camera) {
+          this._toast(mediaErrorText(err, "камеру"));
+          return;
+        }
+        if (Src && source === Src.ScreenShare) {
+          const msg = err && err.message ? String(err.message) : "";
+          this._toast(
+            /not supported|getDisplayMedia|permission|denied/i.test(msg)
+              ? SCREEN_HINT
+              : mediaErrorText(err, "экран"),
+          );
+          return;
+        }
+        this._toast(mediaErrorText(err, "устройство"));
       });
+    }
+    if (LK.RoomEvent.LocalAudioSilenceDetected) {
+      room.on(LK.RoomEvent.LocalAudioSilenceDetected, () => this._onMicSilent());
     }
     room.on(LK.RoomEvent.LocalTrackPublished, onPublished);
     room.on(LK.RoomEvent.LocalTrackUnpublished, () => {
@@ -2288,9 +2346,9 @@ const SKKKKMeeting = {
     });
     room.on(LK.RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
       track.detach().forEach((node) => {
-        if (node._skkkkPlaySrc) {
+        if (node._primaryanaliticsPlaySrc) {
           try {
-            node._skkkkPlaySrc.disconnect();
+            node._primaryanaliticsPlaySrc.disconnect();
           } catch (err) {
             return;
           }
@@ -2367,7 +2425,7 @@ const SKKKKMeeting = {
     if (!els.tilesEl) return;
     this._bindTileClicks(els.tilesEl);
     const screens = this._collectScreens(people);
-    const order = window.SKKKKLayout.tileOrder(
+    const order = window.PrimaryAnaliticsLayout.tileOrder(
       people.map((person) => ({ id: "meeting-tile-" + tileKey(person) })),
       screens,
       this._publishedAt,
@@ -2383,7 +2441,7 @@ const SKKKKMeeting = {
       slot += 1;
     };
     order.forEach((item) => {
-      if (item.kind === window.SKKKKLayout.KIND_SCREEN) {
+      if (item.kind === window.PrimaryAnaliticsLayout.KIND_SCREEN) {
         const screen = screens.find((row) => SCREEN_TILE_PREFIX + row.sid === item.id);
         if (!screen) return;
         const tile = this._ensureScreenTile(els.tilesEl, screen);
@@ -2512,8 +2570,8 @@ const SKKKKMeeting = {
     const raw = this._quality[person.identity];
     const level = person === (this.room && this.room.localParticipant) && typeof this._sigLevel === "number" ? this._sigLevel : signalLevelOf(raw);
     if (level !== null) flagsEl.appendChild(signalBars(level));
-    tile.classList.toggle("meeting-tile-mic-off", mic !== window.SKKKKLayout.FLAG_ON);
-    tile.classList.toggle("meeting-tile-cam-off", cam !== window.SKKKKLayout.FLAG_ON);
+    tile.classList.toggle("meeting-tile-mic-off", mic !== window.PrimaryAnaliticsLayout.FLAG_ON);
+    tile.classList.toggle("meeting-tile-cam-off", cam !== window.PrimaryAnaliticsLayout.FLAG_ON);
     tile.classList.toggle("meeting-tile-speaking", Boolean(person.isSpeaking));
     this._paintVideo(stage, person);
   },
@@ -2576,9 +2634,9 @@ const SKKKKMeeting = {
   _dropAttached(track) {
     if (!track || !track.detach) return;
     track.detach().forEach((node) => {
-      if (node._skkkkPlaySrc) {
+      if (node._primaryanaliticsPlaySrc) {
         try {
-          node._skkkkPlaySrc.disconnect();
+          node._primaryanaliticsPlaySrc.disconnect();
         } catch (err) {
           return;
         }
@@ -2693,11 +2751,11 @@ function camPub(person) {
 }
 
 function micFlag(person) {
-  return window.SKKKKLayout.flagState(micPub(person), (person && person.attributes) || {});
+  return window.PrimaryAnaliticsLayout.flagState(micPub(person), (person && person.attributes) || {});
 }
 
 function camFlag(person) {
-  return window.SKKKKLayout.flagState(camPub(person), {});
+  return window.PrimaryAnaliticsLayout.flagState(camPub(person), {});
 }
 
 function flagChip(kind, state) {
@@ -2705,12 +2763,12 @@ function flagChip(kind, state) {
   chip.className = "meeting-chip is-" + state;
   const isMic = kind === "mic";
   let text = isMic ? TEXT_MIC_ON : TEXT_CAM_ON;
-  if (state === window.SKKKKLayout.FLAG_NONE) text = isMic ? TEXT_NO_MIC : TEXT_NO_CAM;
-  else if (state === window.SKKKKLayout.FLAG_OFF) text = isMic ? TEXT_MIC_OFF : TEXT_CAM_OFF;
-  else if (state === window.SKKKKLayout.FLAG_SILENT) text = TEXT_MIC_SILENT_CHIP;
+  if (state === window.PrimaryAnaliticsLayout.FLAG_NONE) text = isMic ? TEXT_NO_MIC : TEXT_NO_CAM;
+  else if (state === window.PrimaryAnaliticsLayout.FLAG_OFF) text = isMic ? TEXT_MIC_OFF : TEXT_CAM_OFF;
+  else if (state === window.PrimaryAnaliticsLayout.FLAG_SILENT) text = TEXT_MIC_SILENT_CHIP;
   chip.setAttribute("aria-label", text);
   chip.title = text;
-  const on = state === window.SKKKKLayout.FLAG_ON;
+  const on = state === window.PrimaryAnaliticsLayout.FLAG_ON;
   chip.innerHTML = isMic ? (on ? ICON_MIC : ICON_MIC_OFF) : on ? ICON_CAM : ICON_CAM_OFF;
   return chip;
 }
@@ -2733,4 +2791,4 @@ function signalBars(level) {
   return box;
 }
 
-window.SKKKKMeeting = SKKKKMeeting;
+window.PrimaryAnaliticsMeeting = PrimaryAnaliticsMeeting;

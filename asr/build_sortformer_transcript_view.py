@@ -1,4 +1,4 @@
-"""Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF).
+"""Пробная стенограмма: текст ASR + интервалы Sortformer v2.1 (GGUF).
 
 python asr/build_sortformer_transcript_view.py
 python asr/build_sortformer_transcript_view.py --sortformer-json experiments/nemo-diar/out/pilot_22_07_26/sortformer_gguf_vulkan_input_16k_report.json --out data/projects/1/artifacts/art_2026-08-19_211842_54f88c/reports/transcript_sortformer.html --audio-url /artifacts/art_2026-08-19_211842_54f88c/audio

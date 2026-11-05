@@ -14,7 +14,7 @@
 {% block scripts %}
 <script>
 (() => {
-  if (!SKKKK.requireAuth()) return;
+  if (!PrimaryAnalitics.requireAuth()) return;
   const root = document.getElementById('list');
   const status = document.getElementById('status');
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -60,10 +60,10 @@
   async function load() {
     root.innerHTML = '';
     status.textContent = 'Загрузка…';
-    const projects = await (await SKKKK.api('/projects')).json();
+    const projects = await (await PrimaryAnalitics.api('/projects')).json();
     let n = 0;
     for (const p of projects) {
-      const r = await SKKKK.api(`/projects/${p.id}/conflicts?view=${view}`);
+      const r = await PrimaryAnalitics.api(`/projects/${p.id}/conflicts?view=${view}`);
       if (!r.ok) continue;
       for (const c of await r.json()) { root.insertAdjacentHTML('beforeend', card(p, c)); n += 1; }
     }
@@ -84,15 +84,15 @@
     if (res) {
       const reason = (document.querySelector(`[data-reason="${res.dataset.resolve}"]`).value || '').trim();
       if (!reason) { status.textContent = 'Укажите причину'; return; }
-      await SKKKK.guardButton(res, async () => {
-        const r = await SKKKK.api(`/conflicts/${res.dataset.resolve}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winning_entity_id: Number(res.dataset.win), reason }) });
+      await PrimaryAnalitics.guardButton(res, async () => {
+        const r = await PrimaryAnalitics.api(`/conflicts/${res.dataset.resolve}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ winning_entity_id: Number(res.dataset.win), reason }) });
         status.textContent = r.ok ? 'Конфликт разрешён.' : 'Не удалось разрешить конфликт.';
         if (r.ok) load();
       });
     }
     if (undo) {
-      await SKKKK.guardButton(undo, async () => {
-        const r = await SKKKK.api(`/conflicts/${undo.dataset.undo}/undo-model`, { method: 'POST' });
+      await PrimaryAnalitics.guardButton(undo, async () => {
+        const r = await PrimaryAnalitics.api(`/conflicts/${undo.dataset.undo}/undo-model`, { method: 'POST' });
         const body = r.ok ? await r.json() : {};
         status.textContent = !r.ok ? 'Не удалось отменить.' : (body.rolled_back_to_shadow ? 'Решение отменено. Отмен стало много — автоматика по конфликтам этого проекта переведена в тень, решения снова ждут вас.' : 'Решение модели отменено — конфликт снова ждёт вас.');
         if (r.ok) load();

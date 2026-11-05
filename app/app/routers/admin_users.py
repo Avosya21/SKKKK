@@ -44,6 +44,7 @@ def users_activity(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
     user_id: Annotated[int | None, Query()] = None,
+    profile_id: Annotated[int | None, Query()] = None,
     project_id: Annotated[int | None, Query()] = None,
     block: Annotated[str | None, Query(max_length=32)] = None,
     action: Annotated[str | None, Query(max_length=48)] = None,
@@ -54,5 +55,26 @@ def users_activity(
     limit: Annotated[int, Query(ge=1, le=admin_panel.FEED_MAX)] = 50,
 ):
     _owner(user)
-    return admin_panel.activity_feed(db, user_id=user_id, project_id=project_id, block=block or None, action=action or None,
-                                     date_from=date_from, date_to=date_to, text=q, before_id=before_id, limit=limit)
+    return admin_panel.activity_feed(
+        db,
+        user_id=user_id,
+        profile_id=profile_id,
+        project_id=project_id,
+        block=block or None,
+        action=action or None,
+        date_from=date_from,
+        date_to=date_to,
+        text=q,
+        before_id=before_id,
+        limit=limit,
+    )
+
+
+@router.post("/admin/users/sessions/revoke-all")
+def revoke_all_sessions(db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(get_current_user)]):
+    """Разлогинить всех: bump session_version — старые JWT получают 401."""
+    _owner(user)
+    from app.app.services.session_version import bump
+
+    version = bump(db, reason=f"admin_revoke_all by={user.id}")
+    return {"ok": True, "session_version": version}

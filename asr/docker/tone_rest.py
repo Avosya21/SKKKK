@@ -13,7 +13,7 @@ ENGINE = "tone"
 OUT_DIR = Path(os.environ.get("OUT_DIR", "/out"))
 LOAD_FROM = os.environ.get("LOAD_FROM_FOLDER", "/models")
 
-app = FastAPI(title="SKKKK T-one", version="1.0")
+app = FastAPI(title="PrimaryAnalitics T-one", version="1.0")
 pipeline: StreamingCTCPipeline | None = None
 
 
@@ -35,7 +35,7 @@ class TranscribeRequest(BaseModel):
 @app.get("/")
 def root():
     return {
-        "service": "skkkk-asr",
+        "service": "primaryanalitics-asr",
         "engine": ENGINE,
         "health": "/health",
         "transcribe": "POST /transcribe {\"audio\": \"/data/input_8k.wav\"}",

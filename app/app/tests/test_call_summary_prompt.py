@@ -51,7 +51,7 @@ def test_summary_attaches_screen_context_to_publisher(tmp_path, monkeypatch):
     import json
     from asr.speakers import Turn
 
-    spec = importlib.util.spec_from_file_location("skkkk_summary", SUMMARIZE)
+    spec = importlib.util.spec_from_file_location("primary_analitics_summary", SUMMARIZE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     out = tmp_path / "asr"

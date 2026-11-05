@@ -20,12 +20,12 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.tls")
+logger = logging.getLogger("primaryanalitics.tls")
 
 PRODUCTION_ACME_CA = "https://acme-v02.api.letsencrypt.org/directory"
 TRUSTED_ISSUER_MARK = "let's encrypt"
 STAGING_MARKERS = ("staging", "fake le", "artificial")
-BOOTSTRAP_ISSUER_CN = "SKKKK bootstrap"
+BOOTSTRAP_ISSUER_CN = "PrimaryAnalitics bootstrap"
 BOOTSTRAP_HOURS = 24
 ISSUE_POLL_SEC = 2
 TRIGGER_ATTEMPTS = 5
@@ -77,20 +77,20 @@ def _is_trusted_issuer(issuer: str) -> bool:
 
 
 def _storage_tls_paths(settings: Settings) -> tuple[Path, Path]:
-    host = (settings.skkkk_public_host or "").strip()
-    folder = settings.data_dir / "caddy" / "certificates" / _acme_storage_name(settings.skkkk_acme_ca) / host
+    host = (settings.primary_analitics_public_host or "").strip()
+    folder = settings.data_dir / "caddy" / "certificates" / _acme_storage_name(settings.primary_analitics_acme_ca) / host
     return folder / f"{host}.crt", folder / f"{host}.key"
 
 
 def tls_paths(settings: Settings) -> tuple[Path, Path]:
     stored_cert, stored_key = _storage_tls_paths(settings)
-    raw_cert = (settings.skkkk_tls_cert or "").strip()
-    raw_key = (settings.skkkk_tls_key or "").strip()
+    raw_cert = (settings.primary_analitics_tls_cert or "").strip()
+    raw_key = (settings.primary_analitics_tls_key or "").strip()
     if not raw_cert:
         return stored_cert, stored_key
     explicit_cert = Path(raw_cert)
     explicit_key = Path(raw_key) if raw_key else stored_key
-    if _is_production_ca(settings.skkkk_acme_ca):
+    if _is_production_ca(settings.primary_analitics_acme_ca):
         info = inspect_cert(explicit_cert)
         if info.reason == REASON_MISSING or _is_staging_issuer(info.issuer):
             return stored_cert, stored_key
@@ -126,19 +126,19 @@ def _cert_names(cert: x509.Certificate) -> tuple[str, ...]:
 def cert_issue_reason(info: CertInfo, settings: Settings) -> str:
     if info.reason:
         return info.reason
-    host = (settings.skkkk_public_host or "").strip()
+    host = (settings.primary_analitics_public_host or "").strip()
     if host and host not in info.names:
         return REASON_HOST
-    if _is_production_ca(settings.skkkk_acme_ca) and _is_staging_issuer(info.issuer):
+    if _is_production_ca(settings.primary_analitics_acme_ca) and _is_staging_issuer(info.issuer):
         return REASON_STAGING
-    if _is_production_ca(settings.skkkk_acme_ca) and not _is_trusted_issuer(info.issuer):
+    if _is_production_ca(settings.primary_analitics_acme_ca) and not _is_trusted_issuer(info.issuer):
         return REASON_ISSUER
     hours = info.hours_left
     if hours is None:
         return REASON_UNREADABLE
     if hours <= 0:
         return REASON_EXPIRED
-    if hours <= settings.skkkk_tls_renew_hours:
+    if hours <= settings.primary_analitics_tls_renew_hours:
         return REASON_EXPIRING
     return ""
 
@@ -189,8 +189,8 @@ def _reload_caddy(settings: Settings) -> None:
 
 
 def _trigger_issue(settings: Settings) -> None:
-    host = (settings.skkkk_public_host or "").strip()
-    port = settings.skkkk_acme_tls_port
+    host = (settings.primary_analitics_public_host or "").strip()
+    port = settings.primary_analitics_acme_tls_port
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -210,11 +210,11 @@ def _trigger_issue(settings: Settings) -> None:
 
 
 def _wait_valid(settings: Settings, cert_path: Path) -> bool:
-    deadline = time.time() + settings.skkkk_tls_issue_timeout_sec
+    deadline = time.time() + settings.primary_analitics_tls_issue_timeout_sec
     while time.time() <= deadline:
         if not cert_issue_reason(inspect_cert(cert_path), settings):
             return True
-        time.sleep(min(ISSUE_POLL_SEC, settings.skkkk_tls_issue_timeout_sec))
+        time.sleep(min(ISSUE_POLL_SEC, settings.primary_analitics_tls_issue_timeout_sec))
     return False
 
 
@@ -225,7 +225,7 @@ def ensure_tls_cert(
     reload_caddy=None,
     trigger=None,
 ) -> str:
-    host = (settings.skkkk_public_host or "").strip()
+    host = (settings.primary_analitics_public_host or "").strip()
     if not host:
         log_event(logger, "edge.tls.skip", reason="no_public_host")
         return "skip"
@@ -242,7 +242,7 @@ def ensure_tls_cert(
 def _ensure_tls_cert(settings: Settings, *, start, reload, issue) -> str:
     cert_path, key_path = tls_paths(settings)
     if not cert_path.is_file() or not key_path.is_file():
-        write_bootstrap_cert(cert_path, key_path, settings.skkkk_public_host.strip())
+        write_bootstrap_cert(cert_path, key_path, settings.primary_analitics_public_host.strip())
         log_event(logger, "edge.tls.bootstrap", path=str(cert_path))
     start(settings)
     info = inspect_cert(cert_path)

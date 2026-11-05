@@ -24,7 +24,7 @@ from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Su
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 from app.app.services.subjects import TITLE_MAX, _day_of, _sort_key, _Subj, act_text, cosine, pack, unpack
 
-logger = logging.getLogger("skkkk.subject_windows")
+logger = logging.getLogger("primaryanalitics.subject_windows")
 
 PROMPT_VERSION = "subject_window-v2"  # v2: пункты документов — раздел не предмет, каждое требование отдельно
 WINDOW_ACTS = 25  # актов в одном вопросе модели

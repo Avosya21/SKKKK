@@ -9,7 +9,7 @@ from app.app.services.project_mcp_tokens import create_project_mcp_token
 def test_mcp_initialize_returns_tools_capability():
     resp = handle_jsonrpc(None, None, 1, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert resp["result"]["capabilities"]["tools"]
-    assert resp["result"]["serverInfo"]["name"] == "skkkk-project"
+    assert resp["result"]["serverInfo"]["name"] == "primaryanalitics-project"
 
 
 def test_mcp_tools_list_has_base_and_contract_tools():
@@ -38,7 +38,7 @@ def test_create_and_auth_mcp_token(db_engine, client, admin_token, manager_token
     )
     assert r.status_code == 201
     plain = r.json()["token"]
-    assert plain.startswith("skkkk_mcp_")
+    assert plain.startswith("primary_analitics_mcp_")
 
     db = SessionLocal()
     assert authenticate_project_mcp_token(db, project_id=pid, bearer=plain) is not None
@@ -59,6 +59,31 @@ def test_mcp_rejects_without_token(client, manager_token):
     r = client.post(
         f"/mcp/projects/{pid}",
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    )
+    assert r.status_code == 401
+
+
+def test_mcp_token_project_a_cannot_read_project_b(client, db_engine, manager_token):
+    """Ключ, выданный на проект A, на URL проекта B не читает данные B."""
+    headers = {"Authorization": f"Bearer {manager_token}"}
+    pid_a = client.post("/projects", json={"name": "MCP Scope A"}, headers=headers).json()["id"]
+    pid_b = client.post("/projects", json={"name": "MCP Scope B"}, headers=headers).json()["id"]
+
+    from app.app.db import SessionLocal
+
+    db = SessionLocal()
+    _, plain_a = create_project_mcp_token(db, project_id=pid_a, label="scope-a", user_id=1)
+    db.close()
+
+    r = client.post(
+        f"/mcp/projects/{pid_b}",
+        headers={"Authorization": f"Bearer {plain_a}", "Content-Type": "application/json"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "project_overview", "arguments": {}},
+        },
     )
     assert r.status_code == 401
 

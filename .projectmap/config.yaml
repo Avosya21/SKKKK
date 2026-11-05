@@ -2,7 +2,7 @@
 # graph — граф, по которому считается охват (строит scripts/export_project_graph.py, позже — сам projectmap).
 # ignore — осознанные исключения: то, что карте не нужно. Каждое исключение с причиной; всё остальное, чего нет в графе, — пробел.
 # targets — цели охвата по пробам (доля 0..1); ниже цели проба показывается как пробел, с --strict даёт код выхода 1.
-title: Карта проекта SKKKK
+title: Карта проекта PrimaryAnalitics
 ide: pycharm://open?file={root}/{path}&line={line}  # как в старом графе портала: ссылка в карточке файла
 graph: .projectmap/out/graph.json
 
@@ -33,10 +33,10 @@ ignore:
 # Переменные окружения, которых не должно быть в образце: тестовые стенды и внутренние, которые конвейер сам подставляет подпроцессам.
 ignore_env:
   - "SMOKE_*"
-  - "SKKKK_ARTIFACT_ID"
-  - "SKKKK_PROJECT_ID"
-  - "SKKKK_AUDIO_URL"
-  - "SKKKK_MATCH_JSON"
+  - "PRIMARY_ANALITICS_ARTIFACT_ID"
+  - "PRIMARY_ANALITICS_PROJECT_ID"
+  - "PRIMARY_ANALITICS_AUDIO_URL"
+  - "PRIMARY_ANALITICS_MATCH_JSON"
   - "APP_DIR"
   - "OUT_DIR"
   - "ASR_ENGINE"

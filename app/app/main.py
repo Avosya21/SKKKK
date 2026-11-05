@@ -3,8 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from starlette.middleware.cors import CORSMiddleware
-
 # Запуск файлом (`python app/app/main.py`) не кладёт корень проекта в sys.path.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
@@ -64,8 +62,8 @@ from app.app.services.llm import check_llm_provider, provider_uses_lmstudio  # n
 from app.app.services.ollama_client import ollama_tags  # noqa: E402
 from app.app.services.vector_index import init_vector_store  # noqa: E402
 
-logger = logging.getLogger("skkkk.api")
-startup_logger = logging.getLogger("skkkk.startup")
+logger = logging.getLogger("primaryanalitics.api")
+startup_logger = logging.getLogger("primaryanalitics.startup")
 
 
 @asynccontextmanager
@@ -240,6 +238,13 @@ async def add_security_headers(request, call_next):
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
     return response
+
+
+# CSRF и Host: add_middleware — «луковица»; последний добавленный срабатывает первым на запросе.
+from app.app.middleware import CsrfOriginMiddleware, TrustedHostAllowlistMiddleware  # noqa: E402
+
+app.add_middleware(CsrfOriginMiddleware)
+app.add_middleware(TrustedHostAllowlistMiddleware)
 
 
 static_dir = Path(__file__).resolve().parent / "static"
@@ -457,7 +462,7 @@ def _spawn_worker() -> subprocess.Popen:
     """Воркер поднимается отдельным процессом: у него свой цикл GPU-фаз."""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_PROJECT_ROOT), env.get("PYTHONPATH", "")]))
-    env["SKKKK_PROCESS_ROLE"] = "worker"  # не наследовать роль процесса портала (llm_lanes)
+    env["PRIMARY_ANALITICS_PROCESS_ROLE"] = "worker"  # не наследовать роль процесса портала (llm_lanes)
     process = subprocess.Popen(
         [sys.executable, "-m", "app.app.main", "worker", "--skip-checks", "--use-saved-llm"],
         cwd=str(_PROJECT_ROOT),
@@ -496,7 +501,7 @@ def _serve(host: str, port: int, *, reload: bool) -> None:
     # моменту уже подготовлен родительским процессом.
     target = "app.app.main:app" if reload else app
     # Процесс портала: модель для него — только полоса чата (services/llm_lanes.py); переменная доходит и до reload-воркера.
-    os.environ["SKKKK_PROCESS_ROLE"] = "api"
+    os.environ["PRIMARY_ANALITICS_PROCESS_ROLE"] = "api"
     uvicorn.run(target, host=host, port=port, log_level="info", reload=reload)
 
 
@@ -570,9 +575,13 @@ def _run_credentials(*, reset: bool, host: str, port: int) -> None:
         passwords = reset_role_passwords()
         get_settings.cache_clear()
         updated = _sync_existing_users(passwords)
+        from app.app.services.session_version import bump as bump_session_version
+
+        bump_session_version(reason="credentials_reset")
         _print_credentials(passwords, host=host, port=port)
         if updated:
             print(f"Обновлено существующих пользователей: {updated}")
+        print("Открытые сессии закрыты (session_version).")
         return
 
     if _NEW_CREDENTIALS:
@@ -618,7 +627,7 @@ def _reset_role_passwords_interactive(host: str, port: int) -> None:
     """Пункт 9 меню запуска: перевыпуск паролей всех ролей с подтверждением."""
     print()
     print("Будут перевыпущены пароли всех трёх ролей (admin, manager, user).")
-    print("Старые перестанут подходить для входа сразу; уже открытые сессии продолжат работать.")
+    print("Старые перестанут подходить для входа; все открытые сессии будут закрыты.")
     if not _confirm("Перевыпустить?"):
         print("Отменено.")
         return
@@ -629,7 +638,7 @@ def _reset_role_passwords_interactive(host: str, port: int) -> None:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(prog="skkkk", description="Единая точка входа Primary Analytics")
+    parser = argparse.ArgumentParser(prog="primaryanalitics", description="Единая точка входа Primary Analytics")
     parser.add_argument(
         "mode",
         nargs="?",

@@ -8,7 +8,7 @@ STATIC = Path(__file__).resolve().parents[1] / "static"
 
 
 def test_standalone_pages_load_their_scripts_after_app_js():
-    """Раньше inline-скрипт лежал в блоке content, то есть выполнялся ДО app.js: «SKKKK is not defined», страницы ТЗ/чата/графа/конфликтов не работали."""
+    """Раньше inline-скрипт лежал в блоке content, то есть выполнялся ДО app.js: «PrimaryAnalitics is not defined», страницы ТЗ/чата/графа/конфликтов не работали."""
     for name in ("tz", "chat", "graph", "conflicts"):
         text = (TEMPLATES / name).with_suffix(".html").read_text(encoding="utf-8")
         assert "{% block scripts %}" in text, name
@@ -50,6 +50,6 @@ def test_chat_same_look_on_project_and_chat_pages():
 
 def test_mobile_layout_rules_present():
     css = (STATIC / "app.css").read_text(encoding="utf-8")
-    assert ".navbar-skkkk .navbar-actions-row" in css and "flex-wrap: wrap" in css
+    assert ".navbar-primaryanalitics .navbar-actions-row" in css and "flex-wrap: wrap" in css
     assert "min-height: 36px" in css and ".btn.btn-sm { min-height: 40px" in css
     assert (TEMPLATES / "error.html").is_file()

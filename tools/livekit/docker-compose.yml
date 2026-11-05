@@ -1,9 +1,9 @@
-name: skkkk-livekit
+name: primaryanalitics-livekit
 
 services:
   livekit:
     image: livekit/livekit-server:v1.8.4
-    container_name: skkkk-livekit
+    container_name: primaryanalitics-livekit
     restart: unless-stopped
     command: --config /etc/livekit.yaml
     ports:

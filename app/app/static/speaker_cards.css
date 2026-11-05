@@ -1,14 +1,98 @@
-/* Карточки голосов: «Кто это» из списка, компания, сторона, должность (static/speaker_cards.js) */
+/* Карточки голосов: «Кто это» из списка, компания, сторона, должность (static/speaker_cards.js).
+   На /report-speaker-match нет design.css — ссылки и поля держим в палитре страницы, не сырой Bootstrap. */
 .pc-block { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
 .pc-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0.5rem; }
 .pc-field { min-width: 0; }
-.pc-field .form-label { margin-bottom: 0.25rem; }
+.pc-field .form-label { margin-bottom: 0.25rem; color: var(--color-muted-fg, #64748B); }
 .pc-note:empty, .pc-chip:empty { display: none; }
-.pc-chip-known { color: var(--bs-success-text-emphasis, #146c43); }
-.pc-chip-new { color: var(--bs-warning-text-emphasis, #997404); }
-.pc-confirm, .pc-rename { align-self: flex-start; }
+.pc-chip-known { color: #067647; }
+.pc-chip-new { color: #93370d; }
+.pc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
 .pc-confirm:disabled { opacity: 0.55; }
-.pc-menu { width: 100%; max-height: 300px; overflow-y: auto; top: 100%; left: 0; margin-top: 2px; }
+.pc-block .form-control,
+.pc-block .form-select,
+.pc-who .form-control,
+.pc-block .pc-side {
+  border-color: var(--color-border, #E2E8F0);
+  color: var(--color-fg, #1E293B);
+  background: var(--color-bg, #FAFAF9);
+}
+.pc-block .form-control:focus,
+.pc-block .form-select:focus,
+.pc-who .form-control:focus,
+.pc-block .pc-side:focus,
+.pc-block .pc-side:focus-visible {
+  border-color: color-mix(in srgb, var(--color-accent, #5B7FA6) 45%, var(--color-border, #E2E8F0));
+  box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--color-accent, #5B7FA6) 18%, transparent);
+  outline: none;
+}
+.pc-side.pc-placeholder { color: var(--color-muted-fg, #64748B); }
+.pc-side:disabled { opacity: 0.65; cursor: not-allowed; }
+/* Списочные поля: стрелка справа — «можно открыть список» (не галочка-успех) */
+.pc-list-wrap {
+  position: relative;
+}
+.pc-list-wrap .form-control,
+.pc-list-wrap .form-select,
+.pc-list-wrap .input-group {
+  width: 100%;
+}
+.pc-list-wrap > .form-control,
+.pc-list-wrap > .input-group .form-control,
+.pc-list-wrap > .form-select {
+  padding-right: 2rem;
+}
+.pc-list-mark:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pc-list-mark {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16'%3E%3Cpath fill='%2364748B' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 0.75rem;
+  cursor: pointer;
+}
+.pc-list-mark:hover,
+.pc-list-mark:focus-visible {
+  background-color: color-mix(in srgb, var(--color-muted, #F1F5F9) 80%, transparent);
+  outline: none;
+}
+.pc-list-mark:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent, #5B7FA6) 35%, transparent);
+}
+.pc-menu {
+  width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+  top: 100%;
+  left: 0;
+  margin-top: 2px;
+  font-family: "Open Sans", system-ui, sans-serif;
+  font-size: 0.875rem;
+}
+.pc-menu .dropdown-item,
+.pc-menu .pc-opt-name {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+}
 .pc-opt { display: flex; flex-direction: column; align-items: flex-start; white-space: normal; line-height: 1.25; }
 .pc-opt-meta { font-size: 0.78rem; }
 .pc-opt-new .pc-opt-name { font-weight: 500; }

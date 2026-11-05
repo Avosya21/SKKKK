@@ -24,7 +24,7 @@ from app.app.services.queue import (
     project_task_payload,
 )
 
-logger = logging.getLogger("skkkk.project_jobs")
+logger = logging.getLogger("primaryanalitics.project_jobs")
 
 
 def _activity(db: Session, data: dict[str, Any], *, block: str, action: str, title: str, artifact: Artifact | None = None) -> None:

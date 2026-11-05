@@ -1,18 +1,18 @@
 # GigaAM — прод. Whisper и T-one только с профилем legacy:
 #   docker compose --env-file ..\.env --profile legacy up -d
 #
-#   cd C:\1C_NEW_SKKKK\asr
+#   cd D:\Primary_Analitics\asr
 #   docker compose --env-file ..\.env up -d --build gigaam
 #
 # Хост: 18101 Whisper (legacy) / 18102 GigaAM / 18103 T-one (legacy).
 
-name: skkkk-asr
+name: primaryanalitics-asr
 
 services:
   whisper:
     profiles: ["legacy"]
     image: hwdsl2/whisper-server:cuda
-    container_name: skkkk-whisper
+    container_name: primaryanalitics-whisper
     restart: unless-stopped
     gpus: all
     ports:
@@ -45,7 +45,7 @@ services:
     build:
       context: ../vendor/GigaAMGUI
       dockerfile: Dockerfile
-    container_name: skkkk-gigaam
+    container_name: primaryanalitics-gigaam
     restart: unless-stopped
     gpus: all
     ports:
@@ -109,7 +109,7 @@ services:
     build:
       context: .
       dockerfile: docker/tone.Dockerfile
-    container_name: skkkk-tone
+    container_name: primaryanalitics-tone
     restart: unless-stopped
     ports:
       - "127.0.0.1:18103:8080"

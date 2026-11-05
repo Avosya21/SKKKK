@@ -18,7 +18,7 @@ from app.app.config import get_settings
 from app.app.logging_setup import log_event
 from app.app.models.company import SIDE_CUSTOMER, SIDE_EXECUTOR, Company
 
-logger = logging.getLogger("skkkk.companies")
+logger = logging.getLogger("primaryanalitics.companies")
 
 SIDE_LABELS = {"исполнитель": SIDE_EXECUTOR, "заказчик": SIDE_CUSTOMER}
 

@@ -1,5 +1,5 @@
-# SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора).
-# Скачивает бинарник, открывает 80/443, ставит службу SKKKK-CADDY через NSSM.
+# PrimaryAnalitics — Caddy как HTTPS-прокси перед порталом (запуск от администратора).
+# Скачивает бинарник, открывает 80/443, ставит службу PrimaryAnalitics-CADDY через NSSM.
 param(
     [string]$Version = "latest",
     [string]$Nssm = "nssm"
@@ -12,7 +12,7 @@ $CaddyExe = Join-Path $CaddyDir "caddy.exe"
 $Caddyfile = Join-Path $CaddyDir "Caddyfile"
 $Logs = Join-Path $Root "data\logs"
 $Storage = Join-Path $Root "data\caddy"
-$ServiceName = "SKKKK-CADDY"
+$ServiceName = "PrimaryAnalitics-CADDY"
 $MinVersion = [version]"2.10.1"   # раньше Caddy не умеет сертификаты на IP
 $DefaultHttpsPort = "777"
 $DefaultAcmeHttpPort = "8088"
@@ -33,7 +33,7 @@ function Resolve-CaddyAsset {
     param([string]$Tag)
     $api = "https://api.github.com/repos/caddyserver/caddy/releases"
     $url = if ($Tag -eq "latest") { "$api/latest" } else { "$api/tags/v$Tag" }
-    $release = Invoke-RestMethod -Uri $url -Headers @{ "User-Agent" = "skkkk" }
+    $release = Invoke-RestMethod -Uri $url -Headers @{ "User-Agent" = "primaryanalitics" }
     $asset = $release.assets | Where-Object { $_.name -like "caddy_*_windows_amd64.zip" } | Select-Object -First 1
     if (-not $asset) { throw "В релизе $($release.tag_name) нет сборки windows_amd64" }
     $resolved = [version]($release.tag_name.TrimStart("v"))
@@ -43,7 +43,7 @@ function Resolve-CaddyAsset {
 
 function Install-CaddyBinary {
     param([string]$Url)
-    $tmp = Join-Path $env:TEMP "caddy_skkkk"
+    $tmp = Join-Path $env:TEMP "caddy_primaryanalitics"
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     $zip = Join-Path $tmp "caddy.zip"
@@ -67,7 +67,7 @@ function Assert-PortsFree {
 
 function Open-FirewallPorts {
     param([int]$Port)
-    $name = "SKKKK Caddy TCP $Port"
+    $name = "PrimaryAnalitics Caddy TCP $Port"
     if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) { return }
     New-NetFirewallRule -DisplayName $name -Direction Inbound -Action Allow `
         -Protocol TCP -LocalPort $Port | Out-Null
@@ -89,22 +89,22 @@ function Install-CaddyService {
     & $Nssm set $ServiceName AppEnvironmentExtra @pairs
 }
 
-$publicHost = Get-EnvValue "SKKKK_PUBLIC_HOST"
-if (-not $publicHost) { throw "SKKKK_PUBLIC_HOST не задан в .env — некому выписывать сертификат" }
+$publicHost = Get-EnvValue "PRIMARY_ANALITICS_PUBLIC_HOST"
+if (-not $publicHost) { throw "PRIMARY_ANALITICS_PUBLIC_HOST не задан в .env — некому выписывать сертификат" }
 
 $serviceEnv = @{
-    SKKKK_PUBLIC_HOST   = $publicHost
-    SKKKK_ACME_EMAIL    = Get-EnvValue "SKKKK_ACME_EMAIL"
-    SKKKK_ACME_CA       = Get-EnvValue "SKKKK_ACME_CA" $DefaultAcmeCa
-    SKKKK_WEB_PORT         = Get-EnvValue "WEB_PORT" $DefaultWebPort
-    SKKKK_HTTPS_PORT       = Get-EnvValue "SKKKK_HTTPS_PORT" $DefaultHttpsPort
-    SKKKK_CADDY_STORAGE    = $Storage
-    SKKKK_CADDY_LOG        = Join-Path $Logs "caddy.log"
-    SKKKK_ACME_HTTP_PORT   = Get-EnvValue "SKKKK_ACME_HTTP_PORT" $DefaultAcmeHttpPort
+    PRIMARY_ANALITICS_PUBLIC_HOST   = $publicHost
+    PRIMARY_ANALITICS_ACME_EMAIL    = Get-EnvValue "PRIMARY_ANALITICS_ACME_EMAIL"
+    PRIMARY_ANALITICS_ACME_CA       = Get-EnvValue "PRIMARY_ANALITICS_ACME_CA" $DefaultAcmeCa
+    PRIMARY_ANALITICS_WEB_PORT         = Get-EnvValue "WEB_PORT" $DefaultWebPort
+    PRIMARY_ANALITICS_HTTPS_PORT       = Get-EnvValue "PRIMARY_ANALITICS_HTTPS_PORT" $DefaultHttpsPort
+    PRIMARY_ANALITICS_CADDY_STORAGE    = $Storage
+    PRIMARY_ANALITICS_CADDY_LOG        = Join-Path $Logs "caddy.log"
+    PRIMARY_ANALITICS_ACME_HTTP_PORT   = Get-EnvValue "PRIMARY_ANALITICS_ACME_HTTP_PORT" $DefaultAcmeHttpPort
 }
 
 New-Item -ItemType Directory -Force -Path $Logs, $Storage | Out-Null
-Assert-PortsFree -Ports @([int]$serviceEnv.SKKKK_HTTPS_PORT, [int]$serviceEnv.SKKKK_ACME_HTTP_PORT)
+Assert-PortsFree -Ports @([int]$serviceEnv.PRIMARY_ANALITICS_HTTPS_PORT, [int]$serviceEnv.PRIMARY_ANALITICS_ACME_HTTP_PORT)
 
 if (Test-Path $CaddyExe) {
     $installed = & $CaddyExe version
@@ -119,10 +119,10 @@ $serviceEnv.GetEnumerator() | ForEach-Object { Set-Item "env:$($_.Key)" $_.Value
 & $CaddyExe validate --config $Caddyfile
 if ($LASTEXITCODE -ne 0) { throw "Caddyfile не прошёл проверку" }
 
-Open-FirewallPorts -Port ([int]$serviceEnv.SKKKK_HTTPS_PORT)
+Open-FirewallPorts -Port ([int]$serviceEnv.PRIMARY_ANALITICS_HTTPS_PORT)
 Install-CaddyService $serviceEnv
 
 Write-Host ""
 Write-Host "Служба $ServiceName установлена. Запуск: nssm start $ServiceName"
-Write-Host "Роутер: внешний :80 → $($serviceEnv.SKKKK_ACME_HTTP_PORT); внешний :$($serviceEnv.SKKKK_HTTPS_PORT) → $($serviceEnv.SKKKK_HTTPS_PORT)"
-Write-Host "Проверка: https://${publicHost}:$($serviceEnv.SKKKK_HTTPS_PORT)/health ; журнал — $($serviceEnv.SKKKK_CADDY_LOG)"
+Write-Host "Роутер: внешний :80 → $($serviceEnv.PRIMARY_ANALITICS_ACME_HTTP_PORT); внешний :$($serviceEnv.PRIMARY_ANALITICS_HTTPS_PORT) → $($serviceEnv.PRIMARY_ANALITICS_HTTPS_PORT)"
+Write-Host "Проверка: https://${publicHost}:$($serviceEnv.PRIMARY_ANALITICS_HTTPS_PORT)/health ; журнал — $($serviceEnv.PRIMARY_ANALITICS_CADDY_LOG)"

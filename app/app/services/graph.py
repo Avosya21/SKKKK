@@ -22,7 +22,7 @@ from app.app.services.vector_index import (
     upsert_entity_vectors,
 )
 
-logger = logging.getLogger("skkkk.graph")
+logger = logging.getLogger("primaryanalitics.graph")
 
 # Шаблон явной отмены — в conflict_rules (общий с проверкой конфликтов моделью); здесь реэкспорт для старых вызовов.
 CANCEL_PATTERNS = _CANCEL_PATTERNS

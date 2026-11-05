@@ -65,7 +65,7 @@ def extract_clip() -> None:
 
 
 def wait_gigaam(timeout_sec: float = 240.0) -> None:
-    subprocess.run(["docker", "start", "skkkk-gigaam"], check=False)
+    subprocess.run(["docker", "start", "primaryanalitics-gigaam"], check=False)
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         try:
@@ -73,7 +73,7 @@ def wait_gigaam(timeout_sec: float = 240.0) -> None:
             return
         except Exception:
             time.sleep(3)
-    raise SystemExit("skkkk-gigaam не поднялся")
+    raise SystemExit("primaryanalitics-gigaam не поднялся")
 
 
 def docker_diar(name: str, env: dict[str, str]) -> Path:
@@ -102,7 +102,7 @@ def docker_diar(name: str, env: dict[str, str]) -> Path:
     )
     print(f"\n=== {name} ===")
     proc = subprocess.run(
-        ["docker", "exec", *docker_env, "skkkk-gigaam", "python", "/data/dump_pyannote.py"],
+        ["docker", "exec", *docker_env, "primaryanalitics-gigaam", "python", "/data/dump_pyannote.py"],
         check=False,
     )
     if proc.returncode != 0:

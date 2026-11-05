@@ -6,12 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ title }} — Primary Analytics</title>
   <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/app.css?v=15" rel="stylesheet">
-  <link href="/static/design.css?v=6" rel="stylesheet">
+  <link href="/static/app.css?v=19" rel="stylesheet">
+  <link href="/static/design.css?v=11" rel="stylesheet">
   <link rel="manifest" href="/meeting.webmanifest?start=/m/{{ token }}">
-  <link rel="icon" href="/static/brand/favicon.ico" sizes="any">
-  <link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+  <link rel="icon" href="/static/brand/favicon.ico?v=2" sizes="any">
+  <link rel="icon" href="/static/brand/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png?v=2">
   <style>
 @media (max-width: 768px) {
   #meeting-screen,
@@ -66,7 +66,7 @@
               {% endif %}
             </div>
             <div class="alert alert-danger d-none" id="guest-error" role="alert"></div>
-            <button class="btn btn-primary w-100 skkkk-action-btn" type="submit" id="guest-join" data-idle-label="Войти во встречу" disabled>Войти во встречу</button>
+            <button class="btn btn-primary w-100 primaryanalitics-action-btn" type="submit" id="guest-join" data-idle-label="Войти во встречу" disabled>Войти во встречу</button>
             <details class="mb-2 guest-devices-details">
               <summary class="small text-muted">Проверить камеру и микрофон (по желанию)</summary>
             <fieldset class="mt-2 mb-1">
@@ -141,9 +141,9 @@
 <script src="/static/app.js?v=4"></script>
 <script src="/static/vendor/livekit/livekit-client.umd.js"></script>
 <script src="/static/meeting_layout.js?v=a5"></script>
-<script src="/static/meeting_room.js?v=a59"></script>
+<script src="/static/meeting_room.js?v=a61"></script>
 <script>
-window.SKKKK_MEETING_VOICE = {{ meeting_voice | tojson }};
+window.PRIMARY_ANALITICS_MEETING_VOICE = {{ meeting_voice | tojson }};
 const token = {{ token|tojson }};
 const statusEl = document.getElementById('meeting-status');
 const form = document.getElementById('guest-join-form');
@@ -240,7 +240,7 @@ form.addEventListener('submit', async (e) => {
   clearPollTimer();
 
   const doJoin = async () => {
-    const storeKey = 'skkkk-guest-' + token;
+    const storeKey = 'primaryanalitics-guest-' + token;
     let guestId = localStorage.getItem(storeKey);
     if (!guestId) {
       guestId = safeRandomUUID();
@@ -265,22 +265,22 @@ form.addEventListener('submit', async (e) => {
       let detail = '';
       try {
         const payload = await r.json();
-        detail = SKKKKErrors.text(payload.detail, r.status);
+        detail = PrimaryAnaliticsErrors.text(payload.detail, r.status);
       } catch {
-        detail = SKKKKErrors.text('', r.status);
+        detail = PrimaryAnaliticsErrors.text('', r.status);
       }
       showError(detail);
       return;
     }
     const data = await r.json();
-    const devices = SKKKKMeeting.selectedDevices();
-    await SKKKKMeeting.stopPreview();
+    const devices = PrimaryAnaliticsMeeting.selectedDevices();
+    await PrimaryAnaliticsMeeting.stopPreview();
     document.body.classList.add('meeting-is-live');
     stageEl.hidden = false;
     stageEl.classList.add('is-open');
     const livekit = data.livekit || {};
     clearPollTimer();
-    await SKKKKMeeting.connect(livekit, {
+    await PrimaryAnaliticsMeeting.connect(livekit, {
       statusEl: document.getElementById('meeting-room-status'),
       peopleEl: document.getElementById('meeting-people'),
       tilesEl: document.getElementById('meeting-tiles'),
@@ -315,7 +315,7 @@ form.addEventListener('submit', async (e) => {
         const again = await fetch('/api/meetings/public/' + encodeURIComponent(token) + '/join', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ display_name: name, guest_id: localStorage.getItem('skkkk-guest-' + token) || undefined,
+          body: JSON.stringify({ display_name: name, guest_id: localStorage.getItem('primaryanalitics-guest-' + token) || undefined,
                                  company_name: guestCompany() }),
         });
         if ([404, 409, 410].includes(again.status)) {
@@ -330,8 +330,8 @@ form.addEventListener('submit', async (e) => {
     }, devices);
   };
 
-  if (window.SKKKK && typeof SKKKK.guardSubmit === 'function') {
-    await SKKKK.guardSubmit(form, doJoin, { busyText: 'Вхожу…' });
+  if (window.PrimaryAnalitics && typeof PrimaryAnalitics.guardSubmit === 'function') {
+    await PrimaryAnalitics.guardSubmit(form, doJoin, { busyText: 'Вхожу…' });
   } else {
     joinBtn.disabled = true;
     try {
@@ -343,20 +343,20 @@ form.addEventListener('submit', async (e) => {
 });
 
 document.getElementById('meeting-mic').addEventListener('click', () => {
-  SKKKKMeeting.toggleMic(document.getElementById('meeting-mic'));
+  PrimaryAnaliticsMeeting.toggleMic(document.getElementById('meeting-mic'));
 });
-document.getElementById('meeting-cam-switch').addEventListener('click', () => SKKKKMeeting.switchCamera());
+document.getElementById('meeting-cam-switch').addEventListener('click', () => PrimaryAnaliticsMeeting.switchCamera());
 document.getElementById('meeting-cam').addEventListener('click', () => {
-  SKKKKMeeting.toggleCam(document.getElementById('meeting-cam'));
+  PrimaryAnaliticsMeeting.toggleCam(document.getElementById('meeting-cam'));
 });
 document.getElementById('meeting-screen').addEventListener('click', () => {
-  SKKKKMeeting.toggleScreen(document.getElementById('meeting-screen'));
+  PrimaryAnaliticsMeeting.toggleScreen(document.getElementById('meeting-screen'));
 });
 document.getElementById('meeting-fs').addEventListener('click', () => {
-  SKKKKMeeting.toggleStageFullscreen();
+  PrimaryAnaliticsMeeting.toggleStageFullscreen();
 });
 document.getElementById('meeting-leave').addEventListener('click', () => {
-  SKKKKMeeting.leaveRoom();
+  PrimaryAnaliticsMeeting.leaveRoom();
 });
 
 function previewEls() {
@@ -373,7 +373,7 @@ function previewEls() {
 }
 
 document.getElementById('guest-devices-check').addEventListener('click', () => {
-  SKKKKMeeting.startPreview(previewEls());
+  PrimaryAnaliticsMeeting.startPreview(previewEls());
 });
 
 loadStatus().then((data) => {

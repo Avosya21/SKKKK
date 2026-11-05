@@ -25,7 +25,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Topic
 from app.app.services.storage import parsed_dir, project_root
 
-logger = logging.getLogger("skkkk.entities")
+logger = logging.getLogger("primaryanalitics.entities")
 
 ROOT = Path(__file__).resolve().parents[3]
 CARD_PROMPT = ROOT / "docs" / "prompts" / "project_card.md"

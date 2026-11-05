@@ -54,7 +54,7 @@ def get_json(url: str, headers: dict[str, str], timeout: int) -> dict[str, Any]:
 
 
 def post_wav(url: str, path: Path, headers: dict[str, str], *, filename: str) -> dict[str, Any]:
-    boundary = "----skkkkLabGigaBoundary"
+    boundary = "----primaryanaliticsLabGigaBoundary"
     body = b"".join(
         [
             f"--{boundary}\r\n".encode(),

@@ -1,10 +1,16 @@
 /* Полоска «Что нового с прошлого захода» (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш5).
    Строки рисует сервер (pages.project_page → project_digest); здесь — переход к нужной карточке, «Скрыть», обновление после
-   тоста «файл обработан» и строка «Ждут вас»: её счёт тяжёлый (контракт), поэтому он не задерживает открытие страницы. */
+   тоста «файл обработан» и строка «Ждут вас»: её счёт тяжёлый (контракт), поэтому он не задерживает открытие страницы.
+   DISABLED: временно не показываем в UI (2026-11-05); API и разметка остаются. */
 (function () {
+  const DISABLED = true;
   const box = document.getElementById('project-digest');
   const list = document.getElementById('project-digest-list');
-  if (!box || !list || !window.PX) return;
+  if (DISABLED || !box || !list || !window.PX) {
+    if (box) box.hidden = true;
+    window.PXDigest = { async reload() {} };
+    return;
+  }
   const PID = window.PX.projectId;
   const staff = window.PX.role === 'admin' || window.PX.role === 'manager';
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,7 +57,7 @@
   async function addWaiting() {
     if (!staff || box.dataset.waitingLoaded === '1') return;
     try {
-      const r = await SKKKK.api(`/projects/${PID}/agent-exchange/summary`);
+      const r = await PrimaryAnalitics.api(`/projects/${PID}/agent-exchange/summary`);
       if (!r.ok) return;
       const s = await r.json();
       const n = s.requirements_unconfirmed || 0;
@@ -69,13 +75,13 @@
   });
   document.getElementById('project-digest-hide')?.addEventListener('click', async () => {
     box.hidden = true;
-    try { await SKKKK.api(`/projects/${PID}/digest/dismiss`, { method: 'POST' }); } catch (e) { /* скрыто на экране и так */ }
+    try { await PrimaryAnalitics.api(`/projects/${PID}/digest/dismiss`, { method: 'POST' }); } catch (e) { /* скрыто на экране и так */ }
   });
 
   window.PXDigest = {
     async reload() {
       try {
-        const r = await SKKKK.api(`/projects/${PID}/digest`);
+        const r = await PrimaryAnalitics.api(`/projects/${PID}/digest`);
         if (r.ok) { box.dataset.waitingLoaded = ''; render(await r.json()); }
       } catch (e) { /* полоска не критична */ }
     },

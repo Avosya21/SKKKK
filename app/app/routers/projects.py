@@ -129,7 +129,7 @@ def _register_parties_and_people(db: Session, project_id: int, body: ProjectCrea
         db.commit()
     except people.PeopleError:
         db.rollback()
-        logging.getLogger("skkkk.projects").warning("реестр нового проекта %s не заполнен полностью", project_id, exc_info=True)
+        logging.getLogger("primaryanalitics.projects").warning("реестр нового проекта %s не заполнен полностью", project_id, exc_info=True)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

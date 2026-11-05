@@ -1,4 +1,4 @@
-# SKKKK: страница созвона — план доработки по тестовому созвону 12
+# PrimaryAnalitics: страница созвона — план доработки по тестовому созвону 12
 
 > Точка входа — [`MEETING-PLAN.md`](MEETING-PLAN.md) (этап A, шаги A1 и A4). Этот файл — детальное приложение: цитаты из встречи (тестовой), разбор кода и тесты по дырам 1–8. Порядок и состав контрольных созвонов — в `MEETING-PLAN.md`.
 
@@ -30,10 +30,10 @@
 |---|---|---|
 | Вход сотрудника | `meeting_room.html` → `POST /projects/{id}/meetings/{mid}/join` → `services/meetings.join_member` | identity `member:{user_id}`, JWT 6 ч, мик включается сразу, лобби нет |
 | Вход гостя | `meeting_public.html` (лобби с проверкой устройств) → `POST /api/meetings/public/{token}/join` → `join_guest` | identity **`guest:` + случайные 16 байт на каждый вход**, имя из формы |
-| Комната | `static/meeting_room.js`, объект `SKKKKMeeting` (~1.5 k строк) | `connect` → `_bind` (подписки на события LiveKit) → `_renderTiles` (плитки, флаги, список) → `_attachTrack` (звук/видео) |
+| Комната | `static/meeting_room.js`, объект `PrimaryAnaliticsMeeting` (~1.5 k строк) | `connect` → `_bind` (подписки на события LiveKit) → `_renderTiles` (плитки, флаги, список) → `_attachTrack` (звук/видео) |
 | Плитка | `_ensureTile` / `_fillTile` / `_paintVideo` | одна плитка на участника; видео плитки — `chosenVideoPub`: **экран вытесняет камеру** в той же плитке |
 | Раскладка | `_layout` grid/speaker, `_spotlightId`, `_pinLocked`; CSS `app.css` `.is-screen-lead`, `.has-focus`, `.is-spotlight` | на телефоне (`isPhoneStage`) экран поднимается в первый ряд классом `is-screen-lead` — класс ставится **только внутри `_renderTiles`** |
-| Звук | `_attachTrack` → `<audio>` в плитке (или в `#meeting-stage` для `clean-*` от `skkkk-dfn`); `toggleSound` → `_applyOutputMute` ставит `muted` на все `<audio>` | канон чистки — сервер `skkkk-dfn`; сырой трек человека не играется, если есть чистый |
+| Звук | `_attachTrack` → `<audio>` в плитке (или в `#meeting-stage` для `clean-*` от `primaryanalitics-dfn`); `toggleSound` → `_applyOutputMute` ставит `muted` на все `<audio>` | канон чистки — сервер `primaryanalitics-dfn`; сырой трек человека не играется, если есть чистый |
 | События, по которым перерисовываются плитки | `ParticipantConnected/Disconnected`, `LocalTrackPublished/Unpublished`, `TrackMuted/Unmuted`, `TrackUnsubscribed` | **нет** `TrackPublished`, `TrackSubscribed` (для видео зовётся только `_paintVideo`), `TrackUnpublished`, `ConnectionQualityChanged` |
 | Клиент | `static/vendor/livekit/livekit-client.umd.js` **2.15.8**, `webAudioMix: false`, `stopMicTrackOnMute: false`, `adaptiveStream: true`, `dynacast: true` | mute микрофона шлёт тишину, а не останавливает трек — рекордер получает кадры (898 с у `member:28` при выключенном мике) |
 | Тесты | `test_meetings.py::test_meeting_room_js_waits_for_ice_tcp`, `test_phone_meeting_grid_fits_all_tiles` | строковые assert по `meeting_room.js`/`app.css`; JS-раннера в проекте нет |
@@ -130,7 +130,7 @@
 
 **Где в коде.** `toggleSound → _applyOutputMute`: `node.muted = !this._soundOn` на всех `<audio>`; `_attachTrack` ставит то же новым узлам. Но `livekit-client` в `attachToElement` (`livekit-client.umd.js`: `t.muted = 0 === n.getAudioTracks().length`) при каждом (пере)присоединении трека **снимает `muted`**. Переприсоединение к уже существующему `<audio>` делает сам SDK при смене `MediaStreamTrack` (`setMediaStreamTrack` → `attachedElements.forEach(attachToElement)`): полный reconnect, переподписка, смена слоя. У Пети был VPN — reconnect-ов хватало. Трек Пети-2 был присоединён уже после нажатия «Звук выкл.» и не переприсоединялся — молчал; трек Даши пережил переприсоединение — заиграл. Сходится с наблюдением «только Дашу».
 
-**Что сделать.** Выключение звука = **отписка**, не `muted`: `pub.setSubscribed(false)` на всех аудиопубликациях удалённых участников (включая `clean-*` от `skkkk-dfn`); в `_attachTrack` — `if (!this._soundOn && track.kind === "audio") return`; на `TrackPublished` при выключенном звуке — сразу `setSubscribed(false)`. Включение = `setSubscribed(true)` + `_reattachAudio`. Нет пакетов — нет звука, что бы SDK ни делал с элементами; заодно экономит трафик на телефоне. `_applyOutputMute` удалить.
+**Что сделать.** Выключение звука = **отписка**, не `muted`: `pub.setSubscribed(false)` на всех аудиопубликациях удалённых участников (включая `clean-*` от `primaryanalitics-dfn`); в `_attachTrack` — `if (!this._soundOn && track.kind === "audio") return`; на `TrackPublished` при выключенном звуке — сразу `setSubscribed(false)`. Включение = `setSubscribed(true)` + `_reattachAudio`. Нет пакетов — нет звука, что бы SDK ни делал с элементами; заодно экономит трафик на телефоне. `_applyOutputMute` удалить.
 
 **Тест** (`test_meetings.py`): в js есть `setSubscribed(false)` в пути `toggleSound` и guard `!this._soundOn` в `_attachTrack`; текущий assert `"node.muted = !this._soundOn" in js` снимается осознанно — этот механизм и есть дыра.
 
@@ -144,7 +144,7 @@
 
 **Где в коде.** `services/meetings.join_guest`: `identity = "guest:" + secrets.token_hex(16)` на каждый POST.
 
-**Что сделать.** Гость получает устойчивый `guest_id` на устройстве: `meeting_public.html` при первом входе кладёт `crypto.randomUUID()` в `localStorage` под ключ `skkkk-guest-{token}` и шлёт его в `join` (`{display_name, guest_id}`). Сервер: `identity = "guest:" + sha256(public_token_hash + ":" + guest_id)[:32]` — детерминированно, не раскрывает `guest_id`, не даёт подделать чужую identity без токена. `MeetingParticipant` — не плодить строки: `upsert` по `(meeting_id, identity)`, обновлять `display_name` и `joined_at`. LiveKit при входе с той же identity сам отключает старую сессию (`DUPLICATE_IDENTITY`) — призрак в списке исчезает мгновенно. Валидация `guest_id`: длина ≤ 64, `[A-Za-z0-9-]`, иначе 400.
+**Что сделать.** Гость получает устойчивый `guest_id` на устройстве: `meeting_public.html` при первом входе кладёт `crypto.randomUUID()` в `localStorage` под ключ `primaryanalitics-guest-{token}` и шлёт его в `join` (`{display_name, guest_id}`). Сервер: `identity = "guest:" + sha256(public_token_hash + ":" + guest_id)[:32]` — детерминированно, не раскрывает `guest_id`, не даёт подделать чужую identity без токена. `MeetingParticipant` — не плодить строки: `upsert` по `(meeting_id, identity)`, обновлять `display_name` и `joined_at`. LiveKit при входе с той же identity сам отключает старую сессию (`DUPLICATE_IDENTITY`) — призрак в списке исчезает мгновенно. Валидация `guest_id`: длина ≤ 64, `[A-Za-z0-9-]`, иначе 400.
 
 Побочный эффект на запись: рекордер пишет в тот же `guest-{stem}.wav` (`start_record` переиспользует writer, `PcmWavWriter` добивает паузу тишиной) — одна дорожка на человека **до** ASR, дыра 6 `final-plan` становится страховкой. Потолок: перезапуск `voice_cleaner` посреди встречи откроет файл на запись заново (`wave.open(..., "wb")`) — записать в `final-plan.md` §7 как известное ограничение.
 
@@ -198,7 +198,7 @@
 
 ## Дыра 8. Логику комнаты нельзя проверить без живого созвона — **техническая**
 
-**Симптом.** `SKKKKMeeting` — один объект на 1.5 k строк, состояние в полях, решения «что показать» переплетены с DOM. Тесты — строковые `in js`. Каждая правка выше проверяется только руками на трёх устройствах.
+**Симптом.** `PrimaryAnaliticsMeeting` — один объект на 1.5 k строк, состояние в полях, решения «что показать» переплетены с DOM. Тесты — строковые `in js`. Каждая правка выше проверяется только руками на трёх устройствах.
 
 **Что сделать (минимум, без сборки и без новых зависимостей).** Чистые функции без DOM вынести в `static/meeting_layout.js`, подключаемый вторым `<script>`: `tileOrder(people, screens, publishedAt) → [{kind, id, personId, lead}]`, `flagState(pub) → "none"|"off"|"on"|"silent"`, `soundPlan(soundOn, pubs) → [{sid, subscribed}]`, `guestIdentity` — на сервере (`meetings.py`, уже тестируется pytest). Для JS-функций — один самопроверочный файл `app/app/static/meeting_layout.selfcheck.js` с `console.assert`, запускаемый в браузере одной строкой из консоли и `agent-browser`-сценарием (`.cursor/skills/agent-browser`); `node` в проекте не заведён, заводить ради этого — нет.
 
@@ -258,7 +258,7 @@
 - **TURN через 443/TLS.** VPN и корпоративные сети, где открыт только 443, останутся на ICE/TCP 7881. Отдельная работа по `livekit_env.build_livekit_yaml` и порту на роутере.
 - **Задержку сети не лечит.** Только показывает её (дыра 6) и снижает исходящий битрейт телефона.
 - **Двое в одной комнате на двух устройствах** (Даша + ПК рядом): эхо между ними чинится выключением звука на одном (дыра 3) — автоматически «понять, что мы в одной комнате» не делаем.
-- **Клиентский DFN3** остаётся выключенным; канон — сервер `skkkk-dfn`.
+- **Клиентский DFN3** остаётся выключенным; канон — сервер `primaryanalitics-dfn`.
 - **Видео/экран в запись** не пишутся (см. `final-plan.md` §7).
 - **JS-раннер (node/vitest)** не заводится; проверка — pytest-строки + selfcheck в браузере + контрольный созвон.
 

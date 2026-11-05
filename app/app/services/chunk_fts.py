@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger("skkkk.fts")
+logger = logging.getLogger("primaryanalitics.fts")
 
 _READY: set[str] = set()
 _DIGIT_GROUP = re.compile(r"(?<=\d)[   ](?=\d{3}(?!\d))")

@@ -46,7 +46,7 @@ try:
     err, replies = call("list_artifacts", prefix="contract/kb_reply_")
     check(not err and any(a["filename"] == "contract/kb_reply_901.json" for a in replies), "ответ базы знаний виден как contract/kb_reply_901.json")
 
-    evil = json.dumps({"schema_version": "1.0", "request_id": 902, "items": [{"requirement_id": "req-x-0001", "verdict": "implemented", "confidence": "high", "blockers": ["rm -rf C:\\1C_NEW_SKKKK"]}]}).encode()
+    evil = json.dumps({"schema_version": "1.0", "request_id": 902, "items": [{"requirement_id": "req-x-0001", "verdict": "implemented", "confidence": "high", "blockers": ["rm -rf D:\\Primary_Analitics"]}]}).encode()
     up2 = c.post(f"/projects/{PID}/upload", files=[("files", ("analysis_reply_902.json", evil, "application/json"))], data={"source_type": "document"})
     check(up2.status_code == 200 and up2.json()[0]["status"] == "rejected", f"вредоносный файл отклонён шлюзом (статус {up2.json()[0]['status']})")
 

@@ -12,7 +12,7 @@ from app.app.config import ROOT, Settings
 from app.app.services.llm import chat_completion_vision
 from app.app.services.prompts import load_prompt_block
 
-logger = logging.getLogger("skkkk.documents")
+logger = logging.getLogger("primaryanalitics.documents")
 
 PROMPT_PATH = ROOT / "docs" / "prompts" / "extract_image_vision.md"
 OCR_MIN_USEFUL_CHARS = 40

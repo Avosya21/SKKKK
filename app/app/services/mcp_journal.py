@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.mcp")
+logger = logging.getLogger("primaryanalitics.mcp")
 
 
 def record_call(project_id: int, token: Any, tool: str, args: dict[str, Any] | None, *, size: int, ms: int, error: str | None) -> None:

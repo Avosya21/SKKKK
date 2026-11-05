@@ -26,7 +26,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity
 from app.app.services.auto_review import record_model_review
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "review_requirement.md"

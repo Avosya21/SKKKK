@@ -17,7 +17,7 @@ from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.entity import Entity
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 MODE_OFF = "off"
 MODE_SHADOW = "shadow"

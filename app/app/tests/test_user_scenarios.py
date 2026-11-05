@@ -44,7 +44,7 @@ def test_s04_login_returns_token_and_cookie(anon_client):
     assert r.status_code == 200
     assert r.json()["access_token"]
     assert r.json()["role"] == "admin"
-    assert r.cookies.get("skkkk_session")
+    assert r.cookies.get("primary_analitics_session")
 
 
 def test_s05_logout_then_projects_401(cookie_auth_client):

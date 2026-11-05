@@ -16,7 +16,7 @@ def _seed_room(tmp_path: Path, room: str) -> Path:
 
 
 def test_screen_video_is_not_asr_and_not_screen_audio(tmp_path: Path):
-    room = "skkkk-screenvid01"
+    room = "primaryanalitics-screenvid01"
     dest = _seed_room(tmp_path, room)
     manifest = rec.empty_manifest(room)
     rec.upsert_track(

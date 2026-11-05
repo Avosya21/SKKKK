@@ -1,10 +1,10 @@
-# Единый пошаговый план SKKKK
+# Единый пошаговый план PrimaryAnalitics
 
 Корпоративный портал файлов проекта + автоматическая память знаний на Windows 11 (GPU 24 ГБ VRAM).
 
 Исходные части 1 (файловый сервер) и 2 (управление знаниями) здесь слиты в **один** план. Зафиксированные решения: [DECISIONS.md](DECISIONS.md).
 
-Корень всего: `C:\1C_NEW_SKKKK`.
+Корень всего: `D:\Primary_Analitics`.
 
 - Пофазовое исполнение с проверками и тестами: [stages/README.md](stages/README.md)
 - **Карта проекта (архитектура, зависимости, API):** [PROJECT-MAP.md](PROJECT-MAP.md)
@@ -62,7 +62,7 @@
 | ОС | Windows 11 | Целевой сервер |
 | GPU | 24 ГБ VRAM | Одна карта, фазы оркестратора |
 | API | Python 3.11, FastAPI, Uvicorn | Асинхронный портал |
-| БД | SQLite в `C:\1C_NEW_SKKKK\data\app.db` | Достаточно на 20 человек; PostgreSQL позже |
+| БД | SQLite в `D:\Primary_Analitics\data\app.db` | Достаточно на 20 человек; PostgreSQL позже |
 | ORM | SQLAlchemy 2 + Alembic | |
 | Очередь | Таблица `jobs` + один GPU-воркер (процесс) | Без Celery и без watchdog |
 | LLM | **Два режима** (переключатель при старте, `LLM_PROVIDER` в `.env`): **lmstudio** — `LMSTUDIO_MODEL` (`qwen/qwen3.8-27b`), LM Studio `http://127.0.0.1:1234/v1`; **cursor** — Cursor SDK + `CURSOR_API_KEY` | Локально — приватность и GPU-фазы; облако — без VRAM под локальную LLM |
@@ -105,7 +105,7 @@ python -m app.app.main all --use-saved-llm    # взять из .env (служб
 ## 4. Каталоги
 
 ```
-C:\1C_NEW_SKKKK\
+D:\Primary_Analitics\
 ├── docs\                      # план, решения, промпты
 ├── .cursor\rules\             # правила агента
 ├── .cursor\skills\            # скилы агента
@@ -344,7 +344,7 @@ UI: текст + привязки к узлам. Файл в `project_notes\`. �
 
 Правило перехода: следующий этап не начинается, пока не выполнен «Критерий готовности» предыдущего.
 
-Код пишется только в `C:\1C_NEW_SKKKK`.
+Код пишется только в `D:\Primary_Analitics`.
 
 Каждый файл этапа теперь содержит раздел **«Полезные проекты на GitHub»** — 1–5 открытых проектов на этап с пояснением, что именно из них подсматривать (архитектура, конкретная функция, готовый паттерн), а что уже решено и трогать не надо (см. [DECISIONS.md](DECISIONS.md)). Это не список зависимостей на установку, а ускорение реализации за счёт готовых референсов. Закрытие этапа обязательно включает три вида проверки — тесты, живой прогон с открытием нужной страницы в браузере, скриншот «задумано vs получилось» — порядок и обоснование см. в [stages/README.md § «Единый порядок закрытия этапа»](stages/README.md#единый-порядок-закрытия-этапа).
 
@@ -406,7 +406,7 @@ JSON сущностей, таблица `entities`, чанки, Ollama `bge-m3`,
 
 ### Этап 9. Службы Windows → [STAGE-09](stages/STAGE-09-services.md)
 
-NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy — по необходимости. Автозапуск LM Studio и Ollama (они уже должны быть службами/автозагрузкой пользователя). Референс: `nssm.cc` / `nssm-mirror/nssm`.
+NSSM: `PrimaryAnalitics-API` (uvicorn), `PrimaryAnalitics-GPU` (воркер). Nginx reverse-proxy — по необходимости. Автозапуск LM Studio и Ollama (они уже должны быть службами/автозагрузкой пользователя). Референс: `nssm.cc` / `nssm-mirror/nssm`.
 
 ### Этап 10. Qdrant / Neo4j (не раньше) → [STAGE-10](stages/STAGE-10-scale-out.md)
 
@@ -423,7 +423,7 @@ NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy —
 - Эмбеддинг не сажает VRAM (Ollama CPU).
 - Документ заказчика vs заметка с противоречием → `pending_manual`, не тихая подмена ТЗ.
 - Чат без источника не выдумывает требования.
-- Всё созданное лежит только под `C:\1C_NEW_SKKKK`.
+- Всё созданное лежит только под `D:\Primary_Analitics`.
 
 ---
 
@@ -444,9 +444,9 @@ NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy —
 - `WEB_HOST=127.0.0.1`, `WEB_PORT=1777` (не 8000; в `config.py` дефолт 1111, боевое значение — из `.env`)
 - `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL=bge-m3`, `OLLAMA_NUM_GPU=0`
 - `TELEGRAM_BOT_TOKEN`
-- `DATA_DIR=C:\1C_NEW_SKKKK\data`
+- `DATA_DIR=D:\Primary_Analitics\data`
 - порог схожести, лимит файла, `DRY_RUN`
-- `LIVEKIT_*` (URL, ключи), `SKKKK_HTTPS_PORT`; срок токена комнаты — константа `LIVEKIT_TOKEN_TTL_HOURS = 4` в `services/meetings.py`, не переменная окружения
+- `LIVEKIT_*` (URL, ключи), `PRIMARY_ANALITICS_HTTPS_PORT`; срок токена комнаты — константа `LIVEKIT_TOKEN_TTL_HOURS = 4` в `services/meetings.py`, не переменная окружения
 
 ---
 
@@ -458,7 +458,7 @@ NSSM: `SKKKK-API` (uvicorn), `SKKKK-GPU` (воркер). Nginx reverse-proxy —
 
 ## 15. Состояние на 2026-09-21
 
-### 15.1. Созвоны (комната SKKKK)
+### 15.1. Созвоны (комната PrimaryAnalitics)
 
 - Комната на LiveKit: публичная гостевая страница `/meeting/...` (токен, без `project_id` в публичном ответе), комната для сотрудников, раскладки (сетка/докладчик), запись экрана, выбор камеры/микрофона/динамика прямо в комнате, мобильный режим (iOS/Android, ландшафт).
 - Запись по дорожке на человека, лог событий `events.jsonl`, контракт `meeting.json`, реплики по дорожкам, обнаружение протечек, атрибуция имён из participant mapping (спорное — WARN/CONFLICT/UNKNOWN). Голосовой чистильщик (`voice_cleaner`), кадры экрана (`meeting_frames`).

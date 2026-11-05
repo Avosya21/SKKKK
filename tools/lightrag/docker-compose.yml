@@ -1,11 +1,11 @@
-# LightRAG — граф знаний по документации SKKKK (кнопки, API, пайплайны).
+# LightRAG — граф знаний по документации PrimaryAnalitics (кнопки, API, пайплайны).
 # Запуск: cd tools/lightrag && docker compose up -d
 # UI/API: http://127.0.0.1:9621  (WebUI + /docs Swagger)
 
 services:
   lightrag:
     image: ghcr.io/hkuds/lightrag:latest
-    container_name: skkkk-lightrag
+    container_name: primaryanalitics-lightrag
     ports:
       - "127.0.0.1:9621:9621"
     volumes:

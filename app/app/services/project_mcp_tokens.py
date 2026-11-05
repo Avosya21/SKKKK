@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.app.models.project_mcp_token import ProjectMcpToken
 
-TOKEN_PREFIX = "skkkk_mcp_"
+TOKEN_PREFIX = "primary_analitics_mcp_"
 
 
 def _hash_token(token: str) -> str:

@@ -1,5 +1,5 @@
 ---
-description: Python quality and pytest conventions for SKKKK
+description: Python quality and pytest conventions for PrimaryAnalitics
 globs: app/**/*.py
 alwaysApply: false
 ---

@@ -16,7 +16,7 @@ from app.app.config import Settings
 from app.app.services.office_convert import convert_with_soffice
 from app.app.services.office_convert import find_soffice as _find_soffice  # noqa: F401 — старое имя для тестов
 
-logger = logging.getLogger("skkkk.pptx")
+logger = logging.getLogger("primaryanalitics.pptx")
 
 MIN_IMAGE_SIDE_PX = 200  # иконки/логотипы не распознаём
 

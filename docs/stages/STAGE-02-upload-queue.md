@@ -66,7 +66,7 @@ data\logs\worker.log
 Команда воркера:
 
 ```powershell
-cd C:\1C_NEW_SKKKK
+cd D:\Primary_Analitics
 venv\Scripts\activate
 python -m app.app.main worker
 ```

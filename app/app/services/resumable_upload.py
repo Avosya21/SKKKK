@@ -12,7 +12,7 @@ from pathlib import Path
 from app.app.config import Settings
 from app.app.services.storage import ensure_inside, project_root
 
-logger = logging.getLogger("skkkk.upload")
+logger = logging.getLogger("primaryanalitics.upload")
 
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
 META_NAME = "meta.json"

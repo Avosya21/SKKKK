@@ -1,4 +1,4 @@
-# SKKKK — Созвон: единый план до production-ready (комната → запись → расшифровка → знания)
+# PrimaryAnalitics — Созвон: единый план до production-ready (комната → запись → расшифровка → знания)
 
 Дата: 2026-09-13. Версия 8 — доработка v7: каждый шаг расписан «где / что / как / тест / готово»; сверено с кодом и `docs/PROJECT-MAP.md` (§5.13, §7 строки `meeting_*`, `manifest.yaml` узлы `svc_meeting_*`, `ui_meeting_*`). **Единственная точка входа.** Детальные приложения: [`final-plan.md`](final-plan.md) (расшифровка, дыры 1–9), [`meeting-room-plan.md`](meeting-room-plan.md) (комната, дыры 1–8, цитаты встречи (тестовой)), [`plan-review.md`](plan-review.md) (сверка черновиков v4/v5 с кодом), [`meeting-native-diar.md`](meeting-native-diar.md) (ветки диаризации).
 
@@ -8,9 +8,9 @@
 
 ## 1. Ради чего
 
-SKKKK превращает встречи с заказчиком в знания проекта: стенограмма → сущности, задачи, решения → граф → ТЗ → ответы чата с источником. Созвон в комнате SKKKK — единственный вход, где мы контролируем всё: кто говорит (одна дорожка на человека), когда (единые часы), что (двойной слух Parakeet + GigaAM). Внешняя запись такого не даёт — там «кто говорит» приходится угадывать диаризацией.
+PrimaryAnalitics превращает встречи с заказчиком в знания проекта: стенограмма → сущности, задачи, решения → граф → ТЗ → ответы чата с источником. Созвон в комнате PrimaryAnalitics — единственный вход, где мы контролируем всё: кто говорит (одна дорожка на человека), когда (единые часы), что (двойной слух Parakeet + GigaAM). Внешняя запись такого не даёт — там «кто говорит» приходится угадывать диаризацией.
 
-Тестовая встреча показала цену дефектов: из 15 минут по делу — полторы. Флаги микрофона врали, экран прятался под закреплением, «Звук выкл.» не выключал звук, гость перезашёл и стал вторым человеком (две дорожки), голос из колонок ПК попал в микрофон ПК и лёг в стенограмму под чужим именем. Каждая беда в комнате — мусор в записи; мусор в записи — ложная сущность в графе и ложный пункт ТЗ.
+Пробная встреча показала цену дефектов: из 15 минут по делу — полторы. Флаги микрофона врали, экран прятался под закреплением, «Звук выкл.» не выключал звук, гость перезашёл и стал вторым человеком (две дорожки), голос из колонок ПК попал в микрофон ПК и лёг в стенограмму под чужим именем. Каждая беда в комнате — мусор в записи; мусор в записи — ложная сущность в графе и ложный пункт ТЗ.
 
 ## 2. Куда идём
 
@@ -65,7 +65,7 @@ asr/tests/test_lab_proof.py asr/tests/test_lab_stages.py
 - Двойной слух Parakeet + GigaAM, без Whisper/T-one/склейки окон. Один GPU-воркер, очередь `jobs`, без Celery.
 - Native-дорожка = один человек; Sortformer на ней не запускается по умолчанию — только на подозрительном окне (`DECISIONS.md`, «Созвон в комнате»). Не больше 4 спикеров в окне.
 - Оригинальные WAV не перезаписываются; производное — `lab/runs/{run_id}/`, `proof/`, `leaks.json`.
-- LiveKit — транспорт; чистка — серверный `skkkk-dfn` (`tools/livekit/voice_cleaner.py`); клиентский DFN3 выключен.
+- LiveKit — транспорт; чистка — серверный `primaryanalitics-dfn` (`tools/livekit/voice_cleaner.py`); клиентский DFN3 выключен.
 - `LLM_PROVIDER=cursor`; Gemma в VRAM не грузится. Vision — тоже Cursor API.
 - Ожидания тестов не подгоняются под падение. Осознанные исключения перечислены поимённо (A4 шаги 2, 4, 6).
 - Бизнес-пороги — env-переменные с дефолтами в коде (`MEETING_*`), группа «Meeting» в `.env.example`.
@@ -118,7 +118,7 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 **Сейчас.** `identity = "guest:" + secrets.token_hex(16)` на каждый POST → перезаход = новый человек, вторая дорожка `guest-…wav`, вторая полоса в лаб.
 
 **Что.**
-1. Клиент: в лобби перед `join` — `let gid = localStorage.getItem("skkkk-guest-" + token); if (!gid) { gid = crypto.randomUUID(); localStorage.setItem(...) }`; тело `POST /api/meetings/public/{token}/join` → `{display_name, guest_id}`.
+1. Клиент: в лобби перед `join` — `let gid = localStorage.getItem("primaryanalitics-guest-" + token); if (!gid) { gid = crypto.randomUUID(); localStorage.setItem(...) }`; тело `POST /api/meetings/public/{token}/join` → `{display_name, guest_id}`.
 2. `GuestJoinIn.guest_id: str | None = None`; валидация в роутере: `len ≤ 64`, `re.fullmatch(r"[A-Za-z0-9-]+")`, иначе 400.
 3. `join_guest(db, settings, meeting, display_name, guest_id=None)`: `identity = "guest:" + hashlib.sha256(f"{meeting.public_token_hash}:{guest_id}".encode()).hexdigest()[:32]` при `guest_id`, иначе прежний `token_hex` (старый клиент/кэш). Константы `GUEST_PREFIX`, `GUEST_ID_MAX_LEN`, `GUEST_ID_RE` — в `meetings.py`.
 4. `MeetingParticipant` — `select` по `(meeting_id, identity)`; есть → обновить `display_name`, `joined_at`; нет → создать. Не плодить строки.
@@ -132,7 +132,7 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 
 ### A2. Перезапуск рекордера и проверка наблюдаемости
 
-`scripts/SKKKK-1-Остановить.bat` → запуск `main` (он поднимает LiveKit и `voice_cleaner` после `:7880`, карта §3 «Voice cleaner»). Проверка: `data/logs/voice_cleaner.log` содержит `voice_cleaner: record …`; при входе участника появляется `data/meetings/{room}/events.jsonl` с `participant join`, `track start`; при mute — `mute`; при разговоре — `speakers`. Без этого созвон #1 не проводить.
+`scripts/PrimaryAnalitics-1-Остановить.bat` → запуск `main` (он поднимает LiveKit и `voice_cleaner` после `:7880`, карта §3 «Voice cleaner»). Проверка: `data/logs/voice_cleaner.log` содержит `voice_cleaner: record …`; при входе участника появляется `data/meetings/{room}/events.jsonl` с `participant join`, `track start`; при mute — `mute`; при разговоре — `speakers`. Без этого созвон #1 не проводить.
 
 ### CONTROL CALL #1 — запись, на которой меряется расшифровка
 
@@ -166,14 +166,14 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 
 Общее для всех шагов:
 - `?v=` у `meeting_room.js` в **обоих** шаблонах поднимать на каждом шаге (телефоны держат кэш).
-- Чистые функции без DOM — в новый `static/meeting_layout.js` (подключается вторым `<script>` в обоих шаблонах, экспорт через `window.SKKKKLayout`): `tileOrder(people, screens, publishedAt)`, `flagState(pub, attrs)`, `soundPlan(soundOn, pubs)`, `qualityBadge(quality)`. Самопроверка `static/meeting_layout.selfcheck.js` — `console.assert`, запускается из консоли (`import('/static/meeting_layout.selfcheck.js')`) или `agent-browser`-сценарием; node/vitest не заводим.
+- Чистые функции без DOM — в новый `static/meeting_layout.js` (подключается вторым `<script>` в обоих шаблонах, экспорт через `window.PrimaryAnaliticsLayout`): `tileOrder(people, screens, publishedAt)`, `flagState(pub, attrs)`, `soundPlan(soundOn, pubs)`, `qualityBadge(quality)`. Самопроверка `static/meeting_layout.selfcheck.js` — `console.assert`, запускается из консоли (`import('/static/meeting_layout.selfcheck.js')`) или `agent-browser`-сценарием; node/vitest не заводим.
 - После каждого шага: строковые тесты `test_meetings.py`, selfcheck, живая проверка с двух устройств (ПК + телефон).
 - Тексты UI — в существующем словаре строк `meeting_room.js` (там, где сейчас `mediaErrorText` и подсказки), не в разметке.
 
 | # | Шаг | Где / что сделать | Тест |
 |---|---|---|---|
 | 1 | **Флаги мик/кам** | `_bind`: `const redraw = () => { if (!this._raf) this._raf = requestAnimationFrame(() => { this._raf = 0; this._renderTiles(); this._fillRoster(); }); }`; подписать на `TrackPublished`, `TrackUnpublished`, `TrackSubscribed` (после `_attachTrack`), `TrackUnsubscribed`, `TrackStreamStateChanged`, `ParticipantNameChanged`, `ParticipantAttributesChanged`, `ConnectionQualityChanged`. `flagState(pub, attrs)`: нет публикации → `none` (серый чип «нет микрофона»), `pub.isMuted` → `off`, `attrs.mic_silent === "1"` → `silent`, иначе `on`. `_fillTile`/`_fillRoster` читают `flagState`, а не `isMicrophoneEnabled` | `RoomEvent.TrackPublished` и `redraw` в `_bind`; `flagState` в `meeting_layout.js` с четырьмя значениями; selfcheck: publication=null → `none` |
-| 2 | **Звук = отписка** | `toggleSound`: `this._soundOn = !this._soundOn; soundPlan(this._soundOn, remoteAudioPubs).forEach(({pub, subscribed}) => pub.setSubscribed(subscribed))`; `remoteAudioPubs` = все аудиопубликации всех удалённых участников, включая `clean-*` от `skkkk-dfn`. `_attachTrack`: `if (track.kind === "audio" && !this._soundOn) return;`. `TrackPublished` при `!_soundOn` и `kind === audio` → `pub.setSubscribed(false)`. Включение → `setSubscribed(true)`; `TrackSubscribed` сам присоединит. `_applyOutputMute` удалить. Тост при выключении: «Звук выключен: вы никого не слышите». `_dropRawIfCleaner` — проверять `pub.isSubscribed`, не `pub.track` | `setSubscribed(false)` в пути `toggleSound`; guard в `_attachTrack`; **осознанно** снимается assert `node.muted = !this._soundOn` (он и есть дыра); selfcheck `soundPlan(false, pubs)` → все `subscribed:false` |
+| 2 | **Звук = отписка** | `toggleSound`: `this._soundOn = !this._soundOn; soundPlan(this._soundOn, remoteAudioPubs).forEach(({pub, subscribed}) => pub.setSubscribed(subscribed))`; `remoteAudioPubs` = все аудиопубликации всех удалённых участников, включая `clean-*` от `primaryanalitics-dfn`. `_attachTrack`: `if (track.kind === "audio" && !this._soundOn) return;`. `TrackPublished` при `!_soundOn` и `kind === audio` → `pub.setSubscribed(false)`. Включение → `setSubscribed(true)`; `TrackSubscribed` сам присоединит. `_applyOutputMute` удалить. Тост при выключении: «Звук выключен: вы никого не слышите». `_dropRawIfCleaner` — проверять `pub.isSubscribed`, не `pub.track` | `setSubscribed(false)` в пути `toggleSound`; guard в `_attachTrack`; **осознанно** снимается assert `node.muted = !this._soundOn` (он и есть дыра); selfcheck `soundPlan(false, pubs)` → все `subscribed:false` |
 | 3 | **Микрофон молчит** | `_bind`: `RoomEvent.LocalAudioSilenceDetected` → `_onMicSilent()`; `RoomEvent.MediaDevicesError` → тот же тост с `mediaErrorText`. После `setMicrophoneEnabled(true)` и после `_restartMic`: `const t = localMicTrack(room).mediaStreamTrack; t.onmute = t.onended = () => this._onMicSilent()`. `_onMicSilent`: тост «Микрофон молчит. Проверьте устройство» + кнопка «Перезапустить» → `_restartMic(this._dfn3On)`; `room.localParticipant.setAttributes({mic_silent: "1"})`; при первом ненулевом уровне метра — `setAttributes({mic_silent: ""})`. **Не** metadata: её целиком переписывает `_setDenoiseMeta`, а `voice_cleaner.wants_denoise` её парсит. Полоска уровня на своей плитке — `_startMeter(new MediaStream([t]))` (метр из лобби) | `LocalAudioSilenceDetected`, `MediaDevicesError`, `setAttributes` и `mic_silent` в js; `ParticipantAttributesChanged` → `redraw` |
 | 4 | **Экран — отдельная плитка** | Модель плиток: `tileOrder(people, screens, publishedAt)` → `[{kind:"screen", id:"meeting-tile-screen-"+sid, personId, lead}, …, {kind:"person", id}]`: экраны по убыванию `publishedAt[sid]` (заполняется в `TrackPublished`/`LocalTrackPublished` через `Date.now()`), первый — `lead:true`; люди — в порядке входа. `_renderTiles`: `_ensureTile` для каждой записи, DOM-порядок через `tilesEl.append(node)` по списку (узлы не пересоздаются — `<video>` не перезапускается); класс `meeting-tile-screen`, подпись «Экран — Имя»; `chosenVideoPub` возвращает **только** `Source.Camera`. Своя трансляция — тоже плитка. Новый экран → `this._pinLocked = false; this._spotlightId = leadId`; уход lead → следующий экран, иначе сетка. Кнопка «Экран сверху» в `#meeting-more-tray` возвращает lead после ручного pin. CSS: одно правило вне media `.meeting-tiles .meeting-tile-screen.is-lead { grid-column: 1 / -1; grid-row: 1; }`; `.is-screen-lead` остаётся только для пропорций рядов на телефоне. `setScreenShareEnabled(true, {contentHint: "detail"})`; `publishDefaults.screenShareEncoding = ScreenSharePresets.h720fps5` | `meeting-tile-screen-` и `tileOrder` в js; `.meeting-tile-screen.is-lead` **вне** media в css; **осознанно** переезжает assert `".meeting-tiles.is-screen-lead .meeting-tile-screen" in phone` из `test_phone_meeting_grid_fits_all_tiles`; selfcheck: два экрана → свежий `lead` |
 | 5 | **Качество и пресеты** | `ConnectionQualityChanged` → `qualityBadge(q)`: `excellent/good` → `""`, `poor` → «плохая связь», `lost` → «нет связи»; чип на плитке + у себя строка статуса «Связь плохая: видео снижено». `Room` опции: `videoCaptureDefaults.resolution = isPhoneClient() ? VideoPresets.h360 : VideoPresets.h540`; `publishDefaults: {simulcast: true, videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360], dtx: true, red: true}`; `adaptiveStream`/`dynacast` остаются `true` | `ConnectionQualityChanged`, `videoSimulcastLayers`, `VideoPresets.h360` в js; `test_join_returns_livekit_when_configured` не трогать |
@@ -290,7 +290,7 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 
 ### C1. Запись экрана
 
-Канон и пошаговый разбор — [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md). Кратко: процесс `skkkk-rec` (не Egress), mp4 в той же `tracks/`, ключ `(identity, screen_video, track_sid)`, speaker = кто включил шаринг. C1 не ждёт этап B.
+Канон и пошаговый разбор — [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md). Кратко: процесс `primaryanalitics-rec` (не Egress), mp4 в той же `tracks/`, ключ `(identity, screen_video, track_sid)`, speaker = кто включил шаринг. C1 не ждёт этап B.
 
 **Контракт.** `manifest.json` дорожка `{identity, source: "screen_video", track_sid, path, started_epoch, frames, fps}`; `meeting.json` — та же строка + `offset_sec`. `remove_room_recordings` и `purge_meeting` удаляют mp4. `voice_cleaner` не трогается.
 
@@ -341,7 +341,7 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 
 ### 7.4. Референсы с открытым кодом — когда и что смотреть
 
-Референс доказывает, что подход реален; готовность доказывает только код SKKKK + тест + живой созвон. В этапе A референс один — вендорный `static/vendor/livekit/livekit-client.umd.js` 2.15.8 (поведение `attachToElement`, `setSubscribed`, `LocalAudioSilenceDetected` проверяется по нему). Внешние проекты — только для B/C:
+Референс доказывает, что подход реален; готовность доказывает только код PrimaryAnalitics + тест + живой созвон. В этапе A референс один — вендорный `static/vendor/livekit/livekit-client.umd.js` 2.15.8 (поведение `attachToElement`, `setSubscribed`, `LocalAudioSilenceDetected` проверяется по нему). Внешние проекты — только для B/C:
 
 | Наша работа | Референс | Что именно смотреть |
 |---|---|---|
@@ -353,9 +353,9 @@ A0 guard knowledge + commit → A1 identity гостя → A2 перезапус
 ## 8. Решения пользователя
 
 1. **Публичный токен** — **A** (как есть: hash-only, ссылка один раз). Закрыто 2026-09-13.
-2. **Запись экрана** — отдельный процесс `skkkk-rec`, не Egress. Закрыто 2026-09-13. План: [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md).
+2. **Запись экрана** — отдельный процесс `primaryanalitics-rec`, не Egress. Закрыто 2026-09-13. План: [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md).
 3. **Параллельная сессия v4** — не актуальна. Закрыто 2026-09-13.
-4. В `DECISIONS.md` уже есть: контракт §2; ветка B протечек; provenance в `value_json`; Sortformer только окном; токен A; `skkkk-rec`.
+4. В `DECISIONS.md` уже есть: контракт §2; ветка B протечек; provenance в `value_json`; Sortformer только окном; токен A; `primaryanalitics-rec`.
 
 ## 9. Чего не делаем
 
@@ -387,4 +387,4 @@ A0 guard knowledge + commit → A1 identity → A2 restart cleaner → CONTROL C
 [ ] обычный созвон не требует разработчика
 ```
 
-Финальный результат — не «исправили девять багов», а: **SKKKK — готовый к эксплуатации продукт созвонов и памяти проекта: что работало — работает; известные дефекты устранены; мобильный и screen-share сценарии проверены на устройствах; запись и расшифровка воспроизводимы на одной и той же записи; сомнительные места показаны, а не скрыты; каждое знание проекта имеет проверяемый источник.**
+Финальный результат — не «исправили девять багов», а: **PrimaryAnalitics — готовый к эксплуатации продукт созвонов и памяти проекта: что работало — работает; известные дефекты устранены; мобильный и screen-share сценарии проверены на устройствах; запись и расшифровка воспроизводимы на одной и той же записи; сомнительные места показаны, а не скрыты; каждое знание проекта имеет проверяемый источник.**

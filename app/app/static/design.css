@@ -82,14 +82,16 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { color: var(--ds-text); fo
 a { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 2px; }
 :focus-visible { outline: none; box-shadow: var(--ds-ring); border-radius: var(--ds-r-sm); }
 
-/* ---------- шапка: светлая, с тонкой линией ---------- */
-.navbar-skkkk {
+/* ---------- шапка: светлая, с тонкой линией ----------
+   Единый язык как у «логотип | PRIMARY ANALYTICS»: тихая типографика,
+   тонкий разделитель, без рамок-кнопок и тяжёлых pill. */
+.navbar-primaryanalitics {
   min-height: 60px;
   background: var(--ds-surface) !important;
   box-shadow: none;
   border-bottom: 1px solid var(--ds-line);
 }
-.navbar-skkkk .navbar-brand {
+.navbar-primaryanalitics .navbar-brand {
   display: inline-flex;
   align-items: center;
   gap: .55rem;
@@ -97,7 +99,7 @@ a { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); te
   font-weight: 650;
   letter-spacing: -0.02em;
 }
-.navbar-skkkk .navbar-brand[href="/"]::before {
+.navbar-primaryanalitics .navbar-brand[href="/"]::before {
   content: "";
   width: 10px;
   height: 10px;
@@ -105,31 +107,94 @@ a { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); te
   background: var(--ds-accent);
   box-shadow: 0 0 0 3px var(--ds-accent-soft);
 }
-/* логотип Appa в шапке: знак-слово + подпись Primary Analytics; цветная точка не нужна */
-.navbar-skkkk .navbar-brand-logo::before { display: none !important; }
-.navbar-skkkk .navbar-brand-logo { gap: .6rem; }
-.navbar-skkkk .navbar-brand-logo img { display: block; height: 31px; width: auto; }
-.navbar-skkkk .navbar-brand-sub {
+/* логотип Appa в шапке: маскот + подпись Primary Analytics; цветная точка не нужна */
+.navbar-primaryanalitics .navbar-brand-logo::before { display: none !important; }
+.navbar-primaryanalitics .navbar-brand-logo { gap: .6rem; }
+.navbar-primaryanalitics .navbar-brand-logo img { display: block; height: 36px; width: auto; }
+.navbar-primaryanalitics .navbar-brand-sub {
   font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
   color: var(--ds-muted); padding-left: .6rem; border-left: 1px solid var(--ds-line); line-height: 1.1;
 }
-@media (max-width: 575.98px) { .navbar-skkkk .navbar-brand-sub { display: none; } }
-.navbar-skkkk .navbar-text, .navbar-skkkk .text-white-50 { color: var(--ds-muted) !important; }
-.navbar-skkkk .navbar-divider, .navbar-skkkk .navbar-project { color: var(--ds-text-2) !important; border-color: var(--ds-line) !important; }
-.navbar-skkkk .navbar-project { font-weight: 500; }
-.navbar-skkkk .btn-outline-light, .navbar-skkkk .navbar-back {
-  color: var(--ds-text-2) !important;
-  background: var(--ds-surface) !important;
-  border: 1px solid var(--ds-line-strong) !important;
-  border-radius: var(--ds-r-sm) !important;
-  font-weight: 500;
+@media (max-width: 575.98px) { .navbar-primaryanalitics .navbar-brand-sub { display: none; } }
+/* Внутри проекта — только маскот; подпись уступает место названию проекта */
+body.nav-in-project .navbar-brand-sub { display: none; }
+body.nav-in-project .navbar-brand-logo { gap: 0; }
+.navbar-primaryanalitics .navbar-text, .navbar-primaryanalitics .text-white-50 { color: var(--ds-muted) !important; }
+.navbar-primaryanalitics .navbar-divider {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 1em;
+  margin: 0 .65rem;
+  background: var(--ds-line) !important;
+  border: 0;
+  align-self: center;
 }
-.navbar-skkkk .btn-outline-light:hover, .navbar-skkkk .navbar-back:hover { background: var(--ds-surface-2) !important; }
-.navbar-skkkk .nav-logout { color: var(--ds-muted) !important; }
-.navbar-skkkk .nav-logout:hover { color: var(--ds-text) !important; background: var(--ds-surface-2) !important; }
-.navbar-skkkk .badge.text-bg-success { color: var(--ds-ok) !important; background: var(--ds-ok-soft) !important; border: 1px solid #b7e4cd; font-weight: 600; }
-.navbar-skkkk .badge.text-bg-secondary { color: var(--ds-muted) !important; background: var(--ds-surface-2) !important; border: 1px solid var(--ds-line); }
-.navbar-skkkk .badge.text-bg-warning { color: var(--ds-warn) !important; background: var(--ds-warn-soft) !important; border: 1px solid #f5d29a; }
+/* Название проекта — тот же язык, что у «Primary Analytics»: caps / muted / тихий */
+.navbar-primaryanalitics .navbar-project {
+  color: var(--ds-muted) !important;
+  font-weight: 600;
+  font-size: .72rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+/* Действия справа — те же caps/muted, без outline-кнопок */
+.navbar-primaryanalitics .btn-outline-light,
+.navbar-primaryanalitics .navbar-back,
+.navbar-primaryanalitics .nav-changelog {
+  color: var(--ds-muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--ds-r-sm) !important;
+  box-shadow: none !important;
+  font-size: .72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  padding: .45rem .55rem !important;
+}
+.navbar-primaryanalitics .btn-outline-light:hover,
+.navbar-primaryanalitics .navbar-back:hover,
+.navbar-primaryanalitics .nav-changelog:hover,
+.navbar-primaryanalitics .btn-outline-light:focus-visible,
+.navbar-primaryanalitics .navbar-back:focus-visible,
+.navbar-primaryanalitics .nav-changelog:focus-visible {
+  color: var(--ds-text) !important;
+  background: var(--ds-surface-2) !important;
+}
+.navbar-primaryanalitics .nav-logout {
+  color: var(--ds-muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--ds-r-sm) !important;
+}
+.navbar-primaryanalitics .nav-logout:hover,
+.navbar-primaryanalitics .nav-logout:focus-visible {
+  color: var(--ds-text) !important;
+  background: var(--ds-surface-2) !important;
+}
+.navbar-primaryanalitics .nav-me-btn #nav-user {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ds-muted) !important;
+}
+.navbar-primaryanalitics .badge {
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border-radius: var(--ds-r-sm);
+  padding: .4em .7em;
+}
+.navbar-primaryanalitics .badge.text-bg-success { color: var(--ds-ok) !important; background: var(--ds-ok-soft) !important; border: 1px solid #b7e4cd; }
+.navbar-primaryanalitics .badge.text-bg-secondary { color: var(--ds-muted) !important; background: transparent !important; border: 0; padding-inline: .35em; }
+.navbar-primaryanalitics .badge.text-bg-warning { color: var(--ds-warn) !important; background: var(--ds-warn-soft) !important; border: 1px solid #f5d29a; }
+.navbar-primaryanalitics .navbar-actions-row {
+  gap: .15rem .35rem;
+}
 /* гостевая «шапка» без кнопок: тёмная полоса заменена на светлую */
 .navbar.navbar-dark.bg-dark { background: var(--ds-surface) !important; border-bottom: 1px solid var(--ds-line); }
 .navbar.navbar-dark .navbar-brand { color: var(--ds-text) !important; }
@@ -365,8 +430,8 @@ main > .row.justify-content-center { margin-top: clamp(0px, 5vh, 3rem); }
 body, body.bg-light { font-size: 14.5px; }
 h1, .h1 { font-size: 1.6rem; letter-spacing: -0.03em; }
 .card, .list-group { box-shadow: none; }
-.navbar-skkkk { min-height: 56px; }
-.navbar-skkkk .navbar-brand[href="/"]::before { border-radius: 2px; box-shadow: none; }
+.navbar-primaryanalitics { min-height: 56px; }
+.navbar-primaryanalitics .navbar-brand[href="/"]::before { border-radius: 2px; box-shadow: none; }
 .btn-primary:focus-visible, .btn:focus-visible { box-shadow: var(--ds-ring); }
 .table thead th { background: transparent; }
 .summary-table th { background: transparent; }

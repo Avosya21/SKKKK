@@ -7,7 +7,10 @@ from playwright.sync_api import sync_playwright
 from common import *
 
 c, _ = api_login("admin")
-api_total = len(c.get(f"/projects/{PID}/artifacts").json())
+# Как на странице проекта: служебные JSON обмена с агентами в таблице и KPI не считаются.
+_EXCHANGE_FILE = re.compile(r"^analysis_(reply|request|question)_\d+\.json$", re.I)
+api_arts = c.get(f"/projects/{PID}/artifacts").json()
+api_total = len([a for a in api_arts if not _EXCHANGE_FILE.match(a.get("original_filename") or "")])
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True, args=CHROME_ARGS)
     pg = b.new_context(ignore_https_errors=True, viewport={"width": 1440, "height": 900}).new_page()

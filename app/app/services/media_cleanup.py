@@ -8,7 +8,7 @@ from pathlib import Path
 from app.app.logging_setup import log_event
 from app.app.services.upload import ffprobe_duration
 
-logger = logging.getLogger("skkkk.media_cleanup")
+logger = logging.getLogger("primaryanalitics.media_cleanup")
 
 # Контейнеры с видеодорожкой: после извлечения WAV оригинал не нужен.
 VIDEO_CONTAINER_EXT = {

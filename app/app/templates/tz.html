@@ -1,49 +1,50 @@
 {% extends "base.html" %}
 {# Отдельная страница ТЗ проекта (/projects/{id}/tz): текст ТЗ и кнопка «Пересобрать ТЗ» #}
+{% block body_class %}nav-in-project{% endblock %}
 {% block content %}
 <h1 class="h4 mb-3">Техническое задание — проект {{ project_id }}</h1>
 <pre id="tz" class="border rounded bg-white p-3" style="white-space:pre-wrap;"></pre>
 <div id="tz-status" class="text-muted small mb-2" aria-live="polite"></div>
 {% if current_role == 'admin' %}
-<button type="button" id="rebuild" class="btn btn-primary mt-3 skkkk-action-btn" data-idle-label="Пересобрать ТЗ" aria-label="Пересобрать ТЗ">Пересобрать ТЗ</button>
+<button type="button" id="rebuild" class="btn btn-primary mt-3 primaryanalitics-action-btn" data-idle-label="Пересобрать ТЗ" aria-label="Пересобрать ТЗ">Пересобрать ТЗ</button>
 {% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
 (async () => {
-  if (!SKKKK.requireAuth()) return;
+  if (!PrimaryAnalitics.requireAuth()) return;
   const projectId = {{ project_id }};
   const rebuildBtn = document.getElementById('rebuild');
   const tzStatus = document.getElementById('tz-status');
   let tzRebuildRunning = false;
   if (!rebuildBtn) {
-    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
-    document.getElementById('tz').textContent = SKKKK.plainifyLlmMarkup(
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/tz/content`);
+    document.getElementById('tz').textContent = PrimaryAnalitics.plainifyLlmMarkup(
       (await r.json()).content || '(пусто)',
     );
     return;
   }
 
   const load = async () => {
-    const r = await SKKKK.api(`/projects/${projectId}/tz/content`);
-    document.getElementById('tz').textContent = SKKKK.plainifyLlmMarkup(
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/tz/content`);
+    document.getElementById('tz').textContent = PrimaryAnalitics.plainifyLlmMarkup(
       (await r.json()).content || '(пусто)',
     );
   };
 
   async function syncTaskUi() {
-    const r = await SKKKK.api(`/projects/${projectId}/tasks/active`);
+    const r = await PrimaryAnalitics.api(`/projects/${projectId}/tasks/active`);
     if (!r.ok) return tzRebuildRunning;
     const task = (await r.json()).tasks.find((t) => t.task_type === 'tz_rebuild' && t.status === 'running');
     if (task) {
       tzRebuildRunning = true;
       tzStatus.textContent = `${task.label}… подождите`;
-      SKKKK.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
+      PrimaryAnalitics.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
       return true;
     }
     const justFinished = tzRebuildRunning;
     tzRebuildRunning = false;
-    SKKKK.setButtonBusy(rebuildBtn, false);
+    PrimaryAnalitics.setButtonBusy(rebuildBtn, false);
     tzStatus.textContent = '';
     if (justFinished) await load();
     return false;
@@ -54,9 +55,9 @@
     if (await syncTaskUi()) return;
     tzRebuildRunning = true;
     tzStatus.textContent = 'Пересборка итоговой выжимки...';
-    SKKKK.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
+    PrimaryAnalitics.setButtonBusy(rebuildBtn, true, { label: 'Пересборка…' });
     try {
-      const r = await SKKKK.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
+      const r = await PrimaryAnalitics.api(`/projects/${projectId}/rebuild-tz`, { method: 'POST' });
       if (r.status === 409) {
         const payload = await r.json().catch(() => ({}));
         tzStatus.textContent = payload.detail || 'Пересборка уже выполняется…';
@@ -70,7 +71,7 @@
       tzStatus.textContent = 'Не удалось пересобрать выжимку';
       if (!(await syncTaskUi())) {
         tzRebuildRunning = false;
-        SKKKK.setButtonBusy(rebuildBtn, false);
+        PrimaryAnalitics.setButtonBusy(rebuildBtn, false);
       }
     }
   };

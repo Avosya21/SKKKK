@@ -31,7 +31,7 @@ from app.app.services.vector_index import (
     upsert_entity_vectors,
 )
 
-logger = logging.getLogger("skkkk.entities")
+logger = logging.getLogger("primaryanalitics.entities")
 
 ROOT = Path(__file__).resolve().parents[3]
 # v3 = v2 (контекст проекта, виды пунктов, самодостаточные формулировки — REQUIREMENTS-PLAN этап 4) + переписка по

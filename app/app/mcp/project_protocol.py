@@ -12,7 +12,7 @@ from app.app.services import project_mcp_contract as contract_tools
 from app.app.services import project_mcp_data as data
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "skkkk-project"
+SERVER_NAME = "primaryanalitics-project"
 SERVER_VERSION = "1.0.0"
 
 MCP_TOOLS: list[dict[str, Any]] = [

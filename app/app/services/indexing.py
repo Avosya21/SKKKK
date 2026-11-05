@@ -21,7 +21,7 @@ from app.app.services.ollama_client import embed_texts
 from app.app.services.storage import artifact_knowledge_text, parsed_dir
 from app.app.services.vector_index import delete_vectors_for_chunks, init_vector_store, upsert_vectors
 
-logger = logging.getLogger("skkkk.index")
+logger = logging.getLogger("primaryanalitics.index")
 _TABLE_CHUNK_RE = re.compile(r"^(?:\| --- |Строка \d+: )", re.M)
 
 

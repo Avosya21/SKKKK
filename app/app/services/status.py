@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 
-logger = logging.getLogger("skkkk.status")
+logger = logging.getLogger("primaryanalitics.status")
 
 
 def set_status(db: Session, artifact: Artifact, status: str, **extra) -> None:

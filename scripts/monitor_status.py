@@ -1,4 +1,4 @@
-"""Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log."""
+"""Лёгкий монитор PrimaryAnalitics: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# SKKKK: идеальная расшифровка созвона — итоговый план
+# PrimaryAnalitics: идеальная расшифровка созвона — итоговый план
 
 > Точка входа — [`MEETING-PLAN.md`](MEETING-PLAN.md). Этот файл — детальное приложение (дыры 1–9 с разбором кода); дыры 1–9 уже реализованы в рабочей копии, см. `MEETING-PLAN.md` §4.
 
@@ -47,7 +47,7 @@
 | Шаг | Кто | Где лежит результат |
 |---|---|---|
 | Комната открыта, `POST …/start` ставит `meetings.started_at` (UTC, `meetings._now()`) — это **ноль шкалы встречи** | `services/meetings.py` | БД `meetings` |
-| `voice_cleaner` раз в 2 с опрашивает LiveKit, входит в комнату как скрытый `skkkk-dfn`, на `track_subscribed` открывает `PcmWavWriter` и пишет сырой микрофон каждого `member:`/`guest:` | `tools/livekit/voice_cleaner.py` → `services/meeting_recordings.py` | `data/meetings/{room}/tracks/{identity}.wav`, `manifest.json` (`identity`, `path`, `source`, `started_epoch`, после закрытия — `frames`, `duration_sec`) |
+| `voice_cleaner` раз в 2 с опрашивает LiveKit, входит в комнату как скрытый `primaryanalitics-dfn`, на `track_subscribed` открывает `PcmWavWriter` и пишет сырой микрофон каждого `member:`/`guest:` | `tools/livekit/voice_cleaner.py` → `services/meeting_recordings.py` | `data/meetings/{room}/tracks/{identity}.wav`, `manifest.json` (`identity`, `path`, `source`, `started_epoch`, после закрытия — `frames`, `duration_sec`) |
 | Кнопка **Проанализировать**: один артефакт `встреча-{id}.wav` (`source_type=call`, `asr_engines_json.kind=meeting`), одна job; для каждой дорожки — `offset_sec = started_epoch − started_at` (запасной путь — `joined_at`) | `services/meeting_analyze.py::_enqueue_meeting` | `artifacts/{parent}/meeting.json` (`tracks[]: identity, speaker, src, child_id, offset_sec`), `data/meetings/{room}/analyze.json` |
 | GPU-воркер → `process_meeting_artifact`: на каждую дорожку — `asr/lab_pipeline.py --no-voice --no-verify` (стадии `01_audio`, `02_asr` Parakeet, `03_diar` = один `speaker_0` без Sortformer, `04_paint`, `06_transcript`), затем оверлеи `lab_giga` → `lab_reconcile` → `lab_proof` | `services/pipeline_meeting.py::_transcribe_track` | `artifacts/{parent}__{identity}/lab/runs/{run}/…`, канон дорожки — `proof/transcript.json` |
 | Слова дорожки: `words_from_replicas` → `shift_words(+offset_sec, speaker)`; все дорожки → `merge_words` (сортировка по `start`) → `replicas_from_words` (= `asr.lab.proof.final_replicas`) | `services/meeting_merge.py` | `artifacts/{parent}/lab/runs/{run}/proof/transcript.json` (`replicas`, `words`) |
@@ -128,7 +128,7 @@
 
 1. `meeting_recordings.py`: константа `EVENTS_NAME = "events.jsonl"`, класс `MeetingEventLog(path)` с одним методом `append(kind: str, **fields)` — дописывает строку `{"t": time.time(), "kind": kind, …}` (`open(..., "a")` на каждую строку, поток должен пережить падение процесса; манифест для этого не годится — он перезаписывается целиком). Функция `read_events(path) -> list[dict]` (битые строки пропускать). В `PcmWavWriter.__init__` — необязательный колбэк `on_gap(sec: float)`, вызывается из `write()` когда добивалась тишина.
 2. `voice_cleaner._bind_recorders`: создать лог в `room_dir/events.jsonl`; `start_record` пишет `track start` (`identity`, `source`), `close_all`/`stop_record` — `track end` с `frames`; writer получает `on_gap` → строка `gap`.
-3. `voice_cleaner._join`: подписки `active_speakers_changed`, `track_muted`, `track_unmuted`, `participant_connected`, `participant_disconnected`, `connection_quality_changed`. Скрытого `skkkk-dfn` в списках пропускать (`_is_human`). Для `speakers` хранить последний записанный кортеж identity и писать **только при смене** (SDK повторяет событие с тем же составом — [python-sdks#148](https://github.com/livekit/python-sdks/issues/148)); пустой список тоже событие (все замолчали).
+3. `voice_cleaner._join`: подписки `active_speakers_changed`, `track_muted`, `track_unmuted`, `participant_connected`, `participant_disconnected`, `connection_quality_changed`. Скрытого `primaryanalitics-dfn` в списках пропускать (`_is_human`). Для `speakers` хранить последний записанный кортеж identity и писать **только при смене** (SDK повторяет событие с тем же составом — [python-sdks#148](https://github.com/livekit/python-sdks/issues/148)); пустой список тоже событие (все замолчали).
 
 Формат строк (`t` — epoch, те же часы, что `started_epoch` в манифесте):
 
@@ -279,7 +279,7 @@ return str(row.get("final") or row.get("word") or row.get("text") or "").strip()
 | 1 | Дыра 3: воскресающие слова | `meeting_merge.py`, `meeting_lab.py` | Одна функция, а текст врёт прямо сейчас | тест дыры 3; на встрече (тестовой) (**Повторить**) английского мусора у Даши нет |
 | 2 | Дыра 4: времена слов в вычитке | `asr/lab/proof.py` | Без неё нет точных секунд; чинит и лабораторию файлов | тесты дыры 4; на встрече (тестовой) фраза «Вы пришли на встречу…» разложена по словам |
 | 3 | Дыра 8: реплики по полосам | `meeting_merge.py`, `pipeline_meeting.py` | Независима от записи, готовит ленту к фазе B | тест дыры 8 |
-| 4 | Дыры 2 + 9: лог событий, шапка `meeting.json`, `duration_sec` | `meeting_recordings.py`, `voice_cleaner.py`, `meeting_analyze.py` | **До контрольного созвона**, иначе запись делать дважды | тесты дыры 2; `voice_cleaner` перезапущен; тестовая комната даёт `events.jsonl` |
+| 4 | Дыры 2 + 9: лог событий, шапка `meeting.json`, `duration_sec` | `meeting_recordings.py`, `voice_cleaner.py`, `meeting_analyze.py` | **До контрольного созвона**, иначе запись делать дважды | тесты дыры 2; `voice_cleaner` перезапущен; пробная комната даёт `events.jsonl` |
 | — | **Контрольный созвон** (§4.1) | — | Единственная запись, на которой измеряем | WAV трёх дорожек + `events.jsonl` + `manifest.json` с `frames` |
 | 5 | Дыра 7: проверки в лаб | `meeting_checks.py`, `meeting_lab.py`, `meeting_lab.html` | Раньше дыры 5, чтобы видеть протечки счётчиком до их снятия | секция в лаб; на контрольном созвоне красных нет, `leaks` показывает фазу B |
 | 6 | Дыра 5: протечка | `meeting_merge.py`, `pipeline_meeting.py` | Последнее, что мешает верить «кто». Опирается на 1–4 | тесты дыры 5; **Повторить** на контрольном: `leaks` снял дубли фазы B, критерий 2 |

@@ -16,7 +16,7 @@ from app.app.services.status import set_status
 from app.app.services.storage import parsed_dir
 from app.app.services.table_md import Table, clean_cell, make_table, render_md
 
-logger = logging.getLogger("skkkk.documents")
+logger = logging.getLogger("primaryanalitics.documents")
 SCAN_CHARS_THRESHOLD = 40
 PDF_FIGURE_MIN_AREA = 0.08  # доля площади страницы
 PDF_FIGURE_MIN_SIDE_PT = 120

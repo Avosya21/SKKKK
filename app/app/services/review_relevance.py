@@ -32,7 +32,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Link, Resolution, Topic
 from app.app.services.auto_review import MODE_LIVE, MODE_SHADOW, record_model_review
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "review_relevance_v2.md"  # v2: похожие пункты из других тем; v1 — файлом

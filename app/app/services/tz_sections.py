@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.tz")
+logger = logging.getLogger("primaryanalitics.tz")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "tz_sections.md"
 PROMPT_VERSION = "tz_sections-v2"

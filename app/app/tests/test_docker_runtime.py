@@ -113,7 +113,7 @@ def test_start_docker_desktop_missing_raises(monkeypatch):
 
 
 def test_asr_containers_prod_is_gigaam_only():
-    assert dr.ASR_CONTAINERS == ("skkkk-gigaam",)
+    assert dr.ASR_CONTAINERS == ("primaryanalitics-gigaam",)
 
 
 def test_ensure_gigaam_ready_starts_container_and_waits(monkeypatch):
@@ -133,7 +133,7 @@ def test_ensure_gigaam_ready_starts_container_and_waits(monkeypatch):
     monkeypatch.setattr(dr.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(dr.time, "sleep", lambda _s: None)
     dr.ensure_gigaam_ready("http://127.0.0.1:18102", timeout_sec=30)
-    assert calls == ["skkkk-gigaam"]
+    assert calls == ["primaryanalitics-gigaam"]
     assert hits["n"] == 2
 
 
@@ -165,7 +165,7 @@ def test_stop_gigaam_stops_container(monkeypatch):
 
     monkeypatch.setattr(dr.subprocess, "run", fake_run)
     dr.stop_gigaam()
-    assert captured[0][:3] == ["docker", "stop", "skkkk-gigaam"]
+    assert captured[0][:3] == ["docker", "stop", "primaryanalitics-gigaam"]
 
 
 def test_stop_gigaam_silent_when_container_missing(monkeypatch):

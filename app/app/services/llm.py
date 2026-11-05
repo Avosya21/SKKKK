@@ -17,7 +17,7 @@ from app.app.llm_settings import uses_local_gemma
 
 ensure_os_blocking_compat()
 
-logger = logging.getLogger("skkkk.llm")
+logger = logging.getLogger("primaryanalitics.llm")
 
 _HOLD_WARNED: set[str] = set()
 
@@ -34,7 +34,7 @@ def _check_db_not_held(where: str) -> None:
     if not held:
         return
     message = f"LLM-вызов ({where}) при открытой транзакции БД: соединение занято на всё время ответа модели"
-    if os.environ.get("SKKKK_STRICT_DB_HOLD") == "1":
+    if os.environ.get("PRIMARY_ANALITICS_STRICT_DB_HOLD") == "1":
         raise RuntimeError(message + "\n" + held[0])
     key = held[0][-400:]
     if key not in _HOLD_WARNED:
@@ -297,7 +297,7 @@ def announce_llm_and_selfcheck(settings: Settings, log) -> None:
         model=settings.lmstudio_model if provider_uses_lmstudio(settings) else "cursor",
         no_think_env=os.environ.get(NO_THINK_ENV, "1"),
     )
-    if os.environ.get("SKKKK_DISABLE_LLM_SELFCHECK") == "1":
+    if os.environ.get("PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK") == "1":
         return  # тесты не должны будить настоящий LM Studio: он заново загрузит 18-гигабайтную модель в GPU
     if provider_uses_lmstudio(settings):
         # Только если модель уже в памяти: проверка не должна загружать 18 ГБ при старте процесса.

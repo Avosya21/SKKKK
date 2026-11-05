@@ -1,11 +1,11 @@
 ---
-description: Все артефакты SKKKK только в C:\1C_NEW_SKKKK
+description: Все артефакты PrimaryAnalitics только в D:\Primary_Analitics
 alwaysApply: true
 ---
 
 # Корень проекта
 
-Весь код, документы, правила, скилы, данные, логи, venv и артефакты пиши только в `C:\1C_NEW_SKKKK`.
+Весь код, документы, правила, скилы, данные, логи, venv и артефакты пиши только в `D:\Primary_Analitics`.
 
 Не используй `C:\app`, `C:\data`, домашний каталог пользователя и другие корни.
 

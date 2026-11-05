@@ -5,7 +5,7 @@
 
 Запрещены пути из data/, private/ и onec/, файлы баз (*.db, *.sqlite*), офисные
 документы, аудио/видео и веса моделей. Исключения — синтетические фикстуры
-тестов и примеры настроек. Хук pre-commit (блок SKKKK-DATA) вызывает --staged.
+тестов и примеры настроек. Хук pre-commit (блок PrimaryAnalitics-DATA) вызывает --staged.
 """
 from __future__ import annotations
 
@@ -31,8 +31,6 @@ ALLOWED_FILES = {
     "asr/whisper.env",
     "scripts/qa_data_speech_a.wav",
     "scripts/qa_data_speech_b.wav",
-    # share-видео инфографики Primary (87 МБ) — публикуется в репо по решению команды
-    "experiments/procedural-film/primary-infographic/exports/primary-infographic-share.mp4",
 }
 
 

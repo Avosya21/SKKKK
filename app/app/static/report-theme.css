@@ -59,3 +59,15 @@ button.act:focus-visible, a.act:focus-visible, .chip:focus-visible, .summary-tab
 
 /* баннер фоновой задачи */
 .task-banner { color: var(--ds-info); background: var(--ds-info-soft); border-color: #c8dcfb; box-shadow: none; }
+
+/* /report-speaker-match: светлая шапка как у портала (перебивает старый тёмный .app-nav в сохранённых HTML) */
+nav.app-nav,
+nav.app-nav.navbar-dark {
+  background: var(--ds-surface) !important;
+  border-bottom: 1px solid var(--ds-line) !important;
+  box-shadow: none !important;
+}
+nav.app-nav .navbar-brand,
+nav.app-nav .navbar-brand-logo { color: var(--ds-text) !important; }
+nav.app-nav .navbar-text,
+nav.app-nav .text-white-50 { color: var(--ds-muted) !important; }

@@ -11,13 +11,13 @@
     try {
       const d = (await r.json()).detail;
       const s = typeof d === 'string' ? d : JSON.stringify(d);
-      return (window.SKKKKErrors && window.SKKKKErrors.text(s)) || s;
+      return (window.PrimaryAnaliticsErrors && window.PrimaryAnaliticsErrors.text(s)) || s;
     } catch (e) { return 'Ошибка ' + r.status; }
   };
   // Потеря сети или падение сервера не должны молча ломать блок: возвращаем «ответ» с понятным текстом, который показывает errText
   const api = async (path, opts) => {
     try {
-      return await SKKKK.api(`/projects/${PID}${path}`, opts);
+      return await PrimaryAnalitics.api(`/projects/${PID}${path}`, opts);
     } catch (e) {
       return new Response(JSON.stringify({ detail: 'Нет связи с сервером. Проверьте интернет и повторите.' }), { status: 599, headers: { 'Content-Type': 'application/json' } });
     }
@@ -223,7 +223,7 @@
     if (!btn) return;
     const id = btn.dataset.id, act = btn.dataset.rv;
     if (act === 'confirm') {
-      await SKKKK.guardButton(btn, async () => {
+      await PrimaryAnalitics.guardButton(btn, async () => {
         let r = await post(`/requirements/${encodeURIComponent(id)}/confirm`, {});
         if (r.status === 409) {  // модель считает пункт устаревшим или дублем (А6): нужно явное согласие
           const msg = (await r.json().catch(() => ({}))).detail || 'Модель считает пункт устаревшим. Подтвердить всё равно?';
@@ -236,7 +236,7 @@
       return;
     }
     if (act === 'current') {
-      await SKKKK.guardButton(btn, async () => {
+      await PrimaryAnalitics.guardButton(btn, async () => {
         const r = await post(`/requirements/entity/${encodeURIComponent(btn.dataset.entity)}/mark-current`, {});
         if (!r.ok) { say('review', await errText(r), true); return; }
         await loadReview(false); loadSummary();
@@ -245,7 +245,7 @@
       return;
     }
     if (act === 'undo') {
-      await SKKKK.guardButton(btn, async () => {
+      await PrimaryAnalitics.guardButton(btn, async () => {
         const r = await post(`/requirements/entity/${encodeURIComponent(btn.dataset.entity)}/undo-model`, {});
         if (!r.ok) { say('review', await errText(r), true); return; }
         await loadReview(false); loadSummary();
@@ -254,7 +254,7 @@
       return;
     }
     if (act === 'spot-ok') {
-      await SKKKK.guardButton(btn, async () => {
+      await PrimaryAnalitics.guardButton(btn, async () => {
         const r = await post(`/spot-check/${encodeURIComponent(btn.dataset.entity)}`, { verdict: 'ok' });
         if (!r.ok) { say('review', await errText(r), true); return; }
         await loadReview(false);
@@ -283,14 +283,14 @@
     if (btn.dataset.do === 'cancel') { holder.classList.add('d-none'); holder.innerHTML = ''; return; }
     const reason = holder.querySelector('input').value.trim();
     if (btn.dataset.do === 'spot-wrong') {
-      await SKKKK.guardButton(btn, async () => {
+      await PrimaryAnalitics.guardButton(btn, async () => {
         const r = await post(`/spot-check/${encodeURIComponent(btn.dataset.entity)}`, { verdict: 'wrong', reason });
         if (!r.ok) { say('review', await errText(r), true); return; }
         await loadReview(false);
       });
       return;
     }
-    await SKKKK.guardButton(btn, async () => {
+    await PrimaryAnalitics.guardButton(btn, async () => {
       const body = btn.dataset.do === 'status' ? { status: holder.querySelector('select').value, reason } : { reason };
       if (await reviewAction(btn.dataset.do, id, body)) { await loadReview(false); loadSummary(); }
     });
@@ -301,7 +301,7 @@
     c.checked ? rv.selected.add(c.dataset.id) : rv.selected.delete(c.dataset.id);
     updateBatch();
   });
-  $('px-rv-confirm-selected').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
+  $('px-rv-confirm-selected').addEventListener('click', (ev) => PrimaryAnalitics.guardButton(ev.currentTarget, async () => {
     const r = await post('/requirements/confirm', { ids: [...rv.selected] });
     if (!r.ok) { say('review', await errText(r), true); return; }
     const d = await r.json();
@@ -311,7 +311,7 @@
   $('px-rv-more').addEventListener('click', () => loadReview(true));
   $('px-rv-reextract').addEventListener('click', (ev) => {
     if (!confirm('Заново разобрать все материалы проекта по новой схеме? Идёт фоном (десятки минут), расшифровке не мешает. Ваши подтверждения и отказы переносятся на новые пункты; что не перенеслось — будет в отчёте.')) return;
-    SKKKK.guardButton(ev.currentTarget, async () => {
+    PrimaryAnalitics.guardButton(ev.currentTarget, async () => {
       const r = await post('/requirements/reextract', {});
       if (!r.ok) { say('review', await errText(r), true); return; }
       const d = await r.json();
@@ -320,7 +320,7 @@
   });
   $('px-rv-backlog').addEventListener('click', (ev) => {
     if (!confirm('Поставить в очередь фоновую проверку моделью всех накопленных требований и конфликтов проекта? Расшифровке она не мешает; решения модели можно вернуть.')) return;
-    SKKKK.guardButton(ev.currentTarget, async () => {
+    PrimaryAnalitics.guardButton(ev.currentTarget, async () => {
       const r = await post('/auto-review/backlog', { scope: 'all' });
       if (!r.ok) { say('review', await errText(r), true); return; }
       const d = await r.json();
@@ -375,11 +375,18 @@
     const btn = ev.target.closest('[data-q]');
     if (!btn) return;
     const id = btn.dataset.id, act = btn.dataset.q;
-    await SKKKK.guardButton(btn, async () => {
+    await PrimaryAnalitics.guardButton(btn, async () => {
       let r;
       if (act === 'draft') r = await post(`/agent-inbox/${id}/draft`, {});
       else if (act === 'approve') r = await post(`/agent-inbox/${id}/answer`, { approve_draft: true });
-      else { const text = document.querySelector(`[data-q-text="${id}"]`).value.trim(); if (!text) { say('exchange', 'Напишите ответ', true); return; } r = await post(`/agent-inbox/${id}/answer`, { text }); }
+      else {
+        // Текст берём из той же карточки, что и кнопка (не первый textarea в документе).
+        const box = btn.closest('.px-item');
+        const field = (box && box.querySelector(`[data-q-text="${id}"]`)) || document.querySelector(`[data-q-text="${id}"]`);
+        const text = (field && field.value || '').trim();
+        if (!text) { say('exchange', 'Напишите ответ', true); return; }
+        r = await post(`/agent-inbox/${id}/answer`, { text });
+      }
       if (!r.ok) { say('exchange', await errText(r), true); return; }
       say('exchange', act === 'draft' ? 'Черновик готов: проверьте и одобрите.' : 'Ответ отправлен агенту.');
       await loadQuestions(); loadSummary();
@@ -409,7 +416,7 @@
     const btn = ev.target.closest('[data-v]');
     if (!btn) return;
     if (btn.dataset.v === 'reject' && !confirm('Отклонить этот вердикт? Он перестанет учитываться, но останется в базе.')) return;
-    await SKKKK.guardButton(btn, async () => {
+    await PrimaryAnalitics.guardButton(btn, async () => {
       const r = await post(`/agent-verdicts/${btn.dataset.id}/${btn.dataset.v}`, {});
       if (!r.ok) { say('exchange', await errText(r), true); return; }
       await loadVerdicts(); loadSummary();
@@ -464,14 +471,14 @@
   }
   $('px-settings-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    await SKKKK.guardButton($('px-s-save'), async () => {
+    await PrimaryAnalitics.guardButton($('px-s-save'), async () => {
       let body;
       try {
         const words = (id) => $(id).value.split(',').map((x) => x.trim()).filter(Boolean);
         body = { timezone: $('px-s-tz').value.trim(), domain_pack: $('px-s-pack').value, participants: parseParticipants($('px-s-participants').value),
           side_hints: { customer: words('px-s-hint-customer'), vendor: words('px-s-hint-vendor') }, exchange_enabled: $('px-s-enabled').checked, default_key_scope: $('px-s-key-scope').value };
       } catch (e) { say('settings', e.message, true); return; }
-      const r = await fetch(`/projects/${PID}/agent-settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SKKKK.token()}` }, body: JSON.stringify(body) });
+      const r = await fetch(`/projects/${PID}/agent-settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${PrimaryAnalitics.token()}` }, body: JSON.stringify(body) });
       if (!r.ok) { say('settings', await errText(r), true); return; }
       say('settings', 'Сохранено. Агенты увидят изменения при следующем обращении.');
     });
@@ -506,7 +513,7 @@
     $('px-card-meta').textContent = !d.text ? 'Карточки пока нет: она соберётся при разборе следующего материала или по кнопке.'
       : m.source === 'human' ? `Правка человека: ${m.by || ''}, ${fmt(m.at)}` : `Черновик модели, ${fmt(m.at)}`;
   }
-  $('px-card-save').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
+  $('px-card-save').addEventListener('click', (ev) => PrimaryAnalitics.guardButton(ev.currentTarget, async () => {
     const text = $('px-card-text').value.trim();
     if (!text) { say('card', 'Карточка пустая', true); return; }
     const r = await api('/card', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
@@ -514,7 +521,7 @@
     say('card', 'Сохранено. Модель увидит карточку при разборе следующих материалов.');
     loadCard();
   }));
-  $('px-card-rebuild').addEventListener('click', (ev) => SKKKK.guardButton(ev.currentTarget, async () => {
+  $('px-card-rebuild').addEventListener('click', (ev) => PrimaryAnalitics.guardButton(ev.currentTarget, async () => {
     say('card', 'Ставлю в очередь…');
     let r = await post('/card/rebuild', {});
     if (r.status === 409 && /правил человек/.test(await r.clone().text())) {

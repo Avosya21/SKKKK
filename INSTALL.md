@@ -22,7 +22,7 @@
 3. Выполнить шаги из блока «Осталось сделать вручную» (они же в `data\logs\install-report.txt`).
 4. Проверить: `powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1`.
 5. Перед порталом при `LLM_PROVIDER=lmstudio`: `run_server.ps1` (сервер `:1234`). Опционально автозапуск при входе в Windows: `scripts\install_lmstudio_autostart.ps1`.
-6. Запустить: `scripts\SKKKK-3-Запуск-LM-Studio.bat` (локальная модель) или `scripts\SKKKK-2-Запуск-Cursor.bat` (Cursor API).
+6. Запустить: `scripts\PrimaryAnalitics-3-Запуск-LM-Studio.bat` (локальная модель) или `scripts\PrimaryAnalitics-2-Запуск-Cursor.bat` (Cursor API).
 
 Проект можно класть в любую папку: скрипты запуска и установки считают пути от своего расположения, а старый путь в `.env` заменяется автоматически (`-OldRoot`, по умолчанию прежний путь разработки).
 

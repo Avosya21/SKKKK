@@ -15,7 +15,7 @@ from app.app.services.project_index import graph as G
 ATLAS_PATH = G.ROOT / "docs" / "project-map" / "DEPENDENCIES.md"
 BEGIN = "<!-- generated:begin atlas -->"
 END = "<!-- generated:end atlas -->"
-ATLAS_INTRO = """# Атлас зависимостей SKKKK
+ATLAS_INTRO = """# Атлас зависимостей PrimaryAnalitics
 
 Сгенерированная карта проекта: все сущности и все связи между ними. Источник — индекс `data/project_map.db`
 и семантический манифест `docs/project-map/manifest.yaml`; полный граф — `data/project_map_graph.json`,

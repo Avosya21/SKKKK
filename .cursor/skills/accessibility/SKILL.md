@@ -1,6 +1,6 @@
 ---
 name: accessibility
-description: Applies practical accessibility guidance to SKKKK frontend changes. Use when editing HTML templates, forms, buttons, headings, iframes, contrast, focus flow, or chat/report interactions.
+description: Applies practical accessibility guidance to PrimaryAnalitics frontend changes. Use when editing HTML templates, forms, buttons, headings, iframes, contrast, focus flow, or chat/report interactions.
 ---
 
 # Accessibility
@@ -13,7 +13,7 @@ description: Applies practical accessibility guidance to SKKKK frontend changes.
 - Loading and error states should be visible in text, not color alone.
 - Preserve keyboard-friendly interactions for upload, report open/close, and chat.
 
-## For SKKKK
+## For PrimaryAnalitics
 
 - Report viewers and AI output blocks should remain readable for long-form content.
 - Status badges should not be the only carrier of meaning.

@@ -85,9 +85,9 @@ data\projects\{id}\tmp\audio_clean\   (пусто после завершени�
 |---|---|---|
 | [pyannote/pyannote-audio](https://github.com/pyannote/pyannote-audio) | Сам движок диаризации `speaker-diarization-3.1` и модель эмбеддингов WeSpeaker, уже используемые в `data/gigaam/dump_pyannote.py` | Первоисточник API `Pipeline.instantiate`, параметров кластеризации (`threshold`, `min_cluster_size`) и `pipeline._embedding` — сверяться при апгрейде версии пакета |
 | [m-bain/whisperX](https://github.com/m-bain/whisperX) | Готовый паттерн выравнивания «слово → спикер» по пересечению таймкодов и обвязка VAD-препроцессинга | Мы разошлись с ним архитектурно (три ASR + голосовая ресегментация вместо одного Whisper + пересечение по словам), но `assign_word_speakers` — хороший образец для юнит-тестов `overlay_text` в `asr/speakers.py` |
-| [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper) | CTranslate2-бэкенд Whisper — основа для запасного хостового пути `run_whisper.py`, если контейнер `skkkk-whisper` недоступен | Смотреть их обработку `vad_filter` и `word_timestamps=True` для нарезки окон по границам тишины |
+| [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper) | CTranslate2-бэкенд Whisper — основа для запасного хостового пути `run_whisper.py`, если контейнер `primaryanalitics-whisper` недоступен | Смотреть их обработку `vad_filter` и `word_timestamps=True` для нарезки окон по границам тишины |
 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | Лёгкая VAD-модель (ONNX, CPU) для нарезки пауз > 2 с и границ окон 120–180 с | Кандидат для `services/audio.py`, если текущей VAD-логики (WebRTC VAD / встроенный VAD движков) не хватит по точности на телефонных записях |
-| [dubr1k/GigaAMGUI](https://github.com/dubr1k/GigaAMGUI) | Уже канон для контейнера `skkkk-gigaam` (см. DECISIONS.md) | Источник `api.py` и `Dockerfile` — смотреть при обновлении версии GigaAM или добавлении новых эндпоинтов (например, будущего `/summarize`) |
+| [dubr1k/GigaAMGUI](https://github.com/dubr1k/GigaAMGUI) | Уже канон для контейнера `primaryanalitics-gigaam` (см. DECISIONS.md) | Источник `api.py` и `Dockerfile` — смотреть при обновлении версии GigaAM или добавлении новых эндпоинтов (например, будущего `/summarize`) |
 
 ## Проверки
 
@@ -132,7 +132,7 @@ data\projects\{id}\tmp\audio_clean\   (пусто после завершени�
 - `test_overlay_assigns_by_overlap`
 - `test_rename_merge_and_talk_time`
 
-Резегментация по голосу (`data/gigaam/dump_pyannote.py::resegment_by_voice`, скользящее окно + гистерезис поверх центроидов PyAnnote-кластеров) живёт внутри контейнера `skkkk-gigaam` (torch + pyannote), автотестом без GPU не покрыта. Проверяется вручную по логу `voice resegmentation: N raw clusters -> M voice-timed turns` и глазами по стенограмме: один голос не должен менять номер спикера каждые пару секунд.
+Резегментация по голосу (`data/gigaam/dump_pyannote.py::resegment_by_voice`, скользящее окно + гистерезис поверх центроидов PyAnnote-кластеров) живёт внутри контейнера `primaryanalitics-gigaam` (torch + pyannote), автотестом без GPU не покрыта. Проверяется вручную по логу `voice resegmentation: N raw clusters -> M voice-timed turns` и глазами по стенограмме: один голос не должен менять номер спикера каждые пару секунд.
 
 `app/app/tests/test_audio_prep.py` (без GPU)
 

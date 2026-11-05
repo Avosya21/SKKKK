@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 from app.app.services import meeting_recordings as rec
 
-ROOM_A = "skkkk-aaa111"
-ROOM_B = "skkkk-bbb222"
+ROOM_A = "primaryanalitics-aaa111"
+ROOM_B = "primaryanalitics-bbb222"
 MEMBER = "member:28"
 GUEST = "guest:3a78ff"
 FRAME_FRAMES = 480
@@ -27,7 +27,7 @@ def test_skips_cleaner_and_keeps_humans():
     assert rec.is_human_identity(MEMBER) is True
     assert rec.is_human_identity(GUEST) is True
     assert rec.is_human_identity(rec.CLEANER_ID) is False
-    assert rec.is_human_identity("skkkk-rec") is False
+    assert rec.is_human_identity("primaryanalitics-rec") is False
 
 
 def test_denoise_opt_out_does_not_change_who_is_recorded():
@@ -451,11 +451,11 @@ def test_room_member_state_asks_livekit_server():
         def do_POST(self):  # noqa: N802
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             seen["path"], seen["auth"], seen["room"] = self.path, self.headers["Authorization"], body["room"]
-            if body["room"] == "skkkk-gone":
+            if body["room"] == "primaryanalitics-gone":
                 self.send_response(404)
                 self.end_headers()
                 return
-            out = json.dumps({"participants": [{"identity": "guest:1"}, {"identity": "skkkk-dfn"}]}).encode()
+            out = json.dumps({"participants": [{"identity": "guest:1"}, {"identity": "primaryanalitics-dfn"}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -469,13 +469,13 @@ def test_room_member_state_asks_livekit_server():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_address[1]}"
     try:
-        assert rec.room_member_state(url, "jwt", "skkkk-a", "skkkk-dfn") is True
-        assert seen == {"path": "/twirp/livekit.RoomService/ListParticipants", "auth": "Bearer jwt", "room": "skkkk-a"}
-        assert rec.room_member_state(url, "jwt", "skkkk-a", "skkkk-rec") is False
-        assert rec.room_member_state(url, "jwt", "skkkk-gone", "skkkk-dfn") is False
+        assert rec.room_member_state(url, "jwt", "primaryanalitics-a", "primaryanalitics-dfn") is True
+        assert seen == {"path": "/twirp/livekit.RoomService/ListParticipants", "auth": "Bearer jwt", "room": "primaryanalitics-a"}
+        assert rec.room_member_state(url, "jwt", "primaryanalitics-a", "primaryanalitics-rec") is False
+        assert rec.room_member_state(url, "jwt", "primaryanalitics-gone", "primaryanalitics-dfn") is False
     finally:
         server.shutdown()
-    assert rec.room_member_state("http://127.0.0.1:9", "jwt", "skkkk-a", "skkkk-dfn", timeout=1) is None
+    assert rec.room_member_state("http://127.0.0.1:9", "jwt", "primaryanalitics-a", "primaryanalitics-dfn", timeout=1) is None
 
 
 def test_bots_watch_server_membership():

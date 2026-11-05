@@ -1,12 +1,12 @@
-# Что берём из Agent1C в SKKKK
+# Что берём из Agent1C в PrimaryAnalitics
 
-Источник: `C:\Agent1C`. Это уже работающий локальный стенд: Gemma в LM Studio, FastAPI Web UI, клиент OpenAI. Код 1С-агента (QERA, MCP Serena, BSL Atlas) в SKKKK **не копируем** — копируем способ поднять локальный сервер и разговаривать с моделями.
+Источник: `C:\Agent1C`. Это уже работающий локальный стенд: Gemma в LM Studio, FastAPI Web UI, клиент OpenAI. Код 1С-агента (QERA, MCP Serena, BSL Atlas) в PrimaryAnalitics **не копируем** — копируем способ поднять локальный сервер и разговаривать с моделями.
 
 ## Адреса и порты этой машины
 
-| Сервис | Адрес | Кто занимает | Для SKKKK |
+| Сервис | Адрес | Кто занимает | Для PrimaryAnalitics |
 |---|---|---|---|
-| Web UI + API | `http://127.0.0.1:1111` | Agent1C сейчас, SKKKK в этом проекте | **Да. Единственный порт приложения.** |
+| Web UI + API | `http://127.0.0.1:1111` | Agent1C сейчас, PrimaryAnalitics в этом проекте | **Да. Единственный порт приложения.** |
 | LM Studio (Gemma) | `http://127.0.0.1:1234/v1` | LM Studio | **Да. Тот же endpoint.** |
 | MCP 1С / BSL Atlas | `http://127.0.0.1:8000/mcp/` | Agent1C | **Нет. Порт 8000 не трогать.** |
 | Serena MCP | `http://127.0.0.1:9121/mcp` | Agent1C | Нет |
@@ -14,7 +14,7 @@
 
 В `C:\Agent1C\run.ps1` в сообщении указан порт 999 — это устаревшая строка. Канон: `config.py` → `WEB_HOST = "127.0.0.1"`, `WEB_PORT = 1111`.
 
-Uvicorn SKKKK слушает `127.0.0.1:1111`, как Agent1C: один процесс FastAPI отдаёт и страницы, и API. Не поднимать второй сервер на 8000.
+Uvicorn PrimaryAnalitics слушает `127.0.0.1:1111`, как Agent1C: один процесс FastAPI отдаёт и страницы, и API. Не поднимать второй сервер на 8000.
 
 ## Модель и клиент LLM (проверено в бою)
 
@@ -34,14 +34,14 @@ llm = AsyncOpenAI(
 
 ## Что переиспользуем из кода и библиотек
 
-Готовое окружение: `C:\Agent1C\.venv` (`openai`, `fastapi`, `uvicorn`, `pydantic`, `aiohttp`). Для портала SKKKK — **своё** `C:\1C_NEW_SKKKK\venv`, с теми же пакетами. ASR-движки остаются в отдельных `venvs\whisper|gigaam|tone` и в это окружение не ставятся.
+Готовое окружение: `C:\Agent1C\.venv` (`openai`, `fastapi`, `uvicorn`, `pydantic`, `aiohttp`). Для портала PrimaryAnalitics — **своё** `D:\Primary_Analitics\venv`, с теми же пакетами. ASR-движки остаются в отдельных `venvs\whisper|gigaam|tone` и в это окружение не ставятся.
 
-Паттерн запуска: `run.ps1` → activate venv → `python main.py` → uvicorn поднимает FastAPI. Для SKKKK тот же приём (`scripts/run.ps1` на этапе 1).
+Паттерн запуска: `run.ps1` → activate venv → `python main.py` → uvicorn поднимает FastAPI. Для PrimaryAnalitics тот же приём (`scripts/run.ps1` на этапе 1).
 
-Паттерн Web UI: FastAPI раздаёт HTML с одной страницы, стриминг через `StreamingResponse`, статус `/api/status`. Для SKKKK — Jinja + те же приёмы статуса и polling, без копирования 1С-чата.
+Паттерн Web UI: FastAPI раздаёт HTML с одной страницы, стриминг через `StreamingResponse`, статус `/api/status`. Для PrimaryAnalitics — Jinja + те же приёмы статуса и polling, без копирования 1С-чата.
 
 ## Чего не трогаем
 
 - MCP-серверы 1С, Serena, OData.
 - Порт 8000.
-- Логику QERA / FSM / memory L0–L3 Agent1C. У SKKKK свой конвейер знаний.
+- Логику QERA / FSM / memory L0–L3 Agent1C. У PrimaryAnalitics свой конвейер знаний.

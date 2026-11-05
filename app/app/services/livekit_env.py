@@ -169,10 +169,10 @@ def _upsert_env(path: Path, updates: dict[str, str]) -> None:
 
 def ensure_livekit_files() -> None:
     env = _read_env(ENV_PATH)
-    host = env.get("SKKKK_PUBLIC_HOST") or "127.0.0.1"
-    https_port = env.get("SKKKK_HTTPS_PORT") or "777"
+    host = env.get("PRIMARY_ANALITICS_PUBLIC_HOST") or "127.0.0.1"
+    https_port = env.get("PRIMARY_ANALITICS_HTTPS_PORT") or "777"
     url = (env.get(URL_KEY) or "").strip() or f"wss://{host}:{https_port}/livekit"
-    key = (env.get(API_KEY) or "").strip() or ("skkkk" + secrets.token_hex(8))
+    key = (env.get(API_KEY) or "").strip() or ("primaryanalitics" + secrets.token_hex(8))
     secret = (env.get(API_SECRET) or "").strip() or secrets.token_urlsafe(32)
     lan_ip = pick_advertise_ip(
         lan_env=(env.get(LAN_IP_KEY) or "").strip(),

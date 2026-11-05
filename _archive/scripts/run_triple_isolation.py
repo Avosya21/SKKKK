@@ -110,10 +110,10 @@ def _prepare_workspace(run: dict, index: int) -> Path:
 
 
 def _run_asr_trio(ws: Path, run: dict) -> dict:
-    os.environ["SKKKK_ASR_WORK"] = str(ws / "audio")
-    os.environ["SKKKK_ASR_OUT"] = str(ws / "asr")
-    os.environ["SKKKK_ARTIFACT_ID"] = run["artifact_id"]
-    os.environ["SKKKK_PROJECT_ID"] = str(run["project_id"])
+    os.environ["PRIMARY_ANALITICS_ASR_WORK"] = str(ws / "audio")
+    os.environ["PRIMARY_ANALITICS_ASR_OUT"] = str(ws / "asr")
+    os.environ["PRIMARY_ANALITICS_ARTIFACT_ID"] = run["artifact_id"]
+    os.environ["PRIMARY_ANALITICS_PROJECT_ID"] = str(run["project_id"])
 
     # paths.py читает env при импорте — перезагрузить.
     for mod in ("paths", "docker_stage", "run_pipeline"):

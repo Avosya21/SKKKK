@@ -79,7 +79,7 @@ def trim_clip(start: float, end: float, *, trim: float = AUDIT_EDGE_TRIM_SEC) ->
 
 
 def stage_audio_for_docker(audio: Path) -> Path:
-    """Контейнер skkkk-gigaam видит только asr/work → /work."""
+    """Контейнер primaryanalitics-gigaam видит только asr/work → /work."""
     return stage_gigaam_docker_input(audio)
 
 
@@ -206,10 +206,10 @@ def refresh_transcript_html(out_dir: Path, turns: list[Turn], *, mapping: dict |
     from transcript_view import load_call_summary_files, write_transcript_html  # noqa: PLC0415
     import os
 
-    match_path = os.environ.get("SKKKK_MATCH_JSON", "").strip()
+    match_path = os.environ.get("PRIMARY_ANALITICS_MATCH_JSON", "").strip()
     match_payload = load_match_payload(Path(match_path)) if match_path else None
-    aid = os.environ.get("SKKKK_ARTIFACT_ID", "").strip() or None
-    pid_raw = os.environ.get("SKKKK_PROJECT_ID", "").strip()
+    aid = os.environ.get("PRIMARY_ANALITICS_ARTIFACT_ID", "").strip() or None
+    pid_raw = os.environ.get("PRIMARY_ANALITICS_PROJECT_ID", "").strip()
     pid = int(pid_raw) if pid_raw.isdigit() else None
     summary_md, brief_md = load_call_summary_files(out_dir)
     registry = speaker_registry_rows(match_payload) if match_payload else None

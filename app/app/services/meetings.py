@@ -30,7 +30,7 @@ from app.app.services.project_access import require_project, staff_ui_role
 GUEST_PREFIX = "guest:"
 # Токен комнаты живёт дольше самой встречи, поэтому после её завершения им можно зайти снова: держим срок коротким (был 6 ч).
 LIVEKIT_TOKEN_TTL_HOURS = 4
-logger = logging.getLogger("skkkk.meetings")
+logger = logging.getLogger("primaryanalitics.meetings")
 GUEST_ID_MAX_LEN = 64
 GUEST_ID_RE = re.compile(r"[A-Za-z0-9-]+")
 GUEST_IDENTITY_HASH_LEN = 32
@@ -52,7 +52,7 @@ def _now() -> datetime:
 
 
 def _room_name() -> str:
-    return "skkkk-" + secrets.token_hex(8)
+    return "primaryanalitics-" + secrets.token_hex(8)
 
 
 def create_meeting(db: Session, settings: Settings, *, project: Project, actor: User) -> tuple[Meeting, str]:
@@ -156,7 +156,7 @@ def link_registry(db: Session, meeting: Meeting) -> None:
         db.commit()
     except Exception:  # noqa: BLE001 - реестр не должен ломать завершение встречи
         db.rollback()
-        logging.getLogger("skkkk.meetings").warning("реестр людей по встрече %s не обновлён", meeting.id, exc_info=True)
+        logging.getLogger("primaryanalitics.meetings").warning("реестр людей по встрече %s не обновлён", meeting.id, exc_info=True)
 
 
 def close_livekit_room(room_name: str) -> bool:

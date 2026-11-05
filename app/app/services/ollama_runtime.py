@@ -14,7 +14,7 @@ import httpx
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.ollama.runtime")
+logger = logging.getLogger("primaryanalitics.ollama.runtime")
 
 _SERVE_PROC: subprocess.Popen | None = None
 

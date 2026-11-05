@@ -101,11 +101,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         url = get_settings().database_url
     except Exception as exc:  # noqa: BLE001 - нет .env (чистый клон, рабочее дерево сессии): проверять нечем
-        print(f"SKKKK: настройки портала не прочитаны ({exc.__class__.__name__}), проверка личных данных пропущена", file=sys.stderr)
+        print(f"PrimaryAnalitics: настройки портала не прочитаны ({exc.__class__.__name__}), проверка личных данных пропущена", file=sys.stderr)
         return 0
     if url.startswith("sqlite:///") and not Path(url[len("sqlite:///"):]).is_file():
         # копия без данных: sqlite создал бы пустую базу, а имён для проверки нет
-        print("SKKKK: базы портала нет, проверка личных данных пропущена", file=sys.stderr)
+        print("PrimaryAnalitics: базы портала нет, проверка личных данных пропущена", file=sys.stderr)
         return 0
 
     from app.app.db import SessionLocal

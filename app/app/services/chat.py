@@ -42,7 +42,7 @@ from app.app.services.retrieval import (
 from app.app.services.vector_index import init_vector_store, search_vectors
 from app.app.services.prompts import load_prompt_block
 
-logger = logging.getLogger("skkkk.chat")
+logger = logging.getLogger("primaryanalitics.chat")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "rag_chat.md"
 CHAT_SEARCH_LIMIT = 12

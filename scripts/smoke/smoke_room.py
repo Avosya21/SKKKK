@@ -34,7 +34,7 @@ with sync_playwright() as p:
     check(bool(wait_until(lambda: tiles(sp) >= 2 and tiles(gp) >= 2)), "оба участника видят двоих")
 
     check(gp.evaluate("document.getElementById('meeting-cam-switch').hidden"), "смена камеры скрыта при выключенной камере")
-    if gp.evaluate("!SKKKKMeeting.room.localParticipant.isCameraEnabled"):
+    if gp.evaluate("!PrimaryAnaliticsMeeting.room.localParticipant.isCameraEnabled"):
         gp.click("#meeting-cam")
     check(
         bool(wait_until(lambda: not gp.evaluate("document.getElementById('meeting-cam-switch').hidden"), 8)),

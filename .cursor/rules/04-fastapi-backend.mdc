@@ -1,5 +1,5 @@
 ---
-description: FastAPI and backend conventions for SKKKK services and routers
+description: FastAPI and backend conventions for PrimaryAnalitics services and routers
 globs: app/**/*.py
 alwaysApply: false
 ---

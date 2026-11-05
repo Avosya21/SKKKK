@@ -1,6 +1,6 @@
 """VAD-driven segmentation helpers shared by PyTorch and MLX ASR.
 
-SKKKK patch: load pyannote/segmentation-3.0 from local checkpoint when CDN/cache fails.
+PrimaryAnalitics patch: load pyannote/segmentation-3.0 from local checkpoint when CDN/cache fails.
 """
 
 from __future__ import annotations

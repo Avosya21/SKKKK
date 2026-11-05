@@ -19,7 +19,7 @@ from pathlib import Path
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.preflight")
+logger = logging.getLogger("primaryanalitics.preflight")
 
 OK = "ok"
 WARN = "warn"

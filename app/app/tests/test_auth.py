@@ -44,7 +44,7 @@ def test_token_contains_role_and_expiry(client, admin_token):
     delta = exp - datetime.now(timezone.utc)
     expected = timedelta(minutes=settings.jwt_expire_minutes)
     assert abs(delta - expected) < timedelta(minutes=2)
-    assert settings.jwt_expire_minutes == 43_200
+    assert settings.jwt_expire_minutes == 480
 
 
 def test_expired_token_rejected(client):

@@ -21,7 +21,7 @@ from app.app.services import user_profile as profiles
 from app.app.services.companies import active_companies, name_key
 from app.app.services.login_allowlist import load_allowlist, login_key
 
-logger = logging.getLogger("skkkk.profile")
+logger = logging.getLogger("primaryanalitics.profile")
 
 YES = {"да", "д", "yes", "y"}
 

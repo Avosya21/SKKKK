@@ -22,7 +22,7 @@ from app.app.services.speaker_profiles import rebuild_match_report_html
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_audio_path, ensure_artifact_workspace
 
-logger = logging.getLogger("skkkk.pipeline")
+logger = logging.getLogger("primaryanalitics.pipeline")
 
 ROOT = Path(__file__).resolve().parents[3]
 PYTHON = sys.executable

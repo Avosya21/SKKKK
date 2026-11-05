@@ -7,7 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = "C:\1C_NEW_SKKKK\data\tools"
+$Root = "D:\Primary_Analitics\data\tools"
 $CudaDir = Join-Path $Root "openresearchtools-engine"
 $VulkanDir = Join-Path $Root "openresearchtools-engine-vulkan"
 

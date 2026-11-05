@@ -100,7 +100,7 @@ def test_staged_python_that_does_not_parse_is_reported(monkeypatch):
 
 def test_installer_declares_both_map_hooks_and_the_scripts_exist():
     text = (ROOT / "scripts" / "install_hooks.ps1").read_text(encoding="utf-8-sig")
-    for needle in ("pre-commit", "commit-msg", "SKKKK-MAP", "SKKKK-PRIVACY", "check_map_staged.py", "check_map_commit_msg.py",
+    for needle in ("pre-commit", "commit-msg", "PrimaryAnalitics-MAP", "PrimaryAnalitics-PRIVACY", "check_map_staged.py", "check_map_commit_msg.py",
                    "scan_personal_data.py"):
         assert needle in text, needle
     assert (ROOT / "scripts" / "check_map_staged.py").is_file() and (ROOT / "scripts" / "check_map_commit_msg.py").is_file()

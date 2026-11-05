@@ -4,7 +4,7 @@
 слова одного спикера. Так в слепок гарантированно попадает произнесённый текст,
 а не пауза, которую диаризация посчитала речью.
 
-Эмбеддинги считает контейнер ``skkkk-gigaam`` — тот же WeSpeaker, которым
+Эмбеддинги считает контейнер ``primaryanalitics-gigaam`` — тот же WeSpeaker, которым
 набита боевая база ``speaker_profiles``. Считать их другой моделью нельзя:
 косинусы окажутся несопоставимы с уже сохранёнными профилями.
 
@@ -78,7 +78,7 @@ def run(
         "min_duration": min_duration,
         "max_duration": max_duration,
         "per_speaker": per_speaker,
-        "embedder": "wespeaker (skkkk-gigaam)",
+        "embedder": "wespeaker (primaryanalitics-gigaam)",
     }
 
     def work(ctx: StageContext) -> None:

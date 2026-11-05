@@ -10,7 +10,7 @@ import httpx
 from app.app.config import Settings
 from app.app.services.ollama_runtime import ensure_ollama
 
-logger = logging.getLogger("skkkk.ollama")
+logger = logging.getLogger("primaryanalitics.ollama")
 EMBED_DIM = 1024
 # Ollama падает 400, если передать сотни строк одним /api/embed (runner tokenize отваливается).
 EMBED_BATCH_SIZE = 64

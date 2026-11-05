@@ -470,7 +470,7 @@ def analyze_ops() -> list[Chunk]:
     for p in sorted((ROOT / "scripts").glob("*.ps1")):
         first = next((l.strip("#<>. \t") for l in p.read_text(encoding="utf-8-sig", errors="replace").splitlines() if l.strip("#<>. \t") and not l.startswith("#requires")), "")
         scripts.append(f"{p.name}: {first[:100]}")
-    text = ("Эксплуатация SKKKK: порты, адреса, каталоги, логи, скрипты запуска.\n"
+    text = ("Эксплуатация PrimaryAnalitics: порты, адреса, каталоги, логи, скрипты запуска.\n"
             "Настройки адресов и портов (.env.example):\n" + "\n".join(f"  {f}" for f in facts) +
             "\nЛоги (data/logs/): " + ", ".join(log_names) +
             "\nКаталоги данных (data/): " + ", ".join(data_dirs) +

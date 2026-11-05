@@ -14,12 +14,12 @@ def _path(env_key: str, default: Path) -> Path:
     return Path(value) if value else default
 
 
-WORK = _path("SKKKK_ASR_WORK", ASR / "work")
-OUT = _path("SKKKK_ASR_OUT", ASR / "out")
+WORK = _path("PRIMARY_ANALITICS_ASR_WORK", ASR / "work")
+OUT = _path("PRIMARY_ANALITICS_ASR_OUT", ASR / "out")
 
 
 def default_audio_url() -> str:
-    custom = os.environ.get("SKKKK_AUDIO_URL", "").strip()
+    custom = os.environ.get("PRIMARY_ANALITICS_AUDIO_URL", "").strip()
     if custom:
         return custom
     wav = WORK / "input_16k.wav"
