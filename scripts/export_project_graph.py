@@ -30,7 +30,7 @@ for stream in (sys.stdout, sys.stderr):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Граф зависимостей проекта SKKKK")
+    ap = argparse.ArgumentParser(description="Граф зависимостей проекта PrimaryAnalitics")
     ap.add_argument("--graph", default=str(ROOT / "data" / "project_map_graph.json"),
                     help="куда писать полный граф (json)")
     ap.add_argument("--modules-json", default=str(ROOT / "docs" / "project-map" / "graph-modules.json"),

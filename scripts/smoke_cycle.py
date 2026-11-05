@@ -156,7 +156,7 @@ def report(client: httpx.Client, base_url: str, headers: dict, project_id: int, 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Полный цикл SKKKK через API")
+    parser = argparse.ArgumentParser(description="Полный цикл PrimaryAnalitics через API")
     parser.add_argument("--base-url", default="http://127.0.0.1:1113")
     parser.add_argument("--project-name", default="Smoke Cycle")
     parser.add_argument("--telegram-id", default="tg-smoke")

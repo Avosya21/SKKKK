@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    Установка окружения после переноса папки / с нуля: Python из tools\Python310 или живой py/python 3.10; venv/venvs; пути в .env.
+    Установка окружения проекта после переноса папки на другой ПК (или с нуля).
 
 .DESCRIPTION
     Папка проекта переносится целиком, но Python-окружения (venv, venvs\*) привязаны к абсолютному пути
     Python и после переноса не работают — их надо пересоздать. Скрипт:
-      1. находит Python 3.10: сначала tools\Python310\python.exe, иначе живой py/python (битый py-лаунчер после переноса пропускается);
+      1. находит Python 3.10 (нужен один раз, ставится отдельно: winget install Python.Python.3.10);
       2. пересоздаёт venv\ по app\requirements.txt;
       3. пересоздаёт venvs\<имя> по scripts\requirements_lock\<имя>.txt (версии зафиксированы, torch — с нужным CUDA-индексом);
       4. проверяет портативные программы в tools\ (LibreOffice, Tesseract, ffmpeg);

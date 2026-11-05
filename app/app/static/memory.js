@@ -29,7 +29,7 @@
 
   async function api(path, method, body) {
     try {
-      const r = await SKKKK.api(`/projects/${PID}/memory${path}`, { method: method || 'GET', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+      const r = await PrimaryAnalitics.api(`/projects/${PID}/memory${path}`, { method: method || 'GET', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
       if (r.status === 404 && path === '/summary') return { hidden: true };
       if (!r.ok) { say(await errText(r), true); return null; }
       return await r.json();

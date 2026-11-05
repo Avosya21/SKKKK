@@ -5,7 +5,7 @@
   "project_id": 1,
   "command": "venvs\\\\lab\\\\Scripts\\\\python.exe asr\\\\lab_pipeline.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --no-voice --report",
   "python": "3.10.9",
-  "executable": "C:\\\\1C_NEW_SKKKK\\\\venvs\\\\lab\\\\Scripts\\\\python.exe",
+  "executable": "D:\\\\Primary_Analitics\\\\venvs\\\\lab\\\\Scripts\\\\python.exe",
   "platform": "Windows-10-10.0.26200-SP0",
   "gpu": {
     "name": "NVIDIA GeForce RTX 3090",
@@ -160,7 +160,7 @@
       "accepted_on": "2026-08-26",
       "command": "venv\\Scripts\\python.exe asr\\lab_sense.py --project-id 1 --artifact-id art_2026-08-19_211842_54f88c --run-id 20260826T174104Z_48a796",
       "python": "3.10.9",
-      "executable": "C:\\1C_NEW_SKKKK\\venv\\Scripts\\python.exe",
+      "executable": "D:\\Primary_Analitics\\venv\\Scripts\\python.exe",
       "cursor_sdk": "1.0.28",
       "llm_provider": "cursor",
       "prompt": "docs/prompts/lab_sense_speakers.md",

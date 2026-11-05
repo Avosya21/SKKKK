@@ -22,7 +22,7 @@ from app.app.services.summarize_document import run_document_summary
 from app.app.services.status import set_status
 from app.app.services.tz import maybe_auto_rebuild_tz
 
-logger = logging.getLogger("skkkk.knowledge")
+logger = logging.getLogger("primaryanalitics.knowledge")
 
 
 def _enqueue_auto_review(db: Session, settings: Settings, artifact: Artifact) -> None:

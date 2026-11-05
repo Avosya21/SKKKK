@@ -1,4 +1,4 @@
-# Атлас зависимостей SKKKK
+# Атлас зависимостей PrimaryAnalitics
 
 Сгенерированная карта проекта: все сущности и все связи между ними. Источник — индекс `data/project_map.db`
 и семантический манифест `docs/project-map/manifest.yaml`; полный граф — `data/project_map_graph.json`,
@@ -911,26 +911,26 @@ flowchart LR
 | `SECRET_KEY` | переменная | Field(min_length=8) | да | app/app/config.py:13 |
 | `SESSIONNAME` | переменная | '' | нет | app/app/startup_llm.py:20 |
 | `SIMILARITY_THRESHOLD` | переменная | 0.82 | да | app/app/config.py:13 |
-| `SKKKK_ACME_CA` | переменная | '' | да | app/app/config.py:13 |
-| `SKKKK_ACME_EMAIL` | переменная | '' | да | app/app/config.py:13 |
-| `SKKKK_ACME_HTTP_PORT` | переменная | 8088 | да | app/app/config.py:13 |
-| `SKKKK_ACME_TLS_PORT` | переменная | 8443 | да | app/app/config.py:13 |
-| `SKKKK_ARTIFACT_ID` | переменная | '' | нет | asr/build_transcript_view.py:77, asr/run_pipeline.py:300, asr/voice_turn_audit.py:202 |
-| `SKKKK_AUDIO_URL` | переменная | '' | нет | asr/paths.py:21 |
-| `SKKKK_DISABLE_EDGE` | переменная |  | нет | app/app/services/edge_runtime.py:373 |
-| `SKKKK_DISABLE_LLM_SELFCHECK` | переменная |  | нет | app/app/services/llm.py:287 |
-| `SKKKK_HTTPS_PORT` | переменная | 777 | да | app/app/config.py:13 |
-| `SKKKK_MATCH_JSON` | переменная | '' | нет | asr/build_transcript_view.py:67, asr/voice_turn_audit.py:202 |
-| `SKKKK_PROCESS_ROLE` | переменная |  | нет | app/app/main.py:492 |
-| `SKKKK_PROJECT_ID` | переменная | '' | нет | asr/build_transcript_view.py:77, asr/voice_turn_audit.py:202 |
-| `SKKKK_PUBLIC_HOST` | переменная | '' | да | app/app/config.py:13 |
-| `SKKKK_STRICT_DB_HOLD` | переменная |  | нет | app/app/services/llm.py:25 |
-| `SKKKK_TLS_CERT` | переменная | '' | да | app/app/config.py:13 |
-| `SKKKK_TLS_ISSUE_TIMEOUT_SEC` | переменная | 120 | да | app/app/config.py:13 |
-| `SKKKK_TLS_KEY` | переменная | '' | да | app/app/config.py:13 |
-| `SKKKK_TLS_RENEW_HOURS` | переменная | 48 | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_ACME_CA` | переменная | '' | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_ACME_EMAIL` | переменная | '' | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_ACME_HTTP_PORT` | переменная | 8088 | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_ACME_TLS_PORT` | переменная | 8443 | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_ARTIFACT_ID` | переменная | '' | нет | asr/build_transcript_view.py:77, asr/run_pipeline.py:300, asr/voice_turn_audit.py:202 |
+| `PRIMARY_ANALITICS_AUDIO_URL` | переменная | '' | нет | asr/paths.py:21 |
+| `PRIMARY_ANALITICS_DISABLE_EDGE` | переменная |  | нет | app/app/services/edge_runtime.py:373 |
+| `PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK` | переменная |  | нет | app/app/services/llm.py:287 |
+| `PRIMARY_ANALITICS_HTTPS_PORT` | переменная | 777 | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_MATCH_JSON` | переменная | '' | нет | asr/build_transcript_view.py:67, asr/voice_turn_audit.py:202 |
+| `PRIMARY_ANALITICS_PROCESS_ROLE` | переменная |  | нет | app/app/main.py:492 |
+| `PRIMARY_ANALITICS_PROJECT_ID` | переменная | '' | нет | asr/build_transcript_view.py:77, asr/voice_turn_audit.py:202 |
+| `PRIMARY_ANALITICS_PUBLIC_HOST` | переменная | '' | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_STRICT_DB_HOLD` | переменная |  | нет | app/app/services/llm.py:25 |
+| `PRIMARY_ANALITICS_TLS_CERT` | переменная | '' | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_TLS_ISSUE_TIMEOUT_SEC` | переменная | 120 | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_TLS_KEY` | переменная | '' | да | app/app/config.py:13 |
+| `PRIMARY_ANALITICS_TLS_RENEW_HOURS` | переменная | 48 | да | app/app/config.py:13 |
 | `SMOKE_BASE` | переменная | 'https://127.0.0.1:777' | нет | scripts/smoke/common.py:18 |
-| `SMOKE_DATA_DIR` | переменная | 'C:\\1C_NEW_SKKKK\\data' | нет | scripts/smoke/smoke_delete_live_guest.py:9 |
+| `SMOKE_DATA_DIR` | переменная | 'D:\\Primary_Analitics\\data' | нет | scripts/smoke/smoke_delete_live_guest.py:9 |
 | `SMOKE_LOGIN` | переменная |  | нет | scripts/smoke/common.py:33 |
 | `SMOKE_PASSWORD` | переменная |  | нет | scripts/smoke_cycle.py:158 |
 | `SMOKE_PERSONAL_PW` | переменная | '' | нет | scripts/smoke/common.py:50, scripts/smoke_cycle.py:25 |
@@ -1071,7 +1071,7 @@ flowchart LR
 | `get_db` | символ | `app/app/db.py:167` | 0 | 364 |
 | `get` | символ | `app/app/services/people.py:116` | 3 | 350 |
 | `screen_recorder.py` | файл | `tools/livekit/screen_recorder.py:` | 55 | 297 |
-| `Снимок проекта для приватного репозитория SKKKK` | коммит | `:` | 349 | 0 |
+| `Снимок проекта для приватного репозитория PrimaryAnalitics` | коммит | `:` | 349 | 0 |
 | `Entity` | символ | `app/app/models/entity.py:11` | 1 | 325 |
 | `log_event` | символ | `app/app/logging_setup.py:71` | 1 | 299 |
 | `User` | символ | `app/app/models/user.py:13` | 1 | 287 |

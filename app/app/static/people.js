@@ -24,7 +24,7 @@
   };
   const call = async (path, method, body) => {
     try {
-      const r = await SKKKK.api(`/projects/${PID}${path}`, { method: method || 'GET', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+      const r = await PrimaryAnalitics.api(`/projects/${PID}${path}`, { method: method || 'GET', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
       if (!r.ok) { say(await errText(r), true); return null; }
       return await r.json();
     } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }

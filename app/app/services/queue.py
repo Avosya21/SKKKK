@@ -246,7 +246,7 @@ def queue_project_button(
     from app.app.models.project_task import ProjectTask
 
     if KIND_PROJECT_TASK not in running_worker_kinds(data_dir):
-        raise ProjectTaskRefused(503, "Запущен воркер старой версии — перезапустите SKKKK, чтобы кнопка встала в очередь")
+        raise ProjectTaskRefused(503, "Запущен воркер старой версии — перезапустите PrimaryAnalitics, чтобы кнопка встала в очередь")
     running = db.scalar(
         select(ProjectTask.id).where(
             ProjectTask.status == "running", ProjectTask.task_type == task, ProjectTask.project_id == project_id,

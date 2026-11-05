@@ -9,7 +9,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 
 DESKTOP = Path.home() / "Desktop"
-OUT = DESKTOP / "SKKKK-QA-Тестовое-задание.docx"
+OUT = DESKTOP / "PrimaryAnalitics-QA-Тестовое-задание.docx"
 
 
 def add_heading(doc: Document, text: str, level: int = 1) -> None:
@@ -41,7 +41,7 @@ def add_table(doc: Document, headers: list[str], rows: list[list[str]]) -> None:
 
 def build() -> Document:
     doc = Document()
-    title = doc.add_heading("Тестовое задание: Primary Analytics (SKKKK)", 0)
+    title = doc.add_heading("Тестовое задание: Primary Analytics (PrimaryAnalitics)", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     add_para(
@@ -105,7 +105,7 @@ def build() -> Document:
                 ["3.7", "Повторный вход тем же логином, другой Telegram ID", "Вход успешен, история чата сохраняется"],
                 ["3.8", "Повторный вход тем же логином, пароль user (раньше manager)", "Роль меняется на user, кнопки match/MCP пропадают"],
                 ["3.9", "Нажать Войти", "Спиннер «Вхожу…», повторный клик не дублирует запрос"],
-                ["3.10", "После входа открыть /", "Список проектов, cookie skkkk_session установлена"],
+                ["3.10", "После входа открыть /", "Список проектов, cookie primary_analitics_session установлена"],
                 ["3.11", "Нажать Выйти в шапке", "POST /auth/logout, GET /projects → 401"],
                 ["3.12", "Открыть /health/ready без сессии", "401"],
                 ["3.13", "Открыть /health/ready после входа", "200, в ответе есть queue"],
@@ -238,7 +238,7 @@ def build() -> Document:
             [
                 ["12.1", "User открывает проект", "Блок MCP не рендерится"],
                 ["12.2", "Manager разворачивает MCP", "Badge «только чтение», URL, JSON для Cursor"],
-                ["12.3", "Создать ключ", "Ключ skkkk_mcp_… показан, в списке"],
+                ["12.3", "Создать ключ", "Ключ primary_analitics_mcp_… показан, в списке"],
                 ["12.4", "Отозвать ключ", "Ключ исчезает, запросы отклоняются"],
                 ["12.5", "User: GET mcp/info", "403"],
             ],

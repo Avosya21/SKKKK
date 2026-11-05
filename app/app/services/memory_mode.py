@@ -19,7 +19,7 @@ from app.app.logging_setup import log_event
 from app.app.models.decision_memory import MemoryShadowReview, Subject
 from app.app.models.speech_act import SpeechAct
 
-logger = logging.getLogger("skkkk.memory_mode")
+logger = logging.getLogger("primaryanalitics.memory_mode")
 
 MODES = ("off", "shadow", "live")
 SETTING_KEY = "decision_memory"

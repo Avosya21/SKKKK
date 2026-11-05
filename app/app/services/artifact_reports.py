@@ -232,7 +232,7 @@ def _toolbar_html(artifact_id: str) -> str:
 def _document_report_script() -> str:
     return """<script>
 function authHeaders() {
-  const token = localStorage.getItem("skkkk_token");
+  const token = localStorage.getItem("primary_analitics_token");
   return token ? { Authorization: "Bearer " + token } : {};
 }
 function apiDetail(text) {

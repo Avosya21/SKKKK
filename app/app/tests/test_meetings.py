@@ -29,7 +29,7 @@ def test_guest_public_page_has_no_project_nav(client, manager_token):
     assert "Встреча" in page.text
     assert "Выдать доступ" not in page.text
     assert 'href="/projects"' not in page.text
-    assert "SKKKK_MEETING_VOICE" in page.text
+    assert "PRIMARY_ANALITICS_MEETING_VOICE" in page.text
     assert 'id="meeting-denoise"' in page.text
     info = client.get(f"/api/meetings/public/{token}")
     assert info.status_code == 200
@@ -425,11 +425,11 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-menu"' in staff_room
     assert "meeting_room.js?v=a59" in guest
     assert "meeting_room.js?v=a59" in staff_room
-    assert "SKKKK_MEETING_VOICE" in guest
-    assert "SKKKK_MEETING_VOICE" in staff_room
-    assert "skkkk-guest-" in guest
+    assert "PRIMARY_ANALITICS_MEETING_VOICE" in guest
+    assert "PRIMARY_ANALITICS_MEETING_VOICE" in staff_room
+    assert "primaryanalitics-guest-" in guest
     assert "guest_id" in guest
-    assert "skkkk-meeting-invite-" in project
+    assert "primaryanalitics-meeting-invite-" in project
     css = (Path(__file__).resolve().parents[1] / "static" / "app.css").read_text(encoding="utf-8")
     assert ".meeting-stage.is-immersive" in css
     assert ".meeting-roster" in css
@@ -509,7 +509,7 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "isMobileLayout" in js
     assert "MOBILE_MQ" in js
     assert "DOCK_MORE_MQ" in js
-    assert "skkkk-meeting-invite-" in js
+    assert "primaryanalitics-meeting-invite-" in js
     assert "canUseDfn3" in js
     assert "canUseLoudness" in js
     assert "toggleDenoise" in js
@@ -522,10 +522,28 @@ def test_meeting_room_js_waits_for_ice_tcp():
     assert "_silentMeterCtx" in js
     assert "_onMicSilent" in js
     assert "MediaDevicesError" in js
+    assert "LocalAudioSilenceDetected" in js
     assert "mic_silent" in js
     assert "setAttributes" in js
     assert "ParticipantAttributesChanged" in js
     assert "ConnectionQualityChanged" in js
+    # Ошибка камеры/экрана не ставит mic_silent: MediaDevicesError ветвится по Track.Source
+    assert "source === Src.Camera" in js
+    assert "source === Src.ScreenShare" in js
+    assert "source === Src.Microphone" in js
+    assert "_stopLocalMicWatch" in js
+    assert "TEXT_MIC_RESTARTED" in js
+    # Ошибка камеры — тост про камеру, без _onMicSilent в catch toggleCam
+    cam_catch = js.split("async toggleCam")[1].split("async switchCamera")[0]
+    assert 'mediaErrorText(err, "камеру")' in cam_catch
+    assert "_onMicSilent" not in cam_catch
+    # Обработчик MediaDevicesError: mic → _onMicSilent; camera → тост без _onMicSilent
+    assert "room.on(LK.RoomEvent.MediaDevicesError, (err, source) => {" in js
+    mic_branch = js.split("source === Src.Microphone")[1].split("source === Src.Camera")[0]
+    assert "_onMicSilent()" in mic_branch
+    cam_branch = js.split("source === Src.Camera")[1].split("source === Src.ScreenShare")[0]
+    assert 'mediaErrorText(err, "камеру")' in cam_branch
+    assert "_onMicSilent" not in cam_branch
     assert "videoSimulcastLayers" in js
     assert "VideoPresets.h360" in js
     assert "meeting-tile-screen-" in js
@@ -548,7 +566,7 @@ def test_meeting_room_js_waits_for_ice_tcp():
     # шумодав по умолчанию выключен; DFN3 грузится, только когда человек его включил
     assert "_denoiseOn: false," in js
     assert "const wantDfn3 = this._denoiseOn || Boolean(this._dfn3);" in js
-    assert 'const RAW_TRACK_NAME = "skkkk-raw";' in js
+    assert 'const RAW_TRACK_NAME = "primaryanalitics-raw";' in js
     assert "mic._mediaStreamTrack || mic.mediaStreamTrack" in js
     assert "source: LK.Track.Source.Unknown, dtx: false, red: false" in js
     # люди на сырую дорожку не подписываются; играет всё звуковое, кроме неё; «сироты» снимаются; сверка раз в 2 с
@@ -595,7 +613,7 @@ def test_lab_audio_stage_stays_raw_copy():
 def test_voice_recorder_is_not_asr():
     src = Path(__file__).resolve().parents[3] / "tools" / "livekit" / "voice_cleaner.py"
     text = src.read_text(encoding="utf-8")
-    assert 'CLEANER_ID = "skkkk-dfn"' in text  # имя участника рекордера голоса (историческое)
+    assert 'CLEANER_ID = "primaryanalitics-dfn"' in text  # имя участника рекордера голоса (историческое)
     assert "RAW_TRACK_NAME" in text
     assert "01_audio" not in text
 
@@ -613,7 +631,7 @@ def test_analyzable_tracks_skip_screen_and_cleaner(tmp_path: Path):
     from app.app.services import meeting_recordings as rec
     from app.app.services.meeting_analyze import analyzable_tracks
 
-    room = "skkkk-analyze01"
+    room = "primaryanalitics-analyze01"
     manifest = rec.empty_manifest(room)
     rec.upsert_track(
         manifest,
@@ -634,7 +652,7 @@ def test_analyzable_tracks_skip_screen_and_cleaner(tmp_path: Path):
     rec.upsert_track(
         manifest,
         identity=rec.CLEANER_ID,
-        rel_path="tracks/skkkk-dfn.wav",
+        rel_path="tracks/primaryanalitics-dfn.wav",
         source=rec.SOURCE_MICROPHONE,
         sample_rate=rec.SAMPLE_RATE,
         started_epoch=1000.0,
@@ -1011,7 +1029,7 @@ def test_purge_meeting_room_cleanup_is_repeated(monkeypatch, tmp_path):
 
     monkeypatch.setattr(threading, "Timer", FakeTimer)
     settings = Settings(secret_key="x" * 16, data_dir=tmp_path)
-    room = "skkkk-" + "ab" * 8
+    room = "primaryanalitics-" + "ab" * 8
     room_dir = tmp_path / "meetings" / room
     room_dir.mkdir(parents=True)
     (room_dir / "events.jsonl").write_text("{}", encoding="utf-8")
@@ -1034,7 +1052,7 @@ def test_livekit_token_ttl_is_four_hours():
 
     assert LIVEKIT_TOKEN_TTL_HOURS == 4
     settings = Settings(secret_key="x" * 16, livekit_api_key="k", livekit_api_secret="s" * 32)
-    token = _livekit_jwt(settings, "skkkk-abc", "guest:1", "Гость", can_publish=True)
+    token = _livekit_jwt(settings, "primaryanalitics-abc", "guest:1", "Гость", can_publish=True)
     claims = jwt.get_unverified_claims(token)
     ttl = claims["exp"] - datetime.now(timezone.utc).timestamp()
     assert 3.9 * 3600 < ttl <= 4 * 3600 + 5
@@ -1079,7 +1097,7 @@ def test_close_livekit_room_goes_to_local_livekit(monkeypatch):
     from app.app.services import meetings
 
     urls = _fake_livekit(monkeypatch, None)
-    assert meetings.close_livekit_room("skkkk-abc") is True
+    assert meetings.close_livekit_room("primaryanalitics-abc") is True
     assert urls == ["ws://127.0.0.1:7880"]
 
 
@@ -1092,7 +1110,7 @@ def test_close_livekit_room_works_inside_running_event_loop(monkeypatch):
     urls = _fake_livekit(monkeypatch, None)
 
     async def inside():
-        return meetings.close_livekit_room("skkkk-abc")
+        return meetings.close_livekit_room("primaryanalitics-abc")
 
     assert asyncio.run(inside()) is True
     assert urls == ["ws://127.0.0.1:7880"]
@@ -1103,7 +1121,7 @@ def test_close_livekit_room_treats_missing_room_as_success(monkeypatch):
     from app.app.services import meetings
 
     _fake_livekit(monkeypatch, "ServerError(code=not_found, message=twirp error unknown: requested room does not exist, status=404)")
-    assert meetings.close_livekit_room("skkkk-abc") is True
+    assert meetings.close_livekit_room("primaryanalitics-abc") is True
 
 
 def test_close_livekit_room_bare_404_is_failure(monkeypatch, caplog):
@@ -1112,7 +1130,7 @@ def test_close_livekit_room_bare_404_is_failure(monkeypatch, caplog):
 
     _fake_livekit(monkeypatch, "ServerError(code=unknown, message=, status=404)")
     with caplog.at_level("WARNING"):
-        assert meetings.close_livekit_room("skkkk-abc") is False
+        assert meetings.close_livekit_room("primaryanalitics-abc") is False
     assert "livekit room cleanup failed" in caplog.text
 
 
@@ -1124,7 +1142,7 @@ def test_analyze_state_explains_empty_recording(tmp_path):
     from app.app.services import meeting_recordings as rec
     from app.app.services.meeting_analyze import analyze_state
 
-    room = "skkkk-emptyrec"
+    room = "primaryanalitics-emptyrec"
     manifest = rec.empty_manifest(room)
     rec.upsert_track(manifest, identity="guest:abc", rel_path="tracks/guest-abc.wav", source=rec.SOURCE_MICROPHONE, sample_rate=rec.SAMPLE_RATE, started_epoch=1000.0)
     rec.write_manifest(rec.room_dir(tmp_path, room) / rec.MANIFEST_NAME, manifest)

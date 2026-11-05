@@ -270,8 +270,8 @@ def _worker_marker(tmp_path, *, with_kinds: bool):
     (tmp_path / "locks" / "gpu_worker.pid").write_text("4242", encoding="utf-8")
     kinds = " kinds=process_artifact,auto_review,refresh_knowledge" if with_kinds else ""
     (tmp_path / "logs" / "worker.log").write_text(
-        "10:00:00 INFO    skkkk.worker     worker.started           pid=1111 dry_run=False kinds=process_artifact,auto_review\n"
-        f"11:00:00 INFO    skkkk.worker     worker.started           pid=4242 dry_run=False{kinds}\n",
+        "10:00:00 INFO    primaryanalitics.worker     worker.started           pid=1111 dry_run=False kinds=process_artifact,auto_review\n"
+        f"11:00:00 INFO    primaryanalitics.worker     worker.started           pid=4242 dry_run=False{kinds}\n",
         encoding="utf-8",
     )
 

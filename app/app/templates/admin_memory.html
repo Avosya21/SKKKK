@@ -43,14 +43,14 @@
 {% block scripts %}
 <script>
 (async () => {
-  if (!SKKKK.requireAuth()) return;
+  if (!PrimaryAnalitics.requireAuth()) return;
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const say = (t, bad) => { const el = $('mm-status'); el.textContent = t || ''; el.classList.toggle('text-danger', !!bad); };
   const pct = (v) => (v === null || v === undefined || v === '' ? '—' : Math.round(Number(v) * 100) + '%');
   const getJson = async (path, opts) => {
     try {
-      const r = await SKKKK.api(path, opts);
+      const r = await PrimaryAnalitics.api(path, opts);
       if (!r.ok) { say(r.status === 404 ? 'Страница недоступна для этой учётки.' : 'Ошибка ' + r.status, true); return null; }
       return await r.json();
     } catch (e) { say('Нет связи с сервером. Проверьте интернет и повторите.', true); return null; }

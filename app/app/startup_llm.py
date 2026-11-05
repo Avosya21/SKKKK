@@ -1,4 +1,4 @@
-"""Выбор LLM при запуске SKKKK: LM Studio (локально) или Cursor API."""
+"""Выбор LLM при запуске PrimaryAnalitics: LM Studio (локально) или Cursor API."""
 
 from __future__ import annotations
 

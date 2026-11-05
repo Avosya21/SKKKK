@@ -194,7 +194,7 @@ def _ensure_member_person(db: Session, project_id: int, user_id: int, actor_id: 
         db.commit()
     except people.PeopleError:
         db.rollback()
-        logging.getLogger("skkkk.members").warning("участник %s проекта %s не записан в реестр", user_id, project_id, exc_info=True)
+        logging.getLogger("primaryanalitics.members").warning("участник %s проекта %s не записан в реестр", user_id, project_id, exc_info=True)
 
 
 def remove_member(db: Session, *, project: Project, actor: User, user_id: int) -> None:

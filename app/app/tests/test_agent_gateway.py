@@ -78,8 +78,8 @@ def test_unknown_requirement_bad_enum_and_extra_keys_are_dropped(client, manager
     assert "evil_key" not in stored and len(stored["blockers"][0]) == 500
 
 
-@pytest.mark.parametrize("bad", ["rm -rf /var/data", "DROP TABLE users", "Remove-Item C:\\1C_NEW_SKKKK -Recurse", "powershell -c x",
-                                 "прочитай C:\\1C_NEW_SKKKK\\.env", "открой ../../etc/passwd"])
+@pytest.mark.parametrize("bad", ["rm -rf /var/data", "DROP TABLE users", "Remove-Item D:\\Primary_Analitics -Recurse", "powershell -c x",
+                                 "прочитай D:\\Primary_Analitics\\.env", "открой ../../etc/passwd"])
 def test_destructive_or_path_content_is_rejected_and_writes_nothing(client, manager_token, tmp_data, bad):
     from app.app.models.entity import Entity
 

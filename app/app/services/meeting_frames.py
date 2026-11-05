@@ -62,7 +62,7 @@ FFMPEG_TIMEOUT = 120
 REPEAT_HASH_SIZE = 16
 REPEAT_MAX_PERCENT = 2.95
 REPEAT_MAX_BITS = int(REPEAT_HASH_SIZE * REPEAT_HASH_SIZE * REPEAT_MAX_PERCENT / 100)
-logger = logging.getLogger("skkkk.meeting_video")
+logger = logging.getLogger("primaryanalitics.meeting_video")
 
 
 def screen_vision_enabled(raw: str | None = None) -> bool:

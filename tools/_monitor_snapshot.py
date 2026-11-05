@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-db = Path(r"C:\1C_NEW_SKKKK\data\app.db")
+db = Path(r"D:\Primary_Analitics\data\app.db")
 con = sqlite3.connect(str(db))
 con.row_factory = sqlite3.Row
 print("recent jobs:")

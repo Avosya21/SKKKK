@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.app.services.ollama_client import EMBED_DIM
 
-logger = logging.getLogger("skkkk.vector")
+logger = logging.getLogger("primaryanalitics.vector")
 
 
 def load_sqlite_vec(dbapi_conn) -> bool:

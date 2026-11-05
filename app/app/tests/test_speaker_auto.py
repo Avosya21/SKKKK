@@ -131,7 +131,8 @@ def test_match_view_shows_auto_and_hint():
         {"primary": "speaker_1", "labels": ["speaker_1"], "match": payload["matches"]["speaker_1"], "profile_id": None},
     ]
     html = _speaker_cards(groups, {}, payload["matches"], payload["merge_map"])
-    assert "Узнан автоматически по голосу (93%, отрыв 42%)" in html
+    assert "Узнан автоматически по голосу (93%)." in html
+    assert "отрыв" not in html
     assert "Подсказка модели:" in html and 'value="Павел"' in html
 
 

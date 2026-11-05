@@ -153,7 +153,7 @@ def main() -> int:
     try:
         staged = staged_paths()
     except RuntimeError as exc:
-        print(f"SKKKK: проверка карты пропущена ({exc})", file=sys.stderr)
+        print(f"PrimaryAnalitics: проверка карты пропущена ({exc})", file=sys.stderr)
         return 0
     broken = syntax_errors(staged)
     if broken:
@@ -163,21 +163,21 @@ def main() -> int:
     if not args.all and not any(is_relevant(p) for p in staged):
         return 0
 
-    with tempfile.TemporaryDirectory(prefix="skkkk-map-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="primaryanalitics-map-") as tmp:
         target = Path(tmp)
         try:
             export_index(target)
         except RuntimeError as exc:
-            print(f"SKKKK: проверка карты пропущена: не удалось выгрузить индекс ({exc})", file=sys.stderr)
+            print(f"PrimaryAnalitics: проверка карты пропущена: не удалось выгрузить индекс ({exc})", file=sys.stderr)
             return 0
         checker = target / "scripts" / "check_map_drift.py"
         if not checker.is_file():
-            print("SKKKK: в коммите нет scripts/check_map_drift.py, проверка карты пропущена", file=sys.stderr)
+            print("PrimaryAnalitics: в коммите нет scripts/check_map_drift.py, проверка карты пропущена", file=sys.stderr)
             return 0
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         result = subprocess.run([sys.executable, "-c", DRIVER], cwd=target, env=env, capture_output=True, check=False)
     if result.returncode != 0:
-        print(f"SKKKK: проверка карты пропущена: {result.stderr.decode('utf-8', 'replace').strip()[-400:]}", file=sys.stderr)
+        print(f"PrimaryAnalitics: проверка карты пропущена: {result.stderr.decode('utf-8', 'replace').strip()[-400:]}", file=sys.stderr)
         return 0
     report = json.loads(result.stdout.decode("utf-8"))
     problems = format_problems(report)

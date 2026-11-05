@@ -24,7 +24,7 @@ from app.app.services.livekit_env import (
     ensure_livekit_files,
 )
 
-logger = logging.getLogger("skkkk.edge")
+logger = logging.getLogger("primaryanalitics.edge")
 
 ROOT = Path(__file__).resolve().parents[3]
 CADDY_DIR = ROOT / "tools" / "caddy"
@@ -33,7 +33,7 @@ CADDYFILE = CADDY_DIR / "Caddyfile"
 LIVEKIT_DIR = ROOT / "tools" / "livekit"
 LIVEKIT_COMPOSE = LIVEKIT_DIR / "docker-compose.yml"
 LIVEKIT_EXE = LIVEKIT_DIR / "livekit-server.exe"
-LIVEKIT_CONTAINER = "skkkk-livekit"
+LIVEKIT_CONTAINER = "primaryanalitics-livekit"
 LIVEKIT_HTTP_PORT = 7880
 VOICE_PY = ROOT / "venvs" / "voice" / "Scripts" / "python.exe"
 VOICE_CLEANER = ROOT / "tools" / "livekit" / "voice_cleaner.py"
@@ -51,14 +51,14 @@ HEARTBEAT_STALE_SEC = 12.0
 
 
 _CADDY_FILE_KEYS = (
-    "SKKKK_TLS_CERT",
-    "SKKKK_TLS_KEY",
-    "SKKKK_PUBLIC_HOST",
-    "SKKKK_ACME_EMAIL",
-    "SKKKK_ACME_CA",
-    "SKKKK_HTTPS_PORT",
-    "SKKKK_ACME_HTTP_PORT",
-    "SKKKK_ACME_TLS_PORT",
+    "PRIMARY_ANALITICS_TLS_CERT",
+    "PRIMARY_ANALITICS_TLS_KEY",
+    "PRIMARY_ANALITICS_PUBLIC_HOST",
+    "PRIMARY_ANALITICS_ACME_EMAIL",
+    "PRIMARY_ANALITICS_ACME_CA",
+    "PRIMARY_ANALITICS_HTTPS_PORT",
+    "PRIMARY_ANALITICS_ACME_HTTP_PORT",
+    "PRIMARY_ANALITICS_ACME_TLS_PORT",
 )
 
 
@@ -70,19 +70,19 @@ def _caddy_env(settings: Settings) -> dict[str, str]:
     for key in _CADDY_FILE_KEYS:
         if file_env.get(key):
             env[key] = file_env[key]
-    env["SKKKK_PUBLIC_HOST"] = settings.skkkk_public_host or env.get("SKKKK_PUBLIC_HOST", "")
-    env["SKKKK_HTTPS_PORT"] = str(settings.skkkk_https_port)
-    env["SKKKK_ACME_HTTP_PORT"] = str(settings.skkkk_acme_http_port)
-    env["SKKKK_ACME_EMAIL"] = settings.skkkk_acme_email or env.get("SKKKK_ACME_EMAIL", "")
-    env["SKKKK_ACME_CA"] = settings.skkkk_acme_ca or env.get("SKKKK_ACME_CA", "")
-    env["SKKKK_WEB_PORT"] = str(settings.web_port)
-    env["SKKKK_ACME_TLS_PORT"] = str(settings.skkkk_acme_tls_port)
-    env["SKKKK_CADDY_STORAGE"] = str(settings.data_dir / "caddy")
-    env["SKKKK_CADDY_LOG"] = str(settings.data_dir / "logs" / "caddy.log")
-    if (settings.skkkk_public_host or "").strip():
+    env["PRIMARY_ANALITICS_PUBLIC_HOST"] = settings.primary_analitics_public_host or env.get("PRIMARY_ANALITICS_PUBLIC_HOST", "")
+    env["PRIMARY_ANALITICS_HTTPS_PORT"] = str(settings.primary_analitics_https_port)
+    env["PRIMARY_ANALITICS_ACME_HTTP_PORT"] = str(settings.primary_analitics_acme_http_port)
+    env["PRIMARY_ANALITICS_ACME_EMAIL"] = settings.primary_analitics_acme_email or env.get("PRIMARY_ANALITICS_ACME_EMAIL", "")
+    env["PRIMARY_ANALITICS_ACME_CA"] = settings.primary_analitics_acme_ca or env.get("PRIMARY_ANALITICS_ACME_CA", "")
+    env["PRIMARY_ANALITICS_WEB_PORT"] = str(settings.web_port)
+    env["PRIMARY_ANALITICS_ACME_TLS_PORT"] = str(settings.primary_analitics_acme_tls_port)
+    env["PRIMARY_ANALITICS_CADDY_STORAGE"] = str(settings.data_dir / "caddy")
+    env["PRIMARY_ANALITICS_CADDY_LOG"] = str(settings.data_dir / "logs" / "caddy.log")
+    if (settings.primary_analitics_public_host or "").strip():
         cert, key = tls_paths(settings)
-        env["SKKKK_TLS_CERT"] = str(cert)
-        env["SKKKK_TLS_KEY"] = str(key)
+        env["PRIMARY_ANALITICS_TLS_CERT"] = str(cert)
+        env["PRIMARY_ANALITICS_TLS_KEY"] = str(key)
     return env
 
 
@@ -116,10 +116,10 @@ def ensure_caddy(settings: Settings) -> str:
 
 def _open_livekit_firewall() -> None:
     rules = (
-        ("SKKKK LiveKit TCP ICE", "TCP", str(RTC_TCP_PORT)),
-        ("SKKKK LiveKit TCP TURN", "TCP", str(TURN_UDP_PORT)),
-        ("SKKKK LiveKit UDP TURN", "UDP", str(TURN_UDP_PORT)),
-        ("SKKKK LiveKit UDP media", "UDP", f"{RTC_UDP_START}-{RTC_UDP_END}"),
+        ("PrimaryAnalitics LiveKit TCP ICE", "TCP", str(RTC_TCP_PORT)),
+        ("PrimaryAnalitics LiveKit TCP TURN", "TCP", str(TURN_UDP_PORT)),
+        ("PrimaryAnalitics LiveKit UDP TURN", "UDP", str(TURN_UDP_PORT)),
+        ("PrimaryAnalitics LiveKit UDP media", "UDP", f"{RTC_UDP_START}-{RTC_UDP_END}"),
     )
     for name, proto, port in rules:
         subprocess.run(
@@ -373,7 +373,7 @@ def voice_venv_ready() -> bool:
 def edge_disabled() -> bool:
     """Тесты и CI не должны запускать настоящие рекордеры: в пустой временной папке «уже запущенных» нет, и на каждый запуск тестов
     появлялась ещё одна копия. Копии с одним именем участника выбивают друг друга из комнаты LiveKit и рвут запись созвона."""
-    return bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("SKKKK_DISABLE_EDGE") == "1")
+    return bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("PRIMARY_ANALITICS_DISABLE_EDGE") == "1")
 
 
 def ensure_voice_cleaner() -> str:
@@ -527,13 +527,13 @@ def check_served_certificate(settings: Settings) -> str:
     """Caddy держит сертификат :777 в памяти и не перечитывает файл при обновлении (ACME, ~раз в 6 дней).
     Сравниваем то, что отдаёт порт, с файлом на диске; при расхождении принудительно перезагружаем Caddy.
     Результат: skip | ok | reloaded | failed."""
-    if not (settings.skkkk_public_host or "").strip():
+    if not (settings.primary_analitics_public_host or "").strip():
         return "skip"
     cert, _key = tls_paths(settings)
     on_disk = _file_cert_serial(cert)
     if on_disk is None:
         return "skip"
-    served = _served_cert_serial("127.0.0.1", settings.skkkk_https_port)
+    served = _served_cert_serial("127.0.0.1", settings.primary_analitics_https_port)
     if served == on_disk:
         return "ok"
     log_event(logger, "edge.tls.mismatch", level=logging.WARNING, served_known=served is not None)
@@ -543,7 +543,7 @@ def check_served_certificate(settings: Settings) -> str:
         log_event(logger, "edge.tls.reload.failed", level=logging.WARNING, error=str(exc))
         return "failed"
     time.sleep(1.5)
-    if _served_cert_serial("127.0.0.1", settings.skkkk_https_port) == on_disk:
+    if _served_cert_serial("127.0.0.1", settings.primary_analitics_https_port) == on_disk:
         log_event(logger, "edge.tls.reloaded", cert=str(cert))
         return "reloaded"
     return "failed"

@@ -25,7 +25,7 @@ from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 from app.app.models.entity import Entity, Topic
 
-logger = logging.getLogger("skkkk.review")
+logger = logging.getLogger("primaryanalitics.review")
 
 SCOPE = "reextract"
 FOLLOW_UP_SCOPES = ("artifact", "topics", "relevance", "conflicts")

@@ -60,7 +60,7 @@ from fastapi.templating import Jinja2Templates
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 MANIFEST_MEDIA = "application/manifest+json"
-MANIFEST_NAME = "Встреча SKKKK"
+MANIFEST_NAME = "Встреча PrimaryAnalitics"
 MANIFEST_DISPLAY = "standalone"
 MANIFEST_ICON = "/static/meeting-icon.svg"
 
@@ -77,9 +77,11 @@ def _artifact_role(db: Session, user: User, artifact: Artifact) -> str:
 
 
 REPORT_THEME_LINKS = (
-    '<link rel="stylesheet" href="/static/design.css?v=6">'
-    '<link rel="stylesheet" href="/static/report-theme.css?v=1">'
+    '<link rel="stylesheet" href="/static/design.css?v=11">'
+    '<link rel="stylesheet" href="/static/report-theme.css?v=3">'
 )
+# Страница голосов (/report-speaker-match) — своя Bootstrap-палитра; design.css ломает бейджи и «Базу голосов».
+REPORT_SPEAKER_MATCH_MARKER = 'class="speaker-card'
 REPORT_JUMP_SCRIPT = '<script src="/static/report-jump.js?v=1" defer></script>'
 
 
@@ -107,15 +109,20 @@ def _speaker_cards_html(db: Session, artifact: Artifact) -> str:
 
     ctx = json.dumps(page_context(db, artifact), ensure_ascii=False).replace("</", "<\\/")
     return (f'<script id="pp-cards" type="application/json">{ctx}</script>'
-            f'<link rel="stylesheet" href="/static/speaker_cards.css?v=2">'
-            f'<script src="/static/speaker_cards.js?v=2"></script>')
+            f'<link rel="stylesheet" href="/static/speaker_cards.css?v=8">'
+            f'<script src="/static/speaker_cards.js?v=8"></script>')
 
 
 def _serve_report(html: str, user: User, *, embed: bool, kind: str, role: str | None = None, people_html: str = "") -> HTMLResponse:
     if people_html and "name-inp" in html and "</body>" in html and "pp-people" not in html:
         html = html.replace("</body>", people_html + "</body>", 1)
     # Единая дизайн-система для отчётов: подключается при отдаче, сохранённые файлы не меняются.
-    if "</head>" in html and "report-theme.css" not in html:
+    # Match спикеров — без design.css/report-theme: у страницы своя вёрстка (бейджи Bootstrap, таблицы пула).
+    if (
+        "</head>" in html
+        and "report-theme.css" not in html
+        and REPORT_SPEAKER_MATCH_MARKER not in html
+    ):
         html = html.replace("</head>", REPORT_THEME_LINKS + "</head>", 1)
     # Переход по ссылке к месту источника: ?t= момент созвона, ?m= сообщение, ?q= цитата (SOURCE-ANCHORS-PLAN этап 4)
     if "</body>" in html and "report-jump.js" not in html:
@@ -275,7 +282,7 @@ def project_page(
     try:
         digest = digest_for_page(db, get_settings(), project, user, role)
     except Exception:  # полоска не должна ломать страницу проекта
-        logging.getLogger("skkkk.pages").exception("project digest failed project=%s", project_id)
+        logging.getLogger("primaryanalitics.pages").exception("project digest failed project=%s", project_id)
         digest = {"lines": []}
     return templates.TemplateResponse(
         request,

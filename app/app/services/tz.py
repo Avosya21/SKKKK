@@ -27,7 +27,7 @@ from app.app.services.vector_index import (
     search_vectors,
 )
 
-logger = logging.getLogger("skkkk.tz")
+logger = logging.getLogger("primaryanalitics.tz")
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "rebuild_tz.md"
 MAP_CHUNK_CHARS = 6000

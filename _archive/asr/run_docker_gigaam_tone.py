@@ -41,7 +41,7 @@ def get_json(url: str, headers: dict[str, str] | None = None, timeout: int = 60)
 
 
 def post_file(url: str, path: Path, headers: dict[str, str], timeout: int = 3600) -> dict:
-    boundary = "----skkkkBoundary7MA4YWxkTrZu0gW"
+    boundary = "----primaryanaliticsBoundary7MA4YWxkTrZu0gW"
     data = path.read_bytes()
     parts = [
         f"--{boundary}\r\n".encode(),

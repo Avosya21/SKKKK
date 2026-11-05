@@ -24,7 +24,7 @@ from app.app.config import Settings
 from app.app.logging_setup import log_event
 from app.app.models.artifact import Artifact
 
-logger = logging.getLogger("skkkk.doc_memory")
+logger = logging.getLogger("primaryanalitics.doc_memory")
 
 PASSPORT_VERSION = "document_passport-v1"
 ACTS_PROMPT_VERSION = "speech_acts_doc-v2"  # v2: контекст не размечается, ответ одной строкой

@@ -27,7 +27,7 @@ from app.app.models.artifact import Artifact
 from app.app.models.decision_memory import DecisionEvent
 from app.app.models.speech_act import ACTS, SpeechAct
 
-logger = logging.getLogger("skkkk.speech_acts")
+logger = logging.getLogger("primaryanalitics.speech_acts")
 
 ROOT = Path(__file__).resolve().parents[3]
 PROMPT_PATH = ROOT / "docs" / "prompts" / "speech_acts.md"

@@ -1,4 +1,4 @@
-# SKKKK — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0)
+# PrimaryAnalitics — автоподъём сервера раз в 5 мин по /health (УСТАРЕЛ: проверяет http на :777, где теперь HTTPS; не запускать, см. PROJECT-MAP §3.0)
 $ErrorActionPreference = "Continue"
 $root = (Split-Path -Parent $PSScriptRoot)
 $py = Join-Path $root "venv\Scripts\python.exe"
@@ -43,6 +43,6 @@ function Ensure-Running {
 
 while ($true) {
   Start-Sleep -Seconds 300
-  Write-Output 'AGENT_LOOP_TICK_skkkk {"prompt":"Check SKKKK server health on :777; if down or unhealthy restart all mode; inspect recent errors in server terminal and job failures; fix and report briefly."}'
+  Write-Output 'AGENT_LOOP_TICK_primaryanalitics {"prompt":"Check PrimaryAnalitics server health on :777; if down or unhealthy restart all mode; inspect recent errors in server terminal and job failures; fix and report briefly."}'
   Ensure-Running
 }

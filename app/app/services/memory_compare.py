@@ -23,7 +23,7 @@ from app.app.models.decision_memory import POSITION_LABELS, STATE_LABELS, Memory
 from app.app.models.entity import Entity
 from app.app.models.speech_act import ACT_LABELS, SpeechAct
 
-logger = logging.getLogger("skkkk.memory_compare")
+logger = logging.getLogger("primaryanalitics.memory_compare")
 
 PROMPT_VERSION = "memory_arbiter-v2"
 ACTIVE = {"current", "done"}

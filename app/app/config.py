@@ -37,17 +37,19 @@ class Settings(BaseSettings):
     web_port: int = 1111
     # Публичный URL для ссылок и MCP (если портал доступен из интернета).
     web_public_url: str = ""
+    # Доп. Host для TrustedHost/CSRF (через запятую; плюс всегда loopback, WEB_HOST, WEB_PUBLIC_URL, PUBLIC_HOST).
+    allowed_hosts: str = ""
     # HTTPS / ACME (Caddy). Публичный :80 приходит в портал, не в Apache.
-    skkkk_public_host: str = ""
-    skkkk_https_port: int = 777
-    skkkk_acme_http_port: int = 8088
-    skkkk_acme_tls_port: int = 8443
-    skkkk_acme_email: str = ""
-    skkkk_acme_ca: str = ""
-    skkkk_tls_cert: str = ""
-    skkkk_tls_key: str = ""
-    skkkk_tls_renew_hours: int = 48
-    skkkk_tls_issue_timeout_sec: int = 120
+    primary_analitics_public_host: str = ""
+    primary_analitics_https_port: int = 777
+    primary_analitics_acme_http_port: int = 8088
+    primary_analitics_acme_tls_port: int = 8443
+    primary_analitics_acme_email: str = ""
+    primary_analitics_acme_ca: str = ""
+    primary_analitics_tls_cert: str = ""
+    primary_analitics_tls_key: str = ""
+    primary_analitics_tls_renew_hours: int = 48
+    primary_analitics_tls_issue_timeout_sec: int = 120
 
     lmstudio_base_url: str = "http://127.0.0.1:1234/v1"
     lmstudio_model: str = "swift-qwen3.8-27b-uncensored-dynamic-mtp"
@@ -61,7 +63,7 @@ class Settings(BaseSettings):
     lmstudio_enable_thinking: bool = False
     lmstudio_reasoning_effort: str = "medium"
     # Хранитель модели (services/llm_keeper.py, профиль tools/lmstudio/qwen-profile.json):
-    # выгрузка после простоя без задач и чата; TTL LM Studio — страховка, если процессы SKKKK упали.
+    # выгрузка после простоя без задач и чата; TTL LM Studio — страховка, если процессы PrimaryAnalitics упали.
     lmstudio_idle_unload_sec: int = 300
     lmstudio_load_ttl_sec: int = 1800
     # Модель рядом с ASR на GPU. Замер 2026-10-05: на карте 24 ГБ не помещается (вынос в общую память, шаги встают),
@@ -107,7 +109,7 @@ class Settings(BaseSettings):
     search_min_score: float = 0.35
     tz_rebuild_every_n: int = 3
     dry_run: bool = False
-    jwt_expire_minutes: int = 43_200
+    jwt_expire_minutes: int = 480  # 8 часов (рабочий день); смена — DECISIONS «Периметр HTTP»
     job_max_attempts: int = 3
     login_allowlist_path: Path = ROOT / "Login_up.txt"
     # Личный пароль после пароля роли: required (всегда) | off — только тесты и аварийный откат.

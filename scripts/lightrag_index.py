@@ -36,7 +36,7 @@ def _load_env(path: Path) -> dict[str, str]:
 
 
 def _workspace_inputs(env: dict[str, str]) -> Path:
-    ws = env.get("WORKSPACE", "SKKKK_PROJECT_MAP")
+    ws = env.get("WORKSPACE", "PRIMARY_ANALITICS_PROJECT_MAP")
     return LIGHTRAG_ROOT / "data" / "inputs" / ws
 
 

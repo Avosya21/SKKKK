@@ -1,4 +1,4 @@
-# SKKKK — Кадры экрана: время, момент, дубли, база знаний
+# PrimaryAnalitics — Кадры экрана: время, момент, дубли, база знаний
 
 **Статус:** план, 2026-09-25. Продолжение [`MEETING-SCREEN-PLAN.md`](MEETING-SCREEN-PLAN.md) (C1–C2 сделаны, C3–C4 впереди).
 
@@ -17,13 +17,13 @@
 
 | Комната | track | кадров = сек файла | реальная длина показа | отставание к концу |
 |---|---|---|---|---|
-| skkkk-ede1a388efcc3703 | TR_VSHCMMfxGBiad7 | 2167 | 2539,3 | 372 с |
-| skkkk-fa9e63097ada425e (пр. 33) | TR_VSrFwuG5hoQ9Uf | 1872 | 2112,5 | 240 с |
-| skkkk-353c2dcbc6e4cff6 | TR_VSHmY63bJhDM7J | 1805 | 2100,5 | 295 с |
-| skkkk-84ae8e4960a672e1 | TR_VSJQ27eMM6VmvK | 157 | 173,3 | 16 с |
-| skkkk-9ddd44fb4702b6fd | TR_VSzUaGetW3xYcF | 91 | 102,7 | 12 с |
-| skkkk-84ae8e4960a672e1 | TR_VSudjBcsjUewiv | 40 | 45,1 | 5 с |
-| skkkk-fa9e63097ada425e | TR_VSoB7gaDsoq5ri | 18 | 20,9 | 3 с |
+| primaryanalitics-ede1a388efcc3703 | TR_VSHCMMfxGBiad7 | 2167 | 2539,3 | 372 с |
+| primaryanalitics-fa9e63097ada425e (пр. 33) | TR_VSrFwuG5hoQ9Uf | 1872 | 2112,5 | 240 с |
+| primaryanalitics-353c2dcbc6e4cff6 | TR_VSHmY63bJhDM7J | 1805 | 2100,5 | 295 с |
+| primaryanalitics-84ae8e4960a672e1 | TR_VSJQ27eMM6VmvK | 157 | 173,3 | 16 с |
+| primaryanalitics-9ddd44fb4702b6fd | TR_VSzUaGetW3xYcF | 91 | 102,7 | 12 с |
+| primaryanalitics-84ae8e4960a672e1 | TR_VSudjBcsjUewiv | 40 | 45,1 | 5 с |
+| primaryanalitics-fa9e63097ada425e | TR_VSoB7gaDsoq5ri | 18 | 20,9 | 3 с |
 
 Потери одинаковы на показах от 21 с до 42 мин, значит, отставание растёт линейно. Для старых записей годится пересчёт по коэффициенту `(ended_epoch − started_epoch) / (frames / fps)`.
 
@@ -80,7 +80,7 @@
 
 **Живая проверка.** Созвон с показом экрана 5+ мин: `frames / fps` совпадает с `ended_epoch − started_epoch` ±1 с. На экране показа — секундомер. Кадр на файловой секунде N показывает секундомер ≈ N (+ задержка сети).
 
-**Осторожно.** Перезапуск `skkkk-rec` — только когда нет живых комнат (урок потерянного созвона: одна копия, без перезапусков во время записи).
+**Осторожно.** Перезапуск `primaryanalitics-rec` — только когда нет живых комнат (урок потерянного созвона: одна копия, без перезапусков во время записи).
 
 ---
 

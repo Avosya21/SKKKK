@@ -244,7 +244,7 @@ def s_mcp(browser, pw):
     page.fill("#mcp-label", "qa-flow-key")
     page.click("#mcp-create-token")
     tok = wait_until(lambda: page.locator("#mcp-new-token-value").inner_text().strip(), 10)
-    check(bool(tok) and tok.startswith("skkkk_mcp_"), "ключ создан и показан один раз")
+    check(bool(tok) and tok.startswith("primary_analitics_mcp_"), "ключ создан и показан один раз")
     row = page.locator("#mcp-tokens-body tr", has_text="qa-flow-key").first
     # права — три уровня (только чтение / + вопросы / + вопросы и вердикты), меняются выпадающим списком в строке ключа
     check("вопросы и вердикты" in row.inner_text(), "в таблице у нового ключа указано «чтение + вопросы и вердикты»")
@@ -307,7 +307,7 @@ def s_px(browser, pw):
 def s_roles(browser, pw):
     ctx, page = new_page(browser)
     login(page, "audit-manager", pw["manager"])
-    pid = page.evaluate("SKKKK.api('/projects', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'Проект менеджера'})}).then(r => r.json()).then(j => j.id)")
+    pid = page.evaluate("PrimaryAnalitics.api('/projects', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'Проект менеджера'})}).then(r => r.json()).then(j => j.id)")
     page.goto(BASE + f"/projects/{pid}")
     qp.settle(page)
     page.evaluate("PageHubs.open('review')")

@@ -1,4 +1,4 @@
-# SKKKK — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db
+# PrimaryAnalitics — резервная копия SQLite (VACUUM INTO): app.db и база личных паролей credentials.db
 param(
     [int]$Keep = 7
 )

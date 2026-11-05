@@ -17,7 +17,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path[:] = [item for item in sys.path if Path(item).resolve() != _SCRIPT_DIR]
 
 ROOT = Path(__file__).resolve().parents[2]
-RECORDER_ID = "skkkk-rec"
+RECORDER_ID = "primaryanalitics-rec"
 RECORDER_NAME = "запись экрана"
 POLL_SEC = 2.0
 HEARTBEAT_SEC = 2.5
@@ -255,7 +255,7 @@ def _recordings():
         import importlib.util
 
         path = ROOT / "app" / "app" / "services" / "meeting_recordings.py"
-        spec = importlib.util.spec_from_file_location("skkkk_meeting_recordings_screen", path)
+        spec = importlib.util.spec_from_file_location("primary_analitics_meeting_recordings_screen", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         _REC_MOD = mod
@@ -735,7 +735,7 @@ def _list_rooms(list_jwt: str) -> list[str]:
     names = []
     for row in payload.get("rooms") or []:
         name = row.get("name") or ""
-        if name.startswith("skkkk-"):
+        if name.startswith("primaryanalitics-"):
             names.append(name)
     return names
 

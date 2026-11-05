@@ -13,7 +13,7 @@ with sync_playwright() as p:
     room = f"{BASE}/projects/{PID}/meetings/{mid}/room"
     first.goto(room)
     first.wait_for_selector("#meeting-stage", timeout=20000)
-    wait_until(lambda: first.evaluate("!!(SKKKKMeeting.room && SKKKKMeeting._joined)"), 15)
+    wait_until(lambda: first.evaluate("!!(PrimaryAnaliticsMeeting.room && PrimaryAnaliticsMeeting._joined)"), 15)
     second = ctx.new_page()
     second.goto(room)
     second.wait_for_selector("#meeting-stage", timeout=20000)

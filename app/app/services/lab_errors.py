@@ -9,7 +9,7 @@ ONNX_WARN_RE = re.compile(r"\[W:onnxruntime:[^\]]+\][^\n]*")
 NO_WORDS = "onnx-asr не собрал ни одного слова"
 NO_REPLICAS = "из покрашенных слов не собралось ни одной реплики"
 NO_SPEECH = "речь не обнаружена"
-GIGAAM_DOWN = "GigaAM не запущен (контейнер skkkk-gigaam, порт 18102)"
+GIGAAM_DOWN = "GigaAM не запущен (контейнер primaryanalitics-gigaam, порт 18102)"
 ERROR_MARKERS = ("RuntimeError:", "StageFailed:", "FileNotFoundError:", "ValueError:")
 MAX_ERROR_LEN = 400
 

@@ -53,7 +53,7 @@ def test_first_login_setup_then_personal(required):
     first = _step1(client)
     assert first["step"] == "setup" and first["min_length"] == 10
     assert "access_token" not in first
-    assert "skkkk_session" not in client.cookies
+    assert "primary_analitics_session" not in client.cookies
 
     r = _setup(client, first["ticket"])
     assert r.status_code == 200, r.text

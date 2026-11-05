@@ -1,4 +1,4 @@
-# SKKKK — GPU-воркер очереди
+# PrimaryAnalitics — GPU-воркер очереди
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 & .\venv\Scripts\Activate.ps1

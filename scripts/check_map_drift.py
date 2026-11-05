@@ -41,11 +41,11 @@ END = "<!-- generated:end registry -->"
 
 CODE_GLOBS = [
     "app/app/*.py", "app/app/services/*.py", "app/app/routers/*.py", "app/app/models/*.py", "app/app/workers/*.py",
-    "app/app/mcp/*.py", "app/app/services/project_index/*.py", "app/app/static/*.js", "app/app/static/*.css", "app/app/templates/*.html",
+    "app/app/middleware/*.py", "app/app/mcp/*.py", "app/app/services/project_index/*.py", "app/app/static/*.js", "app/app/static/*.css", "app/app/templates/*.html",
     "app/app/templates/partials/*.html", "asr/*.py", "asr/lab/*.py", "scripts/*.py", "scripts/*.ps1", "scripts/smoke/*.py",
     "tools/*.py", "tools/livekit/*.py", "tools/projectmap/projectmap/*.py",
 ]
-DOC_DIRS = ["app/app/services", "app/app/routers", "app/app/models", "app/app/workers", "app/app/mcp", "app/app/services/project_index"]
+DOC_DIRS = ["app/app/services", "app/app/routers", "app/app/models", "app/app/workers", "app/app/middleware", "app/app/mcp", "app/app/services/project_index"]
 
 
 def code_files() -> list[str]:
@@ -129,7 +129,7 @@ ENV_IGNORE = re.compile(
     r"^(PATH|PATHEXT|HOME|USERPROFILE|TEMP|TMP|APPDATA|LocalAppData|ProgramFiles(\(x86\))?|SESSIONNAME|COMPUTERNAME|"
     r"PYCHARM_HOSTED|PYTEST_CURRENT_TEST|PYTHONPATH|PYTHONIOENCODING|SMOKE_\w*|\{\}\w*|\w*\{\}\w*|"
     # внутренние: конвейер сам подставляет их подпроцессам (`pipeline_audio`, `artifact_audio`) и контейнерам ASR
-    r"SKKKK_ARTIFACT_ID|SKKKK_PROJECT_ID|SKKKK_AUDIO_URL|SKKKK_MATCH_JSON|APP_DIR|OUT_DIR|ASR_ENGINE)$"
+    r"PRIMARY_ANALITICS_ARTIFACT_ID|PRIMARY_ANALITICS_PROJECT_ID|PRIMARY_ANALITICS_AUDIO_URL|PRIMARY_ANALITICS_MATCH_JSON|APP_DIR|OUT_DIR|ASR_ENGINE)$"
 )
 
 

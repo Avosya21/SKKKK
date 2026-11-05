@@ -63,7 +63,8 @@ def _skip_setup(step: str) -> None:
 
 
 def api_login(role: str = "admin") -> tuple[httpx.Client, dict]:
-    client = httpx.Client(base_url=BASE, verify=False, timeout=60)
+    # Origin нужен CSRF-middleware: после login в клиенте есть cookie сессии.
+    client = httpx.Client(base_url=BASE, verify=False, timeout=60, headers={"Origin": BASE, "Referer": BASE + "/"})
     r = client.post("/auth/login", json={"name": LOGIN, "telegram_id": TG, "password": password(role)})
     r.raise_for_status()
     data = r.json()
@@ -85,10 +86,12 @@ def new_live_meeting(client: httpx.Client) -> tuple[int, str]:
 
 def browser_login(page, role: str = "admin") -> None:
     page.goto(BASE + "/login")
-    ins = page.locator("#login-form input")
-    ins.nth(0).fill(LOGIN)
-    ins.nth(1).fill(TG)
-    ins.nth(2).fill(password(role))
+    page.fill("#login-name", LOGIN)
+    # Telegram ID на форме сейчас скрыт (hide_telegram) — поле disabled, FormData его не шлёт.
+    tg = page.locator("#login-telegram")
+    if tg.count() and tg.is_visible() and tg.is_enabled():
+        tg.fill(TG)
+    page.fill("#login-password", password(role))
     page.locator("#login-form button[type=submit]").click()
     # Второй шаг (личный пароль) — если сервер его требует.
     page.wait_for_function(

@@ -1,4 +1,4 @@
-# SKKKK project map manifest — nodes & dependency edges for agents and vector index.
+# PrimaryAnalitics project map manifest — nodes & dependency edges for agents and vector index.
 # Update together with docs/PROJECT-MAP.md when adding modules or pipelines.
 version: 1
 updated: "2026-09-21"
@@ -31,7 +31,7 @@ nodes:
   - id: svc_livekit
     kind: process
     path: "tools/livekit/livekit-server.exe"
-    title: "Native LiveKit :7880; ICE public node_ip+LAN+127.0.0.1; TURN SKKKK_PUBLIC_HOST; not Docker"
+    title: "Native LiveKit :7880; ICE public node_ip+LAN+127.0.0.1; TURN PRIMARY_ANALITICS_PUBLIC_HOST; not Docker"
     tags: [runtime, meetings, livekit]
 
   - id: svc_livekit_env
@@ -93,6 +93,36 @@ nodes:
     path: "app/app/services/project_access.py"
     title: "Own-project guard + project_members; 404 foreign; project_role; lab admin; staff match/rebuild"
     tags: [service, auth, projects]
+
+  - id: mw_csrf
+    kind: service
+    path: "app/app/middleware/csrf.py"
+    title: "CSRF Origin/Referer allowlist on cookie-authenticated mutations"
+    tags: [service, auth, security]
+
+  - id: mw_trusted_host
+    kind: service
+    path: "app/app/middleware/trusted_host.py"
+    title: "Host header allowlist (DNS rebinding); ALLOWED_HOSTS + WEB_PUBLIC_URL"
+    tags: [service, auth, security]
+
+  - id: mw_hosts
+    kind: service
+    path: "app/app/middleware/hosts.py"
+    title: "Shared Host allowlist for CSRF and TrustedHost"
+    tags: [service, auth, security]
+
+  - id: svc_session_version
+    kind: service
+    path: "app/app/services/session_version.py"
+    title: "Global session_version bump; JWT sv gate"
+    tags: [service, auth, security]
+
+  - id: model_portal_setting
+    kind: model
+    path: "app/app/models/portal_setting.py"
+    title: "portal_settings key/value (session_version)"
+    tags: [db, auth]
 
   - id: svc_project_purge
     kind: service
@@ -469,19 +499,19 @@ nodes:
   - id: docker_whisper
     kind: external
     path: "asr/docker-compose.yml"
-    title: "skkkk-whisper container :18101"
+    title: "primaryanalitics-whisper container :18101"
     tags: [asr, docker, gpu]
 
   - id: docker_gigaam
     kind: external
     path: "asr/docker-compose.yml"
-    title: "skkkk-gigaam container :18102 (ASR + voice embed)"
+    title: "primaryanalitics-gigaam container :18102 (ASR + voice embed)"
     tags: [asr, docker, gpu]
 
   - id: docker_tone
     kind: external
     path: "asr/docker-compose.yml"
-    title: "skkkk-tone container :18103"
+    title: "primaryanalitics-tone container :18103"
     tags: [asr, docker, gpu]
 
   - id: prompt_merge
@@ -655,7 +685,7 @@ nodes:
   - id: ui_btn_meeting_denoise
     kind: button
     path: "app/app/templates/meeting_public.html#meeting-denoise"
-    title: "Шумодав — opt-out своего мика; publishData skkkk-denoise, свой clean-* не играется"
+    title: "Шумодав — opt-out своего мика; publishData primaryanalitics-denoise, свой clean-* не играется"
     tags: [ui, meetings, voice]
 
   - id: ui_btn_meeting_sound
@@ -667,7 +697,7 @@ nodes:
   - id: ui_meeting_mic_silent_toast
     kind: ui_action
     path: "app/app/static/meeting_room.js"
-    title: "Тост «Микрофон молчит» + Перезапустить; setAttributes({mic_silent:1}), не metadata"
+    title: "Тост «Микрофон молчит» + Перезапустить только для Microphone/LocalAudioSilence; Camera/ScreenShare — отдельные тосты без mic_silent"
     tags: [ui, meetings, voice]
 
   - id: ui_meeting_screen_tile
@@ -691,13 +721,13 @@ nodes:
   - id: svc_meeting_voice
     kind: service
     path: "tools/livekit/voice_cleaner.py"
-    title: "CPU DeepFilterNet, identity skkkk-dfn; сырые дорожки в data/meetings/{room}; не ASR"
+    title: "CPU DeepFilterNet, identity primaryanalitics-dfn; сырые дорожки в data/meetings/{room}; не ASR"
     tags: [meetings, voice, livekit]
 
   - id: svc_screen_recorder
     kind: service
     path: "tools/livekit/screen_recorder.py"
-    title: "skkkk-rec пишет screen_video mp4 в data/meetings/{room}/tracks; identity = кто шарит; не камера"
+    title: "primaryanalitics-rec пишет screen_video mp4 в data/meetings/{room}/tracks; identity = кто шарит; не камера"
     tags: [meetings, screen, livekit]
 
   - id: svc_meeting_frames
@@ -961,7 +991,7 @@ nodes:
   - id: lab_stage_voice
     kind: module
     path: "asr/lab/stages/s05_voice.py"
-    title: "05_voice — WeSpeaker в skkkk-gigaam, speaker_profiles только на чтение; этап 4 её не перезапускает"
+    title: "05_voice — WeSpeaker в primaryanalitics-gigaam, speaker_profiles только на чтение; этап 4 её не перезапускает"
     tags: [lab, speakers, docker]
 
   - id: lab_stage_transcript
@@ -1484,7 +1514,7 @@ nodes:
   - id: mod_startup_llm
     kind: file
     path: app/app/startup_llm.py
-    title: "Выбор LLM при запуске SKKKK: LM Studio (локально) или Cursor API."
+    title: "Выбор LLM при запуске PrimaryAnalitics: LM Studio (локально) или Cursor API."
     tags: [auto]
     auto: true
 
@@ -1498,7 +1528,7 @@ nodes:
   - id: static_app_auto
     kind: file
     path: app/app/static/app.js
-    title: "const SKKKK = {"
+    title: "const PrimaryAnalitics = {"
     tags: [auto]
     auto: true
 
@@ -1617,14 +1647,14 @@ nodes:
   - id: asr_build_sortformer_transcript_view
     kind: file
     path: asr/build_sortformer_transcript_view.py
-    title: "Тестовая стенogramma: текст ASR + интервалы Sortformer v2.1 (GGUF)."
+    title: "Пробная стенограмма: текст ASR + интервалы Sortformer v2.1 (GGUF)."
     tags: [auto]
     auto: true
 
   - id: asr_client
     kind: file
     path: asr/client.py
-    title: "Клиент SKKKK к трём ASR-контейнерам."
+    title: "Клиент PrimaryAnalitics к трём ASR-контейнерам."
     tags: [auto]
     auto: true
 
@@ -1638,7 +1668,7 @@ nodes:
   - id: asr_dump_pyannote
     kind: file
     path: asr/dump_pyannote.py
-    title: "Снять сырые интервалы PyAnnote из контейнера skkkk-gigaam."
+    title: "Снять сырые интервалы PyAnnote из контейнера primaryanalitics-gigaam."
     tags: [auto]
     auto: true
 
@@ -1792,7 +1822,7 @@ nodes:
   - id: script_backup_db
     kind: file
     path: scripts/backup_db.ps1
-    title: "SKKKK — резервная копия SQLite (VACUUM INTO)"
+    title: "PrimaryAnalitics — резервная копия SQLite (VACUUM INTO)"
     tags: [auto]
     auto: true
 
@@ -1820,7 +1850,7 @@ nodes:
   - id: script_check_systems
     kind: file
     path: scripts/check_systems.ps1
-    title: "SKKKK — только проверка всех систем, без запуска"
+    title: "PrimaryAnalitics — только проверка всех систем, без запуска"
     tags: [auto]
     auto: true
 
@@ -1883,14 +1913,14 @@ nodes:
   - id: script_install_caddy
     kind: file
     path: scripts/install_caddy.ps1
-    title: "SKKKK — Caddy как HTTPS-прокси перед порталом (запуск от администратора)"
+    title: "PrimaryAnalitics — Caddy как HTTPS-прокси перед порталом (запуск от администратора)"
     tags: [auto]
     auto: true
 
   - id: script_install_services
     kind: file
     path: scripts/install_services.ps1
-    title: "SKKKK — установка служб Windows через NSSM (запуск от администратора)"
+    title: "PrimaryAnalitics — установка служб Windows через NSSM (запуск от администратора)"
     tags: [auto]
     auto: true
 
@@ -1918,14 +1948,14 @@ nodes:
   - id: script_lightrag_query
     kind: file
     path: scripts/lightrag_query.py
-    title: "Запрос к LightRAG по карте SKKKK."
+    title: "Запрос к LightRAG по карте PrimaryAnalitics."
     tags: [auto]
     auto: true
 
   - id: script_lightrag_sync_docs
     kind: file
     path: scripts/lightrag_sync_docs.py
-    title: "Скопировать документацию SKKKK в LightRAG inputs для /documents/scan."
+    title: "Скопировать документацию PrimaryAnalitics в LightRAG inputs для /documents/scan."
     tags: [auto]
     auto: true
 
@@ -1943,17 +1973,17 @@ nodes:
     tags: [auto]
     auto: true
 
-  - id: script_monitor_skkkk_loop
+  - id: script_monitor_primary_analitics_loop
     kind: file
-    path: scripts/monitor_skkkk_loop.ps1
-    title: "scripts/monitor_skkkk_loop.ps1"
+    path: scripts/monitor_primary_analitics_loop.ps1
+    title: "scripts/monitor_primary_analitics_loop.ps1"
     tags: [auto]
     auto: true
 
   - id: script_monitor_status
     kind: file
     path: scripts/monitor_status.py
-    title: "Лёгкий монитор SKKKK: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log."
+    title: "Лёгкий монитор PrimaryAnalitics: health, очередь, ошибки job — пишет в data/logs/monitor_loop.log."
     tags: [auto]
     auto: true
 
@@ -2028,7 +2058,7 @@ nodes:
   - id: qa_isolated_stand
     kind: process
     path: scripts/qa_pages.py
-    title: "Изолированный стенд живых проверок: uvicorn на :18777 с копией базы, временными паролями и без Caddy/LiveKit/рекордеров (SKKKK_DISABLE_EDGE=1, PERSONAL_PASSWORD=off)"
+    title: "Изолированный стенд живых проверок: uvicorn на :18777 с копией базы, временными паролями и без Caddy/LiveKit/рекордеров (PRIMARY_ANALITICS_DISABLE_EDGE=1, PERSONAL_PASSWORD=off)"
     tags: [tests, runtime]
 
   - id: ext_ollama
@@ -2046,7 +2076,7 @@ nodes:
   - id: ext_docker
     kind: external
     path: ""
-    title: "Docker Desktop — контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG :9621"
+    title: "Docker Desktop — контейнеры primaryanalitics-gigaam (рабочий), primaryanalitics-whisper и primaryanalitics-tone (откат), LightRAG :9621"
     tags: [external, docker]
 
   - id: ext_caddy_binary
@@ -2131,7 +2161,7 @@ nodes:
   - id: script_restart
     kind: file
     path: scripts/restart.ps1
-    title: "SKKKK — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health"
+    title: "PrimaryAnalitics — безопасный перезапуск: остановка -> проверки зависимостей -> старт -> ожидание /health"
     tags: [auto]
     auto: true
 
@@ -2145,21 +2175,21 @@ nodes:
   - id: script_run_all
     kind: file
     path: scripts/run_all.ps1
-    title: "SKKKK — весь проект одной командой (LLM из .env)"
+    title: "PrimaryAnalitics — весь проект одной командой (LLM из .env)"
     tags: [auto]
     auto: true
 
   - id: script_run_api
     kind: file
     path: scripts/run_api.ps1
-    title: "SKKKK — только API (LLM из .env)"
+    title: "PrimaryAnalitics — только API (LLM из .env)"
     tags: [auto]
     auto: true
 
   - id: script_run_worker
     kind: file
     path: scripts/run_worker.ps1
-    title: "SKKKK — GPU-воркер очереди"
+    title: "PrimaryAnalitics — GPU-воркер очереди"
     tags: [auto]
     auto: true
 
@@ -2341,14 +2371,14 @@ nodes:
   - id: script_start
     kind: file
     path: scripts/start.ps1
-    title: "SKKKK — запуск API + GPU-воркер с выбором LLM"
+    title: "PrimaryAnalitics — запуск API + GPU-воркер с выбором LLM"
     tags: [auto]
     auto: true
 
   - id: script_stop
     kind: file
     path: scripts/stop.ps1
-    title: "SKKKK — остановить API и GPU-воркер"
+    title: "PrimaryAnalitics — остановить API и GPU-воркер"
     tags: [auto]
     auto: true
 
@@ -2362,7 +2392,7 @@ nodes:
   - id: script_watch_server
     kind: file
     path: scripts/watch_server.py
-    title: "Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log)."
+    title: "Watch PrimaryAnalitics server, queue, and pipeline errors (stdout + monitor_loop.log)."
     tags: [auto]
     auto: true
 
@@ -2740,7 +2770,7 @@ nodes:
   - id: script_qa_media_path
     kind: file
     path: scripts/qa_media_path.py
-    title: "Путь звука и видео созвона в настоящем браузере: от издателя через LiveKit и шумодав `skkkk-dfn` к слушателю."
+    title: "Путь звука и видео созвона в настоящем браузере: от издателя через LiveKit и шумодав `primaryanalitics-dfn` к слушателю."
     tags: [auto]
     auto: true
 

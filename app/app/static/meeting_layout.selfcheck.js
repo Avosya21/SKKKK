@@ -1,6 +1,6 @@
 // Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка.
 (function () {
-  const layout = window.SKKKKLayout;
+  const layout = window.PrimaryAnaliticsLayout;
   console.assert(layout.flagState(null, {}) === layout.FLAG_NONE, "publication=null → none");
   console.assert(layout.flagState({ isMuted: true }, {}) === layout.FLAG_OFF, "muted → off");
   console.assert(

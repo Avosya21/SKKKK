@@ -5,7 +5,7 @@ from app.app.services.meeting_analyze import analyzable_tracks, screen_tracks
 
 
 def test_screen_audio_is_not_mixed_into_speech(tmp_path: Path):
-    room = "skkkk-screen01"
+    room = "primaryanalitics-screen01"
     manifest = rec.empty_manifest(room)
     rec.upsert_track(
         manifest,

@@ -1,4 +1,4 @@
-"""Запрос к LightRAG по карте SKKKK.
+"""Запрос к LightRAG по карте PrimaryAnalitics.
 
   venv\\Scripts\\python.exe scripts\\lightrag_query.py "какая кнопка вызывает speaker-recalculate"
   venv\\Scripts\\python.exe scripts\\lightrag_query.py "artifact_speaker_links" --mode global
@@ -33,7 +33,7 @@ def _load_env(path: Path) -> dict[str, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Query SKKKK LightRAG knowledge graph")
+    parser = argparse.ArgumentParser(description="Query PrimaryAnalitics LightRAG knowledge graph")
     parser.add_argument("query")
     parser.add_argument("--mode", default="hybrid", choices=["local", "global", "hybrid", "naive", "mix"])
     parser.add_argument("--url", default=os.environ.get("LIGHTRAG_URL", DEFAULT_URL))

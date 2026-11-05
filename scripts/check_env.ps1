@@ -1,7 +1,7 @@
 <#
-  SKKKK stage 0 environment check.
-  Run:  powershell -ExecutionPolicy Bypass -File C:\1C_NEW_SKKKK\scripts\check_env.ps1
-  Writes a report to C:\1C_NEW_SKKKK\data\logs\env-check.txt and exits 1 if anything required is missing.
+  PrimaryAnalitics stage 0 environment check.
+  Run:  powershell -ExecutionPolicy Bypass -File D:\Primary_Analitics\scripts\check_env.ps1
+  Writes a report to D:\Primary_Analitics\data\logs\env-check.txt and exits 1 if anything required is missing.
 #>
 
 $ErrorActionPreference = 'Continue'
@@ -9,7 +9,7 @@ $root = (Split-Path -Parent $PSScriptRoot)
 $logDir = Join-Path $root 'data\logs'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $report = Join-Path $logDir 'env-check.txt'
-$lines = @("SKKKK env check  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "")
+$lines = @("PrimaryAnalitics env check  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "")
 $failed = @()
 
 function Add-Check {

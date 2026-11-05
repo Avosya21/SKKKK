@@ -1,6 +1,6 @@
 """Этап 4 — слепки голосов лаборатории в voice/, без записи в БД.
 
-Клипы из покраски снимка и оверлея sense/, эмбеддинги WeSpeaker в skkkk-gigaam,
+Клипы из покраски снимка и оверлея sense/, эмбеддинги WeSpeaker в primaryanalitics-gigaam,
 подсказки из speaker_profiles. Кнопки «Запомнить» / «Слить» на report-lab
 пишут в ту же БД; этот CLI только готовит voice/match.json.
 

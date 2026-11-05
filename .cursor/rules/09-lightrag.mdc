@@ -1,5 +1,5 @@
 ---
-description: Как ориентироваться в карте SKKKK — search_project_map первичен, LightRAG только для связей.
+description: Как ориентироваться в карте PrimaryAnalitics — search_project_map первичен, LightRAG только для связей.
 globs:
 alwaysApply: true
 ---

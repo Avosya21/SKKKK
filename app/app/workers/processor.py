@@ -17,7 +17,7 @@ from app.app.services.entities import persist_entities, stub_entities
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_root, parsed_dir, structured_dir
 
-logger = logging.getLogger("skkkk.processor")
+logger = logging.getLogger("primaryanalitics.processor")
 
 AUDIO_STATUSES = [
     "preprocessing",

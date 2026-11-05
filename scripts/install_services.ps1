@@ -1,4 +1,4 @@
-# SKKKK — установка служб Windows через NSSM (запуск от администратора)
+# PrimaryAnalitics — установка служб Windows через NSSM (запуск от администратора)
 param(
     [string]$Nssm = "nssm"
 )
@@ -8,7 +8,7 @@ $Py = Join-Path $Root "venv\Scripts\python.exe"
 $Logs = Join-Path $Root "data\logs"
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null
 
-function Install-SkkkkService {
+function Install-PrimaryAnaliticsService {
     param([string]$Name, [string]$AppArgs)
     & $Nssm install $Name $Py $AppArgs
     & $Nssm set $Name AppDirectory $Root
@@ -18,6 +18,6 @@ function Install-SkkkkService {
     & $Nssm set $Name Start SERVICE_AUTO_START
 }
 
-Install-SkkkkService "SKKKK-API" "-m app.app.main api --use-saved-llm --llm-provider cursor"
-Install-SkkkkService "SKKKK-GPU" "-m app.app.main worker --use-saved-llm"
-Write-Host "Services SKKKK-API and SKKKK-GPU installed. Start with: nssm start SKKKK-API"
+Install-PrimaryAnaliticsService "PrimaryAnalitics-API" "-m app.app.main api --use-saved-llm --llm-provider cursor"
+Install-PrimaryAnaliticsService "PrimaryAnalitics-GPU" "-m app.app.main worker --use-saved-llm"
+Write-Host "Services PrimaryAnalitics-API and PrimaryAnalitics-GPU installed. Start with: nssm start PrimaryAnalitics-API"

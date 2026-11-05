@@ -2,7 +2,7 @@
 
 Дата обхода: 2026-08-18. Источник списка проектов: `C:\Users\rene_\AppData\Roaming\JetBrains\PyCharm2025.2\options\recentProjects.xml` (сборка `PY-252.23892.515`). Проекты PyCharm **не изменялись**.
 
-**Короткий вывод.** В PyCharm нет готового CUDA-пайплайна Whisper / GigaAM / T-one. То, что пользователь вспоминал как «CUDA encoder», это проект `C:\PythonProject_ENCODER`: аппаратный **видеокодек NVENC (hevc_nvenc)** через FFmpeg, плюс CUDA-чат на Llama 3.1. Рабочий GigaAM лежит уже в SKKKK (`AudioToText/` и `asr/run_gigaam.py`) и **должен работать на GPU**. Старые CPU-флаги в `AudioToText/` — наследие чужой слабой машины, не дизайн. Для ансамбля SKKKK нужно продолжать `asr/run_*.py`, а не копировать PyCharm-проекты.
+**Короткий вывод.** В PyCharm нет готового CUDA-пайплайна Whisper / GigaAM / T-one. То, что пользователь вспоминал как «CUDA encoder», это проект `C:\PythonProject_ENCODER`: аппаратный **видеокодек NVENC (hevc_nvenc)** через FFmpeg, плюс CUDA-чат на Llama 3.1. Рабочий GigaAM лежит уже в PrimaryAnalitics (`AudioToText/` и `asr/run_gigaam.py`) и **должен работать на GPU**. Старые CPU-флаги в `AudioToText/` — наследие чужой слабой машины, не дизайн. Для ансамбля PrimaryAnalitics нужно продолжать `asr/run_*.py`, а не копировать PyCharm-проекты.
 
 ## Что просмотрено
 
@@ -29,7 +29,7 @@
 | `C:\Users\rene_\1c-ai-agent` | агент 1С | Нет |
 | `C:\Agent1C` | текущий lastOpenedProject | Нет (только типы OpenAI whisper в зависимостях) |
 | `C:\1C` | база 1С, не Python | Нет |
-| `C:\1C_NEW_SKKKK` | SKKKK, не открывался как проект PyCharm | ASR-скрипты есть, GPU-venv нет |
+| `D:\Primary_Analitics` | PrimaryAnalitics, не открывался как проект PyCharm | ASR-скрипты есть, GPU-venv нет |
 
 Desktop / Downloads / Documents: отдельных ASR-проектов нет.
 
@@ -73,9 +73,9 @@ Desktop / Downloads / Documents: отдельных ASR-проектов нет.
 
 **`C:\1c_analitik\.venv`** — `torch 2.12.0+cpu` (`cuda = None`). Не использовать для ASR.
 
-## 3. Настоящий ASR на этой машине — уже в SKKKK, не в PyCharm
+## 3. Настоящий ASR на этой машине — уже в PrimaryAnalitics, не в PyCharm
 
-### `C:\1C_NEW_SKKKK\AudioToText`
+### `D:\Primary_Analitics\AudioToText`
 
 Исходный Docker-вариант GigaAM v3 `e2e_rnnt` (ConformerEncoder 16 слоёв, 16 кГц). Dockerfile базируется на `pytorch/pytorch:2.3.0-cuda11.8-cudnn8-runtime`. GigaAM **должен идти на GPU**:
 
@@ -84,9 +84,9 @@ Desktop / Downloads / Documents: отдельных ASR-проектов нет.
 - модель ожидается в `/app/model/` внутри контейнера;
 - локально в `AudioToText\model\` есть только `config.json`, `modeling_gigaam.py`, `tokenizer.model` — **весов нет**.
 
-CPU-флаги (`CUDA_VISIBLE_DEVICES=""`, `model.to("cpu")`, пустой `devices: []`) были устаревшими и сняты. Канон конвейера SKKKK — `asr/run_gigaam.py` (тоже CUDA по умолчанию), см. `docs/DECISIONS.md`.
+CPU-флаги (`CUDA_VISIBLE_DEVICES=""`, `model.to("cpu")`, пустой `devices: []`) были устаревшими и сняты. Канон конвейера PrimaryAnalitics — `asr/run_gigaam.py` (тоже CUDA по умолчанию), см. `docs/DECISIONS.md`.
 
-### `C:\1C_NEW_SKKKK\asr`
+### `D:\Primary_Analitics\asr`
 
 Скрипты ансамбля уже написаны:
 
@@ -96,13 +96,13 @@ CPU-флаги (`CUDA_VISIBLE_DEVICES=""`, `model.to("cpu")`, пустой `devi
 | GigaAM | `run_gigaam.py` | `ai-sage/GigaAM-v3`, revision `e2e_rnnt` | 16 кГц |
 | T-one | `run_tone.py` | сначала пакет `tone`, иначе sherpa-onnx | 8 кГц |
 
-`engines.json` указывает на `C:\1C_NEW_SKKKK\venvs\{whisper,gigaam,tone}` — этих venv на диске **нет**. `prepare_audio.py` уже прогонялся: есть `asr\work\input_meta.json` (источник `input.webm`, 853.63 с).
+`engines.json` указывает на `D:\Primary_Analitics\venvs\{whisper,gigaam,tone}` — этих venv на диске **нет**. `prepare_audio.py` уже прогонялся: есть `asr\work\input_meta.json` (источник `input.webm`, 853.63 с).
 
 T-one Windows-fallback: в `asr\models\t-one\` скачан только `tokens.txt`. Нет `model.onnx`. Кэш HF `models--csukuangfj--sherpa-onnx-streaming-t-one-russian-2025-09-08` содержит лишь `refs/main`.
 
 Кэши HF для Whisper Podlodka и GigaAM-v3 тоже неполные (config / modeling, без шардов весов).
 
-## 4. Что брать в SKKKK, а что нет
+## 4. Что брать в PrimaryAnalitics, а что нет
 
 ### Брать
 
@@ -114,15 +114,15 @@ T-one Windows-fallback: в `asr\models\t-one\` скачан только `tokens
 ### Не брать
 
 - `encoder.py` — видеокодек, не speech-to-text.
-- `AudioToText` как runtime конвейера SKKKK: Docker-пути `/app/model/`, нет нативных Windows-venv. Сам GigaAM там GPU, но канон — `asr/run_gigaam.py`.
-- Системный Python 3.10 и его site-packages в SKKKK (инвариант: Python 3.11 + отдельные venv на движок).
+- `AudioToText` как runtime конвейера PrimaryAnalitics: Docker-пути `/app/model/`, нет нативных Windows-venv. Сам GigaAM там GPU, но канон — `asr/run_gigaam.py`.
+- Системный Python 3.10 и его site-packages в PrimaryAnalitics (инвариант: Python 3.11 + отдельные venv на движок).
 - `C:\1c_analitik\.venv` (`torch+cpu`).
 - Пустые `.venv` PyCharm-проектов ENCODER / SORA / AI_local.
 - Официальный pip-пакет с именем `tone` с PyPI без проверки: на Windows это ловушка («Deal with tone»). В `run_tone.py` уже есть запасной sherpa-onnx.
 
 ### T-one / Whisper / GigaAM — конкретные дыры, которые PyCharm не закрывает
 
-Нужно дособрать в `C:\1C_NEW_SKKKK`, а не искать в старых проектах:
+Нужно дособрать в `D:\Primary_Analitics`, а не искать в старых проектах:
 
 1. Создать `venvs\whisper`, `venvs\gigaam`, `venvs\tone` по `asr/SETUP.md`.
 2. Докачать веса:
@@ -131,7 +131,7 @@ T-one Windows-fallback: в `asr\models\t-one\` скачан только `tokens
    - T-one: `csukuangfj/sherpa-onnx-streaming-t-one-russian-2025-09-08` → `asr\models\t-one\model.onnx` рядом с уже лежащим `tokens.txt`
 3. Перед прогоном: `lms unload --all`, три процесса одновременно, Gemma после ASR.
 
-Whisper в SKKKK идёт через `transformers.pipeline` на CUDA, не через faster-whisper/CTranslate2. Это сознательно: Podlodka — HF-модель. Конфликт CTranslate2/PyTorch из плана остаётся аргументом за **три процесса / три venv**, даже если faster-whisper в этом дереве не установлен.
+Whisper в PrimaryAnalitics идёт через `transformers.pipeline` на CUDA, не через faster-whisper/CTranslate2. Это сознательно: Podlodka — HF-модель. Конфликт CTranslate2/PyTorch из плана остаётся аргументом за **три процесса / три venv**, даже если faster-whisper в этом дереве не установлен.
 
 ## 5. Как в PyCharm запускали CUDA (для справки)
 
@@ -144,4 +144,4 @@ torch:         2.2.1+cu121
 проверка:      torch.cuda.is_available() / NVENC в ffmpeg -encoders
 ```
 
-Для SKKKK тот же GPU, другой Python и три изолированных venv. Копировать файлы из `C:\PythonProject_ENCODER` в `app/` не нужно.
+Для PrimaryAnalitics тот же GPU, другой Python и три изолированных venv. Копировать файлы из `C:\PythonProject_ENCODER` в `app/` не нужно.

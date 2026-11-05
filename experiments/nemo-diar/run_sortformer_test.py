@@ -1,7 +1,7 @@
 """Эксперимент: NVIDIA Streaming Sortformer v2.1 (ONNX) vs текущий pyannote.
 
 Запуск:
-  C:\\1C_NEW_SKKKK\\venvs\\nemo-diar\\Scripts\\python.exe experiments\\nemo-diar\\run_sortformer_test.py
+  D:\\Primary_Analitics\\venvs\\nemo-diar\\Scripts\\python.exe experiments\\nemo-diar\\run_sortformer_test.py
   ... --clip-sec 600   # первые 10 минут для быстрой проверки
 """
 

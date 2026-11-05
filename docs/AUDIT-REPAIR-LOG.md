@@ -14,7 +14,7 @@
 ### Изменения
 
 *   `app/app/tests/conftest.py`
-    *   Константа `SESSION_COOKIE_NAME` = `skkkk_session` (совпадает с сервером).
+    *   Константа `SESSION_COOKIE_NAME` = `primary_analitics_session` (совпадает с сервером).
     *   `anon_client` — TestClient без логина.
     *   `cookie_auth_client` — тот же клиент после `_login` (в cookie jar сессия).
     *   Комментарий: Bearer по-прежнему `auth_headers` / `admin_token`.
@@ -32,7 +32,7 @@
 ### Изменения
 
 *   `app/app/dependencies.py`
-    *   `SESSION_COOKIE_NAME = "skkkk_session"`.
+    *   `SESSION_COOKIE_NAME = "primary_analitics_session"`.
     *   `set_session_cookie` / `clear_session_cookie`.
     *   `Secure` только если `request.url.scheme == https` или `X-Forwarded-Proto: https`. Не смотреть `WEB_PUBLIC_URL` (сейчас http).
     *   `get_current_user`: если есть `Authorization: Bearer` — только он (битый Bearer не падает на cookie). Иначе cookie. Иначе 401.
@@ -100,7 +100,7 @@ pytest app/app/tests/test_auth.py app/app/tests/test_session_cookie.py app/app/t
 
 ## Пакет 4 / 7 — Docker и lab-логи, без Whisper fallback (2026-08-27)
 
-*   `ASR_CONTAINERS = ("skkkk-gigaam",)`; `docker compose up -d gigaam`.
+*   `ASR_CONTAINERS = ("primaryanalitics-gigaam",)`; `docker compose up -d gigaam`.
 *   `asr/docker-compose.yml`: whisper и tone — `profiles: [legacy]`.
 *   `asr/run_pipeline.py`: без `ALLOW_LEGACY_ASR=1` поднимает только GigaAM.
 *   `pipeline.py` else: нет lab run → `error` «нужен повтор лабораторной расшифровки», **не** `process_audio_artifact`.
@@ -149,4 +149,29 @@ pytest app/app/tests/test_auth.py app/app/tests/test_session_cookie.py app/app/t
 *   `POST rebuild-summary/reindex` без сессии стали 401 (периметр). Тесты ждут 404 только с JWT; добавлены 401 для анонима.
 
 Полный `pytest app -m "not gpu and not slow"`: сначала 3 красных (выше), после правок — догон этих файлов. Живой процесс на :777 **не подхватывает** этот код, пока портал не перезапустят.
+
+---
+
+## Пакет CSRF / Host (2026-11-03)
+
+**Цель:** закрыть остатки приоритета 2 из внешнего ТЗ (DeepSeek) без ломки DECISIONS (TTL 30 дней, без `session_version`).
+
+### Изменения
+
+*   `app/app/middleware/hosts.py`, `csrf.py`, `trusted_host.py` — allowlist Host; CSRF Origin/Referer на мутациях с cookie.
+*   `main.py` — оба middleware; `config.allowed_hosts` / `ALLOWED_HOSTS`.
+*   Тесты: `test_csrf_host.py`; SameSite в `test_session_cookie.py`; MCP A↛B в `test_project_mcp.py`.
+*   DECISIONS: политика аудита (INSERT + purge-исключение) и список отложенного hardening.
+
+### Не трогали
+
+*   Отказ от Bearer в localStorage, CSP на report HTML.
+
+---
+
+## Пакет session_version / аудит / TTL 8ч (2026-11-03)
+
+*   `JWT_EXPIRE_MINUTES=480`; JWT `sv` + `portal_settings.session_version`; bump при `credentials --reset` и `POST /admin/users/sessions/revoke-all`.
+*   `user_activity_log`: поля `login`/`profile_id`; SQLite-триггеры append-only; purge не удаляет журнал.
+*   Тесты: `test_security_remaining.py`.
 

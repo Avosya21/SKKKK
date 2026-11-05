@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 sf = json.loads(
-    Path(r"C:\1C_NEW_SKKKK\experiments\nemo-diar\out\pilot_22_07_26\sortformer_gguf_vulkan_input_16k_report.json").read_text(
+    Path(r"D:\Primary_Analitics\experiments\nemo-diar\out\pilot_22_07_26\sortformer_gguf_vulkan_input_16k_report.json").read_text(
         encoding="utf-8"
     )
 )

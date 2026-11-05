@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 _EMBED_AUDIO_CSS = """
-<style id="skkkk-embed">
+<style id="primaryanalitics-embed">
   html, body { background: transparent !important; margin: 0 !important; }
   header, main { max-width: none !important; padding: 0 !important; }
   header > h1 { display: none !important; }
@@ -43,7 +43,7 @@ _EMBED_AUDIO_CSS = """
 """
 
 _EMBED_DOCUMENT_CSS = """
-<style id="skkkk-embed">
+<style id="primaryanalitics-embed">
   html, body { background: transparent !important; margin: 0 !important; padding: 0 !important; }
   header > h1 { display: none !important; }
   header, main { max-width: none !important; padding: 0 !important; }
@@ -72,10 +72,10 @@ def apply_embed_mode(html: str, *, kind: str) -> str:
 
 
 def apply_role_chrome(html: str, role: str) -> str:
-    snippet = f"<script>window.SKKKK_ROLE={role!r};</script>"
+    snippet = f"<script>window.PRIMARY_ANALITICS_ROLE={role!r};</script>"
     if role == "user":
         snippet += (
-            '<style id="skkkk-role-chrome">'
+            '<style id="primaryanalitics-role-chrome">'
             "#rebuild-summary,#recalc,#reindex{display:none!important}"
             "</style>"
         )

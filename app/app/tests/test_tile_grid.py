@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="нужен
 def _grid(count, w, h, gap=12):
     code = (
         f"global.window=undefined;require({json.dumps(str(LAYOUT))});"
-        f"console.log(JSON.stringify(globalThis.SKKKKLayout.bestGrid({count},{w},{h},{gap},16/9)))"
+        f"console.log(JSON.stringify(globalThis.PrimaryAnaliticsLayout.bestGrid({count},{w},{h},{gap},16/9)))"
     )
     out = subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout
     return json.loads(out)

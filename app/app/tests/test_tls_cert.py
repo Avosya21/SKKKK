@@ -19,13 +19,13 @@ PRODUCTION_CA = "https://acme-v02.api.letsencrypt.org/directory"
 
 def _settings(tmp_path: Path, **overrides):
     base = dict(
-        skkkk_public_host=PUBLIC_HOST,
-        skkkk_acme_ca="",
-        skkkk_tls_cert="",
-        skkkk_tls_key="",
-        skkkk_tls_renew_hours=48,
-        skkkk_tls_issue_timeout_sec=1,
-        skkkk_acme_tls_port=8443,
+        primary_analitics_public_host=PUBLIC_HOST,
+        primary_analitics_acme_ca="",
+        primary_analitics_tls_cert="",
+        primary_analitics_tls_key="",
+        primary_analitics_tls_renew_hours=48,
+        primary_analitics_tls_issue_timeout_sec=1,
+        primary_analitics_acme_tls_port=8443,
         data_dir=tmp_path,
     )
     base.update(overrides)
@@ -82,14 +82,14 @@ def test_tls_paths_honor_explicit_files(tmp_path):
     cert = tmp_path / "custom.crt"
     key = tmp_path / "custom.key"
     _write_cert(cert, host=PUBLIC_HOST, hours=80, issuer_cn="Let's Encrypt")
-    settings = _settings(tmp_path, skkkk_tls_cert=str(cert), skkkk_tls_key=str(key))
+    settings = _settings(tmp_path, primary_analitics_tls_cert=str(cert), primary_analitics_tls_key=str(key))
     assert tc.tls_paths(settings) == (cert, key)
 
 
 def test_tls_paths_ignore_staging_override_when_ca_is_production(tmp_path):
     staging = tmp_path / "staging.crt"
     _write_cert(staging, host=PUBLIC_HOST, hours=80, issuer_cn="(STAGING) Artificial Amaranth")
-    settings = _settings(tmp_path, skkkk_tls_cert=str(staging), skkkk_tls_key=str(tmp_path / "staging.key"))
+    settings = _settings(tmp_path, primary_analitics_tls_cert=str(staging), primary_analitics_tls_key=str(tmp_path / "staging.key"))
     cert, _key = tc.tls_paths(settings)
     assert cert != staging
     assert cert.name == f"{PUBLIC_HOST}.crt"
@@ -130,7 +130,7 @@ def test_host_mismatch_needs_issue(tmp_path):
 
 
 def test_ensure_tls_skips_without_public_host(tmp_path):
-    assert tc.ensure_tls_cert(_settings(tmp_path, skkkk_public_host="")) == "skip"
+    assert tc.ensure_tls_cert(_settings(tmp_path, primary_analitics_public_host="")) == "skip"
 
 
 def test_ensure_tls_ok_does_not_touch_caddy(tmp_path):

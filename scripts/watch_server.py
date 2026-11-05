@@ -1,4 +1,4 @@
-"""Watch SKKKK server, queue, and pipeline errors (stdout + monitor_loop.log)."""
+"""Watch PrimaryAnalitics server, queue, and pipeline errors (stdout + monitor_loop.log)."""
 from __future__ import annotations
 
 import json

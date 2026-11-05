@@ -14,7 +14,7 @@ import logging
 import os
 from pathlib import Path
 
-logger = logging.getLogger("skkkk.lock")
+logger = logging.getLogger("primaryanalitics.lock")
 
 
 class AlreadyRunning(RuntimeError):

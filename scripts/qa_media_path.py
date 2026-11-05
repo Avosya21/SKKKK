@@ -4,8 +4,8 @@
 гость Б слушает. Встреча создаётся кодом приложения в песочнице (проект SMOKE_PROJECT_ID, по умолчанию 29).
 
 Проверяет:
-- у А: на микрофоне стоит процессор DFN3, рядом опубликована сырая дорожка `skkkk-raw`;
-- сервер: что публикует А (микрофон, сырая, слои камеры); рекордер голоса `skkkk-dfn` в комнате; WAV-дорожка А растёт
+- у А: на микрофоне стоит процессор DFN3, рядом опубликована сырая дорожка `primaryanalitics-raw`;
+- сервер: что публикует А (микрофон, сырая, слои камеры); рекордер голоса `primaryanalitics-dfn` в комнате; WAV-дорожка А растёт
   и в ней сырой звук (паузы громче, чем слышит Б);
 - у Б: для А играет ровно одна дорожка (очищенная), на сырую Б не подписан; сколько шума срезано (дБ) при сохранённой
   речи; потери/джиттер/маскировка звука; разрешение и кадры камеры А;
@@ -39,10 +39,10 @@ from qa_room import check, end_meeting, join, make_meeting, wait_until, FAILS  #
 
 SR = 16000
 LEAD_S, TAIL_S = 3.0, 2.0
-RECORDER_ID = "skkkk-dfn"
-RAW_TRACK_NAME = "skkkk-raw"
+RECORDER_ID = "primaryanalitics-dfn"
+RAW_TRACK_NAME = "primaryanalitics-raw"
 
-HOOK_B = """() => { const LK = window.LivekitClient; const r = SKKKKMeeting.room; window.__route = [];
+HOOK_B = """() => { const LK = window.LivekitClient; const r = PrimaryAnaliticsMeeting.room; window.__route = [];
   window.__who = (name) => { let id = null; r.remoteParticipants.forEach((p) => { if (p.name === name) id = p.identity; }); return id; };
   window.__pubs = (id) => { const out = {main: null, raw: null};
     r.remoteParticipants.forEach((p) => { if (p.identity !== id) return; p.trackPublications.forEach((pub) => {
@@ -58,7 +58,7 @@ HOOK_B = """() => { const LK = window.LivekitClient; const r = SKKKKMeeting.room
     if (s !== last) { window.__route.push([Math.round(performance.now()), s]); last = s; } }, 40); };
 }"""
 
-LOCAL_A = """() => { const out = []; SKKKKMeeting.room.localParticipant.trackPublications.forEach((pub) => {
+LOCAL_A = """() => { const out = []; PrimaryAnaliticsMeeting.room.localParticipant.trackPublications.forEach((pub) => {
   const t = pub.track; out.push({name: pub.trackName || '', source: String(pub.source), muted: pub.isMuted,
     processor: t && t.getProcessor && t.getProcessor() ? t.getProcessor().name : null}); }); return out; }"""
 
@@ -77,7 +77,7 @@ CAPTURE_B = """async ([id, secs]) => { const x = window.__pubs(id);
   const bytes = new Uint8Array(pcm.buffer); let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   return {b64: btoa(s)}; }"""
 
-STATS_B = """async (id) => { const r = SKKKKMeeting.room; const x = window.__pubs(id); const out = {};
+STATS_B = """async (id) => { const r = PrimaryAnaliticsMeeting.room; const x = window.__pubs(id); const out = {};
   const rtp = async (track, kind) => { if (!track || !track.receiver) return null; const rep = await track.receiver.getStats(); let row = null; const codecs = {};
     rep.forEach((s) => { if (s.type === 'codec') codecs[s.id] = s.mimeType; });
     rep.forEach((s) => { if (s.type === 'inbound-rtp' && s.kind === kind) row = Object.assign({}, s, {codec: codecs[s.codecId]}); }); return row; };
@@ -92,7 +92,7 @@ STATS_B = """async (id) => { const r = SKKKKMeeting.room; const x = window.__pub
   out.screen = pick(await rtp(screen && screen.track, 'video'), V);
   return out; }"""
 
-STATS_A = """async () => { const lp = SKKKKMeeting.room.localParticipant; const out = {};
+STATS_A = """async () => { const lp = PrimaryAnaliticsMeeting.room.localParticipant; const out = {};
   for (const pub of lp.trackPublications.values()) { const tr = pub.track; if (!tr || !tr.sender) continue; const rep = await tr.sender.getStats(); const codecs = {};
     rep.forEach((s) => { if (s.type === 'codec') codecs[s.id] = s.mimeType; }); const rows = [];
     rep.forEach((s) => { if (s.type !== 'outbound-rtp') return; rows.push({rid: s.rid || '', codec: codecs[s.codecId], w: s.frameWidth, h: s.frameHeight,
@@ -306,8 +306,8 @@ def main() -> int:
             check(len(raw) == 1, f"сервер: у А одна сырая дорожка ({[t['name'] for t in a_tracks]})")
             layers = cam[0]["layers"] if cam else []
             check(bool(cam) and len(layers) >= 2, f"сервер: камера А {cam[0]['mime'] if cam else 'нет'}, слои {layers}")
-            check(RECORDER_ID in by_id and not by_id[RECORDER_ID]["tracks"], "сервер: рекордер голоса (skkkk-dfn) в комнате и ничего не публикует")
-            check("skkkk-rec" in by_id, "сервер: запись экрана (skkkk-rec) в комнате")
+            check(RECORDER_ID in by_id and not by_id[RECORDER_ID]["tracks"], "сервер: рекордер голоса (primaryanalitics-dfn) в комнате и ничего не публикует")
+            check("primaryanalitics-rec" in by_id, "сервер: запись экрана (primaryanalitics-rec) в комнате")
             files0 = track_files(room_name)
             t_files0 = time.time()
 

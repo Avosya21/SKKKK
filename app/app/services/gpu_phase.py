@@ -6,7 +6,7 @@ import logging
 import subprocess
 import time
 
-logger = logging.getLogger("skkkk.gpu")
+logger = logging.getLogger("primaryanalitics.gpu")
 
 def nvidia_memory_total_mib() -> int:
     try:

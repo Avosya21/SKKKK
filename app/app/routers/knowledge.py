@@ -48,7 +48,7 @@ from app.app.services.user_activity import (
     list_activity,
 )
 
-logger = logging.getLogger("skkkk.api.knowledge")
+logger = logging.getLogger("primaryanalitics.api.knowledge")
 router = APIRouter(tags=["knowledge"])
 
 

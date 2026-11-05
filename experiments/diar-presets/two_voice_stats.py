@@ -2,7 +2,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-out = Path(r"C:\1C_NEW_SKKKK\experiments\diar-presets\out\two_voice_4min")
+out = Path(r"D:\Primary_Analitics\experiments\diar-presets\out\two_voice_4min")
 for name in ("pyannote_raw_min1", "pyannote_merge_min1", "pyannote_merge_reseg_min1", "sortformer"):
     d = json.loads((out / f"{name}.json").read_text(encoding="utf-8"))
     talk: dict[str, float] = defaultdict(float)

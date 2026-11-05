@@ -1395,8 +1395,23 @@ def _seed_voice_aliases_from_experiments(ws: Path, payload: dict) -> None:
                     aliases[old] = current
 
 
+def _is_human_confirmed_match(row: dict | None) -> bool:
+    """Подтвердил человек (кнопка на карточке), а не только автопо высокому cosine (``needs_human``)."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("status") not in ("confirmed", "merged_duplicate"):
+        return False
+    if row.get("needs_human"):
+        return False
+    return bool(row.get("profile_id"))
+
+
 def _restore_confirmed_matches(payload: dict, prev_payload: dict | None) -> None:
-    """После auto-match: вернуть ручные confirmed profile_id/name (пересчитать не меняет имена)."""
+    """После auto-match: вернуть только подтверждённые человеком имена (пересчитать не меняет их).
+
+    Автопринятые с ``needs_human`` не восстанавливаем — после «Пересчитать подсказки» они снова
+    обычные подсказки по сходству, пока человек не нажмёт «Подтвердить».
+    """
     if not prev_payload:
         return
     prev_matches = prev_payload.get("matches") or {}
@@ -1409,12 +1424,10 @@ def _restore_confirmed_matches(payload: dict, prev_payload: dict | None) -> None
 
     restored_canons: set[str] = set()
     for label, prev_row in prev_matches.items():
-        if prev_row.get("status") not in ("confirmed", "merged_duplicate"):
+        if not _is_human_confirmed_match(prev_row):
             continue
         pid = prev_row.get("profile_id")
         pname = (prev_row.get("profile_name") or "").strip()
-        if not pid:
-            continue
         canon = merge_map.get(label, label)
         if canon in restored_canons:
             continue
@@ -1429,6 +1442,8 @@ def _restore_confirmed_matches(payload: dict, prev_payload: dict | None) -> None
                     "status": "merged_duplicate" if lbl != canon else "confirmed",
                 }
             )
+            row.pop("needs_human", None)
+            row.pop("auto", None)
             matches[lbl] = row
             if pname:
                 display[lbl] = pname
@@ -1497,7 +1512,9 @@ def _save_links_from_payload(
             continue
         status = row.get("status") or "new"
         pid = row.get("profile_id")
-        linked = pid and status in ("confirmed", "merged_duplicate")
+        # автопринятие с needs_human — не confirmed-связь в БД (иначе «Пересчитать» снова закрепит)
+        linked = bool(pid) and _is_human_confirmed_match(row)
+        link_status = "confirmed" if linked else ("suggested" if row.get("needs_human") else status)
         db.add(
             ArtifactSpeakerLink(
                 artifact_id=artifact_id,
@@ -1506,11 +1523,33 @@ def _save_links_from_payload(
                 suggested_profile_id=row.get("suggested_profile_id") or pid,
                 profile_id=pid if linked else None,
                 match_score=row.get("score") if row.get("score") is not None else row.get("suggested_score"),
-                status="confirmed" if linked else status,
+                status=link_status,
                 clip_start_sec=row.get("clip_start"),
                 clip_end_sec=row.get("clip_end"),
             )
         )
+    db.commit()
+
+
+def _prune_non_human_speaker_links(
+    db: Session, *, artifact_id: str, payload: dict
+) -> None:
+    """Убрать из БД confirmed-связи, которых нет среди подтверждённых человеком в payload.
+
+    Иначе ``sync_match_json_from_links`` снова поднимет автопринятые голоса после пересчёта.
+    """
+    from app.app.models.speaker_profile import ArtifactSpeakerLink
+
+    human = {
+        label
+        for label, row in (payload.get("matches") or {}).items()
+        if _is_human_confirmed_match(row)
+    }
+    q = db.query(ArtifactSpeakerLink).filter(ArtifactSpeakerLink.artifact_id == artifact_id)
+    if human:
+        q.filter(~ArtifactSpeakerLink.diar_label.in_(human)).delete(synchronize_session=False)
+    else:
+        q.delete(synchronize_session=False)
     db.commit()
 
 
@@ -1521,12 +1560,13 @@ def _finalize_match_payload(
     artifact_id: str,
     prev_payload: dict | None,
 ) -> dict:
-    """После auto-match: восстановить merge, confirmed имена и DB links."""
+    """После auto-match: восстановить merge, confirmed человеком имена и DB links."""
     path = match_json_path(project_id, artifact_id)
     payload = json.loads(path.read_text(encoding="utf-8"))
     _restore_merge_map(payload, prev_payload)
     _restore_confirmed_matches(payload, prev_payload)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _prune_non_human_speaker_links(db, artifact_id=artifact_id, payload=payload)
     sync_match_json_from_links(db, project_id=project_id, artifact_id=artifact_id)
     payload = json.loads(path.read_text(encoding="utf-8"))
     _restore_merge_map(payload, prev_payload)

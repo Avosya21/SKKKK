@@ -24,7 +24,7 @@ from app.app.services.notify import notify_artifact_user
 from app.app.services.status import set_status
 from app.app.services.storage import artifact_audio_path, artifact_audio_url, ensure_artifact_workspace
 
-logger = logging.getLogger("skkkk.pipeline")
+logger = logging.getLogger("primaryanalitics.pipeline")
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -128,12 +128,12 @@ def run_call_summary(settings: Settings, artifact: Artifact) -> bool:
 def _asr_env(settings: Settings, artifact: Artifact) -> dict[str, str]:
     ws = ensure_artifact_workspace(settings, artifact.project_id, artifact.artifact_id)
     env = os.environ.copy()
-    env["SKKKK_ASR_WORK"] = str(ws / "audio")
-    env["SKKKK_ASR_OUT"] = str(ws / "asr")
-    env["SKKKK_AUDIO_URL"] = artifact_audio_url(artifact.artifact_id)
-    env["SKKKK_ARTIFACT_ID"] = artifact.artifact_id
-    env["SKKKK_PROJECT_ID"] = str(artifact.project_id)
-    env["SKKKK_MATCH_JSON"] = str(ws / "reports" / "sortformer_speaker_match.json")
+    env["PRIMARY_ANALITICS_ASR_WORK"] = str(ws / "audio")
+    env["PRIMARY_ANALITICS_ASR_OUT"] = str(ws / "asr")
+    env["PRIMARY_ANALITICS_AUDIO_URL"] = artifact_audio_url(artifact.artifact_id)
+    env["PRIMARY_ANALITICS_ARTIFACT_ID"] = artifact.artifact_id
+    env["PRIMARY_ANALITICS_PROJECT_ID"] = str(artifact.project_id)
+    env["PRIMARY_ANALITICS_MATCH_JSON"] = str(ws / "reports" / "sortformer_speaker_match.json")
     env["LLM_PROVIDER"] = settings.llm_provider
     env["LMSTUDIO_BASE_URL"] = settings.lmstudio_base_url
     env["LMSTUDIO_MODEL"] = settings.lmstudio_model
@@ -162,15 +162,15 @@ def _run_speaker_match(env: dict[str, str], artifact: Artifact) -> None:
         sys.path.insert(0, str(asr_dir))
     from match_sortformer_speakers import run  # noqa: PLC0415
 
-    asr_out = Path(env["SKKKK_ASR_OUT"])
-    audio = Path(env["SKKKK_ASR_WORK"]) / "input_16k.wav"
+    asr_out = Path(env["PRIMARY_ANALITICS_ASR_OUT"])
+    audio = Path(env["PRIMARY_ANALITICS_ASR_WORK"]) / "input_16k.wav"
     sortformer = asr_out / "sortformer_segments.json"
     if not sortformer.is_file():
-        sortformer = Path(env["SKKKK_MATCH_JSON"]).parent / "sortformer_segments.json"
+        sortformer = Path(env["PRIMARY_ANALITICS_MATCH_JSON"]).parent / "sortformer_segments.json"
     if not sortformer.is_file() or not audio.is_file():
         log_event(logger, "speaker_match.skip", artifact=artifact.artifact_id, reason="no sortformer or wav")
         return
-    out_json = Path(env["SKKKK_MATCH_JSON"])
+    out_json = Path(env["PRIMARY_ANALITICS_MATCH_JSON"])
     out_json.parent.mkdir(parents=True, exist_ok=True)
     try:
         run(
@@ -196,9 +196,9 @@ def _run_voice_turn_audit(env: dict[str, str], artifact: Artifact) -> dict:
         sys.path.insert(0, str(asr_dir))
     from voice_turn_audit import run as voice_audit_run  # noqa: PLC0415
 
-    asr_out = Path(env["SKKKK_ASR_OUT"])
+    asr_out = Path(env["PRIMARY_ANALITICS_ASR_OUT"])
     speakers = asr_out / "docker_gigaam_speakers.json"
-    audio = Path(env["SKKKK_ASR_WORK"]) / "input_16k.wav"
+    audio = Path(env["PRIMARY_ANALITICS_ASR_WORK"]) / "input_16k.wav"
     if not speakers.is_file() or not audio.is_file():
         log_event(
             logger,
@@ -242,7 +242,7 @@ def process_audio_artifact(db: Session, settings: Settings, artifact: Artifact) 
             raise FileNotFoundError(f"missing audio {artifact.file_path}")
 
     env = _asr_env(settings, artifact)
-    asr_dir = Path(env["SKKKK_ASR_OUT"])
+    asr_dir = Path(env["PRIMARY_ANALITICS_ASR_OUT"])
 
     for st in ("preprocessing", "asr_running"):
         set_status(db, artifact, st)

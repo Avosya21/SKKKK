@@ -37,9 +37,10 @@ def _ensure_sqlite_parent(url: str) -> None:
 
 _ensure_sqlite_parent(settings.database_url)
 
+_sqlite = settings.database_url.startswith("sqlite")
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, **({"timeout": 30} if _sqlite else {})},
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
@@ -96,7 +97,8 @@ def _set_sqlite_pragma(dbapi_conn, _connection_record) -> None:
         return
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=15000")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
     # Расширение живёт в рамках соединения, а пул выдаёт их по кругу, поэтому
@@ -139,7 +141,27 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("people", "company_unconfirmed", "BOOLEAN NOT NULL DEFAULT 0"),
     ("people", "needs_review", "BOOLEAN NOT NULL DEFAULT 0"),
     ("artifacts", "recorded_at_precision", "VARCHAR(8)"),
+    ("user_activity_log", "login", "VARCHAR(128)"),
+    ("user_activity_log", "profile_id", "INTEGER"),
 ]
+
+_AUDIT_APPEND_ONLY_SQL = (
+    "CREATE TRIGGER IF NOT EXISTS user_activity_log_no_update "
+    "BEFORE UPDATE ON user_activity_log "
+    "BEGIN SELECT RAISE(ABORT, 'user_activity_log is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS user_activity_log_no_delete "
+    "BEFORE DELETE ON user_activity_log "
+    "BEGIN SELECT RAISE(ABORT, 'user_activity_log is append-only'); END",
+)
+
+
+def ensure_audit_append_only(conn) -> None:
+    """Триггеры: запрет UPDATE/DELETE в журнале аудита (после backfill колонок)."""
+    rows = conn.exec_driver_sql("PRAGMA table_info(user_activity_log)").fetchall()
+    if not rows:
+        return
+    for stmt in _AUDIT_APPEND_ONLY_SQL:
+        conn.exec_driver_sql(stmt)
 
 
 def apply_schema_migrations() -> None:
@@ -174,6 +196,25 @@ def apply_schema_migrations() -> None:
         if {"scope", "can_submit"} <= cols:
             conn.exec_driver_sql("UPDATE project_mcp_tokens SET scope='questions_verdicts' WHERE can_submit=1 AND scope='read'")
             conn.commit()
+        # Аудит: до установки триггеров дозаполняем login/profile_id (после — UPDATE запрещён).
+        act_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(user_activity_log)").fetchall()}
+        has_no_update = conn.exec_driver_sql(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='user_activity_log_no_update'"
+        ).fetchone()
+        if act_cols and not has_no_update:
+            if "login" in act_cols:
+                conn.exec_driver_sql(
+                    "UPDATE user_activity_log SET login = (SELECT name FROM users WHERE users.id = user_activity_log.user_id) "
+                    "WHERE login IS NULL"
+                )
+            if "profile_id" in act_cols:
+                conn.exec_driver_sql(
+                    "UPDATE user_activity_log SET profile_id = user_id "
+                    "WHERE profile_id IS NULL AND EXISTS (SELECT 1 FROM user_profiles WHERE user_profiles.user_id = user_activity_log.user_id)"
+                )
+            conn.commit()
+        ensure_audit_append_only(conn)
+        conn.commit()
 
 
 def get_engine():

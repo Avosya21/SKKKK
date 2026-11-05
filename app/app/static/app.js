@@ -1,14 +1,14 @@
-// Общий JS портала (объект SKKKK): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения.
-const SKKKK = {
+// Общий JS портала (объект PrimaryAnalitics): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения.
+const PrimaryAnalitics = {
   setSession(data) {
-    localStorage.setItem('skkkk_token', data.access_token);
-    localStorage.setItem('skkkk_role', data.role);
-    localStorage.setItem('skkkk_name', data.name);
-    if (localStorage.getItem('skkkk_session_name') !== data.name) {
+    localStorage.setItem('primary_analitics_token', data.access_token);
+    localStorage.setItem('primary_analitics_role', data.role);
+    localStorage.setItem('primary_analitics_name', data.name);
+    if (localStorage.getItem('primary_analitics_session_name') !== data.name) {
       // Вошёл другой человек — имя и фото прежнего не показываем, пока не загрузится его карточка.
-      localStorage.removeItem('skkkk_display');
-      localStorage.removeItem('skkkk_avatar');
-      localStorage.setItem('skkkk_session_name', data.name);
+      localStorage.removeItem('primary_analitics_display');
+      localStorage.removeItem('primary_analitics_avatar');
+      localStorage.setItem('primary_analitics_session_name', data.name);
     }
     this.updateNav();
   },
@@ -17,9 +17,9 @@ const SKKKK = {
     const session = document.getElementById('nav-session');
     const avatar = document.getElementById('nav-avatar');
     // Имя из карточки («Имя Фамилия»), пока её нет — логин.
-    const name = localStorage.getItem('skkkk_display') || localStorage.getItem('skkkk_name');
-    const role = localStorage.getItem('skkkk_role');
-    const photo = localStorage.getItem('skkkk_avatar');
+    const name = localStorage.getItem('primary_analitics_display') || localStorage.getItem('primary_analitics_name');
+    const role = localStorage.getItem('primary_analitics_role');
+    const photo = localStorage.getItem('primary_analitics_avatar');
     if (el) {
       el.textContent = name && role ? `${name} (${role})` : '';
     }
@@ -51,8 +51,8 @@ const SKKKK = {
     const el = document.getElementById('nav-llm');
     if (!el) return;
     const staleEl = document.getElementById('nav-stale');
-    // Без входа (страница логина, гость) опрос дал бы 401 в консоли — признак входа ставит login (skkkk_role).
-    if (!localStorage.getItem('skkkk_role') && !this.token()) return;
+    // Без входа (страница логина, гость) опрос дал бы 401 в консоли — признак входа ставит login (primary_analitics_role).
+    if (!localStorage.getItem('primary_analitics_role') && !this.token()) return;
     try {
       const token = this.token();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -68,7 +68,7 @@ const SKKKK = {
       el.classList.toggle('text-bg-secondary', !data.llm);
       if (staleEl) {
         const build = data.build || {};
-        const isAdmin = localStorage.getItem('skkkk_role') === 'admin';
+        const isAdmin = localStorage.getItem('primary_analitics_role') === 'admin';
         staleEl.classList.toggle('d-none', !(build.stale && isAdmin));
         const files = Array.from(new Set([].concat(build.api_changed || [], build.worker_changed || [])));
         const who = [build.api_stale ? 'API' : '', build.worker_stale ? 'воркер' : ''].filter(Boolean).join(' и ');
@@ -80,14 +80,14 @@ const SKKKK = {
     }
   },
   token() {
-    return localStorage.getItem('skkkk_token');
+    return localStorage.getItem('primary_analitics_token');
   },
   clearSession({ skipServer = false } = {}) {
-    localStorage.removeItem('skkkk_token');
-    localStorage.removeItem('skkkk_role');
-    localStorage.removeItem('skkkk_name');
-    localStorage.removeItem('skkkk_display');
-    localStorage.removeItem('skkkk_avatar');
+    localStorage.removeItem('primary_analitics_token');
+    localStorage.removeItem('primary_analitics_role');
+    localStorage.removeItem('primary_analitics_name');
+    localStorage.removeItem('primary_analitics_display');
+    localStorage.removeItem('primary_analitics_avatar');
     this.updateNav();
     if (skipServer) return;
     try {
@@ -221,7 +221,7 @@ const SKKKK = {
         try {
           const body = await r.json();
           if (body && body.detail) {
-            detail = window.SKKKKErrors ? SKKKKErrors.text(body.detail, r.status) : String(body.detail);
+            detail = window.PrimaryAnaliticsErrors ? PrimaryAnaliticsErrors.text(body.detail, r.status) : String(body.detail);
           }
         } catch {
           /* not json */
@@ -286,7 +286,7 @@ const SKKKK = {
     if (!r.ok) {
       const detail = body && body.detail !== undefined ? body.detail : body;
       const raw = typeof detail === 'string' ? detail : JSON.stringify(detail);
-      const err = new Error(window.SKKKKErrors ? SKKKKErrors.text(detail, r.status) : raw);
+      const err = new Error(window.PrimaryAnaliticsErrors ? PrimaryAnaliticsErrors.text(detail, r.status) : raw);
       err.detail = raw;
       err.status = r.status;
       err.body = body;
@@ -480,11 +480,11 @@ const SKKKK = {
     return this.sanitizeSummaryMarkdown(this.plainifyLlmMarkup(text));
   },
 };
-SKKKK.updateNav();
-SKKKK.updateLlmBadge();
-setInterval(() => SKKKK.updateLlmBadge(), 60000);
+PrimaryAnalitics.updateNav();
+PrimaryAnalitics.updateLlmBadge();
+setInterval(() => PrimaryAnalitics.updateLlmBadge(), 60000);
 document.getElementById('nav-logout')?.addEventListener('click', () => {
-  SKKKK.logout();
+  PrimaryAnalitics.logout();
 });
 
 // Меню пользователя в шапке: «Моя карточка» и «Личный пароль» (если личные пароли включены).
@@ -494,7 +494,7 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
   const profileBtn = $('nav-profile');
   const passForm = $('password-form');
   const meForm = $('me-form');
-  if (!passBtn || !passForm || !localStorage.getItem('skkkk_role') || location.pathname === '/login') return;
+  if (!passBtn || !passForm || !localStorage.getItem('primary_analitics_role') || location.pathname === '/login') return;
   let state = null;
   let me = null;
   let newPhoto = null;
@@ -509,21 +509,21 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
 
   function applyProfile(data) {
     me = data;
-    if (data.full_name) localStorage.setItem('skkkk_display', data.full_name);
-    if (data.avatar_url) localStorage.setItem('skkkk_avatar', data.avatar_url);
+    if (data.full_name) localStorage.setItem('primary_analitics_display', data.full_name);
+    if (data.avatar_url) localStorage.setItem('primary_analitics_avatar', data.avatar_url);
     profileBtn.classList.toggle('d-none', !data.complete);
-    SKKKK.updateNav();
+    PrimaryAnalitics.updateNav();
     syncMenu();
   }
 
-  SKKKK.api('/auth/password/state').then(async (r) => {
+  PrimaryAnalitics.api('/auth/password/state').then(async (r) => {
     if (!r.ok) return;
     state = await r.json();
     passBtn.classList.toggle('d-none', state.mode === 'off');
     syncMenu();
   }).catch(() => {});
 
-  SKKKK.api('/me/profile').then(async (r) => {
+  PrimaryAnalitics.api('/me/profile').then(async (r) => {
     if (r.ok) applyProfile(await r.json());
   }).catch(() => {});
 
@@ -537,14 +537,14 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
   }
 
   function apiError(payload, status) {
-    return window.SKKKKErrors ? SKKKKErrors.text(payload && payload.detail, status) : String(status);
+    return window.PrimaryAnaliticsErrors ? PrimaryAnaliticsErrors.text(payload && payload.detail, status) : String(status);
   }
 
   // --- личный пароль ---
   passBtn.addEventListener('click', () => {
     if (!state) return;
     for (const id of ['password-current', 'password-new', 'password-confirm']) $(id).value = '';
-    $('password-username').value = localStorage.getItem('skkkk_name') || '';
+    $('password-username').value = localStorage.getItem('primary_analitics_name') || '';
     $('password-current-group').classList.toggle('d-none', !state.has_password);
     $('password-title').textContent = state.has_password ? 'Сменить личный пароль' : 'Создать личный пароль';
     $('password-new-help').textContent = `Не короче ${state.min_length} символов. Не совпадает с логином и паролем роли.`;
@@ -565,11 +565,11 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
     if (body.password.length < state.min_length) return showError('password-error', `Пароль короче ${state.min_length} символов`);
     if (body.password !== body.password_confirm) return showError('password-error', 'Пароли не совпадают');
     showError('password-error', '');
-    await SKKKK.guardSubmit(passForm, async () => {
+    await PrimaryAnalitics.guardSubmit(passForm, async () => {
       const r = await fetch('/auth/password/change', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SKKKK.token()}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${PrimaryAnalitics.token()}` },
         body: JSON.stringify(body),
       });
       const payload = await readJson(r);
@@ -577,7 +577,7 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
         showError('password-error', apiError(payload, r.status));
         return;
       }
-      SKKKK.setSession(payload);
+      PrimaryAnalitics.setSession(payload);
       state.has_password = true;
       bootstrap.Modal.getOrCreateInstance($('passwordModal')).hide();
     }, { busyText: 'Сохраняю…' });
@@ -626,17 +626,17 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
       return showError('me-error', 'Заполните фамилию, имя и должность');
     }
     showError('me-error', '');
-    await SKKKK.guardSubmit(meForm, async () => {
+    await PrimaryAnalitics.guardSubmit(meForm, async () => {
       if (newPhoto) {
         const fd = new FormData();
         fd.append('avatar', newPhoto, newPhoto.name || 'photo.jpg');
-        const r = await SKKKK.api('/me/avatar', { method: 'PUT', body: fd });
+        const r = await PrimaryAnalitics.api('/me/avatar', { method: 'PUT', body: fd });
         const payload = await readJson(r);
         if (!r.ok) return showError('me-error', apiError(payload, r.status));
         newPhoto = null;
         applyProfile(payload);
       }
-      const r = await SKKKK.api('/me/profile', {
+      const r = await PrimaryAnalitics.api('/me/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

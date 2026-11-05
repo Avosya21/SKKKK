@@ -34,5 +34,5 @@ def test_sanitize_empty_replicas_is_no_speech():
 def test_sanitize_gigaam_not_started_message():
     from app.app.services.lab_errors import GIGAAM_DOWN
 
-    raw = "GigaAM не запущен — контейнер skkkk-gigaam (http://127.0.0.1:18102)"
+    raw = "GigaAM не запущен — контейнер primaryanalitics-gigaam (http://127.0.0.1:18102)"
     assert sanitize_lab_error(raw) == GIGAAM_DOWN

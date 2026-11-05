@@ -24,17 +24,17 @@ from typing import Any
 from app.app.config import Settings
 from app.app.logging_setup import log_event
 
-logger = logging.getLogger("skkkk.llm_lanes")
+logger = logging.getLogger("primaryanalitics.llm_lanes")
 
 LANE_BACKGROUND = "background"
 LANE_CHAT = "chat"
 LANE_FILES = {LANE_BACKGROUND: "llm_lane_background.lock", LANE_CHAT: "llm_lane_chat.lock"}
-STRICT_ENV = "SKKKK_STRICT_LLM_LANE"
+STRICT_ENV = "PRIMARY_ANALITICS_STRICT_LLM_LANE"
 # Символов на токен для русского текста промптов: замер 2026-10-05 по prompt_tokens — 3,05–3,14; берём с запасом.
 CHARS_PER_TOKEN = 2.8
 
 _lane: contextvars.ContextVar[str] = contextvars.ContextVar("llm_lane", default=LANE_BACKGROUND)
-ROLE_ENV = "SKKKK_PROCESS_ROLE"  # `api` ставит main._serve: фоновые вызовы модели в процессе портала — ошибка схемы
+ROLE_ENV = "PRIMARY_ANALITICS_PROCESS_ROLE"  # `api` ставит main._serve: фоновые вызовы модели в процессе портала — ошибка схемы
 
 
 def process_role() -> str:

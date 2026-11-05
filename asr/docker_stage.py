@@ -2,7 +2,7 @@
 
 Whisper и GigaAM ASR получают WAV через multipart upload.
 T-one и GigaAM embed читают файл только из смонтированного asr/work → /data или /work.
-При SKKKK_ASR_WORK в per-artifact каталоге без staging контейнер видит чужой/stale файл.
+При PRIMARY_ANALITICS_ASR_WORK в per-artifact каталоге без staging контейнер видит чужой/stale файл.
 
 Инвариант: перед любым HTTP/docker exec, где контейнер читает /data или /work,
 вызывать stage_* из этого модуля. Один GPU-воркер — последовательные job'ы; параллельные

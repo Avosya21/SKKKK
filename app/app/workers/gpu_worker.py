@@ -30,7 +30,7 @@ except ImportError:  # loguru missing in this interpreter -> colored stdlib fall
                 fmt="%(asctime)s | %(levelname)s | %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
             ))
-            self._lg = logging.getLogger("skkkk.gpu_worker")
+            self._lg = logging.getLogger("primaryanalitics.gpu_worker")
             self._lg.setLevel(logging.INFO)
             self._lg.propagate = False
             if not self._lg.handlers:
@@ -78,7 +78,7 @@ from app.app.services.queue import (
 from app.app.services.single_instance import AlreadyRunning, SingleInstance
 from app.app.workers import processor as proc_mod
 
-logger = logging.getLogger("skkkk.worker")
+logger = logging.getLogger("primaryanalitics.worker")
 
 
 def _wait_dependencies(settings, timeout_sec: int = 300) -> None:

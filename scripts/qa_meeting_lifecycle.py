@@ -137,7 +137,7 @@ def main() -> int:
         db.expire_all()
         check(len(people()) == 2, f"повторный вход с тем же guest_id не плодит участников ({len(people())})")
         # пульс и выход публичным API
-        a_id = wait_until(lambda: ga.evaluate("SKKKKMeeting.room && SKKKKMeeting.room.localParticipant && SKKKKMeeting.room.localParticipant.identity"), 15)
+        a_id = wait_until(lambda: ga.evaluate("PrimaryAnaliticsMeeting.room && PrimaryAnaliticsMeeting.room.localParticipant && PrimaryAnaliticsMeeting.room.localParticipant.identity"), 15)
         code, _ = public(base, t2, "/heartbeat", {"identity": a_id})
         check(code == 204, f"пульс гостя принимается ({code})")
         code, _ = public(base, t2, "/heartbeat", {"identity": "member:1"})

@@ -1,4 +1,4 @@
-# Инвентарь стенда SKKKK: что реально лежит в проекте и зачем.
+# Инвентарь стенда PrimaryAnalitics: что реально лежит в проекте и зачем.
 #
 # Зачем: карта проекта описывает код и данные, но не то, что стоит на машине —
 # окружения, портативные инструменты, модели, кэши, конфиги агентов. Этот список
@@ -39,7 +39,7 @@ items:
   - {path: ".gitignore", kind: "git", purpose: "что не попадает в репозиторий"}
   - {path: ".kiloignore", kind: "чужой инструмент", purpose: "исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел)"}
   - {path: ".kilo", kind: "чужой инструмент", purpose: "рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится)"}
-  - {path: ".mcp.json", kind: "MCP", purpose: "локальные MCP-серверы: skkkk-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage)"}
+  - {path: ".mcp.json", kind: "MCP", purpose: "локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage)"}
   - {path: ".claude", kind: "агент", purpose: "конфиг Claude Code: launch.json, worktrees"}
   - {path: ".projectmap", kind: "конфиг", purpose: "конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты"}
   - {path: ".cursor", kind: "агент", purpose: "правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max)"}
@@ -57,7 +57,7 @@ items:
   - {path: "opencode.json", kind: "агент", purpose: "конфиг агента opencode: модель LM Studio qwen3.8-27b"}
   - {path: "pytest.ini", kind: "тесты", purpose: "настройки pytest (маркеры gpu/slow, пути тестов)"}
   - {path: "README.md", kind: "документ", purpose: "обзор проекта для человека"}
-  - {path: "run_server.ps1", kind: "запуск", purpose: "сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер SKKKK не поднимает)"}
+  - {path: "run_server.ps1", kind: "запуск", purpose: "сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер PrimaryAnalitics не поднимает)"}
   - {path: "app", kind: "код", purpose: "портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7)"}
   - {path: "asr", kind: "код", purpose: "ASR: лабораторный контур, легаси-движки, docker, модели (§8)"}
   - {path: "data", kind: "данные", purpose: "БД, файлы проектов, записи встреч, логи, индексы"}
@@ -74,9 +74,9 @@ items:
   - {path: "_archive", kind: "архив", purpose: "код и данные разработки, выведенные из контура (см. _archive/README.md)"}
 
   # ─── scripts: не-код (лаунчеры, конфиги индекса, звук для проверок) ───
-  - {path: "scripts/SKKKK-1-Остановить.bat", kind: "лаунчер", purpose: "двойной щелчок: остановить портал и воркер"}
-  - {path: "scripts/SKKKK-2-Запуск-Cursor.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с LLM в облаке (Cursor API)"}
-  - {path: "scripts/SKKKK-3-Запуск-LM-Studio.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с локальной моделью (LM Studio)"}
+  - {path: "scripts/PrimaryAnalitics-1-Остановить.bat", kind: "лаунчер", purpose: "двойной щелчок: остановить портал и воркер"}
+  - {path: "scripts/PrimaryAnalitics-2-Запуск-Cursor.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с LLM в облаке (Cursor API)"}
+  - {path: "scripts/PrimaryAnalitics-3-Запуск-LM-Studio.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с локальной моделью (LM Studio)"}
   - {path: "scripts/index_config.yaml", kind: "конфиг", purpose: "что индексировать: файлы, исключения, версия схемы, маскирование секретов"}
   - {path: "scripts/index_glossary.yaml", kind: "конфиг", purpose: "словарь синонимов для поиска по карте"}
   - {path: "scripts/voice_review.html", kind: "шаблон", purpose: "страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/"}
@@ -124,7 +124,7 @@ items:
   # ─── venvs ───
   - {path: "venvs/lab", kind: "окружение", purpose: "ONNX-контур ASR: Parakeet-TDT, Sortformer, Silero VAD", optional: true}
   - {path: "venvs/nemo-diar", kind: "окружение", purpose: "Nemotron 3 Diarization (NeMo + torch) отдельным процессом", optional: true}
-  - {path: "venvs/voice", kind: "окружение", purpose: "livekit SDK: рекордер голоса (skkkk-dfn) и запись экрана (skkkk-rec)", optional: true}
+  - {path: "venvs/voice", kind: "окружение", purpose: "livekit SDK: рекордер голоса (primaryanalitics-dfn) и запись экрана (primaryanalitics-rec)", optional: true}
   - {path: "venvs/gigaam", kind: "окружение", purpose: "легаси-движок GigaAM (asr/engines.json), в рабочем контуре не вызывается", optional: true}
   - {path: "venvs/tone", kind: "окружение", purpose: "легаси-движок T-one, откат", optional: true}
   - {path: "venvs/whisper", kind: "окружение", purpose: "легаси-движок Whisper large-v3, откат", optional: true}
@@ -182,12 +182,12 @@ items:
 
 # ─── машина и внешние приложения: не файлы, проверяются глазами ───
 machine:
-  - {name: "Git LFS", kind: "git", purpose: "git-lfs 3.7.0 установлен, .gitattributes нет; хуки post-checkout/post-commit/post-merge/pre-push — от LFS, к ним в post-commit и post-merge добавлен блок SKKKK-INDEX (обновление индекса в фоне)"}
-  - {name: "Службы Windows (NSSM)", kind: "runtime", purpose: "SKKKK-API, SKKKK-GPU, SKKKK-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1"}
-  - {name: "Планировщик заданий", kind: "runtime", purpose: "задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_skkkk_loop.ps1 устарел"}
+  - {name: "Git LFS", kind: "git", purpose: "git-lfs 3.7.0 установлен, .gitattributes нет; хуки post-checkout/post-commit/post-merge/pre-push — от LFS, к ним в post-commit и post-merge добавлен блок PrimaryAnalitics-INDEX (обновление индекса в фоне)"}
+  - {name: "Службы Windows (NSSM)", kind: "runtime", purpose: "PrimaryAnalitics-API, PrimaryAnalitics-GPU, PrimaryAnalitics-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1"}
+  - {name: "Планировщик заданий", kind: "runtime", purpose: "задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_primary_analitics_loop.ps1 устарел"}
   - {name: "Ollama", kind: "внешнее", purpose: "bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает"}
   - {name: "LM Studio", kind: "внешнее", purpose: ":1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 56000; загружает и выгружает портал, JIT-автозагрузка выключена"}
-  - {name: "Docker Desktop", kind: "внешнее", purpose: "контейнеры skkkk-gigaam (рабочий), skkkk-whisper и skkkk-tone (откат), LightRAG (:9621)"}
+  - {name: "Docker Desktop", kind: "внешнее", purpose: "контейнеры primaryanalitics-gigaam (рабочий), primaryanalitics-whisper и primaryanalitics-tone (откат), LightRAG (:9621)"}
   - {name: "Caddy", kind: "внешнее", purpose: "HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP)"}
   - {name: "LiveKit", kind: "внешнее", purpose: "native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478"}
   - {name: "FFmpeg / Tesseract / LibreOffice", kind: "внешнее", purpose: "звук (16 кГц моно), OCR rus+eng, конвертация старых офисных форматов; портативные копии в tools/"}

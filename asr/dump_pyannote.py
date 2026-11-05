@@ -1,4 +1,4 @@
-"""Снять сырые интервалы PyAnnote из контейнера skkkk-gigaam.
+"""Снять сырые интервалы PyAnnote из контейнера primaryanalitics-gigaam.
 
   python asr/dump_pyannote.py
 """
@@ -22,7 +22,7 @@ GIGAAM = "http://127.0.0.1:18102"
 def main() -> int:
     from app.app.services.docker_runtime import ensure_container
 
-    ensure_container("skkkk-gigaam")
+    ensure_container("primaryanalitics-gigaam")
     deadline = time.time() + 180
     while time.time() < deadline:
         try:
@@ -31,7 +31,7 @@ def main() -> int:
         except Exception:
             time.sleep(3)
     else:
-        raise SystemExit("skkkk-gigaam не поднялся")
+        raise SystemExit("primaryanalitics-gigaam не поднялся")
     proc = subprocess.run(
         [
             "docker",
@@ -46,7 +46,7 @@ def main() -> int:
             "CLUSTER_MIN_SIZE=6",
             "-e",
             "CLUSTER_METHOD=centroid",
-            "skkkk-gigaam",
+            "primaryanalitics-gigaam",
             "python",
             "/data/dump_pyannote.py",
         ],

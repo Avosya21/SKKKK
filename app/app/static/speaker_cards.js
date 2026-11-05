@@ -2,7 +2,7 @@
 // Данные страницы — #pp-cards (services/speaker_cards.page_context). Список: похожие голоса базы (с % сходства), люди
 // проекта, сотрудники; «Новый человек» — только если нужного нет. Выбор привязывает голос к той самой записи, а не к
 // написанию. Подсказка заполняет поля, но голос принимается только кнопкой «Подтвердить»; без компании и стороны она
-// неактивна. Исправить написание голоса во всех созвонах — отдельная ссылка с подтверждением.
+// неактивна. Переименовать голос во всех созвонах проекта — кнопка рядом с «Подтвердить».
 (function () {
   const node = document.getElementById('pp-cards');
   if (!node) return;
@@ -36,11 +36,33 @@
     return n;
   }
 
-  function field(labelText, control) {
-    const wrap = el('div', 'pc-field');
+  // стрелка справа: клик реально открывает список (не галочка-успех)
+  function listCaret(onOpen) {
+    const mark = el('button', 'pc-list-mark');
+    mark.type = 'button';
+    mark.setAttribute('aria-label', 'Открыть список');
+    mark.title = 'Открыть список';
+    mark.addEventListener('mousedown', (e) => e.preventDefault()); // не снимать фокус с поля
+    mark.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // иначе document-слушатель сразу закроет меню
+      if (onOpen) onOpen();
+    });
+    return mark;
+  }
+
+  function field(labelText, control, { list, onOpen } = {}) {
+    const wrap = el('div', list ? 'pc-field pc-list-field' : 'pc-field');
     const label = el('label', 'form-label small fw-medium mb-1', labelText);
     label.htmlFor = control.id;
-    wrap.append(label, control);
+    if (list) {
+      const box = el('div', 'pc-list-wrap');
+      const open = onOpen || (() => control.focus && control.focus());
+      box.append(control, listCaret(open));
+      wrap.append(label, box);
+    } else {
+      wrap.append(label, control);
+    }
     return wrap;
   }
 
@@ -50,6 +72,7 @@
   }
 
   document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('.pc-list-mark')) return;
     document.querySelectorAll('.pc-menu.show').forEach((m) => {
       if (!m.parentElement.contains(e.target)) m.classList.remove('show');
     });
@@ -80,24 +103,58 @@
     const group = oldBtn.closest('.input-group');
     oldBtn.remove(); // старая кнопка писала только имя голоса
     const anchor = group || nameInp;
-    const wrap = el('div', 'pc-who position-relative');
+    const wrap = el('div', 'pc-who pc-list-field position-relative');
+    const nameBox = el('div', 'pc-list-wrap');
     anchor.before(wrap);
-    wrap.append(anchor);
     const menu = el('div', 'dropdown-menu pc-menu');
     menu.id = `pc-menu-${slug}`;
     menu.setAttribute('role', 'listbox');
     nameInp.setAttribute('aria-controls', menu.id);
-    wrap.append(menu);
+    nameBox.append(anchor, listCaret(() => {
+      nameInp.focus();
+      renderMenu({ all: true });
+    }));
+    wrap.append(nameBox, menu);
     const chip = el('p', 'pc-chip small mb-0');
 
     const company = el('input', 'form-control form-control-sm pc-company');
     company.id = `pc-company-${slug}`;
-    company.setAttribute('list', 'pc-companies');
     company.placeholder = 'Выберите из списка';
     company.autocomplete = 'off';
-    const side = el('select', 'form-select form-select-sm pc-side');
-    side.id = `pc-side-${slug}`;
-    SIDES.forEach(([v, t]) => { const o = el('option', '', t); o.value = v; side.appendChild(o); });
+    company.setAttribute('role', 'combobox');
+    company.setAttribute('aria-expanded', 'false');
+    const companyMenu = el('div', 'dropdown-menu pc-menu');
+    companyMenu.id = `pc-company-menu-${slug}`;
+    companyMenu.setAttribute('role', 'listbox');
+    company.setAttribute('aria-controls', companyMenu.id);
+    // Сторона — тот же выпадающий список, что у Компании (не native select: иначе другой шрифт ОС)
+    const sideBtn = el('button', 'form-control form-control-sm pc-side text-start');
+    sideBtn.type = 'button';
+    sideBtn.id = `pc-side-${slug}`;
+    sideBtn.setAttribute('aria-haspopup', 'listbox');
+    sideBtn.setAttribute('aria-expanded', 'false');
+    const sideMenu = el('div', 'dropdown-menu pc-menu');
+    sideMenu.id = `pc-side-menu-${slug}`;
+    sideMenu.setAttribute('role', 'listbox');
+    sideBtn.setAttribute('aria-controls', sideMenu.id);
+    let sideVal = '';
+    function sideLabel(v) {
+      const hit = SIDES.find(([x]) => x === v);
+      return hit ? hit[1] : 'Сторона…';
+    }
+    function getSide() { return sideVal; }
+    function setSide(v) {
+      sideVal = v || '';
+      sideBtn.textContent = sideLabel(sideVal);
+      sideBtn.classList.toggle('pc-placeholder', !sideVal);
+    }
+    setSide('');
+    function onSidePicked() {
+      touched.side = true;
+      const same = (ctx.project_parties || []).filter((p) => p.side === getSide());
+      if (!company.value.trim() && same.length === 1) { company.value = same[0].company; touched.company = false; }
+      sync();
+    }
     const job = el('input', 'form-control form-control-sm pc-job');
     job.id = `pc-job-${slug}`;
     job.placeholder = 'Необязательно';
@@ -105,32 +162,44 @@
     const note = el('p', 'pc-note small text-muted mb-0');
     const btn = el('button', 'btn btn-sm btn-soft-accent pc-confirm', confirmed ? 'Обновить' : 'Подтвердить');
     btn.type = 'button';
-    const grid = el('div', 'pc-grid');
-    grid.append(field('Компания', company), field('Сторона', side));
-    const block = el('div', 'pc-block');
-    block.append(chip, grid, field('Должность', job), note, btn);
+    const actions = el('div', 'pc-actions');
+    actions.append(btn);
     if (current) {
-      const fix = el('button', 'btn btn-link btn-sm p-0 pc-rename', 'Исправить написание имени');
+      const fix = el('button', 'btn btn-sm btn-soft pc-rename', 'Переименовать глобально');
       fix.type = 'button';
       fix.addEventListener('click', () => renameVoice());
-      block.append(fix);
+      actions.append(fix);
     }
+    const companyField = field('Компания', company, {
+      list: true,
+      onOpen: () => { company.focus(); renderCompanyMenu({ all: true }); },
+    });
+    companyField.querySelector('.pc-list-wrap').append(companyMenu);
+    const sideField = field('Сторона', sideBtn, {
+      list: true,
+      onOpen: () => renderSideMenu(),
+    });
+    sideField.querySelector('.pc-list-wrap').append(sideMenu);
+    const sideMark = sideField.querySelector('.pc-list-mark');
+    const grid = el('div', 'pc-grid');
+    grid.append(companyField, sideField);
+    const block = el('div', 'pc-block');
+    block.append(chip, grid, field('Должность', job), note, actions);
     wrap.after(block);
 
     let choice = null;
     const touched = { company: false, side: false, job: false };
     company.addEventListener('input', () => { touched.company = true; });
-    side.addEventListener('change', () => { touched.side = true; });
     job.addEventListener('input', () => { touched.job = true; });
 
     function fill(src, force) {
       if (!src) { note.textContent = ''; return; }
       if ((force || !touched.company) && src.company) { company.value = src.company; touched.company = false; }
-      if ((force || !touched.side) && src.side) { side.value = src.side; touched.side = false; }
+      if ((force || !touched.side) && src.side) { setSide(src.side); touched.side = false; }
       if ((force || !touched.job) && src.job_title) { job.value = src.job_title; touched.job = false; }
-      if (!side.value && company.value) side.value = companySide(company.value);
+      if (!getSide() && company.value) setSide(companySide(company.value));
       lockSide();
-      note.textContent = src.source ? `Заполнено по данным: ${src.source}. Проверьте перед подтверждением.` : '';
+      note.textContent = '';  // служебные «из карточки / голос этой» пользователю не нужны
     }
 
     function showChip() {
@@ -143,18 +212,18 @@
         }
         return;
       }
-      const text = {
-        current: 'Голос этой карточки',
-        voice: `Голос из базы · сходство ${choice.pct}%`,
-        person: choice.profile_id ? 'Человек проекта · голос уже есть' : 'Человек проекта · голоса ещё нет',
-        staff: 'Сотрудник · из карточки',
-      }[choice.kind] || '';
-      chip.textContent = text;
-      chip.classList.add('pc-chip-known');
+      // current / staff — без подписи; голос из базы — только сходство
+      if (choice.kind === 'voice' && choice.pct != null) {
+        chip.textContent = `Сходство ${choice.pct}%`;
+        chip.classList.add('pc-chip-known');
+      } else if (choice.kind === 'person') {
+        chip.textContent = choice.profile_id ? 'Голос уже есть' : 'Голоса ещё нет';
+        chip.classList.add('pc-chip-known');
+      }
     }
 
     function sync() {
-      const ok = nameInp.value.trim() && company.value.trim() && side.value;
+      const ok = nameInp.value.trim() && company.value.trim() && getSide();
       btn.disabled = !ok;
       btn.title = ok ? '' : 'Укажите, кто это, компанию и сторону';
     }
@@ -180,9 +249,12 @@
       return item;
     }
 
-    function renderMenu() {
+    function renderMenu({ all } = {}) {
       menu.textContent = '';
-      const q = key(nameInp.value);
+      companyMenu.classList.remove('show');
+      sideMenu.classList.remove('show');
+      sideBtn.setAttribute('aria-expanded', 'false');
+      const q = all ? '' : key(nameInp.value);
       const fits = (o) => !q || (choice && key(choice.name) === q) || o.keys.some((k) => k.includes(q));
       const sections = [
         ['Похожие голоса', voiceOpts.filter(fits), (o) => `${o.pct}%`],
@@ -197,8 +269,8 @@
         opts.slice(0, 30).forEach((o) => menu.append(option(o, extra(o))));
       });
       const typed = nameInp.value.trim();
-      const exact = [...voiceOpts, ...peopleOpts, ...staffOpts].some((o) => o.keys.includes(q));
-      if (typed && !exact) {
+      const exact = [...voiceOpts, ...peopleOpts, ...staffOpts].some((o) => o.keys.includes(key(nameInp.value)));
+      if (typed && !exact && !all) {
         if (any) menu.append(el('div', 'dropdown-divider'));
         const item = el('button', 'dropdown-item pc-opt pc-opt-new');
         item.type = 'button';
@@ -216,7 +288,59 @@
       nameInp.setAttribute('aria-expanded', any ? 'true' : 'false');
     }
 
-    nameInp.addEventListener('focus', renderMenu);
+    function renderCompanyMenu({ all } = {}) {
+      companyMenu.textContent = '';
+      menu.classList.remove('show');
+      sideMenu.classList.remove('show');
+      sideBtn.setAttribute('aria-expanded', 'false');
+      const q = all ? '' : key(company.value);
+      const opts = (ctx.companies || []).filter((c) => !q || key(c).includes(q));
+      opts.slice(0, 40).forEach((c) => {
+        const item = el('button', 'dropdown-item pc-opt');
+        item.type = 'button';
+        item.setAttribute('role', 'option');
+        item.append(el('span', 'pc-opt-name', c));
+        item.addEventListener('click', () => {
+          company.value = c;
+          companyMenu.classList.remove('show');
+          company.setAttribute('aria-expanded', 'false');
+          touched.company = true;
+          const s = companySide(c);
+          if (s && !touched.side) setSide(s);
+          lockSide();
+          sync();
+        });
+        companyMenu.append(item);
+      });
+      const open = opts.length > 0;
+      companyMenu.classList.toggle('show', open);
+      company.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function renderSideMenu() {
+      if (sideBtn.disabled) return;
+      sideMenu.textContent = '';
+      menu.classList.remove('show');
+      companyMenu.classList.remove('show');
+      SIDES.filter(([v]) => v).forEach(([v, t]) => {
+        const item = el('button', 'dropdown-item pc-opt');
+        item.type = 'button';
+        item.setAttribute('role', 'option');
+        item.append(el('span', 'pc-opt-name', t));
+        if (v === getSide()) item.classList.add('active');
+        item.addEventListener('click', () => {
+          setSide(v);
+          sideMenu.classList.remove('show');
+          sideBtn.setAttribute('aria-expanded', 'false');
+          onSidePicked();
+        });
+        sideMenu.append(item);
+      });
+      sideMenu.classList.add('show');
+      sideBtn.setAttribute('aria-expanded', 'true');
+    }
+
+    nameInp.addEventListener('focus', () => renderMenu());
     nameInp.addEventListener('input', () => {
       if (choice && key(choice.name) !== key(nameInp.value)) {
         choice = null;
@@ -237,24 +361,39 @@
       if (e.key === 'ArrowUp') { e.preventDefault(); (i > 0 ? items[i - 1] : nameInp).focus(); }
       if (e.key === 'Escape') { menu.classList.remove('show'); nameInp.focus(); }
     });
-    // Р1: компания из сторон проекта задаёт сторону — селект неактивен; новая компания — сторону выбирает человек
+    // Р1: компания из сторон проекта задаёт сторону — поле неактивно; новая компания — сторону выбирает человек
     function lockSide() {
       const party = (ctx.project_parties || []).find((p) => key(p.company) === key(company.value));
-      if (party) side.value = party.side;
-      side.disabled = Boolean(party);
-      side.title = party ? 'Сторона берётся от компании в проекте; меняется в «Стороны компаний»' : '';
+      if (party) setSide(party.side);
+      sideBtn.disabled = Boolean(party);
+      sideBtn.title = party ? 'Сторона берётся от компании в проекте; меняется в «Стороны компаний»' : '';
+      if (sideMark) sideMark.disabled = sideBtn.disabled;
+      if (sideBtn.disabled) {
+        sideMenu.classList.remove('show');
+        sideBtn.setAttribute('aria-expanded', 'false');
+      }
     }
+    company.addEventListener('focus', () => renderCompanyMenu());
     company.addEventListener('input', () => {
       const s = companySide(company.value);
-      if (s && !touched.side) side.value = s;
+      if (s && !touched.side) setSide(s);
       lockSide();
+      renderCompanyMenu();
       sync();
     });
-    side.addEventListener('change', () => {
-      // ЛГ4: выбрали сторону, а компании ещё нет — компания этой стороны в проекте, если она одна
-      const same = (ctx.project_parties || []).filter((p) => p.side === side.value);
-      if (!company.value.trim() && same.length === 1) { company.value = same[0].company; touched.company = false; }
-      sync();
+    company.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') companyMenu.classList.remove('show');
+      if (e.key === 'ArrowDown') {
+        const first = companyMenu.querySelector('.pc-opt');
+        if (first) { e.preventDefault(); first.focus(); }
+      }
+    });
+    sideBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { sideMenu.classList.remove('show'); sideBtn.setAttribute('aria-expanded', 'false'); }
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        renderSideMenu();
+      }
     });
 
     // начальное состояние: голос карточки, иначе вариант с тем же именем, что подставила страница
@@ -295,7 +434,7 @@
     }
 
     function baseBody(name) {
-      return { diar_label: label, display_name: name, company: company.value.trim(), side: side.value, job_title: job.value.trim() || null };
+      return { diar_label: label, display_name: name, company: company.value.trim(), side: getSide(), job_title: job.value.trim() || null };
     }
 
     async function run(body, done) {
@@ -337,17 +476,10 @@
       if (!current) return;
       const next = (prompt(`Новое написание имени для «${current.name}» (изменится во всех созвонах этого голоса):`, current.name) || '').trim();
       if (!next || key(next) === key(current.name)) return;
-      if (!company.value.trim() || !side.value) { toast('Сначала укажите компанию и сторону'); return; }
+      if (!company.value.trim() || !getSide()) { toast('Сначала укажите компанию и сторону'); return; }
       if (!confirm(`Переименовать «${current.name}» в «${next}» во всех созвонах?`)) return;
       run({ ...baseBody(next), profile_id: current.profile_id, rename: true }, 'Переименовано: ' + next);
     }
   });
 
-  // список компаний для поля «Компания»
-  if (!document.getElementById('pc-companies')) {
-    const dl = document.createElement('datalist');
-    dl.id = 'pc-companies';
-    (ctx.companies || []).forEach((v) => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
-    document.body.appendChild(dl);
-  }
 })();

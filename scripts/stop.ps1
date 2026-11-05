@@ -1,4 +1,4 @@
-# SKKKK — остановить API и GPU-воркер
+# PrimaryAnalitics — остановить API и GPU-воркер
 $ErrorActionPreference = "Stop"
 $Root = (Split-Path -Parent $PSScriptRoot)
 $envFile = Join-Path $Root ".env"

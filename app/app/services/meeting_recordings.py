@@ -10,8 +10,10 @@ import wave
 from collections.abc import Callable
 from pathlib import Path
 
-CLEANER_ID = "skkkk-dfn"
-HIDDEN_PREFIX = "skkkk-"
+CLEANER_ID = "primaryanalitics-dfn"
+HIDDEN_PREFIX = "primaryanalitics-"
+# Старые комнаты/боты с префиксом skkkk- (данные до переименования) — читать и считать скрытыми.
+_ROOM_PREFIXES = (HIDDEN_PREFIX, "skkkk-")
 RECORD_DIRNAME = "meetings"
 TRACKS_DIRNAME = "tracks"
 MANIFEST_NAME = "manifest.json"
@@ -24,7 +26,7 @@ PCM_MAX = 32768.0
 SOURCE_MICROPHONE = "microphone"
 SOURCE_SCREEN = "screen"
 SOURCE_SCREEN_VIDEO = "screen_video"
-RECORDER_ID = "skkkk-rec"
+RECORDER_ID = "primaryanalitics-rec"
 SCREEN_RECORD_ENV = "MEETING_SCREEN_RECORD"
 SCREEN_FPS_ENV = "MEETING_SCREEN_FPS"
 SCREEN_FPS_DEFAULT = 1.0
@@ -136,7 +138,7 @@ def screen_video_relpath(identity: str, track_sid: str) -> str:
 
 
 def is_human_identity(identity: str) -> bool:
-    return bool(identity) and not identity.startswith(HIDDEN_PREFIX)
+    return bool(identity) and not any(identity.startswith(p) for p in _ROOM_PREFIXES)
 
 
 def should_record_identity(identity: str) -> bool:
@@ -155,7 +157,7 @@ def recordings_root(data_dir: Path) -> Path:
 
 
 def room_dir(data_dir: Path, room_name: str) -> Path:
-    if not room_name.startswith(HIDDEN_PREFIX):
+    if not any(room_name.startswith(p) for p in _ROOM_PREFIXES):
         raise ValueError("room_name")
     if any(part in room_name for part in ("/", "\\", "..")):
         raise ValueError("room_name")
@@ -449,7 +451,7 @@ def merge_track_rows(base: list, incoming: list) -> list:
 
 
 def write_manifest_merged(path: Path, manifest: dict) -> dict:
-    """Не затирает чужие дорожки: voice_cleaner и skkkk-rec пишут один файл."""
+    """Не затирает чужие дорожки: voice_cleaner и primaryanalitics-rec пишут один файл."""
     dest = path.parent / (path.name + ".lock")
 
     def _write() -> dict:

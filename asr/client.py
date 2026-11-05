@@ -1,4 +1,4 @@
-"""Клиент SKKKK к трём ASR-контейнерам."""
+"""Клиент PrimaryAnalitics к трём ASR-контейнерам."""
 
 from __future__ import annotations
 

@@ -15,7 +15,7 @@ def _mod():
 
 def test_recorder_is_hidden_subscribe_only():
     text = (ROOT / "tools" / "livekit" / "screen_recorder.py").read_text(encoding="utf-8")
-    assert 'RECORDER_ID = "skkkk-rec"' in text
+    assert 'RECORDER_ID = "primaryanalitics-rec"' in text
     assert '"canPublish": True' not in text
     assert '"canSubscribe": True' in text
     assert '"hidden": True' in text

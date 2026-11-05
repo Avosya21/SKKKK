@@ -16,7 +16,7 @@ from app.app.llm_labels import llm_runtime_label, llm_short_name  # noqa: E402
 from app.app.llm_settings import uses_local_gemma  # noqa: E402
 from app.app.services.llm import chat_from_env_no_think, ensure_lmstudio_gemma_loaded  # noqa: E402
 
-logger = logging.getLogger("skkkk.llm.asr")
+logger = logging.getLogger("primaryanalitics.llm.asr")
 
 
 def _settings() -> Settings:

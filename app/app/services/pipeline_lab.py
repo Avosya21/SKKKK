@@ -28,7 +28,7 @@ from app.app.services.storage import (
     ensure_artifact_workspace,
 )
 
-logger = logging.getLogger("skkkk.pipeline")
+logger = logging.getLogger("primaryanalitics.pipeline")
 
 LAB_PYTHON = ROOT / "venvs" / "lab" / "Scripts" / "python.exe"
 APP_PYTHON = Path(sys.executable)

@@ -127,7 +127,7 @@ GEOMETRY_JS = "() => Array.from(document.querySelectorAll('.card, main > *, .con
 def start_instance(passwords: dict[str, str]):
     from app.app.services.auth import hash_password
 
-    tmp = Path(tempfile.mkdtemp(prefix="skkkk_audit_"))
+    tmp = Path(tempfile.mkdtemp(prefix="primary_analitics_audit_"))
     data = tmp / "data"
     data.mkdir()
     src = sqlite3.connect(str(ROOT / "data" / "app.db"), timeout=30)
@@ -146,7 +146,7 @@ def start_instance(passwords: dict[str, str]):
         "SECRET_KEY": secrets.token_urlsafe(32),
         "ADMIN_PASSWORD_HASH": hash_password(passwords["admin"]), "MANAGER_PASSWORD_HASH": hash_password(passwords["manager"]), "USER_PASSWORD_HASH": hash_password(passwords["user"]),
         "DATA_DIR": str(data), "DATABASE_URL": f"sqlite:///{data / 'app.db'}", "LOGIN_ALLOWLIST_PATH": str(allow),
-        "SKKKK_DISABLE_EDGE": "1", "WEB_HOST": "127.0.0.1", "WEB_PORT": str(PORT), "PYTHONIOENCODING": "utf-8",
+        "PRIMARY_ANALITICS_DISABLE_EDGE": "1", "WEB_HOST": "127.0.0.1", "WEB_PORT": str(PORT), "PYTHONIOENCODING": "utf-8",
         # Вёрстка и сценарии портала, не вход: личный пароль и карточку не проходим. База паролей — своя в DATA_DIR.
         "PERSONAL_PASSWORD": "off", "CREDENTIALS_DB_PATH": str(data / "credentials.db"),
     }

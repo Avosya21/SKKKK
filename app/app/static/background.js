@@ -15,7 +15,7 @@
 
   async function api(path, method) {
     try {
-      const r = await SKKKK.api(`/projects/${PID}/background${path}`, { method: method || 'GET', headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+      const r = await PrimaryAnalitics.api(`/projects/${PID}/background${path}`, { method: method || 'GET', headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
         body: method === 'POST' && path !== '/retry' && path !== '/cancel' ? JSON.stringify({ artifact_ids: selected() }) : (method === 'POST' ? '{}' : undefined) });
       if (!r.ok) { say(await errText(r), true); return null; }
       return await r.json();

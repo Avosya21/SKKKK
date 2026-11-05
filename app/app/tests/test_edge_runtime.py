@@ -146,27 +146,27 @@ def test_caddyfile_issues_shortlived_ip_cert():
     assert "profile shortlived" in text
     assert "disable_tlsalpn_challenge" in text
     assert "acme-challenge" in text
-    assert "SKKKK_ACME_TLS_PORT" in text
+    assert "PRIMARY_ANALITICS_ACME_TLS_PORT" in text
     assert "force_automate" in text
 
 
 def _settings():
     return SimpleNamespace(
-        skkkk_public_host="203.0.113.10",
-        skkkk_https_port=777,
-        skkkk_acme_http_port=8088,
-        skkkk_acme_email="ops@example.test",
-        skkkk_acme_ca="",
-        skkkk_acme_tls_port=8443,
-        skkkk_tls_cert="",
-        skkkk_tls_key="",
+        primary_analitics_public_host="203.0.113.10",
+        primary_analitics_https_port=777,
+        primary_analitics_acme_http_port=8088,
+        primary_analitics_acme_email="ops@example.test",
+        primary_analitics_acme_ca="",
+        primary_analitics_acme_tls_port=8443,
+        primary_analitics_tls_cert="",
+        primary_analitics_tls_key="",
         web_port=1777,
-        data_dir=Path("C:/1C_NEW_SKKKK/data"),
+        data_dir=Path("D:/Primary_Analitics/data"),
     )
 
 
 def test_check_served_certificate_reloads_only_on_mismatch(monkeypatch, tmp_path):
-    settings = SimpleNamespace(skkkk_public_host="1.2.3.4", skkkk_https_port=777)
+    settings = SimpleNamespace(primary_analitics_public_host="1.2.3.4", primary_analitics_https_port=777)
     monkeypatch.setattr(er, "tls_paths", lambda _s: (tmp_path / "c.crt", tmp_path / "c.key"))
     monkeypatch.setattr(er, "_file_cert_serial", lambda _p: 200)
     reloads: list[int] = []
@@ -186,9 +186,9 @@ def test_check_served_certificate_reloads_only_on_mismatch(monkeypatch, tmp_path
 
 
 def test_check_served_certificate_skips_without_public_host_or_file(monkeypatch, tmp_path):
-    assert er.check_served_certificate(SimpleNamespace(skkkk_public_host="", skkkk_https_port=777)) == "skip"
+    assert er.check_served_certificate(SimpleNamespace(primary_analitics_public_host="", primary_analitics_https_port=777)) == "skip"
     monkeypatch.setattr(er, "tls_paths", lambda _s: (tmp_path / "missing.crt", tmp_path / "k"))
-    assert er.check_served_certificate(SimpleNamespace(skkkk_public_host="h", skkkk_https_port=777)) == "skip"
+    assert er.check_served_certificate(SimpleNamespace(primary_analitics_public_host="h", primary_analitics_https_port=777)) == "skip"
 
 
 def test_recorders_are_never_started_under_tests(monkeypatch, tmp_path):

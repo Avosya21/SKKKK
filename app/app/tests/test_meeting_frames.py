@@ -28,7 +28,7 @@ def test_disabled_extract_writes_nothing(tmp_path: Path, monkeypatch):
 
 def test_disabled_extract_logs_skip(tmp_path: Path, caplog):
     artifact = SimpleNamespace(project_id=1, artifact_id="art_log")
-    caplog.set_level("INFO", logger="skkkk.meeting_video")
+    caplog.set_level("INFO", logger="primaryanalitics.meeting_video")
     assert frames.extract_meeting_screen_frames(SimpleNamespace(), artifact, {}, enabled=False) == []
     assert "meeting.video_transcript.skip" in caplog.text
     assert "reason=disabled" in caplog.text

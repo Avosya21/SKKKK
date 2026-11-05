@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {# Лаборатория созвона (admin): этапы обработки каждой дорожки встречи; пока идёт прогон, страница обновляется сама #}
+{% block body_class %}nav-in-project{% endblock %}
 {% block content %}
 <p class="small mb-2">
   <a href="/projects/{{ project_id }}">← к проекту</a>

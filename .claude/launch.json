@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "nemotron-listen",
-      "runtimeExecutable": "C:\\1C_NEW_SKKKK\\venvs\\lab\\Scripts\\python.exe",
+      "runtimeExecutable": "D:\\Primary_Analitics\\venvs\\lab\\Scripts\\python.exe",
       "runtimeArgs": [
         "-m",
         "http.server",
@@ -11,13 +11,13 @@
         "--bind",
         "127.0.0.1",
         "--directory",
-        "C:\\Users\\rene_\\AppData\\Local\\Temp\\claude\\C--1C-NEW-SKKKK\\70480d94-b4bf-40b1-94f6-3db63029dfab\\scratchpad\\listen_p35"
+        "C:\\Users\\rene_\\AppData\\Local\\Temp\\claude\\C--1C-NEW-PrimaryAnalitics\\70480d94-b4bf-40b1-94f6-3db63029dfab\\scratchpad\\listen_p35"
       ],
       "port": 8765
     },
     {
       "name": "frames-dedup",
-      "runtimeExecutable": "C:\\1C_NEW_SKKKK\\experiments\\embeddinggemma2\\.venv\\Scripts\\python.exe",
+      "runtimeExecutable": "D:\\Primary_Analitics\\experiments\\embeddinggemma2\\.venv\\Scripts\\python.exe",
       "runtimeArgs": [
         "-m",
         "http.server",
@@ -25,15 +25,15 @@
         "--bind",
         "127.0.0.1",
         "--directory",
-        "C:\\1C_NEW_SKKKK\\experiments\\embeddinggemma2\\out\\dedup"
+        "D:\\Primary_Analitics\\experiments\\embeddinggemma2\\out\\dedup"
       ],
       "port": 8766
     },
     {
       "name": "voice-review",
-      "runtimeExecutable": "C:\\1C_NEW_SKKKK\\venv\\Scripts\\python.exe",
+      "runtimeExecutable": "D:\\Primary_Analitics\\venv\\Scripts\\python.exe",
       "runtimeArgs": [
-        "C:\\1C_NEW_SKKKK\\scripts\\voice_review.py",
+        "D:\\Primary_Analitics\\scripts\\voice_review.py",
         "serve"
       ],
       "port": 8770

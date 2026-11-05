@@ -390,7 +390,7 @@ def _load_mcp():
 def test_mcp_server_protocol_and_read_only_tools(built_index):
     mcp = _load_mcp()
     init = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}})
-    assert init["result"]["serverInfo"]["name"] == "skkkk-index"
+    assert init["result"]["serverInfo"]["name"] == "primaryanalitics-index"
     assert mcp.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
     tools = mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
     assert {"search_project", "callers", "route", "table", "env"} <= {t["name"] for t in tools}

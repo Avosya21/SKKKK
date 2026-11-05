@@ -1,4 +1,4 @@
-# SKKKK — Автопроверка локальной моделью: меньше ручных подтверждений
+# PrimaryAnalitics — Автопроверка локальной моделью: меньше ручных подтверждений
 
 Статус: **v1, решения §1 приняты; этапы 1–6 сделаны в коде (pytest 927 passed), граф конфликтов исправлен у источника, ждут перезапуска воркера и API; поправки DECISIONS по R3 внесены; теневой замер проекта 35 (копия БД): 68 сущностей за 178 с (2,6 с/сущность, 11,9 с/вызов), промпт v2: confirm 63 / reject 2 / unsure 3; ждёт разметки 60 вердиктов пользователем (`data/eval/auto_review_35_20260924_001656.csv`). Конфликты (этап 4): из 59 в базе 30 — пары участников (шум графа), закрываются правилом без модели; проект 30, промпт v2: not_conflict 9 / unsure 17 / wins 0 (v1 дал 2 ложные «победы» на неверно извлечённом факте — исправлено проверкой `_source_supports`), таблица `data/eval/auto_review_conflicts_30_20260924_005019.csv`** (2026-09-24).
 Сверх плана на этапе 1: чат блокируется только задачами расшифровки (`routers/knowledge.py`: `Job.kind == process_artifact`) — иначе фоновая проверка накопленного на часы закрыла бы чат «GPU занят».
@@ -68,7 +68,7 @@
 - `model_review` добавить в `graph.PROVENANCE_KEYS` (не входит в эмбеддинг и сравнение), в `knowledge._keep_provenance` сохраняется.
 - Журнал: `review.verdict` (artifact, entity, verdict, confidence, mode), `review.undo`.
 
-**Тесты:** `test_auto_review_queue.py` (приоритет, без дублей, ошибка ревью не портит артефакт), `test_auto_review_record.py` (shadow без последствий, live reject/undo, audit), страж `*_no_think` и `SKKKK_STRICT_DB_HOLD=1` зелёные.
+**Тесты:** `test_auto_review_queue.py` (приоритет, без дублей, ошибка ревью не портит артефакт), `test_auto_review_record.py` (shadow без последствий, live reject/undo, audit), страж `*_no_think` и `PRIMARY_ANALITICS_STRICT_DB_HOLD=1` зелёные.
 
 ## 4. Этап 2 — проверка требований (decision / task)
 
