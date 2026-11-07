@@ -237,10 +237,44 @@ app\app\tests\
 - Реальные файлы: `venv\Scripts\python.exe scripts\reprocess_documents.py --all` — отчёт без изменений: новое извлечение против текущего `_clean` (доля текста, число таблиц, числа таблиц, пропавшие из `_clean`, табличные фрагменты в индексе).
 - Качество ответов чата на вопросах по таблицам — `scripts\eval_chat.py` на копии базы с наборами `docs/eval/chat_questions_tables_p23.json` (смета Клиент Б) и `chat_questions_tables_p34.json` (смета Клиент А): `--project 23 --questions …`.
 
+## Acceptance на новой машине
+
+Полный живой прогон для стабилизации портала на D (реальный GPU + LLM, только песочница **проект 29**):
+
+```powershell
+# портал + воркер + LiveKit + GigaAM уже запущены (restart.ps1)
+$env:SMOKE_BASE = "https://127.0.0.1:777"
+$env:SMOKE_PROJECT_ID = "29"
+$env:SMOKE_PERSONAL_PW = "<личный пароль>"
+$env:SMOKE_OTP_CODE = "<свежий код B24>"
+# либо без OTP на этой машине:
+# $env:E2E_ALLOW_MINT = "1"
+# $env:SMOKE_BEARER_TOKEN = (venv\Scripts\python.exe scripts\e2e\mint_smoke_token.py)
+
+venv\Scripts\python.exe scripts\acceptance_all.py
+# то же: venv\Scripts\python.exe scripts\qa_all.py --acceptance
+# только материалы: …\acceptance_all.py --materials-only --keep-materials
+```
+
+Что входит (любой **FAIL** валит итог; для acceptance код **77** тоже FAIL — стенд обязан быть полным):
+
+1. `scripts/e2e/` — preflight (health, модели, Docker GigaAM, LLM) → все типы документов → аудио dual ASR/диаризация → enroll/confirm → search / rebuild-tz / chat  
+2. `scripts/smoke/run_all.py` — комната, роли, DOM  
+3. `qa_meeting_lifecycle`, `qa_room`, `qa_analysis`, `qa_media_path`  
+4. `qa_mobile_webkit` + `qa_mobile_android --boot` (эмулятор поднимается сам; нет AVD = FAIL)  
+5. `pytest app -m "not gpu and not slow"`  
+6. `health_report` + `audit_integrity`  
+7. eval ТЗ/чата на пилоте — локальные наборы `docs/eval/tz_facts_project18.json` и `docs/eval/chat_questions_project18.json` (или копии в `data/eval/`; шаблоны `chat_questions_*.json` / `tz_facts_*.json` в git не входят — только на машине стенда)
+
+Длительность: материалы ~1–2 ч на занятой карте; полный пакет — несколько часов. Отчёт: `data/eval/acceptance_YYYYMMDD_HHMMSS.json`. Зелёный = **ноль FAIL**. Acceptance сам поднимает GigaAM, Playwright-браузеры и Android (`qa_mobile_android --boot`).
+
+Фикстуры: `scripts/e2e/build_fixtures.py` (якорь `E2E_ACCEPTANCE_TOKEN_7F3A`). Оркестратор материалов: `scripts/e2e/run_materials.py`.
+
+После прогона: завершите оставшиеся `live`-встречи песочницы и не оставляйте e2e-артефакты в клиентских проектах. Смоук с `SMOKE_BEARER_TOKEN`: для проверки ролей нужен JWT нужной роли (mint с `SMOKE_ROLE`), один admin-токен на manager даст ложный доступ к админке. Развёртывание и версии моделей — `INSTALL.md`.
+
 ## Смоук на живом сервере
 
-`venv\Scripts\python scripts\smoke
-un_all.py` — роли, presence, песочничный поток, комната. Настройки через `SMOKE_BASE`, `SMOKE_PROJECT_ID`, `SMOKE_ADMIN_PW`, `SMOKE_MANAGER_PW`. Только песочница (проект 29). Зависимость: `app/requirements-dev.txt`.
+`venv\Scripts\python scripts\smoke\run_all.py` — роли, presence, песочничный поток, комната. Настройки через `SMOKE_BASE`, `SMOKE_PROJECT_ID`, `SMOKE_PERSONAL_PW`, `SMOKE_OTP_CODE`. Только песочница (проект 29). Зависимость: `app/requirements-dev.txt`.
 
 ## Проверка комнаты и анализа созвона без людей (20.09.2026)
 

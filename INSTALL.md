@@ -72,6 +72,83 @@
   затем снова `-r app\requirements.txt`. При очень медленной сети скачайте wheel отдельно и установите из файла.
 - Обновить список версий для `venvs\*` после изменения зависимостей: `venvs\<имя>\Scripts\python.exe -m pip freeze --exclude-editable > scripts\requirements_lock\<имя>.txt`.
 
+## Что скачать вручную и какие версии
+
+Клонирование репозитория **не** кладёт на диск веса моделей и часть `tools\`. Ниже — что добрать самим; пины pip — в файлах, не в этой таблице.
+
+### Системное и приложения
+
+| Что | Версия / ориентир | Кто ставит |
+|---|---|---|
+| ОС | Windows 10/11, GPU NVIDIA (для ASR и локальной LLM желательно ≥16–24 ГБ VRAM) | вручную |
+| Драйвер NVIDIA | актуальный с поддержкой CUDA 12.x | **вручную** (nvidia.com) |
+| Python | **3.10.x** (проверено 3.10.11) | `INSTALL.bat` / `tools\Python310` / winget |
+| Git | текущий winget `Git.Git` | `INSTALL.bat` |
+| Docker Desktop | с WSL2 | `INSTALL.bat`, один раз принять лицензию |
+| Ollama | winget `Ollama.Ollama` | `INSTALL.bat`; модель эмбеддингов — ниже |
+| LM Studio | winget `ElementLabs.LMStudio` | `INSTALL.bat`; **веса LLM — вручную** |
+| LibreOffice, Tesseract (rus+eng), FFmpeg | портативно в `tools\` или winget; FFmpeg ориентир **Gyan full_build 9+** | `INSTALL.bat` / копирование |
+
+### Модели (не в git)
+
+| Назначение | Что поставить | Где лежит / как |
+|---|---|---|
+| Локальная LLM | GGUF **UD-Q4_K_XL** (предпочтительно) или Q4_K_S того же ключа; рядом **mmproj-BF16** | ключ `LMSTUDIO_MODEL` = `swift-qwen3.8-27b-uncensored-dynamic-mtp`; профиль `tools/lmstudio/qwen-profile.json` (окно **32768**, parallel 2, thinking выкл.); ссылки на HF — в том же JSON (`weights_download`, `mmproj_download`) |
+| Эмбеддинги | Ollama **`bge-m3`** (`OLLAMA_EMBED_MODEL`) | обычно дотягивает install/preflight |
+| Слова ASR (канон) | Parakeet-TDT **0.6B v3** ONNX | HF `istupakov/parakeet-tdt-0.6b-v3-onnx` rev `8f23f0c` → `asr/models` / кэш lab; ONNX Runtime GPU **1.23.2**, onnx-asr **0.12.0** (`venvs\lab`) |
+| Диаризация | **Nemotron 3** (по умолчанию, до 8 спикеров) | файл `Nemotron-3-Diarization/Nemotron-3-Diarization.nemo`, SHA256 в `asr/lab/diar_models.py`; окружение `venvs\nemo-diar`. Откат: `DIAR_MODEL=sortformer4`, ONNX Sortformer 4spk v2.1 rev `3be92087` |
+| Второй слух | GigaAM-v3 e2e RNNT | HF `ai-sage/GigaAM-v3` rev **`e2e_rnnt`**; Docker `primaryanalitics-gigaam` `:18102`, CUDA **12.4** / torch **2.6+cu124** (`INSTALL.bat -Asr`) |
+| Шумодав в комнате | DeepFilterNet3 WASM | `venv\Scripts\python.exe scripts\fetch_meeting_dfn3.py` → `app/app/static/vendor/dfn3/` |
+| Эмулятор для QA | Android SDK + AVD **pixel7** (API 34) | `tools/android\` (не в git); после смены диска поправить пути в `pixel7.ini` / `hardware-qemu.ini` |
+
+Эталон freeze ASR: `asr/lab/FREEZE.md`, `asr/lab/freeze.json`. Карта стека — `docs/PROJECT-MAP.md` §1 / §8.
+
+### Версии Python-библиотек (источник истины)
+
+| Окружение | Файл с пинами |
+|---|---|
+| Портал, смоук, скрипты | `app/requirements.txt` (например FastAPI **0.141.1**, SQLAlchemy **2.0.52**, sqlite-vec **0.1.9**, cursor-sdk **1.0.28**, livekit-api **1.2.1**) |
+| Dev/pytest extras | `app/requirements-dev.txt` |
+| Lab ASR / Sortformer | `scripts/requirements_lock/lab.txt` |
+| Nemotron diar | `scripts/requirements_lock/nemo-diar.txt` |
+| Прочие движки | `scripts/requirements_lock/*.txt` (`gigaam`, `voice`, …) |
+
+Ставить только через `scripts\setup_env.ps1` (или `INSTALL.bat`), не смешивая системный Python с `venv`.
+
+### Секреты и списки доступа (не в git)
+
+Скопировать из примеров и заполнить: `.env` ← `.env.example`, `Login_up.txt` ← `Login_up.example.txt`, при ролях входа — `Login_roles.txt` ← `Login_roles.example.txt`, `Companies.txt` ← `Companies.example.txt`. В `.env` минимум: `SECRET_KEY`, пароли/хеши ролей или личные пароли по вашей схеме, `HF_TOKEN` при скачивании с Hugging Face; для `LLM_PROVIDER=cursor` — `CURSOR_API_KEY`.
+
+## После переноса на другой диск или ПК
+
+1. **Не копировать** чужие `venv\` / `venvs\` — только `setup_env.ps1 -Force`.
+2. Прогнать замену старого корня в `.env` (`INSTALL` / `setup_env` с `-OldRoot`).
+3. Починить абсолютные пути в **Android AVD** (`tools/android/avd/pixel7*`), снять stale `*.lock` у эмулятора.
+4. Проверки: `scripts\check_env.ps1`, `venv\Scripts\python.exe scripts\audit_integrity.py`, `scripts\health_report.py`.
+5. Сверить папки `data/projects/{id}` со строками в БД (сироты на диске — удалить или восстановить проект).
+6. Предупреждение `sqlite-vec not loaded` при «голом» `sqlite3` нормально, если через портал поиск/чат работают (расширение грузится на соединении приложения).
+7. Закрыть зависшие `live`-встречи песочницы и не оставлять e2e-артефакты в проде.
+
+Краткий чеклист «можно работать»:
+
+```text
+setup_env / INSTALL → .env и Login_* заполнены → LM Studio или Cursor по LLM_PROVIDER
+restart/start → audit_integrity без проблем → health без красных → поиск/чат на пилотном проекте
+```
+
+## Поведение, важное для смоука и комнаты
+
+- Песочница для автопроверок — отдельный проект (по умолчанию id **29**); клиентские проекты смоуком не трогать.
+- Смоук без OTP: `E2E_ALLOW_MINT=1` и JWT из `scripts/e2e/mint_smoke_token.py`. Токен выпускается **на роль**: один bearer admin не подходит для проверки manager (нужен отдельный mint с `SMOKE_ROLE=manager` или логика в `scripts/smoke/common.py`).
+- Полный приёмочный прогон: `scripts/acceptance_all.py` / `qa_all.py --acceptance` — см. `docs/TESTING.md`. После прогона завершайте live-встречи песочницы.
+- Шумодав в браузере **по умолчанию выключен**; DFN3 грузится после включения кнопки. Сырая дорожка записи может публиковаться и при выключенном шумодаве.
+- «Речь не обнаружена» на тихом файле — штатный исход (`done` + сообщение), не обязательно авария стенда.
+- Список «Исправлено» в шапке портала (`changelog.json`) пополняют только осознанно; восстановление стенда и правки тестов туда не пишут.
+
+## Карта проекта и коммиты
+
+Новый роут, кнопка, модуль или шаг конвейера отражайте в `docs/PROJECT-MAP.md` и `docs/project-map/manifest.yaml` **в том же коммите**. Хуки (`scripts/install_hooks.ps1`) отклонят коммит при расхождении. Инвентарь машины: `docs/project-map/stand.yaml` + `scripts/check_stand_inventory.py` (временные `data/tmp_*` и опциональные тулы — в skip/optional).
+
 ## PyCharm / IDE
 
 - Интерпретатор проекта: `venv\Scripts\python.exe` (после `setup_env`, не системный Python и не чужой venv).

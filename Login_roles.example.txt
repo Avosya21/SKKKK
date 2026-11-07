@@ -1,0 +1,9 @@
+# Роли логинов — правит только админ. Скопируйте в Login_roles.txt рядом с Login_up.txt.
+# Формат: login | role[,role...]
+# Нет строки для логина из Login_up.txt → роль manager.
+# Роль user (заказчик) нельзя смешивать с admin/manager в одной строке.
+# Регистр логина не важен. Пустые строки и # пропускаются.
+
+# admin.person@example.com | admin,manager
+# manager.person@example.com | manager
+# client.person@customer.example | user
