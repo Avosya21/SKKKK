@@ -101,7 +101,7 @@
 | Шумодав в комнате | DeepFilterNet3 WASM | `venv\Scripts\python.exe scripts\fetch_meeting_dfn3.py` → `app/app/static/vendor/dfn3/` |
 | Эмулятор для QA | Android SDK + AVD **pixel7** (API 34) | `tools/android\` (не в git); после смены диска поправить пути в `pixel7.ini` / `hardware-qemu.ini` |
 
-Эталон freeze ASR: `asr/lab/FREEZE.md`, `asr/lab/freeze.json`. Карта стека — `docs/PROJECT-MAP.md` §1 / §8.
+Снимок версий ASR (freeze): `asr/lab/FREEZE.md`, `asr/lab/freeze.json`. Карта стека — `docs/PROJECT-MAP.md` §1 / §8.
 
 ### Версии Python-библиотек (источник истины)
 

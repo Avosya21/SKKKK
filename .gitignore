@@ -41,6 +41,7 @@ __pycache__/
 *.egg-info/
 .env
 Login_up.txt
+Login_roles.txt
 Companies.txt
 # Фото пользователей (карточки)
 data/people/
@@ -186,6 +187,10 @@ onec/
 # Исключения: синтетические фикстуры тестов.
 !app/app/tests/fixtures/**
 !scripts/qa_data_speech_*.wav
+!scripts/e2e/fixtures/e2e_speech.wav
+
+# Состояние живого e2e (артефакты песочницы)
+scripts/e2e/e2e_state.json
 
 # Локальный мусор стенда (не часть репозитория)
 unsloth_compiled_cache/
