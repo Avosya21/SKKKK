@@ -25,10 +25,11 @@ from app.app.models.job import Job
 from app.app.models.meeting import Meeting, MeetingParticipant
 from app.app.models.person import PeopleLog, Person, PersonAlias, ProjectParty, UnknownActor
 from app.app.models.project import Project
-from app.app.models.project_member import ProjectMember
-from app.app.models.project_mcp_token import ProjectMcpToken
-from app.app.models.project_task import ProjectTask
+from app.app.models.exchange_file import ExchangeBundle, ExchangeFile
 from app.app.models.manual_task import ManualTask
+from app.app.models.project_member import ProjectMember
+from app.app.models.project_mcp_token import McpCallStat, ProjectMcpToken
+from app.app.models.project_task import ProjectTask
 from app.app.models.project_visit import ProjectVisit
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.speech_act import SpeechAct
@@ -40,6 +41,35 @@ from app.app.services.vector_index import delete_vectors_for_chunks, delete_vect
 logger = logging.getLogger("primaryanalitics.project")
 
 CHILD_DIR_SEP = "__"
+
+
+def _delete_project_row(db: Session, project_id: int) -> None:
+    """Удалить строку projects, не трогая append-only user_activity_log.
+
+    В SQLite ``PRAGMA foreign_keys`` внутри транзакции — no-op. Поэтому сначала
+    commit дочерних удалений, затем на том же DBAPI-соединении гасим FK,
+    удаляем строку и включаем FK обратно.
+    """
+    db.commit()
+    sa_conn = db.connection()
+    if sa_conn.in_transaction():
+        sa_conn.commit()
+    raw = sa_conn.connection.driver_connection
+    cur = raw.cursor()
+    try:
+        cur.execute("PRAGMA foreign_keys=OFF")
+        flag = cur.execute("PRAGMA foreign_keys").fetchone()
+        if flag and flag[0]:
+            raise RuntimeError("SQLite PRAGMA foreign_keys=OFF не применился (открыта транзакция?)")
+        cur.execute("DELETE FROM projects WHERE id=?", (project_id,))
+        raw.commit()
+    finally:
+        try:
+            cur.execute("PRAGMA foreign_keys=ON")
+            raw.commit()
+        finally:
+            cur.close()
+    db.expire_all()
 
 
 def remove_project_tree(settings: Settings, project_id: int) -> None:
@@ -247,10 +277,16 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     # user_activity_log append-only: строки аудита не удаляем (project_id остаётся как история).
     db.execute(delete(Changelog).where(Changelog.project_id == pid))
     db.execute(delete(ProjectMember).where(ProjectMember.project_id == pid))
-    db.execute(delete(ProjectMcpToken).where(ProjectMcpToken.project_id == pid))
     db.execute(delete(AgentExchangeLog).where(AgentExchangeLog.project_id == pid))
     db.execute(delete(AgentQuestion).where(AgentQuestion.project_id == pid))
     db.execute(delete(ContractItem).where(ContractItem.project_id == pid))
+    # Посылки MCP ссылаются на project_mcp_tokens.token_id — сначала файлы/бандлы, потом статистика и ключи.
+    bundle_ids = list(db.scalars(select(ExchangeBundle.id).where(ExchangeBundle.project_id == pid)))
+    if bundle_ids:
+        db.execute(delete(ExchangeFile).where(ExchangeFile.bundle_id.in_(bundle_ids)))
+    db.execute(delete(ExchangeBundle).where(ExchangeBundle.project_id == pid))
+    db.execute(delete(McpCallStat).where(McpCallStat.project_id == pid))
+    db.execute(delete(ProjectMcpToken).where(ProjectMcpToken.project_id == pid))
     meeting_ids = list(db.scalars(select(Meeting.id).where(Meeting.project_id == pid)))
     meeting_rooms = list(db.scalars(select(Meeting.room_name).where(Meeting.project_id == pid)))
     live_rooms = list(db.scalars(select(Meeting.room_name).where(Meeting.project_id == pid, Meeting.status == "live")))
@@ -258,14 +294,8 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
         db.execute(delete(MeetingParticipant).where(MeetingParticipant.meeting_id.in_(meeting_ids)))
     db.execute(delete(Meeting).where(Meeting.project_id == pid))
     db.execute(delete(Artifact).where(Artifact.project_id == pid))
-    # Журнал аудита хранит project_id без каскада: на удаление строки проекта временно гасим FK.
-    from sqlalchemy import text
-
-    db.execute(text("PRAGMA foreign_keys=OFF"))
-    db.delete(project)
-    db.commit()
-    db.execute(text("PRAGMA foreign_keys=ON"))
-    db.commit()
+    # Журнал аудита хранит project_id: удаляем строку проекта с корректным PRAGMA (см. _delete_project_row).
+    _delete_project_row(db, pid)
     # Идущие встречи удалённого проекта: закрыть комнаты, иначе участники и боты записи оставались в них, и запись
     # писалась в каталог удалённой встречи.
     from app.app.services.meetings import close_livekit_room

@@ -128,6 +128,65 @@ def test_delete_project_with_agent_protocol_rows(client, manager_token):
     assert r.status_code == 204
 
 
+def test_delete_project_with_mcp_exchange_bundle(client, manager_token):
+    """Регресс (проект 54): exchange_bundles.token_id → project_mcp_tokens; если бандлы
+    чистить после ключей, DELETE проекта падает с IntegrityError."""
+    from app.app.db import SessionLocal
+    from app.app.models.exchange_file import ExchangeBundle, ExchangeFile
+    from app.app.models.project_mcp_token import McpCallStat
+    from app.app.services.project_mcp_tokens import create_project_mcp_token
+
+    pid = client.post(
+        "/projects",
+        json={"name": "MCP bundles"},
+        headers={"Authorization": f"Bearer {manager_token}"},
+    ).json()["id"]
+
+    db = SessionLocal()
+    try:
+        token, _plain = create_project_mcp_token(db, project_id=pid, label="agent", user_id=1)
+        bundle = ExchangeBundle(
+            project_id=pid,
+            name="cfg",
+            kind="other",
+            status="complete",
+            manifest_sha="a" * 64,
+            total_bytes=3,
+            file_count=1,
+            token_id=token.id,
+            source="test",
+        )
+        db.add(bundle)
+        db.flush()
+        db.add(
+            ExchangeFile(
+                bundle_id=bundle.id,
+                path="map.json",
+                size=3,
+                sha256="b" * 64,
+                received_bytes=3,
+                status="complete",
+            )
+        )
+        db.add(
+            McpCallStat(
+                project_id=pid,
+                token_id=token.id,
+                day="2026-11-07",
+                tool="files_catalog",
+                calls=1,
+                bytes_out=10,
+                errors=0,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"})
+    assert r.status_code == 204
+
+
 def test_delete_project_with_decision_memory_rows(client, manager_token):
     """Регресс: память решений (subjects/speech_acts/decision_events/…) ссылается на artifacts/projects
     (FK) и раньше не чистилась в purge_project — delete падал с IntegrityError после разбора материала."""
