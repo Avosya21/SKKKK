@@ -16,7 +16,7 @@ Cursor sense → сверка GigaAM → WeSpeaker. Очистки звука н
 `onnxruntime` из `app/requirements.txt` — это один и тот же модуль.
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 py -3.10 -m venv venvs\lab
 venvs\lab\Scripts\python.exe -m pip install -U pip
 venvs\lab\Scripts\python.exe -m pip install -r asr\lab\requirements.txt

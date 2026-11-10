@@ -1,5 +1,7 @@
 # Этап 9. Службы Windows и доступ по сети
 
+> **Расхождения с текущим стендом.** Портал слушает `WEB_PORT` из `.env` (**1777**, не 1111); обратный прокси — Caddy с HTTPS на `:777`, Nginx не используется. Актуальный запуск — [OPERATIONS.md](../OPERATIONS.md) и [PROJECT-MAP.md](../PROJECT-MAP.md) §3.
+
 ## Цель
 
 Система поднимается сама после перезагрузки и доступна коллегам по внутренней сети. До этого запуск был ручным.
@@ -17,7 +19,7 @@
 3. **Ollama** — служба, автозапуск, переменная окружения с ограничением GPU при необходимости.
 
 4. **NSSM для нашего кода**:
-   - `PrimaryAnalitics-API`: `venv\Scripts\python.exe -m app.app.main api --host 127.0.0.1 --port 1111`, рабочий каталог `D:\Primary_Analitics`, логи в `data\logs`;
+   - `PrimaryAnalitics-API`: `venv\Scripts\python.exe -m app.app.main api --host 127.0.0.1 --port 1111`, рабочий каталог — корень репозитория, логи в `data\logs`;
    - `PrimaryAnalitics-GPU`: `venv\Scripts\python.exe -m app.app.main worker`;
    - автоперезапуск при падении с задержкой;
    - учётная запись, у которой есть доступ к GPU и к каталогу проекта.

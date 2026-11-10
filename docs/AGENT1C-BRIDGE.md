@@ -1,5 +1,7 @@
 # Что берём из Agent1C в PrimaryAnalitics
 
+> **Исторический документ** (старт проекта). С тех пор изменилось: порт портала — `WEB_PORT` **1777** (не 1111), локальная модель — `LMSTUDIO_MODEL` из `.env.example` (не Gemma), ASR — двойной слух без отдельных `venvs\whisper|gigaam|tone`. Актуальное — [PROJECT-MAP.md](PROJECT-MAP.md) §1.1 и §3.
+
 Источник: `C:\Agent1C`. Это уже работающий локальный стенд: Gemma в LM Studio, FastAPI Web UI, клиент OpenAI. Код 1С-агента (QERA, MCP Serena, BSL Atlas) в PrimaryAnalitics **не копируем** — копируем способ поднять локальный сервер и разговаривать с моделями.
 
 ## Адреса и порты этой машины
@@ -34,7 +36,7 @@ llm = AsyncOpenAI(
 
 ## Что переиспользуем из кода и библиотек
 
-Готовое окружение: `C:\Agent1C\.venv` (`openai`, `fastapi`, `uvicorn`, `pydantic`, `aiohttp`). Для портала PrimaryAnalitics — **своё** `D:\Primary_Analitics\venv`, с теми же пакетами. ASR-движки остаются в отдельных `venvs\whisper|gigaam|tone` и в это окружение не ставятся.
+Готовое окружение: `C:\Agent1C\.venv` (`openai`, `fastapi`, `uvicorn`, `pydantic`, `aiohttp`). Для портала PrimaryAnalitics — **своё** `venv` в корне репозитория, с теми же пакетами. ASR-движки остаются в отдельных `venvs\whisper|gigaam|tone` и в это окружение не ставятся.
 
 Паттерн запуска: `run.ps1` → activate venv → `python main.py` → uvicorn поднимает FastAPI. Для PrimaryAnalitics тот же приём (`scripts/run.ps1` на этапе 1).
 

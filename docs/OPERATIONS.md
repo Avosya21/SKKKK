@@ -1,6 +1,6 @@
 # Эксплуатация PrimaryAnalitics
 
-Корень: `D:\Primary_Analitics`.
+Корень: корень репозитория (каталог с `AGENTS.md`); в командах ниже — `<корень репозитория>`.
 
 ## Запуск
 
@@ -8,7 +8,7 @@
 систем и запускает веб-портал вместе с GPU-воркером:
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 .\venv\Scripts\python.exe -m app.app.main
 ```
 
@@ -79,7 +79,7 @@ Docker Desktop на Windows ломает WebRTC (STUN отвечает адре�
 Порядок установки (от администратора):
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 # 1. В .env: PRIMARY_ANALITICS_PUBLIC_HOST, PRIMARY_ANALITICS_ACME_EMAIL и staging-адрес в PRIMARY_ANALITICS_ACME_CA
 .\scripts\install_caddy.ps1
 nssm start PrimaryAnalitics-CADDY
@@ -110,7 +110,7 @@ Staging Chrome не доверяет — страница будет «Не за
 Ручной запуск:
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 .\scripts\run_all.ps1      # проверка систем + портал + воркер
 .\scripts\check_systems.ps1  # только проверка
 .\scripts\run_api.ps1      # только портал

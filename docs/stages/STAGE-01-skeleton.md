@@ -13,7 +13,7 @@
 1. **Виртуальное окружение и зависимости.**
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 python -m venv venv
 venv\Scripts\activate
 pip install fastapi "uvicorn[standard]" sqlalchemy alembic "python-jose[cryptography]" "passlib[bcrypt]" python-multipart aiofiles httpx pydantic-settings jinja2 pytest pytest-asyncio
@@ -45,7 +45,7 @@ pip freeze > app\requirements.txt
 ## Что появляется на диске
 
 ```
-D:\Primary_Analitics\
+<корень репозитория>\
 ├── venv\
 ├── app\
 │   ├── requirements.txt
@@ -79,7 +79,7 @@ D:\Primary_Analitics\
 Запуск:
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 venv\Scripts\activate
 python -m app.app.main api --host 127.0.0.1 --port 1111 --reload
 ```
@@ -123,7 +123,7 @@ python -m app.app.main api --host 127.0.0.1 --port 1111 --reload
 Запуск:
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 venv\Scripts\activate
 pytest app -m "not gpu" -q
 ```

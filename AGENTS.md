@@ -42,7 +42,7 @@ venv\Scripts\python.exe scripts\search_project_map.py --import-cycles           
 
 **LightRAG (граф кнопок/API/БД):** Docker `tools/lightrag`, запросы — `py scripts/lightrag_query.py "вопрос"`. См. `tools/lightrag/README.md`.
 
-Работай только внутри `D:\Primary_Analitics`.
+Работай только внутри корня репозитория (каталог, где лежит этот файл).
 
 ## Карта проекта всегда актуальна (обязательно, для любого ИИ и человека)
 
