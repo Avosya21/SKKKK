@@ -71,7 +71,6 @@ items:
   - {path: "vendor", kind: "вендор", purpose: "GigaAMGUI — клон для сборки контейнера GigaAM; не в git", optional: true}
   - {path: "venv", kind: "окружение", purpose: "Python 3.10.9 портала и всех служебных скриптов", optional: true}
   - {path: "venvs", kind: "окружения", purpose: "отдельные окружения движков (см. ниже)", optional: true}
-  - {path: "_archive", kind: "архив", purpose: "код и данные разработки, выведенные из контура (см. _archive/README.md)"}
 
   # ─── scripts: не-код (лаунчеры, конфиги индекса, звук для проверок) ───
   - {path: "scripts/PrimaryAnalitics-1-Остановить.bat", kind: "лаунчер", purpose: "двойной щелчок: остановить портал и воркер"}

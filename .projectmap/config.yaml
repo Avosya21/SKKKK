@@ -20,9 +20,8 @@ ignore:
   - "**/*.out"
   # портативный OCR (бинарники и языковые данные)
   - "tools/tesseract/**"
-  # эксперименты и архив: не рабочий код
+  # эксперименты: не рабочий код
   - "experiments/**"
-  - "_archive/**"
   # данные тестов и замеров, кэши моделей
   - "app/app/tests/fixtures/**"
   - "docs/eval/**"
@@ -41,6 +40,13 @@ ignore_env:
   - "OUT_DIR"
   - "ASR_ENGINE"
   - "PYCHARM_HOSTED"
+  # отладочные и внутренние: в карте описаны (§12.2, «Отладка и тесты»), в образце не нужны
+  - "PRIMARY_ANALITICS_PROCESS_ROLE"
+  - "PRIMARY_ANALITICS_STRICT_DB_HOLD"
+  - "PRIMARY_ANALITICS_DISABLE_EDGE"
+  - "PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK"
+  - "TESSDATA_PREFIX"
+  - "HF_HUB_DOWNLOAD_TIMEOUT"
 
 # Цели охвата по пробам (доля 0..1). Задаются на достигнутом уровне с небольшим запасом и повышаются, когда пробел закрыт:
 #  ui_api — формы отправляются событием `submit` формы, а не кнопки; env — часть переменных читается кодом, но не описана в .env.example;

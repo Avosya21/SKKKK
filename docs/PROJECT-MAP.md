@@ -95,7 +95,7 @@ flowchart TB
 |-----|------------|
 | ОС | Windows 11 (`10.0.26200`), одна GPU **RTX 3090 24 ГБ**, драйвер **577.00** |
 | CUDA (хост, lab ONNX) | Toolkit **12.8** (nvcc 12.8.61) + cuDNN **9.16.0.29** |
-| Корень | только `D:\Primary_Analitics` |
+| Корень | только корень репозитория (каталог с `AGENTS.md`) |
 | Python (портал `venv/`) | **3.10.9** |
 | Python (лаборатория `venvs\lab`) | **3.10.9** (отдельный venv: `onnxruntime-gpu` vs `onnxruntime` в app) |
 | Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
@@ -166,7 +166,7 @@ GigaAM-контейнер (`primaryanalitics-gigaam`): образ из `vendor/G
 
 | Путь | Назначение |
 |------|------------|
-| `D:\Primary_Analitics\` | Единственный корень проекта |
+| корень репозитория | Единственный корень проекта; код находит его по расположению файлов (`ROOT` в `app/app/config.py`) |
 | `app/app/` | FastAPI: роутеры, сервисы, модели, воркер, шаблоны |
 | `asr/` | Lab ASR (Parakeet + диаризация Nemotron/Sortformer + GigaAM-сверка), view, speaker match |
 | `asr/lab/` | Канонический конвейер расшифровки (изоляция прогонов) |
@@ -1784,10 +1784,14 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Слух | `GIGAAM_API_KEY` | пусто | ключ контейнера GigaAM, передаётся конвейеру |
 | Слух | `ALLOW_LEGACY_ASR` | не задана | `1` — перезапуск прежних контейнеров вместе с GigaAM; по умолчанию перезапускается только GigaAM |
 | Комнаты | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | пусто | сервер комнат LiveKit |
+| Слух | `NEMOTRON_DIAR_MODEL` | `Nemotron-3-Diarization/Nemotron-3-Diarization.nemo` | путь к модели диаризации Nemotron (`asr/lab/diar_models.py`) |
+| Слух | `HF_HUB_OFFLINE`, `HF_HUB_DOWNLOAD_TIMEOUT` | `0`, `600` | Hugging Face для моделей слуха: `1` — не ходить в сеть; таймаут загрузки код выставляет сам, если не задан (`asr/lab/onnx_env.py`) |
+| Комнаты | `LIVEKIT_HTTP_INTERNAL` | `http://127.0.0.1:7880` | внутренний адрес LiveKit для рекордеров голоса и экрана (`tools/livekit/voice_cleaner.py`, `screen_recorder.py`) |
 | Комнаты | `PRIMARY_ANALITICS_TLS_ISSUE_TIMEOUT_SEC` | `120` | сколько ждать выпуска сертификата при старте |
 | Уведомления | `TELEGRAM_BOT_TOKEN` | пусто | токен бота (уведомления, заглушка) |
 | Инструменты | `FFMPEG_DIR`, `FFMPEG_BIN` (и `FFPROBE_BIN`) | не заданы | где искать `ffmpeg` / `ffprobe` вместо поиска по `PATH` |
 | Инструменты | `TESSERACT_CMD` / `TESSERACT_BIN`, `TESSDATA_DIR`, `TESSDATA_PREFIX` | не заданы | OCR: исполняемый файл Tesseract и каталог языков; `TESSDATA_PREFIX` код выставляет сам |
+| Инструменты | `PROJECT_INDEX_DB` | `data/project_map.db` | файл индекса кода проекта (`services/project_index/config.py`) |
 | Инструменты | `LIGHTRAG_URL`, `LIGHTRAG_API_KEY` | `http://127.0.0.1:9621`, пусто | граф знаний LightRAG для `scripts/lightrag_index.py` |
 | Отладка и тесты | `PRIMARY_ANALITICS_STRICT_DB_HOLD` | не задана | `1` — вызов модели при открытой транзакции БД падает исключением вместо предупреждения в журнале |
 | Отладка и тесты | `PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK` | не задана | `1` — не проверять LM Studio при старте (тесты не должны будить модель в GPU) |
@@ -2491,7 +2495,7 @@ MCP-сервер `primaryanalitics-index` (инструменты `graph_neighbo
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-10-16 01:58: сущностей 131, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-11-10 13:07: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2523,7 +2527,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `run_server.ps1` | запуск | сервер LM Studio + модель по профилю tools/lmstudio/qwen-profile.json (сервер PrimaryAnalitics не поднимает) | да |
 | `app` | код | портал FastAPI: роутеры, сервисы, модели, воркер, шаблоны (§7) | да |
 | `asr` | код | ASR: лабораторный контур, легаси-движки, docker, модели (§8) | да |
-| `data` | данные | БД, файлы проектов, записи встреч, логи, индексы | нет (не в git) |
+| `data` | данные | БД, файлы проектов, записи встреч, логи, индексы | нет |
 | `docs` | документы | план, карта, решения, этапы, промпты, планы, эталоны | да |
 | `experiments` | эксперименты | опыты вне рабочего контура: TTS (f5tts, fishspeech), видео (promo_video, procedural-film), диаризация (nemo-diar, diar-presets), Audio, for_anar | да |
 | `Nemotron-3-Diarization` | модель | веса Nemotron 3 Diarization (.nemo) — канон диаризации; не в git _(может отсутствовать)_ | нет |
@@ -2534,7 +2538,6 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `vendor` | вендор | GigaAMGUI — клон для сборки контейнера GigaAM; не в git _(может отсутствовать)_ | нет |
 | `venv` | окружение | Python 3.10.9 портала и всех служебных скриптов _(может отсутствовать)_ | нет |
 | `venvs` | окружения | отдельные окружения движков (см. ниже) _(может отсутствовать)_ | нет |
-| `_archive` | архив | код и данные разработки, выведенные из контура (см. _archive/README.md) | да |
 
 ### 17.2. Документы (`docs/`)
 
@@ -2570,7 +2573,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `tools/caddy` | сервис | caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git _(может отсутствовать)_ | да |
 | `tools/ffmpeg` | бинарник | портативный FFmpeg (если нет в PATH); не в git _(может отсутствовать)_ | нет |
 | `tools/libreoffice` | бинарник | LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git _(может отсутствовать)_ | нет |
-| `tools/lmstudio` | конфиг | qwen-profile.json — профиль локальной модели (ключ, окно 32768, mmproj, 2 потока, flash-attn, KV q8_0, MTP, thinking off); читают llm_keeper и run_server.ps1 | да |
+| `tools/lmstudio` | конфиг | qwen-profile.json — профиль локальной модели (окно, 2 потока, flash-attn, KV q8_0, MTP); читают llm_keeper и run_server.ps1 | да |
 | `tools/lightrag` | сервис | LightRAG в Docker (:9621): граф знаний по документации | да |
 | `tools/livekit` | сервис | livekit-server.exe (:7880), livekit.yaml, ensure_livekit.py, voice_cleaner.py, screen_recorder.py | да |
 | `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
@@ -2643,11 +2646,11 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 
 | Путь | Вид | Назначение | В git |
 |---|---|---|---|
-| `app/app/static/vendor/bootstrap` | вендор | Bootstrap 5: CSS и bundle JS портала | нет |
-| `app/app/static/vendor/cytoscape` | вендор | Cytoscape: граф знаний проекта и граф зависимостей | нет |
-| `app/app/static/vendor/dfn3` | вендор | DeepFilterNet3 WASM (клиентский шумодав выключен, канон — сервер; модели не в git) | нет |
-| `app/app/static/vendor/fullcalendar` | вендор | FullCalendar: календарь дедлайнов проекта | нет |
-| `app/app/static/vendor/livekit` | вендор | livekit-client: комната созвона в браузере | нет |
+| `app/app/static/vendor/bootstrap` | вендор | Bootstrap 5: CSS и bundle JS портала | да |
+| `app/app/static/vendor/cytoscape` | вендор | Cytoscape: граф знаний проекта и граф зависимостей | да |
+| `app/app/static/vendor/dfn3` | вендор | DeepFilterNet3 WASM (клиентский шумодав выключен, канон — сервер; модели не в git) | да |
+| `app/app/static/vendor/fullcalendar` | вендор | FullCalendar: календарь дедлайнов проекта | да |
+| `app/app/static/vendor/livekit` | вендор | livekit-client: комната созвона в браузере | да |
 
 ### 17.8. Прочее
 
@@ -2726,12 +2729,12 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | `docs/plans/plan-review.md` | Ревизия планов v4 / v5 относительно кода |
 | `docs/plans/PLATFORM-FOUNDATION-PLAN.md` | PrimaryAnalitics — Подготовка платформы к памяти решений |
 | `docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md` | План: точность контекста, задачи и «что нового» для менеджера |
+| `docs/plans/PrimaryAnalitics-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | PrimaryAnalitics — План полного закрытия дыр в конвейере созвона |
 | `docs/plans/PROJECT-INDEX-PLAN.md` | План: индекс проекта, которым можно управлять (поиск по смыслу, коду, связям и истории) |
 | `docs/plans/PROJECTMAP-PLAN.md` | План: инструмент `projectmap` — полная карта любого проекта |
 | `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Просмотрщик projectmap: пробная сборка G6 и Cytoscape |
 | `docs/plans/REQUIREMENTS-PLAN.md` | PrimaryAnalitics — Требования: понятные, с источником «кто и когда», актуальные |
 | `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | PrimaryAnalitics — Кадры экрана: время, момент, дубли, база знаний |
-| `docs/plans/PrimaryAnalitics-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | PrimaryAnalitics — План полного закрытия дыр в конвейере созвона |
 | `docs/plans/SOURCE-ANCHORS-PLAN.md` | PrimaryAnalitics — Якоря источников: даты сообщений переписки и переход к месту в стенограмме |
 | `docs/plans/TRANSCRIPT-PROVENANCE-PLAN.md` | PrimaryAnalitics — «Кто и когда»: стенограмма → база → чат (план внедрения) |
 | `docs/plans/USER-PROFILE-PLAN.md` | Карточка пользователя — план реализации |
@@ -2761,7 +2764,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 | Службы Windows (NSSM) | runtime | PrimaryAnalitics-API, PrimaryAnalitics-GPU, PrimaryAnalitics-CADDY — на этой машине не установлены, портал запускается скриптами; установка — scripts/install_services.ps1 |
 | Планировщик заданий | runtime | задачи автозапуска/бэкапа не проверены (нет прав на чтение планировщика); monitor_primary_analitics_loop.ps1 устарел |
 | Ollama | внешнее | bge-m3 на CPU (:11434): эмбеддинги индекса и чата; GPU не занимает |
-| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 32768, mmproj vision, thinking выкл; загружает и выгружает портал, JIT-автозагрузка выключена |
+| LM Studio | внешнее | :1234, модель LMSTUDIO_MODEL (swift-qwen3.8-27b) по профилю tools/lmstudio/qwen-profile.json: 2 потока, окно 56000; загружает и выгружает портал, JIT-автозагрузка выключена |
 | Docker Desktop | внешнее | контейнеры primaryanalitics-gigaam (рабочий), primaryanalitics-whisper и primaryanalitics-tone (откат), LightRAG (:9621) |
 | Caddy | внешнее | HTTPS :777, HTTP-01 :8088, выпуск сертификата :8443 (Let's Encrypt на IP) |
 | LiveKit | внешнее | native сервер :7880 (не Docker), TCP 7881, UDP mux 50000, TURN 3478 |
@@ -2774,7 +2777,7 @@ _Проверено 2026-10-16 01:58: сущностей 131, не описан�
 
 ## Архив разработки
 
-`_archive/` — файлы и код, оставшиеся от разработки и не используемые рабочим контуром (модели и окружения экспериментов, разовые скрипты, логи). Перенесены без удаления; список и способ возврата — в [`_archive/README.md`](../_archive/README.md).
+Каталог `_archive/` (модели и окружения экспериментов, разовые скрипты, логи — всё, что не использовал рабочий контур) удалён 2026-11-10. Скрипты и README архива, хранившиеся в git, остаются в истории репозитория.
 
 ### Журнал обновлений карты (исторический, до 2026-09-21)
 
