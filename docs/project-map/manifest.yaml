@@ -3810,6 +3810,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: tool_jira_mcp
+    kind: file
+    path: tools/jira_mcp.py
+    title: "Локальный MCP-сервер Jira (stdio): чтение задач Jira для ИИ-агента разработки. Только чтение."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

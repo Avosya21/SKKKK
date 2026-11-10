@@ -159,7 +159,13 @@ class JiraClient:
 
     def iter_issues(self, project_key: str, *, updated_since: str | None = None, limit: int | None = None) -> Iterator[dict[str, Any]]:
         """Задачи проекта, свежие сверху. ``updated_since`` — ГГГГ-ММ-ДД, ``limit`` — не больше стольких задач."""
-        jql = self._jql(project_key, updated_since)
+        return self.iter_search(self._jql(project_key, updated_since), limit=limit)
+
+    def iter_search(self, jql: str, *, limit: int | None = None) -> Iterator[dict[str, Any]]:
+        """Задачи по запросу JQL (только чтение), постранично."""
+        jql = (jql or "").strip()
+        if not jql:
+            raise JiraError("Пустой запрос JQL")
         fields = ",".join(ISSUE_FIELDS)
         given = 0
         start, token = 0, None
@@ -191,6 +197,41 @@ class JiraClient:
 
     def issues(self, project_key: str, *, updated_since: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
         return list(self.iter_issues(project_key, updated_since=updated_since, limit=limit))
+
+    def search(self, jql: str, *, limit: int | None = 50) -> list[dict[str, Any]]:
+        return list(self.iter_search(jql, limit=limit))
+
+    def issue(self, key: str, *, comments: int = 20) -> dict[str, Any]:
+        """Одна задача подробно: поля списка, описание и последние комментарии (автор, дата, текст)."""
+        key = (key or "").strip().upper()
+        if not key or not all(ch.isalnum() or ch in "-_" for ch in key):
+            raise JiraError(f"Неверный ключ задачи Jira: {key!r} (ожидается, например, ABC-123)")
+        raw = self._request("GET", f"/rest/api/2/issue/{key}", params={"fields": ",".join(ISSUE_FIELDS + ("description", "comment"))})
+        fields = raw.get("fields") or {}
+        row = normalize_issue(raw, self.base_url)
+        description = fields.get("description")
+        row["description"] = description if isinstance(description, str) else (str(description) if description else "")
+        block = fields.get("comment") if isinstance(fields.get("comment"), dict) else {}
+        items = [c for c in block.get("comments") or [] if isinstance(c, dict)]
+        row["comments_total"] = int(block.get("total") or len(items))
+        row["comments"] = [{"author": _name(c.get("author"), "displayName", "name"), "created": c.get("created"),
+                            "body": c.get("body") if isinstance(c.get("body"), str) else str(c.get("body") or "")}
+                           for c in items[-max(0, comments):]] if comments > 0 else []
+        return row
+
+    def project_statuses(self, project_key: str) -> list[dict[str, Any]]:
+        """Статусы проекта по видам задач: название в Jira, категория и статус портала — для сопоставления."""
+        key = project_key.strip().upper()
+        if not key or not all(ch.isalnum() or ch == "_" for ch in key):
+            raise JiraError(f"Неверный ключ проекта Jira: {project_key!r} (ожидается, например, ABC)")
+        data = self._request("GET", f"/rest/api/2/project/{key}/statuses")
+        rows: list[dict[str, Any]] = []
+        for kind in data if isinstance(data, list) else []:
+            for status in kind.get("statuses") or []:
+                category = status.get("statusCategory") if isinstance(status.get("statusCategory"), dict) else {}
+                rows.append({"issue_type": kind.get("name"), "status": status.get("name"), "category": category.get("key"),
+                             "portal_status": portal_status(status)})
+        return rows
 
 
 def configured(settings: Settings) -> bool:

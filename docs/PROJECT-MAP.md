@@ -1310,7 +1310,7 @@ data/projects/{project_id}/
 | `ollama_client.py` | bge-m3 embeddings |
 | `ollama_runtime.py` | автозапуск Ollama перед embed/index |
 | `notify.py` | Telegram stub |
-| `jira_client.py` | Jira, только чтение: проверка ключа, проекты, задачи проекта; облако (почта + API-токен) или свой сервер (персональный токен) — по `JIRA_EMAIL`; план `docs/plans/JIRA-INTEGRATION-PLAN.md` |
+| `jira_client.py` | Jira, только чтение: проверка ключа, проекты, статусы, задачи проекта, поиск JQL, задача подробно (для агента разработки — MCP-сервер `tools/jira_mcp.py`, `.mcp.json`); облако (почта + API-токен) или свой сервер (персональный токен) — по `JIRA_EMAIL`; план `docs/plans/JIRA-INTEGRATION-PLAN.md` |
 | `plain_text.py` | clean LLM outputs |
 
 ### Обмен с внешним агентом и контракт (сентябрь 2026)
@@ -2383,6 +2383,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Файл | Назначение |
 |---|---|
 | `_monitor_snapshot.py` | — |
+| `jira_mcp.py` | Локальный MCP-сервер Jira (stdio): чтение задач Jira для ИИ-агента разработки. Только чтение. |
 | `projindex_mcp.py` | Локальный MCP-сервер индекса проекта (stdio): поиск по коду, связям, БД, окружению и истории. Только чтение. |
 
 **`tools/livekit/`**
@@ -2503,7 +2504,7 @@ MCP-сервер `primaryanalitics-index` (инструменты `graph_neighbo
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-11-10 20:01: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-11-10 20:40: сущностей 131, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2514,7 +2515,7 @@ _Проверено 2026-11-10 20:01: сущностей 130, не описан�
 | `.gitignore` | git | что не попадает в репозиторий | да |
 | `.kiloignore` | чужой инструмент | исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел) | нет |
 | `.kilo` | чужой инструмент | рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится) | нет |
-| `.mcp.json` | MCP | локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) | да |
+| `.mcp.json` | MCP | локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py), projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) и primaryanalitics-jira (tools/jira_mcp.py) | да |
 | `.claude` | агент | конфиг Claude Code: launch.json, worktrees | да |
 | `.projectmap` | конфиг | конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты | да |
 | `.cursor` | агент | правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max) | да |
@@ -2587,6 +2588,7 @@ _Проверено 2026-11-10 20:01: сущностей 130, не описан�
 | `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
 | `tools/tesseract` | бинарник | OCR rus+eng и tessdata; бинарник не в git, языковые данные в git _(может отсутствовать)_ | да |
 | `tools/projindex_mcp.py` | MCP | MCP-сервер индекса карты (stdio): поиск по коду и графу | да |
+| `tools/jira_mcp.py` | MCP | MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи Jira для агента разработки; ключ из .env | нет (не в git) |
 | `tools/_monitor_snapshot.py` | утилита | снимок состояния для мониторинга | да |
 
 ### 17.4. Окружения (`venvs/`)

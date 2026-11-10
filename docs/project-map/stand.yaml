@@ -39,7 +39,7 @@ items:
   - {path: ".gitignore", kind: "git", purpose: "что не попадает в репозиторий"}
   - {path: ".kiloignore", kind: "чужой инструмент", purpose: "исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел)"}
   - {path: ".kilo", kind: "чужой инструмент", purpose: "рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится)"}
-  - {path: ".mcp.json", kind: "MCP", purpose: "локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage)"}
+  - {path: ".mcp.json", kind: "MCP", purpose: "локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py), projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) и primaryanalitics-jira (tools/jira_mcp.py)"}
   - {path: ".claude", kind: "агент", purpose: "конфиг Claude Code: launch.json, worktrees"}
   - {path: ".projectmap", kind: "конфиг", purpose: "конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты"}
   - {path: ".cursor", kind: "агент", purpose: "правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max)"}
@@ -118,6 +118,7 @@ items:
   - {path: "tools/projectmap", kind: "инструмент", purpose: "переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md)"}
   - {path: "tools/tesseract", kind: "бинарник", purpose: "OCR rus+eng и tessdata; бинарник не в git, языковые данные в git", optional: true}
   - {path: "tools/projindex_mcp.py", kind: "MCP", purpose: "MCP-сервер индекса карты (stdio): поиск по коду и графу"}
+  - {path: "tools/jira_mcp.py", kind: "MCP", purpose: "MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи Jira для агента разработки; ключ из .env"}
   - {path: "tools/_monitor_snapshot.py", kind: "утилита", purpose: "снимок состояния для мониторинга"}
 
   # ─── venvs ───

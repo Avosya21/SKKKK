@@ -134,3 +134,62 @@ def test_settings_helpers():
     assert jc.configured(settings) and jc.project_keys(settings) == ["ABC", "DEF", "GHI"]
     assert not jc.configured(SimpleNamespace(jira_base_url="", jira_api_token="t"))
     assert jc.JiraClient.from_settings(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))).mode == "свой сервер"
+
+
+def test_search_issue_detail_and_statuses():
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/search"):
+            return httpx.Response(200, json={"issues": [_issue(1)], "total": 1})
+        if path.endswith("/statuses"):
+            return httpx.Response(200, json=[{"name": "Задача", "statuses": [
+                {"name": "К выполнению", "statusCategory": {"key": "new"}}, {"name": "Готово", "statusCategory": {"key": "done"}}]}])
+        raw = _issue(7)
+        raw["fields"]["description"] = "Текст описания"
+        raw["fields"]["comment"] = {"total": 3, "comments": [
+            {"author": {"displayName": "Первый Автор"}, "created": "2026-11-01T10:00:00.000+0300", "body": "раз"},
+            {"author": {"name": "second"}, "created": "2026-11-02T10:00:00.000+0300", "body": "два"}]}
+        return httpx.Response(200, json=raw)
+
+    client = _client(handler)
+    assert [row["key"] for row in client.search("project = ABC")] == ["ABC-1"]
+    detail = client.issue("abc-7", comments=1)
+    assert detail["description"] == "Текст описания" and detail["comments_total"] == 3
+    assert detail["comments"] == [{"author": "second", "created": "2026-11-02T10:00:00.000+0300", "body": "два"}]
+    assert client.project_statuses("abc") == [
+        {"issue_type": "Задача", "status": "К выполнению", "category": "new", "portal_status": "open"},
+        {"issue_type": "Задача", "status": "Готово", "category": "done", "portal_status": "done"}]
+    with pytest.raises(jc.JiraError, match="Пустой запрос"):
+        client.search("  ")
+    with pytest.raises(jc.JiraError, match="ключ задачи"):
+        client.issue("ABC-1/../x")
+
+
+def test_mcp_server_tools_and_protocol():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location("jira_mcp", root / "tools" / "jira_mcp.py")
+    mcp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mcp)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/myself"):
+            return httpx.Response(200, json={"displayName": "Служебная учётка"})
+        if path.endswith("/project"):
+            return httpx.Response(200, json=[{"key": "ABC", "name": "Первый"}])
+        return httpx.Response(200, json={"issues": [_issue(1), _issue(2, category="done", assignee=None, due=None)], "total": 2})
+
+    client = _client(handler)
+    assert "свой сервер" in mcp.call_tool("jira_status", {}, client) and "secret" not in mcp.call_tool("jira_status", {}, client)
+    assert mcp.call_tool("jira_projects", {}, client) == "проектов: 1\nABC — Первый"
+    text = mcp.call_tool("jira_issues", {"project": "ABC", "limit": "не число"}, client)
+    assert "ABC-1 [Статус → open] Задача 1" in text and "всего 2: open 1, done 1; без исполнителя 1, без срока 1" in text
+    with pytest.raises(ValueError):
+        mcp.call_tool("jira_delete", {}, client)
+    listed = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+    assert [tool["name"] for tool in listed] == ["jira_status", "jira_projects", "jira_project_statuses", "jira_issues", "jira_search", "jira_issue"]
+    assert mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})["result"]["serverInfo"]["name"] == "primaryanalitics-jira"
+    assert mcp.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None

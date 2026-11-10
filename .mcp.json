@@ -20,6 +20,15 @@
         "PYTHONPATH": "tools/projectmap",
         "PYTHONIOENCODING": "utf-8"
       }
+    },
+    "primaryanalitics-jira": {
+      "command": "venv/Scripts/python.exe",
+      "args": [
+        "tools/jira_mcp.py"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
     }
   }
 }
