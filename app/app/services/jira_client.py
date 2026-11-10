@@ -1,0 +1,208 @@
+"""Клиент Jira (только чтение): проверка связи, список проектов, задачи проекта — docs/plans/JIRA-INTEGRATION-PLAN.md, этап 1.
+
+Работает и с облачной Jira, и с Jira на своём сервере (Data Center / Server) — режим выбирается по настройкам:
+``JIRA_EMAIL`` задан — облако (Basic: почта + API-токен, поиск ``/rest/api/2/search/jql`` с ``nextPageToken``);
+``JIRA_EMAIL`` пуст — свой сервер (Bearer: персональный токен доступа, поиск ``/rest/api/2/search`` со ``startAt``).
+В Jira ничего не пишет. Сеть — только здесь; разбор ответа (``normalize_issue``) — чистая функция без сети.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Iterator
+
+import httpx
+
+from app.app.config import Settings
+
+logger = logging.getLogger("primaryanalitics.jira")
+
+ISSUE_FIELDS = ("summary", "status", "assignee", "reporter", "duedate", "created", "updated", "issuetype", "priority", "labels", "parent")
+PAGE_SIZE = 100
+TIMEOUT_SEC = 30
+# Категория статуса Jira -> статус задачи портала (task_board.STATUSES); «отменена» в Jira отдельной категории не имеет.
+STATUS_BY_CATEGORY = {"new": "open", "indeterminate": "in_progress", "done": "done"}
+
+
+class JiraError(RuntimeError):
+    """Ошибка обращения к Jira с понятным человеку текстом."""
+
+
+class JiraNotConfigured(JiraError):
+    """В .env не заданы адрес Jira или токен."""
+
+
+def _name(value: Any, *keys: str) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    for key in keys:
+        text = value.get(key)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    return None
+
+
+def portal_status(status: Any) -> str:
+    """Статус задачи портала по статусу Jira: по категории (новая / в работе / готово), неизвестное — ``open``."""
+    category = status.get("statusCategory") if isinstance(status, dict) else None
+    key = category.get("key") if isinstance(category, dict) else None
+    return STATUS_BY_CATEGORY.get(str(key or "").lower(), "open")
+
+
+def normalize_issue(raw: dict[str, Any], base_url: str = "") -> dict[str, Any]:
+    """Задача Jira в плоском виде: ключ, заголовок, статус (как в Jira и как в портале), исполнитель, срок, даты, ссылка."""
+    fields = raw.get("fields") or {}
+    key = str(raw.get("key") or "")
+    parent = fields.get("parent") if isinstance(fields.get("parent"), dict) else {}
+    return {
+        "key": key,
+        "summary": str(fields.get("summary") or "").strip(),
+        "type": _name(fields.get("issuetype"), "name"),
+        "status": _name(fields.get("status"), "name"),
+        "portal_status": portal_status(fields.get("status")),
+        "assignee": _name(fields.get("assignee"), "displayName", "name"),
+        "reporter": _name(fields.get("reporter"), "displayName", "name"),
+        "priority": _name(fields.get("priority"), "name"),
+        "deadline_at": (str(fields.get("duedate") or "")[:10] or None),
+        "created": fields.get("created"),
+        "updated": fields.get("updated"),
+        "labels": [str(x) for x in fields.get("labels") or []],
+        "parent": parent.get("key"),
+        "url": f"{base_url.rstrip('/')}/browse/{key}" if base_url and key else None,
+    }
+
+
+class JiraClient:
+    """Чтение из Jira. ``email`` задан — облако, пуст — свой сервер (см. докстринг модуля)."""
+
+    def __init__(self, base_url: str, token: str, *, email: str = "", verify_tls: bool = True,
+                 transport: httpx.BaseTransport | None = None) -> None:
+        self.base_url = (base_url or "").strip().rstrip("/")
+        self.email = (email or "").strip()
+        token = (token or "").strip()
+        if not self.base_url or not token:
+            raise JiraNotConfigured("Jira не настроена: задайте JIRA_BASE_URL и JIRA_API_TOKEN в .env")
+        if not self.base_url.lower().startswith(("http://", "https://")):
+            raise JiraNotConfigured("JIRA_BASE_URL должен начинаться с https:// (или http:// для внутреннего сервера)")
+        self.cloud = bool(self.email)
+        auth = httpx.BasicAuth(self.email, token) if self.cloud else None
+        headers = {"Accept": "application/json"}
+        if not self.cloud:
+            headers["Authorization"] = f"Bearer {token}"
+        self._http = httpx.Client(base_url=self.base_url, auth=auth, headers=headers, timeout=TIMEOUT_SEC,
+                                  verify=verify_tls, transport=transport)
+
+    @classmethod
+    def from_settings(cls, settings: Settings, *, transport: httpx.BaseTransport | None = None) -> "JiraClient":
+        return cls(settings.jira_base_url, settings.jira_api_token, email=settings.jira_email,
+                   verify_tls=settings.jira_verify_tls, transport=transport)
+
+    @property
+    def mode(self) -> str:
+        return "облако" if self.cloud else "свой сервер"
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> "JiraClient":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        try:
+            response = self._http.request(method, path, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise JiraError(f"Jira не ответила за {TIMEOUT_SEC} с: {self.base_url}") from exc
+        except httpx.HTTPError as exc:
+            raise JiraError(f"Нет связи с Jira ({self.base_url}): {exc.__class__.__name__}: {exc}") from exc
+        if response.status_code == 401:
+            raise JiraError("Jira не приняла ключ (401): проверьте JIRA_API_TOKEN"
+                            + (" и JIRA_EMAIL" if self.cloud else "; для облачной Jira нужен ещё JIRA_EMAIL"))
+        if response.status_code == 403:
+            raise JiraError("Jira отказала в доступе (403): у учётной записи ключа нет прав на этот раздел")
+        if response.status_code == 404:
+            raise JiraError(f"Jira не нашла {path} (404): проверьте JIRA_BASE_URL и ключ проекта")
+        if response.status_code == 429:
+            raise JiraError("Jira ограничила частоту запросов (429): повторите позже")
+        if response.status_code >= 400:
+            raise JiraError(f"Jira вернула ошибку {response.status_code}: {response.text[:300]}")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise JiraError(f"Jira ответила не JSON ({path}): по адресу JIRA_BASE_URL, похоже, не Jira или страница входа") from exc
+
+    def myself(self) -> dict[str, Any]:
+        """Чьим ключом работаем: имя и учётная запись. Первая проверка связи."""
+        data = self._request("GET", "/rest/api/2/myself")
+        return {"name": _name(data, "displayName", "name"), "account": _name(data, "emailAddress", "name", "accountId")}
+
+    def projects(self) -> list[dict[str, Any]]:
+        """Проекты, которые видит учётная запись ключа: ключ, название, вид."""
+        data = self._request("GET", "/rest/api/2/project")
+        rows = [{"key": str(p.get("key") or ""), "name": str(p.get("name") or ""), "type": p.get("projectTypeKey")}
+                for p in data if isinstance(p, dict)]
+        return sorted(rows, key=lambda row: row["key"])
+
+    def _jql(self, project_key: str, updated_since: str | None) -> str:
+        key = project_key.strip().upper()
+        if not key or not all(ch.isalnum() or ch == "_" for ch in key):
+            raise JiraError(f"Неверный ключ проекта Jira: {project_key!r} (ожидается, например, ABC)")
+        jql = f'project = "{key}"'
+        if updated_since:
+            day = str(updated_since)[:10]
+            if len(day) != 10 or not day.replace("-", "").isdigit():
+                raise JiraError(f"Дата для отбора — ГГГГ-ММ-ДД, получено: {updated_since!r}")
+            jql += f' AND updated >= "{day}"'
+        return jql + " ORDER BY updated DESC"
+
+    def iter_issues(self, project_key: str, *, updated_since: str | None = None, limit: int | None = None) -> Iterator[dict[str, Any]]:
+        """Задачи проекта, свежие сверху. ``updated_since`` — ГГГГ-ММ-ДД, ``limit`` — не больше стольких задач."""
+        jql = self._jql(project_key, updated_since)
+        fields = ",".join(ISSUE_FIELDS)
+        given = 0
+        start, token = 0, None
+        while True:
+            size = PAGE_SIZE if limit is None else max(1, min(PAGE_SIZE, limit - given))
+            if self.cloud:
+                params: dict[str, Any] = {"jql": jql, "fields": fields, "maxResults": size}
+                if token:
+                    params["nextPageToken"] = token
+                data = self._request("GET", "/rest/api/2/search/jql", params=params)
+            else:
+                data = self._request("GET", "/rest/api/2/search", params={"jql": jql, "fields": fields, "maxResults": size, "startAt": start})
+            issues = data.get("issues") or []
+            for raw in issues:
+                yield normalize_issue(raw, self.base_url)
+                given += 1
+                if limit is not None and given >= limit:
+                    return
+            if not issues:
+                return
+            if self.cloud:
+                token = data.get("nextPageToken")
+                if not token or data.get("isLast"):
+                    return
+            else:
+                start += len(issues)
+                if start >= int(data.get("total") or 0):
+                    return
+
+    def issues(self, project_key: str, *, updated_since: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        return list(self.iter_issues(project_key, updated_since=updated_since, limit=limit))
+
+
+def configured(settings: Settings) -> bool:
+    """Заданы ли адрес и ключ Jira."""
+    return bool((settings.jira_base_url or "").strip() and (settings.jira_api_token or "").strip())
+
+
+def project_keys(settings: Settings) -> list[str]:
+    """Ключи проектов Jira из ``JIRA_PROJECT_KEYS`` (через запятую), без повторов, в верхнем регистре."""
+    seen: list[str] = []
+    for part in (settings.jira_project_keys or "").replace(";", ",").split(","):
+        key = part.strip().upper()
+        if key and key not in seen:
+            seen.append(key)
+    return seen

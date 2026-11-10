@@ -1310,6 +1310,7 @@ data/projects/{project_id}/
 | `ollama_client.py` | bge-m3 embeddings |
 | `ollama_runtime.py` | автозапуск Ollama перед embed/index |
 | `notify.py` | Telegram stub |
+| `jira_client.py` | Jira, только чтение: проверка ключа, проекты, задачи проекта; облако (почта + API-токен) или свой сервер (персональный токен) — по `JIRA_EMAIL`; план `docs/plans/JIRA-INTEGRATION-PLAN.md` |
 | `plain_text.py` | clean LLM outputs |
 
 ### Обмен с внешним агентом и контракт (сентябрь 2026)
@@ -1631,6 +1632,7 @@ run_pipeline
 | `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
 | `export_project_graph.py` | сборка графа зависимостей (§16) вместе с метриками projectmap (группы Louvain, fan-in/out, частота правок, co-change; `--no-metrics` отключает): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops`. `--symbol` принимает и название фичи словами (`rebuild_summary_artifact`) — ищет по таблице алиасов `symbol_aliases` |
+| `jira_pull.py` | первые данные из Jira (только чтение): без аргументов — проверка ключа и список проектов; `--project КЛЮЧ` / `--all` — задачи в `data/jira/КЛЮЧ.json` и сводка; `--since`, `--limit` |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
@@ -1789,6 +1791,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Комнаты | `LIVEKIT_HTTP_INTERNAL` | `http://127.0.0.1:7880` | внутренний адрес LiveKit для рекордеров голоса и экрана (`tools/livekit/voice_cleaner.py`, `screen_recorder.py`) |
 | Комнаты | `PRIMARY_ANALITICS_TLS_ISSUE_TIMEOUT_SEC` | `120` | сколько ждать выпуска сертификата при старте |
 | Уведомления | `TELEGRAM_BOT_TOKEN` | пусто | токен бота (уведомления, заглушка) |
+| Jira | `JIRA_BASE_URL`, `JIRA_API_TOKEN` | пусто | адрес Jira и ключ для чтения задач (`services/jira_client.py`, `scripts/jira_pull.py`); пусто — Jira не подключена |
+| Jira | `JIRA_EMAIL` | пусто | почта учётной записи облачной Jira; задана — облако (Basic), пусто — свой сервер (Bearer) |
+| Jira | `JIRA_PROJECT_KEYS` | пусто | ключи проектов Jira через запятую для `scripts/jira_pull.py --all` |
+| Jira | `JIRA_VERIFY_TLS` | `true` | `false` — не проверять сертификат внутреннего сервера Jira |
 | Инструменты | `FFMPEG_DIR`, `FFMPEG_BIN` (и `FFPROBE_BIN`) | не заданы | где искать `ffmpeg` / `ffprobe` вместо поиска по `PATH` |
 | Инструменты | `TESSERACT_CMD` / `TESSERACT_BIN`, `TESSDATA_DIR`, `TESSDATA_PREFIX` | не заданы | OCR: исполняемый файл Tesseract и каталог языков; `TESSDATA_PREFIX` код выставляет сам |
 | Инструменты | `PROJECT_INDEX_DB` | `data/project_map.db` | файл индекса кода проекта (`services/project_index/config.py`) |
@@ -1985,6 +1991,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `html_extract.py` | HTML → текст с таблицами: блоки разметки дают переносы строк, ``<table>`` — markdown-таблицы на своих местах. |
 | `image_extract.py` | Текст из изображений: проверка слабого OCR и распознавание через vision-модель LLM. |
 | `indexing.py` | Индексация артефакта для поиска по смыслу (фрагменты и векторы в sqlite-vec; переписка — по сообщениям) и сверка индекса проекта (`audit_pro |
+| `jira_client.py` | Клиент Jira (только чтение): проверка связи, список проектов, задачи проекта — docs/plans/JIRA-INTEGRATION-PLAN.md, этап 1. |
 | `lab_errors.py` | User-facing lab errors. ONNX warnings and ANSI stay out of the UI. |
 | `livekit_env.py` | Keys and livekit.yaml for the Meeting Mind room. |
 | `llm.py` | Единый адаптер LLM (LM Studio или Cursor API): вызовы без reasoning (`*_no_think`), разбор JSON, самопроверка обхода reasoning при старте. |
@@ -2276,6 +2283,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `install_lmstudio_autostart.ps1` | Автозапуск сервера LM Studio (:1234) при входе в Windows для PrimaryAnalitics. |
 | `install_meeting_voice.py` | Isolated venv for the LiveKit voice recorder (tools/livekit/voice_cleaner.py). Not the app venv. |
 | `install_services.ps1` | PrimaryAnalitics — установка служб Windows через NSSM (запуск от администратора) |
+| `jira_pull.py` | Первые данные из Jira: проверка связи, список проектов и выгрузка задач проекта (только чтение). |
 | `kb_inbox.py` | Ящик вопросов внешнего агента из командной строки (для оператора/Claude на сервере, без входа по паролю). |
 | `lightrag_doctor.py` | Проверка LightRAG: Docker, Ollama embed, LLM, inputs. |
 | `lightrag_index.py` | Загрузить docs в LightRAG (POST /documents/text) и дождаться pipeline. |
@@ -2495,7 +2503,7 @@ MCP-сервер `primaryanalitics-index` (инструменты `graph_neighbo
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-11-10 13:07: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-11-10 20:01: сущностей 130, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2717,6 +2725,7 @@ _Проверено 2026-11-10 13:07: сущностей 130, не описан�
 | `docs/plans/DOCUMENT-MEMORY-PLAN.md` | Документы в памяти решений |
 | `docs/plans/DOCUMENT-TABLES-PLAN.md` | План: таблицы из DOCX / Excel / PDF в базе знаний |
 | `docs/plans/final-plan.md` | PrimaryAnalitics: идеальная расшифровка созвона — итоговый план |
+| `docs/plans/JIRA-INTEGRATION-PLAN.md` | PrimaryAnalitics — Подключение Jira: задачи трекера рядом с памятью проекта |
 | `docs/plans/LLM-LANES-PLAN.md` | PrimaryAnalitics — Две полосы локальной модели: чат отвечает во время обработки |
 | `docs/plans/MCP-KB-PLAN.md` | PrimaryAnalitics — MCP базы знаний: полный текст, порции, память решений, честные инструкции |
 | `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |

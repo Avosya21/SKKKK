@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     gigaam_api_key: str = ""
 
     telegram_bot_token: str = ""
+    # Jira, только чтение (docs/plans/JIRA-INTEGRATION-PLAN.md): адрес и ключ; почта — только для облачной Jira
+    # (с ней ключ — API-токен Atlassian, без неё — персональный токен доступа своего сервера).
+    jira_base_url: str = ""
+    jira_email: str = ""
+    jira_api_token: str = ""
+    jira_project_keys: str = ""  # ключи проектов Jira через запятую — что выгружает scripts/jira_pull.py --all
+    jira_verify_tls: bool = True  # false — не проверять сертификат (внутренний сервер с самоподписанным)
 
     max_upload_bytes: int = 2_147_483_648
     upload_chunk_size: int = 4_194_304
