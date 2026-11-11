@@ -44,6 +44,7 @@ class JiraProjectLink(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
     status_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    issues_total: Mapped[int | None] = mapped_column(Integer, nullable=True)  # сколько задач в проекте Jira при последней проверке
 
 
 class JiraItem(Base):
@@ -52,12 +53,13 @@ class JiraItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     link_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # issue | attachment
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # issue | attachment | summary
     ref: Mapped[str] = mapped_column(String(128), nullable=False)  # ключ задачи или id вложения
     issue_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     updated: Mapped[str | None] = mapped_column(String(40), nullable=True)  # отметка «обновлено» из Jira
     artifact_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)  # почему пропущено (вид файла, размер)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)  # почему не загружено (вид файла, размер, сбой)
+    fmt: Mapped[int | None] = mapped_column(Integer, nullable=True)  # версия вида документа (jira_render.FORMAT_VERSION)
 
 
 class JiraGrant(Base):

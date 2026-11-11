@@ -78,6 +78,19 @@ def jira_projects(db: Annotated[Session, Depends(get_db)], settings: Annotated[S
         raise _fail(exc) from exc
 
 
+@router.get("/jira/projects/{jira_key}/count")
+def jira_project_count(jira_key: str, db: Annotated[Session, Depends(get_db)], settings: Annotated[Settings, Depends(get_settings)],
+                       user: Annotated[User, Depends(get_current_user)]):
+    """Сколько задач в проекте Jira — чтобы понимать объём до загрузки. Считает токеном пользователя."""
+    from app.app.services.jira_client import JiraError
+
+    try:
+        with jira_import.client_for(db, settings, user.id) as client:
+            return {"key": jira_key.strip().upper(), "issues": client.count(jira_key)}
+    except (jira_import.JiraImportError, JiraError) as exc:
+        raise _fail(exc) from exc
+
+
 @router.post("/jira/import")
 def jira_import_projects(body: JiraImport, db: Annotated[Session, Depends(get_db)], settings: Annotated[Settings, Depends(get_settings)],
                          user: Annotated[User, Depends(require_role("admin", "manager"))]):
@@ -115,6 +128,24 @@ def project_jira_sync(project_id: int, db: Annotated[Session, Depends(get_db)], 
     db.commit()
     jira_import.start_sync(settings, [link.id for link in links], user.id)
     return {"started": [jira_import.link_out(db, link) for link in links]}
+
+
+@router.get("/projects/{project_id}/jira/check")
+def project_jira_check(project_id: int, db: Annotated[Session, Depends(get_db)], settings: Annotated[Settings, Depends(get_settings)],
+                       user: Annotated[User, Depends(get_current_user)]):
+    """Сверка «Jira ↔ портал» (ничего не меняет): все ли задачи и вложения загружены, совпадают ли документы с Jira, всё ли разобрано."""
+    from app.app.services.jira_client import JiraError
+
+    project = require_project_staff(db, user, project_id)
+    links = jira_import.links_of_project(db, project.id)
+    if not links:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Проект не привязан к Jira")
+    try:
+        with jira_import.client_for(db, settings, user.id) as client:
+            reports = [jira_import.check_link(db, settings, link, client) for link in links]
+    except (jira_import.JiraImportError, JiraError) as exc:
+        raise _fail(exc) from exc
+    return {"ok": all(r["ok"] for r in reports), "links": reports}
 
 
 @router.put("/projects/{project_id}/jira/link")

@@ -728,6 +728,21 @@
 </div>
 {% endif %}
 
+<div class="card shadow-sm mb-3 d-none" id="project-jira-card">
+  <div class="card-body py-2">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <strong>Jira</strong>
+      <span class="small text-break" id="pj-summary"></span>
+      <span class="ms-auto d-flex gap-2 flex-wrap d-none" id="pj-actions">
+        <button type="button" class="btn btn-sm btn-outline-primary primaryanalitics-action-btn" id="pj-sync-btn" data-idle-label="Проверить обновления">Проверить обновления</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary primaryanalitics-action-btn" id="pj-check-btn" data-idle-label="Проверить полноту">Проверить полноту</button>
+      </span>
+    </div>
+    <div class="text-muted small mt-1 text-break" id="pj-status" aria-live="polite"></div>
+    <details class="small mt-1 d-none" id="pj-skipped"><summary></summary><ul class="mb-0 ps-3 text-break"></ul></details>
+    <div class="small mt-2 d-none text-break" id="pj-check" role="status"></div>
+  </div>
+</div>
 <div class="card shadow-sm mb-3 mb-md-4 workspace-card">
   <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
     <div class="me-sm-auto min-w-0">
@@ -3297,6 +3312,104 @@ if (grantMembersBody) {
 }
 </script>
 <script src="/static/px_tasks.js?v=2"></script>
-<script src="/static/px_digest.js?v=7"></script>
+<script src="/static/px_digest.js?v=7">
+// --- Jira: что загружено в проект, проверка обновлений и полноты (routers/jira.py) ---
+(function () {
+  const card = document.getElementById('project-jira-card');
+  if (!card) return;
+  const summaryEl = document.getElementById('pj-summary');
+  const statusEl = document.getElementById('pj-status');
+  const skippedEl = document.getElementById('pj-skipped');
+  const checkEl = document.getElementById('pj-check');
+  const syncBtn = document.getElementById('pj-sync-btn');
+  const checkBtn = document.getElementById('pj-check-btn');
+  let timer = null;
+
+  function when(iso) {
+    if (!iso) return 'ещё не проверялось';
+    const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z');
+    return isNaN(d) ? iso : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  async function detail(r) {
+    try { return PrimaryAnaliticsErrors.text((await r.json()).detail, r.status); } catch (_) { return 'Ошибка ' + r.status; }
+  }
+
+  function render(links) {
+    card.classList.toggle('d-none', !links.length);
+    if (!links.length) return false;
+    summaryEl.textContent = links.map((l) => (l.jira_name || l.jira_key) + ' (' + l.jira_key + '): задач ' + l.issues
+      + (l.issues_total != null && l.issues_total !== l.issues ? ' из ' + l.issues_total + ' в Jira' : '') + ', файлов ' + l.files
+      + '; проверено ' + when(l.last_sync_at)).join(' · ');
+    statusEl.textContent = links.map((l) => (l.status === 'error' ? 'Ошибка: ' : '') + (l.status_text || '')).filter(Boolean).join(' · ');
+    statusEl.classList.toggle('text-danger', links.some((l) => l.status === 'error'));
+    const skipped = links.flatMap((l) => l.not_loaded || []);
+    skippedEl.classList.toggle('d-none', !skipped.length);
+    skippedEl.querySelector('summary').textContent = 'Вложения, которые не загружены: ' + skipped.length;
+    const list = skippedEl.querySelector('ul');
+    list.innerHTML = '';
+    for (const item of skipped) {
+      const li = document.createElement('li');
+      li.textContent = item.issue + ' — ' + item.reason;
+      list.appendChild(li);
+    }
+    return links.some((l) => l.status === 'queued' || l.status === 'running');
+  }
+
+  async function load() {
+    const r = await PrimaryAnalitics.api('/projects/' + projectId + '/jira');
+    if (!r.ok) return false;
+    const busy = render((await r.json()).links || []);
+    syncBtn.disabled = busy;
+    if (busy && !timer) {
+      timer = setInterval(async () => { if (!document.hidden && !(await load())) { clearInterval(timer); timer = null; } }, 5000);
+    }
+    return busy;
+  }
+
+  syncBtn.onclick = async () => {
+    checkEl.classList.add('d-none');
+    PrimaryAnalitics.setButtonBusy(syncBtn, true, { label: 'Запускаю…' });
+    try {
+      const r = await PrimaryAnalitics.api('/projects/' + projectId + '/jira/sync', { method: 'POST' });
+      if (!r.ok) { statusEl.textContent = await detail(r); statusEl.classList.add('text-danger'); return; }
+    } finally {
+      PrimaryAnalitics.setButtonBusy(syncBtn, false);
+    }
+    await load();
+  };
+
+  checkBtn.onclick = async () => {
+    checkEl.classList.remove('d-none', 'text-danger', 'text-success');
+    checkEl.textContent = 'Сверяю с Jira: задачи, комментарии, вложения… Это может занять минуту.';
+    PrimaryAnalitics.setButtonBusy(checkBtn, true, { label: 'Сверяю…' });
+    try {
+      const r = await PrimaryAnalitics.api('/projects/' + projectId + '/jira/check');
+      if (!r.ok) { checkEl.textContent = await detail(r); checkEl.classList.add('text-danger'); return; }
+      const data = await r.json();
+      checkEl.innerHTML = '';
+      for (const l of data.links || []) {
+        const head = document.createElement('div');
+        head.className = l.ok ? 'text-success' : 'text-danger';
+        head.textContent = (l.ok ? 'Всё сходится. ' : 'Есть расхождения. ') + l.jira_key + ': задач в Jira ' + l.jira_issues + ', в портале ' + l.portal_issues
+          + '; комментариев ' + l.comments + ', записей трудозатрат ' + l.worklogs + ', записей истории ' + l.history
+          + '; вложений в Jira ' + l.jira_attachments + ', файлов в портале ' + l.portal_files + ', не загружено ' + (l.not_loaded || []).length + '.';
+        checkEl.appendChild(head);
+        if ((l.problems || []).length) {
+          const ul = document.createElement('ul');
+          ul.className = 'mb-0 ps-3';
+          for (const p of l.problems) { const li = document.createElement('li'); li.textContent = p; ul.appendChild(li); }
+          checkEl.appendChild(ul);
+        }
+      }
+    } finally {
+      PrimaryAnalitics.setButtonBusy(checkBtn, false);
+    }
+  };
+
+  document.getElementById('pj-actions').classList.toggle('d-none', !(currentRole === 'admin' || currentRole === 'manager'));
+  load();
+})();
+</script>
 {% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=8"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=3"></script><script src="/static/background.js?v=3"></script><script src="/static/memory.js?v=3"></script>{% endif %}
 {% endblock %}

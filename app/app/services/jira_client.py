@@ -84,6 +84,11 @@ class JiraClient:
             raise JiraNotConfigured("Jira не настроена: задайте JIRA_BASE_URL и JIRA_API_TOKEN в .env")
         if not self.base_url.lower().startswith(("http://", "https://")):
             raise JiraNotConfigured("JIRA_BASE_URL должен начинаться с https:// (или http:// для внутреннего сервера)")
+        try:
+            token.encode("ascii")
+            self.email.encode("latin-1")
+        except UnicodeEncodeError as exc:
+            raise JiraNotConfigured("Токен Jira содержит недопустимые символы: скопируйте его из Jira заново, без пробелов и русских букв") from exc
         self.cloud = bool(self.email)
         auth = httpx.BasicAuth(self.email, token) if self.cloud else None
         headers = {"Accept": "application/json"}
@@ -226,6 +231,61 @@ class JiraClient:
             raise JiraError(f"Неверный ключ задачи Jira: {key!r} (ожидается, например, ABC-123)")
         fields = ",".join(ISSUE_FIELDS + ("description", "comment", "attachment", "issuelinks", "project"))
         return self._request("GET", f"/rest/api/2/issue/{key}", params={"fields": fields})
+
+    def _paged(self, path: str, key: str, have: list, total: int) -> list:
+        """Дочитать список (комментарии, трудозатраты), если Jira отдала в задаче только его начало."""
+        items = list(have)
+        while len(items) < total:
+            data = self._request("GET", path, params={"startAt": len(items), "maxResults": 100})
+            page = [x for x in data.get(key) or [] if isinstance(x, dict)]
+            if not page:
+                break
+            items.extend(page)
+        return items
+
+    def issue_full(self, key: str) -> dict[str, Any]:
+        """Задача со всем, что есть в Jira: все поля (включая пользовательские) с их названиями (``names``), история
+        изменений (``changelog``), все комментарии и все записи трудозатрат (дочитываются постранично), внешние ссылки.
+        """
+        key = (key or "").strip().upper()
+        if not key or not all(ch.isalnum() or ch in "-_" for ch in key):
+            raise JiraError(f"Неверный ключ задачи Jira: {key!r} (ожидается, например, ABC-123)")
+        raw = self._request("GET", f"/rest/api/2/issue/{key}", params={"fields": "*all", "expand": "names,changelog"})
+        fields = raw.setdefault("fields", {})
+        for name, path, list_key in (("comment", f"/rest/api/2/issue/{key}/comment", "comments"),
+                                     ("worklog", f"/rest/api/2/issue/{key}/worklog", "worklogs")):
+            block = fields.get(name) if isinstance(fields.get(name), dict) else None
+            if block is None:
+                continue
+            have = [x for x in block.get(list_key) or [] if isinstance(x, dict)]
+            total = int(block.get("total") or len(have))
+            if total > len(have):
+                block[list_key] = self._paged(path, list_key, have, total)
+        log = raw.get("changelog") if isinstance(raw.get("changelog"), dict) else {}
+        histories = [h for h in log.get("histories") or [] if isinstance(h, dict)]
+        raw["changelog_complete"] = int(log.get("total") or len(histories)) <= len(histories)
+        try:
+            links = self._request("GET", f"/rest/api/2/issue/{key}/remotelink")
+            raw["remotelinks"] = [x for x in links if isinstance(x, dict)] if isinstance(links, list) else []
+        except JiraError:
+            raw["remotelinks"] = []  # внешние ссылки могут быть закрыты правами — задача от этого не теряется
+        return raw
+
+    def project_info(self, project_key: str) -> dict[str, Any]:
+        """Сведения о проекте Jira: название, описание, руководитель, компоненты, версии."""
+        key = project_key.strip().upper()
+        if not key or not all(ch.isalnum() or ch == "_" for ch in key):
+            raise JiraError(f"Неверный ключ проекта Jira: {project_key!r} (ожидается, например, ABC)")
+        return self._request("GET", f"/rest/api/2/project/{key}")
+
+    def count(self, project_key: str) -> int:
+        """Сколько задач в проекте Jira."""
+        jql = self._jql(project_key, None)
+        if self.cloud:
+            data = self._request("POST", "/rest/api/2/search/approximate-count", json={"jql": jql.split(" ORDER BY")[0]})
+            return int(data.get("count") or 0)
+        data = self._request("GET", "/rest/api/2/search", params={"jql": jql, "fields": "key", "maxResults": 0})
+        return int(data.get("total") or 0)
 
     def download(self, url: str, dest, *, max_bytes: int) -> int:
         """Скачать вложение Jira в файл ``dest``; больше ``max_bytes`` — ошибка, файл удаляется. Только адреса этой Jira."""

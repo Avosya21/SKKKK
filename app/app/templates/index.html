@@ -582,6 +582,9 @@ function renderJiraProjects(rows) {
     box.value = row.key;
     box.id = 'jira-pick-' + row.key;
     box.addEventListener('change', jiraSyncImportButton);
+    const countEl = document.createElement('span');
+    countEl.className = 'text-muted small';
+    box.addEventListener('change', () => { if (box.checked) jiraShowCount(row.key, countEl); });
     const name = document.createElement('label');
     name.className = 'flex-grow-1 mb-0';
     name.htmlFor = box.id;
@@ -592,6 +595,7 @@ function renderJiraProjects(rows) {
     name.appendChild(key);
     item.appendChild(box);
     item.appendChild(name);
+    item.appendChild(countEl);
     if (row.linked) {
       const badge = document.createElement('span');
       badge.className = 'badge text-bg-secondary';
@@ -637,6 +641,15 @@ async function openJiraProjects() {
 
 document.getElementById('jira-pick-btn').onclick = openJiraProjects;
 
+// Объём до загрузки: при отметке проекта показываем, сколько в нём задач
+async function jiraShowCount(key, target) {
+  if (target.dataset.loaded) return;
+  target.dataset.loaded = '1';
+  target.textContent = 'считаю задачи…';
+  const r = await PrimaryAnalitics.api('/jira/projects/' + encodeURIComponent(key) + '/count');
+  target.textContent = r.ok ? 'задач: ' + (await r.json()).issues : '';
+}
+
 document.getElementById('jira-projects-filter').oninput = (e) => {
   const q = e.target.value.trim().toLowerCase();
   jiraListEl.querySelectorAll('.jira-project-row').forEach((row) => row.classList.toggle('d-none', Boolean(q) && !row.dataset.search.includes(q)));
@@ -679,8 +692,9 @@ function watchJiraProgress(projectIds) {
         lines.push((link.project_name || link.jira_key) + ': ' + (link.status === 'error' ? 'ошибка — ' : '') + (link.status_text || link.status));
       }
     }
-    jiraProgress.textContent = lines.length ? 'Загрузка из Jira. ' + lines.join(' · ') : '';
-    jiraProgress.classList.toggle('d-none', !lines.length);
+    const shown = busy || lines.some((line) => line.includes('ошибка — '));
+    jiraProgress.textContent = shown ? 'Загрузка из Jira. ' + lines.join(' · ') : '';
+    jiraProgress.classList.toggle('d-none', !shown);
     if (!busy) { clearInterval(jiraPollTimer); jiraPollTimer = null; }
   };
   tick();
@@ -688,5 +702,11 @@ function watchJiraProgress(projectIds) {
 }
 
 loadJiraStatus();
+// Страницу открыли во время загрузки из Jira — показать её ход
+PrimaryAnalitics.api('/projects').then(async (r) => {
+  if (!r.ok) return;
+  const linked = (await r.json()).filter((p) => p.jira_key).map((p) => p.id);
+  if (linked.length) watchJiraProgress(linked);
+});
 </script>
 {% endblock %}

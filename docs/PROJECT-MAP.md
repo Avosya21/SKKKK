@@ -356,7 +356,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, задачи (`tasks`, `tasks/{entity_id}`, `manual-tasks/{task_id}`), «Что нового» (`digest`, `digest/dismiss`), reextract-entities, conflicts, notes |
 | `routers/project_members.py` | `/projects/{id}/members` | выдача доступа: GET список, POST роль manager/user, DELETE участника |
-| `routers/jira.py` | `/jira/status`, `/jira/connect`, `/jira/projects`, `/jira/import`, `/projects/{id}/jira`, `/projects/{id}/jira/sync`, `/projects/{id}/jira/link`, `/projects/{id}/jira/link/{jira_key}` | Jira на главной странице: `GET /jira/status`; `POST /jira/connect` `{token}` и `DELETE /jira/connect` — личный токен (любой вошедший); `GET /jira/projects` — проекты Jira, видимые токену; `POST /jira/import` `{projects:[{key, project_id?}]}` — загрузить выбранные (admin, manager; `project_id` — влить в существующий, только admin); `GET /projects/{id}/jira` — привязки и ход загрузки; `POST /projects/{id}/jira/sync` — проверить обновления (admin, manager проекта); `PUT /projects/{id}/jira/link` `{jira_key}` и `DELETE /projects/{id}/jira/link/{jira_key}` — таблица соответствий (только admin) |
+| `routers/jira.py` | `/jira/status`, `/jira/connect`, `/jira/projects`, `/jira/projects/{jira_key}/count`, `/jira/import`, `/projects/{id}/jira`, `/projects/{id}/jira/sync`, `/projects/{id}/jira/check`, `/projects/{id}/jira/link`, `/projects/{id}/jira/link/{jira_key}` | Jira на главной странице: `GET /jira/status`; `POST /jira/connect` `{token}` и `DELETE /jira/connect` — личный токен (любой вошедший); `GET /jira/projects` — проекты Jira, видимые токену; `POST /jira/import` `{projects:[{key, project_id?}]}` — загрузить выбранные (admin, manager; `project_id` — влить в существующий, только admin); `GET /projects/{id}/jira` — привязки и ход загрузки; `GET /jira/projects/{jira_key}/count` — сколько задач в проекте Jira; `POST /projects/{id}/jira/sync` — проверить обновления, `GET /projects/{id}/jira/check` — сверка «Jira ↔ портал» без изменений (admin, manager проекта); `PUT /projects/{id}/jira/link` `{jira_key}` и `DELETE /projects/{id}/jira/link/{jira_key}` — таблица соответствий (только admin) |
 | `routers/project_mcp.py` | `/projects/{id}/mcp`, `/mcp` | ключи MCP портала + Streamable HTTP |
 | `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
 | `routers/project_people.py` | `/projects/{id}/people`, `/parties`, `/people-platform` | реестр людей и стороны проекта, очередь «Кто это?», согласие на голос — полный перечень в §5.14; admin и manager проекта |
@@ -400,9 +400,9 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Удалить проект** | `GET /projects/{id}/delete-preview` → `DELETE /projects/{id}` | FastAPI | admin любой; manager только свой | Сначала модалка «Подтверждение удаления»: счётчики из `delete-preview` (`#delete-project-counts`: документы, созвоны, встречи, заметки) + чекбокс «Подтверждаю полное удаление» (`#delete-project-ack`); без галочки кнопка «Удалить» неактивна. Затем полное удаление дерева и записей БД |
 | Авто-загрузка | `GET /projects` | FastAPI | auth | admin — все активные; иначе создал / загрузил / чат / `project_members`. Пустой список: «Нет своих проектов.» Кнопка **Новый проект** только admin/manager. Админу у каждого проекта справа серым — кто его завёл (`creator_name` в ответе: «Фамилия Имя» из карточки `user_profiles`, без карточки — логин; остальным ролям поле пустое) |
 | Блок **Jira** (`#jira-card`, над списком; виден, если на сервере задан `JIRA_BASE_URL`): поле `#jira-token` + **Подключить Jira** | `GET /jira/status`, `POST /jira/connect` `{token}` | FastAPI → Jira | auth | Токен проверяется в Jira (`/myself`) и сохраняется зашифрованным (`jira_accounts`); в ответах и журнале его нет. Пользователь сразу получает доступ к проектам из Jira, которые видит его токен. Ошибка токена — текст под полем |
-| **Проекты из Jira** (`#jira-pick-btn`) → модалка `#jiraProjectsModal`: список с галочками, поиск, **Загрузить выбранные** | `GET /jira/projects`, `POST /jira/import` | FastAPI → Jira | admin, manager | Для каждого выбранного проекта Jira создаётся проект портала (как «Новый проект») или, у admin, материалы вливаются в выбранный существующий; задачи и вложения скачиваются в фоне и становятся материалами проекта (общий конвейер). Уже привязанный проект помечен «уже в портале» — отметка запускает проверку обновлений |
+| **Проекты из Jira** (`#jira-pick-btn`) → модалка `#jiraProjectsModal`: список с галочками, поиск, **Загрузить выбранные** | `GET /jira/projects`, `POST /jira/import` | FastAPI → Jira | admin, manager | Для каждого выбранного проекта Jira создаётся проект портала (как «Новый проект») или, у admin, материалы вливаются в выбранный существующий; задачи и вложения скачиваются в фоне и становятся материалами проекта (общий конвейер). Уже привязанный проект помечен «уже в портале» — отметка запускает проверку обновлений. При отметке показывается число задач проекта (`GET /jira/projects/{jira_key}/count`) |
 | **Отключить** (`#jira-disconnect-btn`) | `DELETE /jira/connect` | FastAPI | auth | Токен удаляется; доступ, выданный по Jira, снимается; загруженные материалы остаются |
-| Пометка **Jira** у названия проекта; строка хода загрузки `#jira-progress` | `GET /projects` (`jira_key`), `GET /projects/{id}/jira` | FastAPI | свои или admin | Проект привязан к Jira; ход загрузки опрашивается раз в 5 с, пока привязка в очереди или в работе |
+| Пометка **Jira** у названия проекта; строка хода загрузки `#jira-progress` | `GET /projects` (`jira_key`), `GET /projects/{id}/jira` | FastAPI | свои или admin | Проект привязан к Jira; ход загрузки опрашивается раз в 5 с, пока привязка в очереди или в работе, в том числе после перезагрузки страницы |
 
 ### 5.4. Страница проекта — `/projects/{id}` (`project.html`)
 
@@ -419,6 +419,15 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Загрузить** | `POST …/uploads/init` → `PUT …/chunks/{n}` → `POST …/complete` | FastAPI + **GPU worker** (job) | Файл в `raw_inputs/`, job `queued`, воркер гонит ASR/knowledge |
 
 Тип (`source_type`): `call` | `document` | `note` | `screenshot` — влияет на пайплайн воркера.
+
+#### Блок «Jira» (`#project-jira-card`, над «Материалами проекта»; виден, если проект привязан к Jira)
+
+| Кнопка / элемент | API | Кто | Роль | Результат |
+|------------------|-----|-----|------|-----------|
+| Строка состояния `#pj-summary`, `#pj-status` | `GET /projects/{id}/jira` | FastAPI | свои или admin | Проект Jira, сколько задач и файлов загружено (и сколько задач в Jira), когда проверено, ход загрузки (опрос раз в 5 с, пока идёт) |
+| Список **Вложения, которые не загружены** (`#pj-skipped`) | тот же ответ (`not_loaded`) | UI | свои или admin | Задача и причина: вид файла портал не разбирает, размер, сбой скачивания |
+| **Проверить обновления** (`#pj-sync-btn`) | `POST /projects/{id}/jira/sync` | FastAPI → Jira | admin, manager проекта | Докачать новые и изменённые задачи и вложения токеном нажавшего |
+| **Проверить полноту** (`#pj-check-btn`) | `GET /projects/{id}/jira/check` | FastAPI → Jira | admin, manager проекта | Сверка без изменений: «Всё сходится» с числами (задачи, комментарии, трудозатраты, история, вложения) либо перечень расхождений (`#pj-check`) |
 
 #### Блок «Материалы проекта» (`workspace-card`)
 
@@ -1316,7 +1325,8 @@ data/projects/{project_id}/
 | `ollama_runtime.py` | автозапуск Ollama перед embed/index |
 | `notify.py` | Telegram stub |
 | `jira_client.py` | Jira, только чтение: проверка ключа, проекты, статусы, задачи проекта, поиск JQL, задача подробно (для агента разработки — MCP-сервер `tools/jira_mcp.py`, `.mcp.json`); облако (почта + API-токен) или свой сервер (персональный токен) — по `JIRA_EMAIL`; план `docs/plans/JIRA-INTEGRATION-PLAN.md` |
-| `jira_import.py` | Jira в портале: личный токен (шифрование), проекты Jira → проекты портала, задача → документ Markdown, вложения → файлы через штатную регистрацию материалов (`create_artifact_record`, очередь `jobs`), обновление по кнопке и по расписанию, доступ по видимости в Jira (`refresh_access`) |
+| `jira_import.py` | Jira в портале: личный токен (шифрование), проекты Jira → проекты портала, задача целиком → документ Markdown, сводка проекта, вложения → файлы через штатную регистрацию материалов (`create_artifact_record`, очередь `jobs`), обновление по кнопке и по расписанию, сверка `check_link`, доступ по видимости в Jira (`refresh_access`) |
+| `jira_render.py` | вид документов Jira: `issue_document` — задача без сокращений (все поля с названиями из Jira, описание, все комментарии, трудозатраты, подзадачи, связи, внешние ссылки, вложения, история); `project_document` — сводка проекта с таблицей всех задач; разметка Jira → обычный текст; `FORMAT_VERSION` — смена вида перезагружает задачи |
 | `plain_text.py` | clean LLM outputs |
 
 ### Обмен с внешним агентом и контракт (сентябрь 2026)
@@ -1391,8 +1401,8 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `project_tasks` | `project_task.py` | фоновая задача проекта со статусом и ошибкой (блокирует повторное «Пересобрать») |
 | `manual_tasks` | `manual_task.py` | задача, добавленная менеджером вручную (описание, ответственный, срок `deadline_at`, статус; мягкое удаление `is_active`) — карточка «Задачи», Ш4 |
 | `jira_accounts` | `jira.py` | личный токен Jira пользователя: зашифрован (ключ из `SECRET_KEY`), имя учётки Jira, время проверки, последняя ошибка, ключи проектов, которые токен видел |
-| `jira_project_links` | `jira.py` | привязка проекта портала к проекту Jira: ключ Jira уникален (один ключ — один проект портала), кто привязал, ход загрузки (`status`, `status_text`), время последней проверки |
-| `jira_items` | `jira.py` | что уже скачано из Jira: задача (`issue`) или вложение (`attachment`) → артефакт портала, отметка «обновлено» из Jira, причина пропуска файла |
+| `jira_project_links` | `jira.py` | привязка проекта портала к проекту Jira: ключ Jira уникален (один ключ — один проект портала), кто привязал, ход загрузки (`status`, `status_text`), время последней проверки, число задач в Jira (`issues_total`) |
+| `jira_items` | `jira.py` | что уже скачано из Jira: задача (`issue`) или вложение (`attachment`) → артефакт портала, сводка проекта (`summary`); отметка «обновлено» из Jira, версия вида документа (`fmt`), причина, по которой вложение не загружено |
 | `jira_grants` | `jira.py` | участие в проекте, выданное потому, что токен пользователя видит проект в Jira; по этой записи участие и снимается |
 | `project_visits` | `project_visit.py` | заход человека в проект: `seen_at`, отсчёт «нового» `prev_seen_at`, `dismissed_at` («Скрыть»); одна строка на человека и проект — полоска «Что нового», Ш5 |
 | `artifacts` | `artifact.py` | загруженный файл проекта и статус обработки; дата записи (`recorded_at`, источник, точность), движки ASR, ссылка на отчёт |
@@ -1643,7 +1653,7 @@ run_pipeline
 | `export_project_graph.py` | сборка графа зависимостей (§16) вместе с метриками projectmap (группы Louvain, fan-in/out, частота правок, co-change; `--no-metrics` отключает): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops`. `--symbol` принимает и название фичи словами (`rebuild_summary_artifact`) — ищет по таблице алиасов `symbol_aliases` |
 | `jira_pull.py` | первые данные из Jira (только чтение): без аргументов — проверка ключа и список проектов; `--project КЛЮЧ` / `--all` — задачи в `data/jira/КЛЮЧ.json` и сводка; `--since`, `--limit` |
-| `check_jira_sync.py` | живая сверка «Jira ↔ портал» по каждой привязке: задачи и их свежесть (`updated`), вложения и файлы на диске, содержимое md-документов задач, состояние конвейера; отчёт `data/tmp/jira_check_report.json`, код 0 — всё сходится (план JIRA-INTEGRATION §4) |
+| `check_jira_sync.py` | живая сверка «Jira ↔ портал» по каждой привязке (та же `jira_import.check_link`, что кнопка «Проверить полноту»): все ли задачи загружены, совпадает ли документ каждой задачи с Jira буква в букву, вложения и их размер, что не загружено и почему, разбор конвейером; `--project КЛЮЧ`, отчёт `data/tmp/jira_check_report.json`; код выхода 1 — расхождения |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
@@ -1718,7 +1728,8 @@ run_pipeline
 | `app/app/tests/test_projects.py` | создание проекта, переименование `PATCH /projects/{id}`, `DELETE /projects/{id}` |
 | `app/app/tests/test_artifact_purge.py` | `DELETE` артефакта, FK entities/links, HTML иконки |
 | `app/app/tests/test_user_scenarios.py` | сквозные сценарии портала (в т.ч. s31 purge) |
-| `app/app/tests/test_jira_e2e.py` | Jira e2e на фейковом сервере по реальному сокету: подключение токеном (неверный — 401), импорт проектов → задачи как md-документы, вложения (.epf детерминированно пропущен), повторный проход — обновление без дублей и дедупликация вложений, расписание `scheduled_pass` |
+| `app/app/tests/test_jira_e2e.py` | Jira по настоящей сети: подставная Jira на HTTP-сокете (`tests/jira_fake.py`), настоящий httpx и фоновый поток: подключение, загрузка, постраничное дочитывание комментариев и трудозатрат, байты вложений, сверка, обновление, проход расписания |
+| `app/app/tests/test_jira_import.py` | Jira в портале на подставном транспорте: токен (шифрование, не-ASCII), загрузка без сокращений (все поля, длинный комментарий, история), сводка проекта, обновление и смена вида документа, сверка и её расхождения, ограничение числа задач, повтор сбойного скачивания, доступ по видимости, вливание в существующий проект |
 | `docs/TESTING.md` | Стратегия, команды pytest |
 
 ```powershell
@@ -1808,8 +1819,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Jira | `JIRA_PROJECT_KEYS` | пусто | ключи проектов Jira через запятую для `scripts/jira_pull.py --all` |
 | Jira | `JIRA_VERIFY_TLS` | `true` | `false` — не проверять сертификат внутреннего сервера Jira |
 | Jira | `JIRA_SYNC_MINUTES` | `30` | как часто портал проверяет обновления в Jira и перепроверяет доступ по токенам; `0` — только по кнопке |
-| Jira | `JIRA_IMPORT_MAX_ISSUES` | `300` | не больше стольких задач на проект Jira, свежие первыми |
-| Jira | `JIRA_IMPORT_MEDIA` | `false` | `true` — загружать и аудио/видео из вложений Jira (уйдут в расшифровку) |
+| Jira | `JIRA_IMPORT_MAX_ISSUES` | `0` | не больше стольких задач на проект Jira, свежие первыми; `0` — все. Ограничение не молчит: видно в ходе загрузки, сводке проекта и сверке |
+| Jira | `JIRA_IMPORT_MEDIA` | `true` | загружать аудио и видео из вложений Jira (уйдут в расшифровку); `false` — пропускать с записью причины |
 | Инструменты | `FFMPEG_DIR`, `FFMPEG_BIN` (и `FFPROBE_BIN`) | не заданы | где искать `ffmpeg` / `ffprobe` вместо поиска по `PATH` |
 | Инструменты | `TESSERACT_CMD` / `TESSERACT_BIN`, `TESSDATA_DIR`, `TESSDATA_PREFIX` | не заданы | OCR: исполняемый файл Tesseract и каталог языков; `TESSDATA_PREFIX` код выставляет сам |
 | Инструменты | `PROJECT_INDEX_DB` | `data/project_map.db` | файл индекса кода проекта (`services/project_index/config.py`) |
@@ -2010,6 +2021,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `indexing.py` | Индексация артефакта для поиска по смыслу (фрагменты и векторы в sqlite-vec; переписка — по сообщениям) и сверка индекса проекта (`audit_pro |
 | `jira_client.py` | Клиент Jira (только чтение): проверка связи, список проектов, задачи проекта — docs/plans/JIRA-INTEGRATION-PLAN.md, этап 1. |
 | `jira_import.py` | Jira в портале: личный токен пользователя, выбор проектов и загрузка задач с вложениями как материалов проекта. |
+| `jira_render.py` | Задача и проект Jira как документы портала: всё, что есть в Jira, без сокращений (docs/plans/JIRA-INTEGRATION-PLAN.md, этап 4). |
 | `lab_errors.py` | User-facing lab errors. ONNX warnings and ANSI stay out of the UI. |
 | `livekit_env.py` | Keys and livekit.yaml for the Meeting Mind room. |
 | `llm.py` | Единый адаптер LLM (LM Studio или Cursor API): вызовы без reasoning (`*_no_think`), разбор JSON, самопроверка обхода reasoning при старте. |
@@ -2272,7 +2284,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `chat_authors_people.py` | Авторы уже загруженных переписок и разобранных реплик → карточки людей проекта (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ6). |
 | `chat_exports.py` | Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1). |
 | `check_env.ps1` | — |
-| `check_jira_sync.py` | Сверка «живая Jira <-> локальный портал»: что подтянулось, полностью ли и актуально ли. |
+| `check_jira_sync.py` | Живая сверка «Jira ↔ портал»: всё ли из Jira загружено в проекты портала полностью. Только чтение. |
 | `check_map_commit_msg.py` | Проверка сообщения коммита: изменения интерфейса или данных требуют карты или явного отказа от неё. |
 | `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
 | `check_map_staged.py` | Проверка карты проекта перед коммитом: сверяет карту с тем, что реально попадает в коммит. |

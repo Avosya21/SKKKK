@@ -113,6 +113,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 # Каждый элемент: (таблица, колонка, определение).  ADD COLUMN IF NOT EXISTS
 # не поддерживается в SQLite до 3.37, поэтому проверяем PRAGMA table_info.
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    ("jira_items", "fmt", "INTEGER"),
+    ("jira_project_links", "issues_total", "INTEGER"),
     ("artifacts", "transcript_html_url", "VARCHAR(1024)"),
     ("subjects", "judged_sig", "VARCHAR(64)"),
     ("chat_messages", "waiting", "BOOLEAN NOT NULL DEFAULT 0"),

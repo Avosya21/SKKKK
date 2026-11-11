@@ -106,8 +106,8 @@ class Settings(BaseSettings):
     jira_verify_tls: bool = True  # false — не проверять сертификат (внутренний сервер с самоподписанным)
     # Загрузка проектов Jira в портал личным токеном пользователя (services/jira_import.py)
     jira_sync_minutes: int = 30  # как часто проверять обновления в Jira; 0 — только по кнопке
-    jira_import_max_issues: int = 300  # не больше стольких задач на проект, свежие первыми
-    jira_import_media: bool = False  # true — брать и аудио/видео из вложений (уйдут в расшифровку)
+    jira_import_max_issues: int = 0  # не больше стольких задач на проект, свежие первыми; 0 — все задачи
+    jira_import_media: bool = True  # брать и аудио/видео из вложений (уйдут в расшифровку); false — пропускать
 
     max_upload_bytes: int = 2_147_483_648
     upload_chunk_size: int = 4_194_304

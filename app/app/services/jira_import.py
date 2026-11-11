@@ -34,12 +34,12 @@ from app.app.models.jira import JiraAccount, JiraGrant, JiraItem, JiraProjectLin
 from app.app.models.project import Project
 from app.app.models.project_member import ProjectMember
 from app.app.models.user import User
-from app.app.services.jira_client import JiraClient, JiraError, JiraNotConfigured, normalize_issue
+from app.app.services import jira_render
+from app.app.services.jira_client import JiraClient, JiraError, JiraNotConfigured
 
 logger = logging.getLogger("primaryanalitics.jira")
 
 SOURCE_TYPE = "document"
-MAX_COMMENT_CHARS = 20_000
 _lock = threading.Lock()
 _running: set[int] = set()  # привязки, которые сейчас загружаются
 
@@ -196,8 +196,9 @@ def link_out(db: Session, link: JiraProjectLink) -> dict[str, Any]:
     items = db.scalars(select(JiraItem).where(JiraItem.link_id == link.id)).all()
     return {"jira_key": link.jira_key, "jira_name": link.jira_name, "project_id": link.project_id,
             "project_name": project.name if project else None, "status": link.status, "status_text": link.status_text,
-            "last_sync_at": link.last_sync_at.isoformat() if link.last_sync_at else None,
-            "issues": sum(1 for i in items if i.kind == "issue" and i.artifact_id), "files": sum(1 for i in items if i.kind == "attachment" and i.artifact_id)}
+            "last_sync_at": link.last_sync_at.isoformat() if link.last_sync_at else None, "issues_total": link.issues_total,
+            "issues": sum(1 for i in items if i.kind == "issue" and i.artifact_id), "files": sum(1 for i in items if i.kind == "attachment" and i.artifact_id),
+            "not_loaded": [{"issue": i.issue_key, "reason": i.note or "не загружено"} for i in items if i.kind == "attachment" and not i.artifact_id]}
 
 
 def visible_projects(db: Session, settings: Settings, user: User, factory: ClientFactory = make_client) -> list[dict[str, Any]]:
@@ -306,16 +307,6 @@ def unlink(db: Session, link: JiraProjectLink) -> None:
 
 # --- задача Jira -> документ ---------------------------------------------------------------------------------------------
 
-def _person(value: Any) -> str:
-    if isinstance(value, dict):
-        return str(value.get("displayName") or value.get("name") or "").strip() or "—"
-    return "—"
-
-
-def _when(value: Any) -> str:
-    return str(value or "")[:16].replace("T", " ") or "—"
-
-
 def jira_time(value: Any) -> datetime | None:
     """Время Jira (``2026-11-02T10:00:00.000+0300``) в datetime с часовым поясом."""
     text = str(value or "").strip()
@@ -335,45 +326,8 @@ def safe_filename(text: str, limit: int = 120) -> str:
 
 
 def issue_markdown(raw: dict[str, Any], base_url: str, project_name: str | None = None) -> str:
-    """Задача Jira как документ: шапка с полями, описание, комментарии, список вложений и связей."""
-    row = normalize_issue(raw, base_url)
-    fields = raw.get("fields") or {}
-    project = fields.get("project") if isinstance(fields.get("project"), dict) else {}
-    project_title = project_name or project.get("name") or project.get("key") or ""
-    lines = [f"# [{row['key']}] {row['summary'] or 'Без названия'}", "",
-             f"Источник: Jira, проект {project.get('key') or row['key'].rsplit('-', 1)[0]}" + (f" ({project_title})" if project_title else "") + ".",
-             f"Ссылка: {row['url'] or '—'}", "",
-             f"- Вид: {row['type'] or '—'}", f"- Статус: {row['status'] or '—'}", f"- Приоритет: {row['priority'] or '—'}",
-             f"- Исполнитель: {row['assignee'] or 'не назначен'}", f"- Автор: {row['reporter'] or '—'}",
-             f"- Создана: {_when(row['created'])}", f"- Обновлена: {_when(row['updated'])}", f"- Срок: {row['deadline_at'] or 'не задан'}"]
-    if row["labels"]:
-        lines.append(f"- Метки: {', '.join(row['labels'])}")
-    if row["parent"]:
-        lines.append(f"- Родительская задача: {row['parent']}")
-    related = []
-    for link in fields.get("issuelinks") or []:
-        kind = link.get("type") if isinstance(link.get("type"), dict) else {}
-        for side, verb in (("outwardIssue", kind.get("outward")), ("inwardIssue", kind.get("inward"))):
-            other = link.get(side)
-            if isinstance(other, dict) and other.get("key"):
-                title = (other.get("fields") or {}).get("summary") or ""
-                related.append(f"- {verb or 'связана с'} {other['key']}" + (f" — {title}" if title else ""))
-    if related:
-        lines += ["", "## Связанные задачи", ""] + related
-    description = fields.get("description")
-    lines += ["", "## Описание", "", (description if isinstance(description, str) else str(description or "")).strip() or "Описания нет."]
-    block = fields.get("comment") if isinstance(fields.get("comment"), dict) else {}
-    comments = [c for c in block.get("comments") or [] if isinstance(c, dict)]
-    if comments:
-        lines += ["", f"## Комментарии ({len(comments)})"]
-        for comment in comments:
-            body = comment.get("body") if isinstance(comment.get("body"), str) else str(comment.get("body") or "")
-            lines += ["", f"### {_person(comment.get('author'))}, {_when(comment.get('created'))}", "", body.strip()[:MAX_COMMENT_CHARS] or "(пусто)"]
-    attachments = [a for a in fields.get("attachment") or [] if isinstance(a, dict)]
-    if attachments:
-        lines += ["", "## Вложения", ""]
-        lines += [f"- {a.get('filename') or 'файл'} ({int(a.get('size') or 0) // 1024} КБ, {_person(a.get('author'))}, {_when(a.get('created'))})" for a in attachments]
-    return "\n".join(lines).strip() + "\n"
+    """Задача Jira как документ (полный вид — ``jira_render.issue_document``)."""
+    return jira_render.issue_document(raw, base_url, project_name)
 
 
 # --- регистрация файла как материала проекта -----------------------------------------------------------------------------------
@@ -445,80 +399,204 @@ def _replace_artifact(db: Session, settings: Settings, item: JiraItem, artifact:
 
 # --- загрузка проекта ----------------------------------------------------------------------------------------------
 
+def _write_doc(settings: Settings, project_id: int, original: str, text: str) -> Path:
+    dest = _dest(settings, project_id, original)
+    dest.write_text(text, encoding="utf-8", newline="\n")
+    return dest
+
+
+def _load_attachment(db: Session, settings: Settings, project: Project, link: JiraProjectLink, client: JiraClient, user_id: int,
+                     key: str, attachment: dict[str, Any], allowed: set[str], max_bytes: int, stats: dict[str, int]) -> None:
+    """Одно вложение задачи: скачать и зарегистрировать как материал, либо записать, почему оно не загружено."""
+    ref = str(attachment["id"])
+    record = _item(db, link.id, "attachment", ref)
+    if record is not None and (record.artifact_id or not _retry_note(record.note)):
+        return
+    name = safe_filename(str(attachment.get("filename") or "файл"))
+    if record is None:
+        record = JiraItem(link_id=link.id, kind="attachment", ref=ref, issue_key=key)
+        db.add(record)
+    record.updated = str(attachment.get("created") or "")
+    record.fmt = jira_render.FORMAT_VERSION
+    ext = Path(name).suffix.lower()
+    if ext not in allowed:
+        record.note = f"{name}: вид файла {ext or 'без расширения'} портал не разбирает"
+        return
+    if int(attachment.get("size") or 0) > max_bytes:
+        record.note = f"{name}: файл больше допустимого размера"
+        return
+    file_original = safe_filename(f"Jira {key} — {Path(name).stem}") + ext
+    file_dest = _dest(settings, project.id, file_original)
+    try:
+        client.download(str(attachment.get("content") or ""), file_dest, max_bytes=max_bytes)
+    except JiraError as exc:
+        record.note = f"{name}: не скачалось — {str(exc)[:160]}"
+        return
+    artifact, created = register_file(db, settings, project, user_id, file_original, file_dest, jira_time(attachment.get("created")))
+    record.artifact_id, record.note = artifact.id, None
+    stats["files_new" if created else "files_same"] += 1
+
+
+def _retry_note(note: str | None) -> bool:
+    """Вложение не загрузилось из-за сбоя сети — при следующей проверке попробовать ещё раз (вид файла и размер — не сбой)."""
+    return bool(note and "не скачалось" in note)
+
+
+def skipped_files(db: Session, link_id: int) -> list[dict[str, str]]:
+    """Вложения Jira, которых нет среди материалов проекта, и почему."""
+    rows = db.scalars(select(JiraItem).where(JiraItem.link_id == link_id, JiraItem.kind == "attachment", JiraItem.artifact_id.is_(None))).all()
+    return [{"issue": row.issue_key, "reason": row.note or "не загружено"} for row in rows]
+
+
 def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: JiraClient, user_id: int) -> dict[str, int]:
-    """Докачать проект Jira в проект портала: новые и изменённые задачи, новые вложения. Возвращает счётчики."""
+    """Докачать проект Jira в проект портала: сводка проекта, новые и изменённые задачи целиком, новые вложения."""
     project = db.get(Project, link.project_id)
     if project is None or not project.is_active:
         raise JiraImportError("Проект портала удалён")
-    stats = {"issues_new": 0, "issues_updated": 0, "issues_same": 0, "files_new": 0, "files_skipped": 0}
+    stats = {"issues_total": 0, "issues_new": 0, "issues_updated": 0, "issues_same": 0, "files_new": 0, "files_same": 0}
     link.status, link.status_text = "running", "читаю список задач"
     db.commit()
     max_bytes = int(settings.max_upload_bytes)
     allowed = allowed_extensions(settings)
-    limit = max(1, int(settings.jira_import_max_issues))
-    listing = client.issues(link.jira_key, limit=limit)
-    for number, row in enumerate(listing, 1):
+    listing = client.issues(link.jira_key)  # все задачи проекта: по списку строится сводка
+    stats["issues_total"] = len(listing)
+    link.issues_total = len(listing)
+    cap = int(settings.jira_import_max_issues or 0)
+    to_load = listing[:cap] if cap > 0 else listing
+    for number, row in enumerate(to_load, 1):
         key, updated = row["key"], str(row["updated"] or "")
         item = _item(db, link.id, "issue", key)
-        if item is not None and item.updated == updated and item.artifact_id:
+        if item is not None and item.updated == updated and item.fmt == jira_render.FORMAT_VERSION and item.artifact_id:
             stats["issues_same"] += 1
             continue
-        raw = client.issue_raw(key)
-        recorded = jira_time((raw.get("fields") or {}).get("updated"))
+        raw = client.issue_full(key)
+        fields = raw.get("fields") or {}
         original = safe_filename(f"Jira {key} — {row['summary']}") + ".md"
-        dest = _dest(settings, project.id, original)
-        dest.write_text(issue_markdown(raw, client.base_url, link.jira_name), encoding="utf-8")
-        artifact, created = register_file(db, settings, project, user_id, original, dest, recorded)
+        dest = _write_doc(settings, project.id, original, jira_render.issue_document(raw, client.base_url, link.jira_name))
+        artifact, created = register_file(db, settings, project, user_id, original, dest, jira_time(fields.get("updated")))
         if item is None:
             item = JiraItem(link_id=link.id, kind="issue", ref=key, issue_key=key)
             db.add(item)
             stats["issues_new"] += 1
-        elif created:
-            stats["issues_updated"] += 1
         else:
-            stats["issues_same"] += 1
-        item.updated = updated
+            stats["issues_updated" if created else "issues_same"] += 1
+        item.updated, item.fmt = updated, jira_render.FORMAT_VERSION
         _replace_artifact(db, settings, item, artifact)
+        for attachment in fields.get("attachment") or []:
+            if isinstance(attachment, dict) and attachment.get("id"):
+                _load_attachment(db, settings, project, link, client, user_id, key, attachment, allowed, max_bytes, stats)
+        link.status_text = f"задач обработано {number} из {len(to_load)}"
+        db.commit()
+    # сводка проекта: сведения о проекте и таблица всех задач — для обзорных вопросов
+    try:
+        info = client.project_info(link.jira_key)
+    except JiraError:
+        info = {"key": link.jira_key, "name": link.jira_name or link.jira_key}
+    summary_name = safe_filename(f"Jira {link.jira_key} — сводка проекта") + ".md"
+    summary_text = jira_render.project_document(info, listing, client.base_url, loaded=len(to_load))
+    summary_dest = _write_doc(settings, project.id, summary_name, summary_text)
+    newest = max((jira_time(r["updated"]) for r in listing if jira_time(r["updated"])), default=None)
+    summary_artifact, _created = register_file(db, settings, project, user_id, summary_name, summary_dest, newest)
+    summary_item = _item(db, link.id, "summary", link.jira_key)
+    if summary_item is None:
+        summary_item = JiraItem(link_id=link.id, kind="summary", ref=link.jira_key, issue_key=link.jira_key)
+        db.add(summary_item)
+    summary_item.fmt = jira_render.FORMAT_VERSION
+    _replace_artifact(db, settings, summary_item, summary_artifact)
+    skipped = skipped_files(db, link.id)
+    link.status = "idle"
+    link.status_text = (f"в Jira задач {stats['issues_total']}, загружено {len(to_load)}"
+                        + (f" (ограничение JIRA_IMPORT_MAX_ISSUES={cap})" if cap > 0 and len(to_load) < len(listing) else "")
+                        + f": новых {stats['issues_new']}, обновлено {stats['issues_updated']}, без изменений {stats['issues_same']}; "
+                        f"файлов: новых {stats['files_new']}, уже были {stats['files_same']}, не загружено {len(skipped)}")
+    link.last_sync_at = datetime.now(timezone.utc)
+    db.commit()
+    log_event(logger, "jira.synced", jira_key=link.jira_key, project_id=link.project_id, skipped=len(skipped), **stats)
+    return stats
+
+
+def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: JiraClient) -> dict[str, Any]:
+    """Сверка «Jira ↔ портал» по одной привязке, ничего не меняет: все ли задачи и вложения на месте, совпадает ли документ
+    каждой задачи с тем, что Jira отдаёт сейчас (буква в букву), разобраны ли материалы конвейером."""
+    from app.app.models.entity import Chunk
+
+    listing = client.issues(link.jira_key)
+    items = db.scalars(select(JiraItem).where(JiraItem.link_id == link.id)).all()
+    issues = {i.ref: i for i in items if i.kind == "issue"}
+    files = {i.ref: i for i in items if i.kind == "attachment"}
+    problems: list[str] = []
+    report: dict[str, Any] = {"jira_key": link.jira_key, "jira_issues": len(listing), "portal_issues": 0, "comments": 0, "worklogs": 0,
+                              "history": 0, "extra_fields": 0, "jira_attachments": 0, "portal_files": 0, "not_loaded": skipped_files(db, link.id),
+                              "pipeline": {}, "problems": problems}
+    cap = int(settings.jira_import_max_issues or 0)
+    expected = listing[:cap] if cap > 0 else listing
+    if len(expected) < len(listing):
+        problems.append(f"загружены не все задачи: {len(expected)} из {len(listing)} (ограничение JIRA_IMPORT_MAX_ISSUES={cap})")
+    artifact_ids: list[int] = []
+    for row in expected:
+        key = row["key"]
+        item = issues.get(key)
+        if item is None or not item.artifact_id:
+            problems.append(f"{key}: задачи нет в портале")
+            continue
+        artifact = db.get(Artifact, item.artifact_id)
+        if artifact is None:
+            problems.append(f"{key}: документ задачи удалён из проекта вручную")
+            continue
+        report["portal_issues"] += 1
+        artifact_ids.append(artifact.id)
+        raw = client.issue_full(key)
+        numbers = jira_render.counts(raw)
+        for name in ("comments", "worklogs", "history", "extra_fields"):
+            report[name] += numbers[name]
+        if numbers["comments"] != numbers["comments_total"]:
+            problems.append(f"{key}: Jira отдала {numbers['comments']} комментариев из {numbers['comments_total']}")
+        if numbers["worklogs"] != numbers["worklogs_total"]:
+            problems.append(f"{key}: Jira отдала {numbers['worklogs']} записей трудозатрат из {numbers['worklogs_total']}")
+        if numbers["history"] != numbers["history_total"]:
+            problems.append(f"{key}: Jira отдала {numbers['history']} записей истории из {numbers['history_total']}")
+        try:
+            stored = Path(artifact.file_path).read_text(encoding="utf-8")
+        except OSError:
+            problems.append(f"{key}: файл документа не читается")
+            stored = None
+        if stored is not None and stored != jira_render.issue_document(raw, client.base_url, link.jira_name):
+            problems.append(f"{key}: документ в портале отличается от Jira (задача изменилась или документ устарел) — нужна проверка обновлений")
         for attachment in (raw.get("fields") or {}).get("attachment") or []:
             if not isinstance(attachment, dict) or not attachment.get("id"):
                 continue
-            ref = str(attachment["id"])
-            if _item(db, link.id, "attachment", ref) is not None:
-                continue
-            name = safe_filename(str(attachment.get("filename") or "файл"))
-            record = JiraItem(link_id=link.id, kind="attachment", ref=ref, issue_key=key, updated=str(attachment.get("created") or ""))
-            db.add(record)
-            ext = Path(name).suffix.lower()
-            size = int(attachment.get("size") or 0)
-            if ext not in allowed:
-                record.note = f"вид файла {ext or 'без расширения'} не разбирается"
-                stats["files_skipped"] += 1
-                continue
-            if size > max_bytes:
-                record.note = "файл больше допустимого размера"
-                stats["files_skipped"] += 1
-                continue
-            file_original = safe_filename(f"Jira {key} — {Path(name).stem}") + ext
-            file_dest = _dest(settings, project.id, file_original)
-            try:
-                client.download(str(attachment.get("content") or ""), file_dest, max_bytes=max_bytes)
-            except JiraError as exc:
-                record.note = str(exc)[:250]
-                stats["files_skipped"] += 1
-                continue
-            file_artifact, file_created = register_file(db, settings, project, user_id, file_original, file_dest,
-                                                        jira_time(attachment.get("created")))
-            record.artifact_id = file_artifact.id
-            stats["files_new"] += 1 if file_created else 0
-        link.status_text = f"задач обработано {number} из {len(listing)}"
-        db.commit()
-    link.status = "idle"
-    link.status_text = (f"задач: новых {stats['issues_new']}, обновлено {stats['issues_updated']}, без изменений {stats['issues_same']}; "
-                        f"файлов: новых {stats['files_new']}, пропущено {stats['files_skipped']}")
-    link.last_sync_at = datetime.now(timezone.utc)
-    db.commit()
-    log_event(logger, "jira.synced", jira_key=link.jira_key, project_id=link.project_id, **stats)
-    return stats
+            report["jira_attachments"] += 1
+            record = files.get(str(attachment["id"]))
+            name = str(attachment.get("filename") or "файл")
+            if record is None:
+                problems.append(f"{key}: вложение «{name}» не учтено")
+            elif record.artifact_id:
+                file_artifact = db.get(Artifact, record.artifact_id)
+                if file_artifact is None:
+                    continue  # материал удалён вручную — осознанное действие человека
+                report["portal_files"] += 1
+                artifact_ids.append(file_artifact.id)
+                try:
+                    size = Path(file_artifact.file_path).stat().st_size
+                except OSError:
+                    problems.append(f"{key}: файл вложения «{name}» пропал с диска")
+                    continue
+                if int(attachment.get("size") or 0) and size != int(attachment.get("size")):
+                    problems.append(f"{key}: вложение «{name}» — на диске {size} байт, в Jira {attachment.get('size')}")
+    summary = next((i for i in items if i.kind == "summary"), None)
+    if summary is None or not summary.artifact_id:
+        problems.append("нет сводки проекта — нужна проверка обновлений")
+    elif db.get(Artifact, summary.artifact_id) is not None:
+        artifact_ids.append(summary.artifact_id)
+    for artifact_id in dict.fromkeys(artifact_ids):
+        artifact = db.get(Artifact, artifact_id)
+        report["pipeline"][artifact.status] = report["pipeline"].get(artifact.status, 0) + 1
+        if artifact.status == "error" or artifact.error_message:
+            problems.append(f"«{artifact.original_filename}»: ошибка разбора — {str(artifact.error_message or '')[:160]}")
+        elif artifact.status == "done" and db.scalar(select(Chunk.id).where(Chunk.artifact_id == artifact.id).limit(1)) is None:
+            problems.append(f"«{artifact.original_filename}»: разобран, но в поиске нет ни одного фрагмента")
+    report["ok"] = not problems
+    return report
 
 
 def _sync_one(settings: Settings, link_id: int, user_id: int, factory: ClientFactory) -> None:
@@ -629,7 +707,7 @@ def start_scheduler(settings: Settings) -> bool:
 
 
 __all__ = ["JiraImportError", "JiraNotConfigured", "connect", "disconnect", "visible_projects", "import_projects", "sync_link",
-           "start_sync", "scheduled_pass", "start_scheduler", "refresh_access", "issue_markdown", "jira_keys_by_project"]
+           "start_sync", "scheduled_pass", "start_scheduler", "refresh_access", "issue_markdown", "jira_keys_by_project", "check_link", "skipped_files"]
 
 
 def forget_project(db: Session, project_id: int) -> None:
