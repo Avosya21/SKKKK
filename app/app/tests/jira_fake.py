@@ -121,6 +121,9 @@ class FakeJira:
                 for name, list_key in (("comment", "comments"), ("worklog", "worklogs")):  # как настоящая Jira: в задаче только начало списка
                     out["fields"][name][list_key] = out["fields"][name][list_key][: self.PAGE]
                 return 200, out
+            if tail[1] == "watchers":
+                people = [{"displayName": "Тестовый Автор"}, {"displayName": "Тестовый Исполнитель"}] if key == "ABC-1" else []
+                return 200, {"watchCount": len(people), "watchers": people}
             if tail[1] == "remotelink":
                 return 200, [{"object": {"title": "Инструкция", "url": "https://docs.example/instr"}}] if key == "ABC-1" else []
             list_key = {"comment": "comments", "worklog": "worklogs"}[tail[1]]

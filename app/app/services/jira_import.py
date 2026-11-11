@@ -352,9 +352,13 @@ def register_file(db: Session, settings: Settings, project: Project, user_id: in
 
     sha256, size = hash_file(dest)
     duplicate = find_duplicate(db, project.id, sha256)
-    if duplicate is not None:
+    if duplicate is not None and duplicate.status != "error":
         dest.unlink(missing_ok=True)
         return duplicate, False
+    if duplicate is not None:  # прежний разбор этого же файла упал — убираем его и разбираем заново
+        from app.app.services.project_purge import purge_artifact
+
+        purge_artifact(db, settings, duplicate)
     if recorded is not None:
         try:
             os.utime(dest, (recorded.timestamp(), recorded.timestamp()))  # дата материала — дата в Jira, а не момент скачивания
@@ -367,9 +371,22 @@ def register_file(db: Session, settings: Settings, project: Project, user_id: in
         db, project_id=project.id, user_id=user_id, original_filename=original, stored_filename=dest.name, file_path=dest,
         file_type=file_type, source_type=source_type, sha256=sha256, priority_weight=default_priority(source_type, project.settings()),
         duration_sec=duration)
+    stamp_jira_date(artifact, recorded)
     log_event(logger, "artifact.created", artifact=artifact.artifact_id, file=original, file_type=file_type, status=artifact.status,
               bytes=size, source="jira", job_id=job.id if job else None)
     return artifact, True
+
+
+def stamp_jira_date(artifact: Artifact | None, when: datetime | None) -> None:
+    """Дата материала — дата из Jira (последнее изменение задачи, загрузка вложения), а не момент загрузки в портал.
+    Дату, которую человек поставил вручную, не трогаем."""
+    from app.app.services import recorded_at as ra
+
+    if artifact is None or when is None or artifact.recorded_at_source in (ra.SOURCE_MANUAL, ra.SOURCE_MANUAL_TIME):
+        return
+    moment = when.astimezone(timezone.utc).replace(tzinfo=None) if when.tzinfo else when
+    if artifact.recorded_at != moment or artifact.recorded_at_source != ra.SOURCE_JIRA:
+        ra.set_recorded(artifact, moment, ra.SOURCE_JIRA)
 
 
 def _dest(settings: Settings, project_id: int, original: str) -> Path:
@@ -382,6 +399,12 @@ def _dest(settings: Settings, project_id: int, original: str) -> Path:
 
 def _item(db: Session, link_id: int, kind: str, ref: str) -> JiraItem | None:
     return db.scalar(select(JiraItem).where(JiraItem.link_id == link_id, JiraItem.kind == kind, JiraItem.ref == ref))
+
+
+def _artifact_failed(db: Session, artifact_id: int | None) -> bool:
+    """Материала нет или его разбор завершился ошибкой — такой документ при следующей проверке загружается заново."""
+    artifact = db.get(Artifact, artifact_id) if artifact_id else None
+    return artifact is None or artifact.status == "error"
 
 
 def _replace_artifact(db: Session, settings: Settings, item: JiraItem, artifact: Artifact) -> None:
@@ -410,7 +433,11 @@ def _load_attachment(db: Session, settings: Settings, project: Project, link: Ji
     """Одно вложение задачи: скачать и зарегистрировать как материал, либо записать, почему оно не загружено."""
     ref = str(attachment["id"])
     record = _item(db, link.id, "attachment", ref)
-    if record is not None and (record.artifact_id or not _retry_note(record.note)):
+    if record is not None and record.artifact_id and _artifact_failed(db, record.artifact_id):
+        record.artifact_id = None  # разбор файла упал: скачиваем и разбираем заново (register_file уберёт прежний)
+    elif record is not None and (record.artifact_id or not _retry_note(record.note)):
+        if record.artifact_id:
+            stamp_jira_date(db.get(Artifact, record.artifact_id), jira_time(attachment.get("created")))
         return
     name = safe_filename(str(attachment.get("filename") or "файл"))
     if record is None:
@@ -433,6 +460,7 @@ def _load_attachment(db: Session, settings: Settings, project: Project, link: Ji
         record.note = f"{name}: не скачалось — {str(exc)[:160]}"
         return
     artifact, created = register_file(db, settings, project, user_id, file_original, file_dest, jira_time(attachment.get("created")))
+    stamp_jira_date(artifact, jira_time(attachment.get("created")))
     record.artifact_id, record.note = artifact.id, None
     stats["files_new" if created else "files_same"] += 1
 
@@ -466,7 +494,12 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
     for number, row in enumerate(to_load, 1):
         key, updated = row["key"], str(row["updated"] or "")
         item = _item(db, link.id, "issue", key)
-        if item is not None and item.updated == updated and item.fmt == jira_render.FORMAT_VERSION and item.artifact_id:
+        if (item is not None and item.updated == updated and item.fmt == jira_render.FORMAT_VERSION and item.artifact_id
+                and not _artifact_failed(db, item.artifact_id)):
+            stamp_jira_date(db.get(Artifact, item.artifact_id), jira_time(updated))
+            for file_row in db.scalars(select(JiraItem).where(JiraItem.link_id == link.id, JiraItem.kind == "attachment",
+                                                              JiraItem.issue_key == key, JiraItem.artifact_id.is_not(None))).all():
+                stamp_jira_date(db.get(Artifact, file_row.artifact_id), jira_time(file_row.updated))
             stats["issues_same"] += 1
             continue
         raw = client.issue_full(key)
@@ -481,6 +514,7 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
         else:
             stats["issues_updated" if created else "issues_same"] += 1
         item.updated, item.fmt = updated, jira_render.FORMAT_VERSION
+        stamp_jira_date(artifact, jira_time(fields.get("updated")))
         _replace_artifact(db, settings, item, artifact)
         for attachment in fields.get("attachment") or []:
             if isinstance(attachment, dict) and attachment.get("id"):
@@ -502,8 +536,12 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
         summary_item = JiraItem(link_id=link.id, kind="summary", ref=link.jira_key, issue_key=link.jira_key)
         db.add(summary_item)
     summary_item.fmt = jira_render.FORMAT_VERSION
+    stamp_jira_date(summary_artifact, newest)
     _replace_artifact(db, settings, summary_item, summary_artifact)
     skipped = skipped_files(db, link.id)
+    loaded_files = db.scalars(select(JiraItem).where(JiraItem.link_id == link.id, JiraItem.kind == "attachment",
+                                                     JiraItem.artifact_id.is_not(None))).all()
+    stats["files_same"] = max(len(loaded_files) - stats["files_new"], 0)
     link.status = "idle"
     link.status_text = (f"в Jira задач {stats['issues_total']}, загружено {len(to_load)}"
                         + (f" (ограничение JIRA_IMPORT_MAX_ISSUES={cap})" if cap > 0 and len(to_load) < len(listing) else "")
@@ -513,6 +551,27 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
     db.commit()
     log_event(logger, "jira.synced", jira_key=link.jira_key, project_id=link.project_id, skipped=len(skipped), **stats)
     return stats
+
+
+def _who_and_when(raw: dict[str, Any], stored: str) -> tuple[int, list[str]]:
+    """Независимая от сборки документа проверка «кто и когда»: автор и время создания задачи, исполнитель, автор и время каждого
+    комментария, каждой записи трудозатрат, каждого вложения (с именем файла) и каждой записи истории должны быть в тексте.
+    Возвращает (сколько сведений проверено, чего не хватает)."""
+    fields = raw.get("fields") or {}
+    person, when = jira_render.person, jira_render.when
+    wanted: list[tuple[str, list[str]]] = [("автор задачи", [person(fields.get("reporter"))]), ("исполнитель", [person(fields.get("assignee"))]),
+                                           ("кто создал", [person(fields.get("creator"))]), ("время создания", [when(fields.get("created"))]),
+                                           ("время изменения", [when(fields.get("updated"))])]
+    for c in (fields.get("comment") or {}).get("comments") or []:
+        wanted.append((f"комментарий от {when(c.get('created'))}", [person(c.get("author")), when(c.get("created"))]))
+    for w in (fields.get("worklog") or {}).get("worklogs") or []:
+        wanted.append((f"трудозатраты от {when(w.get('started'))}", [person(w.get("author")), when(w.get("started"))]))
+    for a in fields.get("attachment") or []:
+        wanted.append((f"вложение «{a.get('filename')}»", [str(a.get("filename") or ""), person(a.get("author")), when(a.get("created"))]))
+    for h in (raw.get("changelog") or {}).get("histories") or []:
+        wanted.append((f"изменение от {when(h.get('created'))}", [person(h.get("author")), when(h.get("created"))]))
+    missing = [what for what, parts in wanted if any(part and part != "—" and part not in stored for part in parts)]
+    return len(wanted), missing
 
 
 def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: JiraClient) -> dict[str, Any]:
@@ -526,7 +585,7 @@ def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: J
     files = {i.ref: i for i in items if i.kind == "attachment"}
     problems: list[str] = []
     report: dict[str, Any] = {"jira_key": link.jira_key, "jira_issues": len(listing), "portal_issues": 0, "comments": 0, "worklogs": 0,
-                              "history": 0, "extra_fields": 0, "extra_field_names": [], "omitted_field_names": [], "jira_attachments": 0, "portal_files": 0,
+                              "history": 0, "who_when_checked": 0, "extra_fields": 0, "extra_field_names": [], "omitted_field_names": [], "jira_attachments": 0, "portal_files": 0,
                               "not_loaded": skipped_files(db, link.id),
                               "pipeline": {}, "problems": problems}
     cap = int(settings.jira_import_max_issues or 0)
@@ -565,6 +624,12 @@ def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: J
             stored = None
         if stored is not None and stored != jira_render.issue_document(raw, client.base_url, link.jira_name):
             problems.append(f"{key}: документ в портале отличается от Jira (задача изменилась или документ устарел) — нужна проверка обновлений")
+        elif stored is not None:
+            checked, missing = _who_and_when(raw, stored)
+            report["who_when_checked"] += checked
+            problems.extend(f"{key}: в документе нет сведений — {what}" for what in missing[:5])
+        if artifact.recorded_at_source != "jira":
+            problems.append(f"{key}: дата материала взята не из Jira — нужна проверка обновлений")
         for attachment in (raw.get("fields") or {}).get("attachment") or []:
             if not isinstance(attachment, dict) or not attachment.get("id"):
                 continue

@@ -1966,7 +1966,7 @@ function bindDeleteButtons(root) {
 }
 
 // Дата материала (REQUIREMENTS-PLAN этап 1): от неё зависит, что сказано позже. Дата загрузки — не дата записи.
-const DATE_SOURCE = { meeting: 'встреча', filename: 'из имени файла', filename_time: 'из имени файла, со временем', media: 'из файла', manual: 'поставлена вручную', manual_time: 'поставлена вручную, со временем', messages: 'по сообщениям переписки', doc_text: 'из текста документа', doc_meta: 'из свойств файла (дата правки) — проверьте' };
+const DATE_SOURCE = { jira: 'по дате в Jira', meeting: 'встреча', filename: 'из имени файла', filename_time: 'из имени файла, со временем', media: 'из файла', manual: 'поставлена вручную', manual_time: 'поставлена вручную, со временем', messages: 'по сообщениям переписки', doc_text: 'из текста документа', doc_meta: 'из свойств файла (дата правки) — проверьте' };
 function fmtDay(iso) { const [y, m, d] = String(iso).split('-'); return `${d}.${m}.${y}`; }
 function materialDateLine(a) {
   const edit = currentRole === 'admin'
@@ -3391,6 +3391,7 @@ if (grantMembersBody) {
         head.className = l.ok ? 'text-success' : 'text-danger';
         head.textContent = (l.ok ? 'Всё сходится. ' : 'Есть расхождения. ') + l.jira_key + ': задач в Jira ' + l.jira_issues + ', в портале ' + l.portal_issues
           + '; комментариев ' + l.comments + ', записей трудозатрат ' + l.worklogs + ', записей истории ' + l.history
+          + (l.who_when_checked ? '; сведений «кто и когда» сверено ' + l.who_when_checked : '')
           + '; вложений в Jira ' + l.jira_attachments + ', файлов в портале ' + l.portal_files + ', не загружено ' + (l.not_loaded || []).length + '.';
         checkEl.appendChild(head);
         if ((l.problems || []).length) {

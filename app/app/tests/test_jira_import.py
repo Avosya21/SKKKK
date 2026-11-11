@@ -98,15 +98,15 @@ def test_import_brings_everything_without_cuts(client, jira, manager_token):
         "# [ABC-1] Настроить обмен", "Задача Jira ABC-1 «Настроить обмен» проекта ABC (Проект Альфа): статус «В работе» (в работе), исполнитель — Тестовый Исполнитель",
         f"Ссылка: {jira.base}/browse/ABC-1", "- Резолюция: Готово", "- Решена: 2026-11-01 12:00", "- Срок: 2026-11-15", "- Метки: обмен, срочно",
         "- Компоненты: Обмен с сайтом", "- Версии исправления: Релиз 2", "- Затронутые версии: Релиз 1", "- Родительская задача: ABC-100 — Эпик обмена",
-        "- Оценка времени: 2d", "- Осталось времени: 4h", "- Затрачено времени: 1d 4h", "- Наблюдателей: 3", "- Окружение: Тестовый контур",
+        "- Оценка времени: 2d", "- Осталось времени: 4h", "- Затрачено времени: 1d 4h", "- Наблюдателей: 3", "- Наблюдатели: Тестовый Автор, Тестовый Исполнитель", "- Окружение: Тестовый контур",
         "## Дополнительные поля", "- Заказчик: Заказчик А / Отдел закупок", "- Оценка в баллах: 5", "- Спринт: Спринт 7 (active)",
         "Описание задачи ABC-1.\nВторая строка (вложение: схема.txt).", "## Подзадачи (1)", "- ABC-11 — Подзадача раз [Готово]",
         "## Связанные задачи (1)", "- блокирует ABC-12 — Зависимая [Новая]", "## Внешние ссылки (1)", "- Инструкция: https://docs.example/instr",
         "## Комментарии (6)", "Комментарий 5: договорились", "### Тестовый Исполнитель, 2026-10-20 10:00 (изменён 2026-10-21 11:00)", "КОНЕЦ-КОММЕНТАРИЯ",
         "## Трудозатраты (4, всего 4ч)", "- 2026-10-04 09:00, Тестовый Исполнитель: 1h — работа 4",
-        "## Вложения (2)", "- дамп.zip (0 КБ, Тестовый Исполнитель, 2026-11-01 09:00)", "## История изменений (2)",
-        "- 2026-10-05 10:00, Тестовый Автор: status: «Новая» → «В работе»; assignee: «пусто» → «Тестовый Исполнитель»",
-        "- 2026-10-06 10:00, Тестовый Исполнитель: description: текст изменён"):
+        "## Вложения (2)", "- дамп.zip (0 КБ, загрузил(а) Тестовый Исполнитель, 2026-11-01 09:00)", "## История изменений (2)",
+        "- 2026-10-05 10:00, Тестовый Автор: Статус (status): «Новая» → «В работе»; Исполнитель (assignee): «пусто» → «Тестовый Исполнитель»",
+        "- 2026-10-06 10:00, Тестовый Исполнитель: Описание (description): текст изменён"):
         assert expected in text, expected
     assert "Rank" not in text and "0|i0001z" not in text and text.count("Слово ") == 6000  # служебное поле не попало, длинный комментарий цел
 
@@ -160,11 +160,52 @@ def test_format_change_reloads_documents(client, jira, manager_token, monkeypatc
     assert len(_artifacts(client, manager_token, project_id)) == 4  # содержимое то же — дубликатов нет
 
 
+def test_failed_parse_is_reloaded_on_next_sync(client, jira, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+
+    project_id = _import(client, manager_token)
+    before = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    with SessionLocal() as db:  # разбор двух материалов упал (например, модель не загрузилась)
+        for row in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all():
+            if row.original_filename.startswith("Jira ABC-1") or "сводка" in row.original_filename:
+                row.status = "error"
+        db.commit()
+    jira.detail_calls.clear()
+    client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
+    after = {a["original_filename"]: (a["artifact_id"], a["status"]) for a in _artifacts(client, manager_token, project_id)}
+    assert len(after) == len(before) and "ABC-1" in jira.detail_calls and "ABC-2" not in jira.detail_calls
+    for name, (artifact_id, status) in after.items():
+        failed = name.startswith("Jira ABC-1 —") or "сводка" in name
+        assert status != "error" and (artifact_id != before[name]) == failed, name
+
+
+def test_material_date_comes_from_jira_not_from_upload(client, jira, manager_token):
+    project_id = _import(client, manager_token)
+    rows = _artifacts(client, manager_token, project_id)
+    assert rows and {a["material_date_source"] for a in rows} == {"jira"}, [(a["original_filename"], a["material_date_source"]) for a in rows]
+    today = __import__("datetime").date.today().isoformat()
+    assert all(a["material_date"] and a["material_date"] != today for a in rows)  # даты из Jira, не день загрузки
+    client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))  # повторная проверка дат не сбивает
+    again = {a["original_filename"]: a["material_date"] for a in _artifacts(client, manager_token, project_id)}
+    assert again == {a["original_filename"]: a["material_date"] for a in rows}
+
+
+def test_jira_documents_are_not_rewritten_by_model(client, jira, manager_token):
+    from app.app.services import pipeline_documents
+
+    _import(client, manager_token)
+    for name in ("Jira ABC-1 — Настроить обмен.md", "Jira ABC — сводка проекта.md"):
+        assert pipeline_documents._is_jira_document(_doc(name)), name  # конвейер берёт такой текст дословно, без очистки моделью
+    assert not pipeline_documents._is_jira_document("Протокол встречи\nРешили перенести срок.")
+
+
 def test_check_reports_completeness_and_detects_drift(client, jira, manager_token, user_token):
     project_id = _import(client, manager_token)
     report = client.get(f"/projects/{project_id}/jira/check", headers=_h(manager_token)).json()
     link = report["links"][0]
     assert report["ok"] is True and link["problems"] == [], link["problems"]
+    assert link["who_when_checked"] >= 5 * 2 + 7 + 4 + 2 + 2  # автор, исполнитель, время у задач, комментариев, трудозатрат, вложений, истории
     assert (link["jira_issues"], link["portal_issues"], link["comments"], link["worklogs"], link["history"]) == (2, 2, 7, 4, 2)
     assert link["extra_field_names"] == ["Заказчик", "Оценка в баллах", "Спринт"] and link["omitted_field_names"] == ["Rank", "workratio"]
     assert link["extra_fields"] == 3 and link["jira_attachments"] == 2 and link["portal_files"] == 1 and len(link["not_loaded"]) == 1
@@ -282,6 +323,7 @@ def test_render_helpers():
     assert jr.duration(9000) == "2ч 30м" and jr.duration(0) == "" and jr.duration(1800) == "30м"
     assert ji.safe_filename('a/b:c*?"<>|d.') == "a b c d" and ji.jira_time("2026-11-02T10:00:00.000+0300").utcoffset().total_seconds() == 10800
     empty = jr.project_document({"key": "ABC", "name": "Пустой"}, [], "https://jira.example")
+    assert jr.is_rendered(empty) and not jr.is_rendered("# [черновик] заметки\nтекст") and not jr.is_rendered("")
     assert "В проекте нет задач." in empty and "- Всего задач: 0" in empty
     raw = issue("ABC-9", "Заголовок", "2026-11-02T10:00:00.000+0300")
     raw["changelog_complete"] = False

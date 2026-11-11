@@ -98,6 +98,7 @@ items:
   - {path: "docs/DECISIONS.md", kind: "решения", purpose: "что нельзя менять без пользователя"}
   - {path: "docs/FINDINGS-2026-09.md", kind: "находки", purpose: "открытые и закрытые находки сентября"}
   - {path: "docs/HOWTO-MANAGER.md", kind: "инструкция", purpose: "как работать менеджеру проекта"}
+  - {path: "docs/JIRA-INTEGRATION-WORK-REPORT.md", kind: "отчёт", purpose: "подключение Jira: что сделано, что найдено при проверке, что осталось"}
   - {path: "docs/OPERATIONS.md", kind: "инструкция", purpose: "эксплуатация: запуск, бэкапы, индекс, разбор сбоев"}
   - {path: "docs/PLAN-AGENT-EXCHANGE-V2.md", kind: "план", purpose: "фазы обмена с внешним агентом"}
   - {path: "docs/PLAN-REVIEW.md", kind: "ревизия", purpose: "результаты ревизии плана"}

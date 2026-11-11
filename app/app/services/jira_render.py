@@ -16,7 +16,7 @@ from typing import Any
 
 from app.app.services.jira_client import normalize_issue
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 5
 
 STATUS_LABELS = {"open": "не начата", "in_progress": "в работе", "done": "завершена"}
 # Поля, которые выводятся в шапке и разделах сами; остальные непустые идут в «Дополнительные поля».
@@ -27,6 +27,18 @@ _HANDLED = {"summary", "issuetype", "status", "priority", "resolution", "resolut
 _SKIPPED = {"timeoriginalestimate", "timeestimate", "timespent", "aggregatetimeoriginalestimate", "aggregatetimeestimate",
             "aggregatetimespent", "progress", "aggregateprogress", "workratio", "lastViewed", "thumbnail", "issuekey",
             "statuscategorychangedate", "archiveddate", "archivedby"}
+# Счётчики секунд, значение которых в документе есть словами («Оценка/Осталось/Затрачено времени», в т.ч. с подзадачами).
+_TIME_COUNTERS = {"timeoriginalestimate", "timeestimate", "timespent", "aggregatetimeoriginalestimate", "aggregatetimeestimate",
+                  "aggregatetimespent"}
+# Названия системных полей в истории изменений Jira отдаёт по-английски — в документе пишем по-русски (исходное имя в скобках).
+_HISTORY_LABELS = {"status": "Статус", "assignee": "Исполнитель", "reporter": "Автор", "priority": "Приоритет", "resolution": "Решение",
+                   "summary": "Название", "duedate": "Срок", "labels": "Метки", "attachment": "Вложение", "link": "Связь",
+                   "issuetype": "Вид задачи", "fix version": "Версия исправления", "version": "Затронутая версия",
+                   "component": "Компонент", "parent": "Родительская задача", "sprint": "Спринт", "project": "Проект", "key": "Ключ",
+                   "timespent": "Затрачено времени", "timeestimate": "Осталось времени", "timeoriginalestimate": "Оценка времени",
+                   "worklogtimespent": "Время в записи трудозатрат", "worklogid": "Запись трудозатрат", "description": "Описание",
+                   "comment": "Комментарий", "environment": "Окружение", "security": "Уровень безопасности", "workflow": "Процесс"}
+_HISTORY_SECONDS = {"timespent", "timeestimate", "timeoriginalestimate", "worklogtimespent"}
 _NOISE_NAMES = {"rank", "ранг", "development", "разработка"}
 _LONG_TEXT_FIELDS = {"description", "comment", "environment", "описание", "комментарий", "окружение"}
 _SPRINT = re.compile(r"Sprint@[0-9a-f]+\[(.*)\]\s*$", re.S)
@@ -139,6 +151,13 @@ def extra_fields(raw: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
+def is_rendered(text: str) -> bool:
+    """Текст — документ, собранный этим модулем (задача или сводка проекта Jira). Такой текст уже чистый и точный:
+    конвейер документов не отдаёт его модели на «очистку», чтобы не исказить числа, имена и даты."""
+    head = (text or "").lstrip()[:3000]
+    return head.startswith("# Jira: проект ") or (head.startswith("# [") and "\nИсточник: Jira, проект " in head)
+
+
 def omitted_fields(raw: dict[str, Any]) -> list[str]:
     """Названия непустых полей, которые в документ намеренно не выводятся (служебные) — для прозрачности сверки."""
     fields = raw.get("fields") or {}
@@ -146,7 +165,7 @@ def omitted_fields(raw: dict[str, Any]) -> list[str]:
     shown = {label for label, _value in extra_fields(raw)}
     out = []
     for field_id, value in fields.items():
-        if field_id in _HANDLED or not flat(value):
+        if field_id in _HANDLED or field_id in _TIME_COUNTERS or not flat(value):
             continue
         label = str(names.get(field_id) or field_id).strip()
         if label not in shown:
@@ -208,9 +227,17 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
     _field(lines, "Оценка времени", str(tracking.get("originalEstimate") or "") or duration(fields.get("timeoriginalestimate")))
     _field(lines, "Осталось времени", str(tracking.get("remainingEstimate") or "") or duration(fields.get("timeestimate")))
     _field(lines, "Затрачено времени", str(tracking.get("timeSpent") or "") or duration(fields.get("timespent")))
+    for label, own, total in (("Оценка времени с подзадачами", "timeoriginalestimate", "aggregatetimeoriginalestimate"),
+                              ("Осталось времени с подзадачами", "timeestimate", "aggregatetimeestimate"),
+                              ("Затрачено времени с подзадачами", "timespent", "aggregatetimespent")):
+        if fields.get(total) and fields.get(total) != fields.get(own):
+            _field(lines, label, duration(fields.get(total)))
     _field(lines, "Уровень безопасности", flat(fields.get("security")))
     watches = fields.get("watches") if isinstance(fields.get("watches"), dict) else {}
     _field(lines, "Наблюдателей", flat(watches.get("watchCount")) if watches.get("watchCount") else "")
+    _field(lines, "Наблюдатели", ", ".join(person(w) for w in raw.get("watchers") or [] if isinstance(w, dict)))
+    votes = fields.get("votes") if isinstance(fields.get("votes"), dict) else {}
+    _field(lines, "Голосов", flat(votes.get("votes")) if votes.get("votes") else "")
     _field(lines, "Окружение", clean_text(fields.get("environment")))
 
     extra = extra_fields(raw)
@@ -255,7 +282,12 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
         for comment in comments:
             edited = ""
             if comment.get("updated") and comment.get("updated") != comment.get("created"):
-                edited = f" (изменён {when(comment.get('updated'))})"
+                editor = person(comment.get("updateAuthor"))
+                by = f", {editor}" if editor not in ("—", person(comment.get("author"))) else ""
+                edited = f" (изменён {when(comment.get('updated'))}{by})"
+            limit = comment.get("visibility") if isinstance(comment.get("visibility"), dict) else {}
+            if limit.get("value"):
+                edited += f" (виден только: {limit.get('value')})"
             lines += ["", f"### {person(comment.get('author'))}, {when(comment.get('created'))}{edited}", "", clean_text(comment.get("body")) or "(пусто)"]
 
     work = fields.get("worklog") if isinstance(fields.get("worklog"), dict) else {}
@@ -271,7 +303,7 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
     attachments = [a for a in fields.get("attachment") or [] if isinstance(a, dict)]
     if attachments:
         lines += ["", f"## Вложения ({len(attachments)})", ""]
-        lines += [f"- {a.get('filename') or 'файл'} ({int(a.get('size') or 0) // 1024} КБ, {person(a.get('author'))}, {when(a.get('created'))})" for a in attachments]
+        lines += [f"- {a.get('filename') or 'файл'} ({int(a.get('size') or 0) // 1024} КБ, загрузил(а) {person(a.get('author'))}, {when(a.get('created'))})" for a in attachments]
 
     log = raw.get("changelog") if isinstance(raw.get("changelog"), dict) else {}
     histories = [h for h in log.get("histories") or [] if isinstance(h, dict)]
@@ -280,11 +312,15 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
         for h in histories:
             changes = []
             for item in h.get("items") or []:
-                name = str(item.get("field") or "поле")
-                if name.lower() in _LONG_TEXT_FIELDS:
+                raw_name = str(item.get("field") or "поле")
+                label = _HISTORY_LABELS.get(raw_name.lower())
+                name = f"{label} ({raw_name})" if label else raw_name
+                if raw_name.lower() in _LONG_TEXT_FIELDS:
                     changes.append(f"{name}: текст изменён")
                     continue
                 before, after = clean_text(item.get("fromString")).replace("\n", " "), clean_text(item.get("toString")).replace("\n", " ")
+                if raw_name.lower() in _HISTORY_SECONDS:  # Jira пишет секунды — показываем часами и минутами
+                    before, after = (duration(int(v)) or "0м" if v.isdigit() else v for v in (before, after))
                 changes.append(f"{name}: «{before or 'пусто'}» → «{after or 'пусто'}»")
             lines.append(f"- {when(h.get('created'))}, {person(h.get('author'))}: " + "; ".join(changes or ["изменение без подробностей"]))
         if raw.get("changelog_complete") is False:

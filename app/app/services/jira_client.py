@@ -277,6 +277,11 @@ class JiraClient:
             raw["remotelinks"] = [x for x in links if isinstance(x, dict)] if isinstance(links, list) else []
         except JiraError:
             raw["remotelinks"] = []  # внешние ссылки могут быть закрыты правами — задача от этого не теряется
+        try:
+            watchers = self._request("GET", f"/rest/api/2/issue/{key}/watchers")
+            raw["watchers"] = [x for x in (watchers.get("watchers") or []) if isinstance(x, dict)] if isinstance(watchers, dict) else []
+        except JiraError:
+            raw["watchers"] = []  # список наблюдателей виден не всем — остаётся их число из самой задачи
         return raw
 
     def project_info(self, project_key: str) -> dict[str, Any]:

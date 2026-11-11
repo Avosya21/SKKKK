@@ -578,7 +578,8 @@ function renderJiraProjects(rows) {
     item.dataset.search = (row.key + ' ' + row.name).toLowerCase();
     const box = document.createElement('input');
     box.type = 'checkbox';
-    box.className = 'form-check-input m-0';
+    box.className = 'form-check-input m-0 flex-shrink-0';
+    box.style.cssText = 'width:1.25rem;height:1.25rem';
     box.value = row.key;
     box.id = 'jira-pick-' + row.key;
     box.addEventListener('change', jiraSyncImportButton);
@@ -586,7 +587,8 @@ function renderJiraProjects(rows) {
     countEl.className = 'text-muted small';
     box.addEventListener('change', () => { if (box.checked) jiraShowCount(row.key, countEl); });
     const name = document.createElement('label');
-    name.className = 'flex-grow-1 mb-0';
+    name.className = 'mb-0';
+    name.style.cssText = 'flex:1 1 8rem;min-width:0;overflow-wrap:anywhere';
     name.htmlFor = box.id;
     name.textContent = row.name + ' ';
     const key = document.createElement('span');
@@ -598,13 +600,15 @@ function renderJiraProjects(rows) {
     item.appendChild(countEl);
     if (row.linked) {
       const badge = document.createElement('span');
-      badge.className = 'badge text-bg-secondary';
+      badge.className = 'badge text-bg-secondary text-wrap text-start';
+      badge.style.maxWidth = '100%';
       badge.textContent = 'уже в портале: ' + (row.linked.project_name || 'проект ' + row.linked.project_id);
       badge.title = 'Отметьте, чтобы проверить обновления сейчас';
       item.appendChild(badge);
     } else if (jiraState && jiraState.can_link_existing) {
       const select = document.createElement('select');
       select.className = 'form-select form-select-sm w-auto';
+      select.style.cssText = 'max-width:100%;min-width:0';
       select.dataset.key = row.key;
       select.setAttribute('aria-label', 'Куда загрузить ' + row.name);
       select.innerHTML = '<option value="">новый проект</option>';
