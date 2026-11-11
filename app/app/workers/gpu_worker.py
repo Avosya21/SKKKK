@@ -313,6 +313,9 @@ def main() -> int:
 
     try:
         _wait_dependencies(settings)
+        from app.app.db import allow_idle_release_in_this_thread
+
+        allow_idle_release_in_this_thread()  # перед вызовом модели транзакции без изменений закрываются сами (db.py)
         db = SessionLocal()
         try:
             n = requeue_orphaned_jobs(db, settings.job_max_attempts)

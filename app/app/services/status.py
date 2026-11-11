@@ -19,6 +19,8 @@ def set_status(db: Session, artifact: Artifact, status: str, **extra) -> None:
     а не только её начало и конец.
     """
     previous = artifact.status
+    # Имя и номер берём до commit: после него чтение полей открыло бы новую транзакцию, и она висела бы весь следующий вызов модели.
+    artifact_ref, file_name = artifact.artifact_id, artifact.original_filename
     artifact.status = status
     if status != "error":
         artifact.error_message = None
@@ -26,8 +28,8 @@ def set_status(db: Session, artifact: Artifact, status: str, **extra) -> None:
     log_event(
         logger,
         "artifact.status",
-        artifact=artifact.artifact_id,
-        file=artifact.original_filename,
+        artifact=artifact_ref,
+        file=file_name,
         **{"from": previous, "to": status},
         **extra,
     )

@@ -7,7 +7,7 @@ import weakref
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import Pool
 
 from app.app.config import get_settings
@@ -79,6 +79,54 @@ def thread_held_connections() -> list[str]:
     with _checked_out_lock:
         # запись о соединении, которое уже уничтожено (пул выброшен без checkin), не считается удерживаемой
         return [stack for _name, stack, ident, _t, ref in _checked_out.values() if ident == me and ref() is not None]
+
+
+# --- транзакция «только чтение» перед долгим вызовом модели --------------------------------------------------------------
+# Корень предупреждений «LLM-вызов при открытой транзакции»: после commit SQLAlchemy считает объекты устаревшими, и первое же
+# чтение поля (artifact.file_type, artifact.artifact_id) молча открывает НОВУЮ транзакцию и берёт соединение из пула. Если
+# следом идёт вызов модели, соединение занято всё время ответа. Расставлять db.commit() перед каждым таким местом ненадёжно:
+# поле читает и сама функция, которая зовёт модель. Поэтому поток, который это разрешил (воркер), перед вызовом модели сам
+# закрывает транзакции, в которых ничего не менялось. Транзакцию с изменениями не трогаем — о ней по-прежнему предупреждение.
+_idle_release_threads: set[int] = set()
+_thread_sessions: dict[int, "weakref.WeakSet[Session]"] = {}
+
+
+def allow_idle_release_in_this_thread() -> None:
+    """Разрешить этому потоку закрывать перед вызовом модели свои транзакции без изменений. Только для потока, который
+    один владеет своими сессиями (главный цикл воркера): в портале сессия запроса может жить в другом потоке пула."""
+    _idle_release_threads.add(threading.get_ident())
+
+
+@event.listens_for(Session, "after_begin")
+def _track_session_begin(session, _transaction, _connection) -> None:
+    ident = threading.get_ident()
+    if ident in _idle_release_threads:
+        _thread_sessions.setdefault(ident, weakref.WeakSet()).add(session)
+
+
+@event.listens_for(Session, "after_flush")
+def _mark_session_wrote(session, _context) -> None:
+    session.info["pa_wrote"] = True  # в транзакции есть записанные, но не зафиксированные изменения
+
+
+@event.listens_for(Session, "after_commit")
+@event.listens_for(Session, "after_rollback")
+def _clear_session_wrote(session) -> None:
+    session.info.pop("pa_wrote", None)
+
+
+def release_idle_read_transactions() -> int:
+    """Закрыть транзакции текущего потока, в которых ничего не менялось (только чтение). Вернуть, сколько закрыто."""
+    ident = threading.get_ident()
+    if ident not in _idle_release_threads:
+        return 0
+    released = 0
+    for session in list(_thread_sessions.get(ident) or ()):
+        if not session.in_transaction() or session.info.get("pa_wrote") or session.new or session.dirty or session.deleted:
+            continue
+        session.commit()
+        released += 1
+    return released
 
 
 def describe_pool_holders(max_items: int = 4) -> str:

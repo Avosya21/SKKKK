@@ -133,3 +133,42 @@ def test_every_llm_call_with_a_session_in_scope_is_preceded_by_commit():
                 if first_llm is not None and not any(c < first_llm for c in commits):
                     offenders.append(f"{path.name}:{fn.name} (LLM в строке {first_llm})")
     assert not offenders, "вызов LLM при открытой транзакции БД (нужен db.commit() перед ним): " + ", ".join(offenders)
+
+
+def test_worker_thread_releases_read_only_transaction_before_llm(client, db_engine, admin_token, tmp_data):
+    """Корень предупреждений воркера: после commit чтение поля объекта открывает новую транзакцию, и она висела весь вызов
+    модели. Поток, который это разрешил, закрывает такие транзакции сам; транзакцию с изменениями не трогает."""
+    import threading
+
+    from app.app.db import SessionLocal
+    from app.app.services import llm
+
+    pid, _uid = _project_and_user(SessionLocal)
+    result: dict = {}
+
+    def worker_like() -> None:
+        db_mod.allow_idle_release_in_this_thread()
+        db = SessionLocal()
+        try:
+            project = db.get(Project, pid)
+            db.commit()
+            _ = project.name  # чтение после commit: SQLAlchemy открыл новую транзакцию и взял соединение
+            result["held_before"] = len(db_mod.thread_held_connections())
+            llm._check_db_not_held("test")  # в тестах сторож строгий: без освобождения здесь было бы исключение
+            result["held_after"] = len(db_mod.thread_held_connections())
+            project.description = "изменение без commit"
+            db.flush()
+            try:
+                llm._check_db_not_held("test")
+                result["write_guarded"] = False
+            except RuntimeError:
+                result["write_guarded"] = True
+            db.rollback()
+        finally:
+            db.close()
+            db_mod._idle_release_threads.discard(threading.get_ident())
+
+    thread = threading.Thread(target=worker_like)
+    thread.start()
+    thread.join()
+    assert result == {"held_before": 1, "held_after": 0, "write_guarded": True}, result
