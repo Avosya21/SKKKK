@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -209,6 +210,17 @@ def test_model_config_and_load_args_follow_profile(monkeypatch, tmp_path):
     assert "--speculative-draft-mtp" in args
     assert args[args.index("--speculative-draft-max-tokens") + 1] == "3"
     assert "--ttl" in args
+
+
+def test_load_retries_without_mtp_flags_on_old_cli():
+    profile = LmProfile("m", 32768, 2)
+    args = llm_keeper.load_args(profile, ttl_sec=1800)
+    plain = llm_keeper.without_mtp_flags(args)
+    assert not [a for a in plain if "speculative" in a]
+    assert plain == ["load", "m", "--gpu", profile.gpu, "--context-length", "32768", "--parallel", "2", "--ttl", "1800", "-y"]
+    old_cli = subprocess.CompletedProcess([], 1, "", "error: unknown option '--speculative-draft-mtp'")
+    assert llm_keeper._cli_lacks_mtp_flags(old_cli)
+    assert not llm_keeper._cli_lacks_mtp_flags(subprocess.CompletedProcess([], 1, "", "model not found"))
 
 
 # --- путь к CLI `lms` --------------------------------------------------------------------------------------------

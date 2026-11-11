@@ -173,6 +173,26 @@ def load_args(profile: LmProfile, *, ttl_sec: int) -> list[str]:
     return [*args, "-y"]
 
 
+def without_mtp_flags(args: list[str]) -> list[str]:
+    """Те же аргументы `lms load` без флагов --speculative-draft-* (у флагов с числом убираем и число)."""
+    out: list[str] = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg.startswith("--speculative-draft-"):
+            skip = arg != "--speculative-draft-mtp"
+            continue
+        out.append(arg)
+    return out
+
+
+def _cli_lacks_mtp_flags(proc: subprocess.CompletedProcess) -> bool:
+    text = f"{proc.stderr or ''}{proc.stdout or ''}"
+    return "unknown option" in text and "--speculative-draft" in text
+
+
 def _quant_name(info: dict[str, Any]) -> str:
     q = info.get("quantization")
     if isinstance(q, dict):
@@ -354,7 +374,12 @@ def _load_locked(settings: Settings, profile: LmProfile, *, reason: str) -> dict
     config_path = write_model_config(profile, str(info.get("indexedModelIdentifier") or ""))
     _wait_vram_for_load(profile, int(info.get("sizeBytes") or 0))
     started = time.monotonic()
-    proc = _lms(load_args(profile, ttl_sec=settings.lmstudio_load_ttl_sec), timeout=LMS_LOAD_TIMEOUT_SEC)
+    args = load_args(profile, ttl_sec=settings.lmstudio_load_ttl_sec)
+    proc = _lms(args, timeout=LMS_LOAD_TIMEOUT_SEC)
+    if proc.returncode != 0 and _cli_lacks_mtp_flags(proc):
+        # Старый lms не знает флагов MTP; те же настройки уже лежат в конфиге модели (write_model_config).
+        log_event(logger, "llm.load.cli_without_mtp_flags", level=logging.WARNING, model=profile.model_key)
+        proc = _lms(without_mtp_flags(args), timeout=LMS_LOAD_TIMEOUT_SEC)
     if proc.returncode != 0:
         raise LlmLoadError(f"lms load -> код {proc.returncode}: {(proc.stderr or proc.stdout)[-800:]}")
     entry = loaded_entry(profile.model_key)
