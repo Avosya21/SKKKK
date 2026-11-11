@@ -125,6 +125,8 @@ class FakeJira:
                 return 200, [{"object": {"title": "Инструкция", "url": "https://docs.example/instr"}}] if key == "ABC-1" else []
             list_key = {"comment": "comments", "worklog": "worklogs"}[tail[1]]
             items = raw["fields"][tail[1]][list_key]
+            if tail[1] == "worklog":  # как Jira на своём сервере: startAt не слушает, отдаёт все записи сразу
+                return 200, {list_key: items, "total": len(items)}
             start, size = int(params.get("startAt", 0)), int(params.get("maxResults", 50))
             return 200, {list_key: items[start:start + size], "total": len(items)}
         return 404, {}

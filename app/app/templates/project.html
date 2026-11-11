@@ -3310,9 +3310,7 @@ if (grantMembersBody) {
   });
   loadGrantPanel();
 }
-</script>
-<script src="/static/px_tasks.js?v=2"></script>
-<script src="/static/px_digest.js?v=7">
+
 // --- Jira: что загружено в проект, проверка обновлений и полноты (routers/jira.py) ---
 (function () {
   const card = document.getElementById('project-jira-card');
@@ -3411,5 +3409,7 @@ if (grantMembersBody) {
   load();
 })();
 </script>
+<script src="/static/px_tasks.js?v=2"></script>
+<script src="/static/px_digest.js?v=7"></script>
 {% if current_role in ('admin', 'manager') %}<script src="/static/px_agent.js?v=8"></script><script src="/static/people.js?v=3"></script><script src="/static/tab_hubs.js?v=3"></script><script src="/static/background.js?v=3"></script><script src="/static/memory.js?v=3"></script>{% endif %}
 {% endblock %}

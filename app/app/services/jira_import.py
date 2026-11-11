@@ -526,7 +526,8 @@ def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: J
     files = {i.ref: i for i in items if i.kind == "attachment"}
     problems: list[str] = []
     report: dict[str, Any] = {"jira_key": link.jira_key, "jira_issues": len(listing), "portal_issues": 0, "comments": 0, "worklogs": 0,
-                              "history": 0, "extra_fields": 0, "jira_attachments": 0, "portal_files": 0, "not_loaded": skipped_files(db, link.id),
+                              "history": 0, "extra_fields": 0, "extra_field_names": [], "omitted_field_names": [], "jira_attachments": 0, "portal_files": 0,
+                              "not_loaded": skipped_files(db, link.id),
                               "pipeline": {}, "problems": problems}
     cap = int(settings.jira_import_max_issues or 0)
     expected = listing[:cap] if cap > 0 else listing
@@ -549,6 +550,8 @@ def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: J
         numbers = jira_render.counts(raw)
         for name in ("comments", "worklogs", "history", "extra_fields"):
             report[name] += numbers[name]
+        report["extra_field_names"] = sorted(set(report["extra_field_names"]) | {label for label, _value in jira_render.extra_fields(raw)})
+        report["omitted_field_names"] = sorted(set(report["omitted_field_names"]) | set(jira_render.omitted_fields(raw)))
         if numbers["comments"] != numbers["comments_total"]:
             problems.append(f"{key}: Jira отдала {numbers['comments']} комментариев из {numbers['comments_total']}")
         if numbers["worklogs"] != numbers["worklogs_total"]:

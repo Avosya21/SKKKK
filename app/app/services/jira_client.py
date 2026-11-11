@@ -233,15 +233,23 @@ class JiraClient:
         return self._request("GET", f"/rest/api/2/issue/{key}", params={"fields": fields})
 
     def _paged(self, path: str, key: str, have: list, total: int) -> list:
-        """Дочитать список (комментарии, трудозатраты), если Jira отдала в задаче только его начало."""
-        items = list(have)
-        while len(items) < total:
-            data = self._request("GET", path, params={"startAt": len(items), "maxResults": 100})
+        """Дочитать список (комментарии, трудозатраты), если Jira отдала в задаче только его начало.
+
+        Список запрашивается заново с начала и собирается по ``id`` без повторов: часть версий Jira не слушает ``startAt``
+        и отдаёт всё сразу — тогда хватает одного запроса, а записи не задваиваются.
+        """
+        seen: dict[str, dict] = {}
+        start = 0
+        while len(seen) < total:
+            data = self._request("GET", path, params={"startAt": start, "maxResults": 100})
             page = [x for x in data.get(key) or [] if isinstance(x, dict)]
-            if not page:
+            before = len(seen)
+            for position, item in enumerate(page):
+                seen.setdefault(str(item.get("id") or f"{start}:{position}"), item)
+            if not page or len(seen) == before:
                 break
-            items.extend(page)
-        return items
+            start += len(page)
+        return list(seen.values()) if len(seen) >= len(have) else list(have)
 
     def issue_full(self, key: str) -> dict[str, Any]:
         """Задача со всем, что есть в Jira: все поля (включая пользовательские) с их названиями (``names``), история

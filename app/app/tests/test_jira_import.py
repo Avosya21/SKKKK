@@ -166,6 +166,7 @@ def test_check_reports_completeness_and_detects_drift(client, jira, manager_toke
     link = report["links"][0]
     assert report["ok"] is True and link["problems"] == [], link["problems"]
     assert (link["jira_issues"], link["portal_issues"], link["comments"], link["worklogs"], link["history"]) == (2, 2, 7, 4, 2)
+    assert link["extra_field_names"] == ["Заказчик", "Оценка в баллах", "Спринт"] and link["omitted_field_names"] == ["Rank", "workratio"]
     assert link["extra_fields"] == 3 and link["jira_attachments"] == 2 and link["portal_files"] == 1 and len(link["not_loaded"]) == 1
     assert link["pipeline"] == {"uploaded": 4}
     assert client.get(f"/projects/{project_id}/jira/check", headers=_h(user_token)).status_code == 404  # чужой проект

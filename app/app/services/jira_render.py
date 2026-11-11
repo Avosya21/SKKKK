@@ -139,6 +139,21 @@ def extra_fields(raw: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
+def omitted_fields(raw: dict[str, Any]) -> list[str]:
+    """Названия непустых полей, которые в документ намеренно не выводятся (служебные) — для прозрачности сверки."""
+    fields = raw.get("fields") or {}
+    names = raw.get("names") if isinstance(raw.get("names"), dict) else {}
+    shown = {label for label, _value in extra_fields(raw)}
+    out = []
+    for field_id, value in fields.items():
+        if field_id in _HANDLED or not flat(value):
+            continue
+        label = str(names.get(field_id) or field_id).strip()
+        if label not in shown:
+            out.append(label)
+    return sorted(set(out))
+
+
 def counts(raw: dict[str, Any]) -> dict[str, int]:
     """Сколько чего в задаче — для проверки полноты: комментарии, трудозатраты, вложения, записи истории, подзадачи, связи."""
     fields = raw.get("fields") or {}

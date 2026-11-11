@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 chcp 65001 >nul
-title PrimaryAnalitics — запуск (LM Studio / Gemma)
+title PrimaryAnalitics — запуск (локальная модель в LM Studio)
 
 for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
@@ -9,7 +9,7 @@ cd /d "%ROOT%"
 echo.
 echo ========================================
 echo   Primary Analytics — запуск
-echo   LLM: Gemma в LM Studio
+echo   LLM: локальная модель в LM Studio
 echo ========================================
 echo.
 
@@ -26,7 +26,7 @@ if not exist "%ROOT%\.env" (
 )
 
 echo Перед запуском: LM Studio на http://127.0.0.1:1234
-echo   модель google/gemma-4-31b-qat, JIT выключен.
+echo   модель — LMSTUDIO_MODEL из .env, JIT выключен.
 echo.
 
 echo [1/3] Остановка предыдущего экземпляра...
@@ -47,7 +47,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/3] Портал + GPU-воркер (проверка систем, LLM=gemma)...
+echo [3/3] Портал + GPU-воркер (проверка систем, локальная модель)...
 echo   Окно держите открытым — здесь логи API и воркера.
 echo   Остановка: PrimaryAnalitics-1-Остановить.bat
 echo.
