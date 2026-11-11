@@ -1643,6 +1643,7 @@ run_pipeline
 | `export_project_graph.py` | сборка графа зависимостей (§16) вместе с метриками projectmap (группы Louvain, fan-in/out, частота правок, co-change; `--no-metrics` отключает): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops`. `--symbol` принимает и название фичи словами (`rebuild_summary_artifact`) — ищет по таблице алиасов `symbol_aliases` |
 | `jira_pull.py` | первые данные из Jira (только чтение): без аргументов — проверка ключа и список проектов; `--project КЛЮЧ` / `--all` — задачи в `data/jira/КЛЮЧ.json` и сводка; `--since`, `--limit` |
+| `check_jira_sync.py` | живая сверка «Jira ↔ портал» по каждой привязке: задачи и их свежесть (`updated`), вложения и файлы на диске, содержимое md-документов задач, состояние конвейера; отчёт `data/tmp/jira_check_report.json`, код 0 — всё сходится (план JIRA-INTEGRATION §4) |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
@@ -1717,6 +1718,7 @@ run_pipeline
 | `app/app/tests/test_projects.py` | создание проекта, переименование `PATCH /projects/{id}`, `DELETE /projects/{id}` |
 | `app/app/tests/test_artifact_purge.py` | `DELETE` артефакта, FK entities/links, HTML иконки |
 | `app/app/tests/test_user_scenarios.py` | сквозные сценарии портала (в т.ч. s31 purge) |
+| `app/app/tests/test_jira_e2e.py` | Jira e2e на фейковом сервере по реальному сокету: подключение токеном (неверный — 401), импорт проектов → задачи как md-документы, вложения (.epf детерминированно пропущен), повторный проход — обновление без дублей и дедупликация вложений, расписание `scheduled_pass` |
 | `docs/TESTING.md` | Стратегия, команды pytest |
 
 ```powershell
@@ -2270,6 +2272,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `chat_authors_people.py` | Авторы уже загруженных переписок и разобранных реплик → карточки людей проекта (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ6). |
 | `chat_exports.py` | Разобрать уже загруженные выгрузки переписки Telegram на сообщения (docs/plans/SOURCE-ANCHORS-PLAN.md, этап 1). |
 | `check_env.ps1` | — |
+| `check_jira_sync.py` | Сверка «живая Jira <-> локальный портал»: что подтянулось, полностью ли и актуально ли. |
 | `check_map_commit_msg.py` | Проверка сообщения коммита: изменения интерфейса или данных требуют карты или явного отказа от неё. |
 | `check_map_drift.py` | Проверка дрейфа: карта проекта и манифест против реального кода. Только чтение, если нет --fix. |
 | `check_map_staged.py` | Проверка карты проекта перед коммитом: сверяет карту с тем, что реально попадает в коммит. |

@@ -211,6 +211,40 @@ def test_model_config_and_load_args_follow_profile(monkeypatch, tmp_path):
     assert "--ttl" in args
 
 
+# --- путь к CLI `lms` --------------------------------------------------------------------------------------------
+
+
+def test_lms_exe_env_override_wins(monkeypatch):
+    monkeypatch.setenv(llm_keeper.LMS_EXE_ENV, "C:/custom/lms.exe")
+    assert llm_keeper.lms_exe() == "C:/custom/lms.exe"
+
+
+def test_lms_exe_prefers_lmstudio_bin_over_path(monkeypatch, tmp_path):
+    """Собственный bin LM Studio важнее стороннего `lms` из PATH: иначе модель могла подниматься не той командой."""
+    monkeypatch.delenv(llm_keeper.LMS_EXE_ENV, raising=False)
+    home = tmp_path / "lshome"
+    (home / "bin").mkdir(parents=True)
+    bin_lms = home / "bin" / "lms.exe"
+    bin_lms.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LMSTUDIO_HOME", str(home))
+    monkeypatch.setattr(llm_keeper.shutil, "which", lambda name: "/somewhere/in/path/lms" if name == "lms" else None)
+    assert llm_keeper.lms_exe() == str(bin_lms)
+
+
+def test_lms_exe_falls_back_to_path(monkeypatch, tmp_path):
+    monkeypatch.delenv(llm_keeper.LMS_EXE_ENV, raising=False)
+    monkeypatch.setenv("LMSTUDIO_HOME", str(tmp_path / "empty-home"))
+    monkeypatch.setattr(llm_keeper.shutil, "which", lambda name: "/usr/local/bin/lms" if name == "lms" else None)
+    assert llm_keeper.lms_exe() == "/usr/local/bin/lms"
+
+
+def test_lms_exe_bare_name_when_nothing_found(monkeypatch, tmp_path):
+    monkeypatch.delenv(llm_keeper.LMS_EXE_ENV, raising=False)
+    monkeypatch.setenv("LMSTUDIO_HOME", str(tmp_path / "empty-home"))
+    monkeypatch.setattr(llm_keeper.shutil, "which", lambda name: None)
+    assert llm_keeper.lms_exe() == "lms"
+
+
 class FakeLms:
     """Имитация `lms`: ls / ps / load / unload."""
 

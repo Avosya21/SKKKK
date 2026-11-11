@@ -3838,6 +3838,13 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: script_check_jira_sync
+    kind: file
+    path: scripts/check_jira_sync.py
+    title: "Сверка «живая Jira <-> локальный портал»: что подтянулось, полностью ли и актуально ли."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

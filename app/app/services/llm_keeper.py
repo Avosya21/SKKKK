@@ -31,6 +31,7 @@ logger = logging.getLogger("primaryanalitics.llm_keeper")
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE_PATH = ROOT / "tools" / "lmstudio" / "qwen-profile.json"
 DISABLE_ENV = "PRIMARY_ANALITICS_DISABLE_LLM_KEEPER"  # тесты: не трогать настоящий LM Studio
+LMS_EXE_ENV = "PRIMARY_ANALITICS_LMS_EXE"  # переопределение пути к CLI `lms` (тесты, нестандартная установка)
 MODEL_LOCK = "llm_model.lock"
 LAST_USE_FILE = "llm_last_use"
 # Загруженную и сверенную модель в этом процессе повторно через `lms ps` не сверяем чаще, чем раз в столько секунд.
@@ -80,11 +81,19 @@ def lmstudio_home() -> Path:
 
 
 def lms_exe() -> str:
+    """Путь к CLI `lms`. Приоритет: env ``LMS_EXE_ENV`` → собственный bin LM Studio (``~/.lmstudio/bin/lms(.exe)``) → PATH.
+
+    Старый порядок (PATH первым) брал сторонний `lms` из окружения, который мог не знать о локальной
+    установке LM Studio и поднимать модель «не той командой»."""
+    override = os.environ.get(LMS_EXE_ENV, "").strip()
+    if override:
+        return override
+    for name in ("lms.exe", "lms"):
+        candidate = lmstudio_home() / "bin" / name
+        if candidate.is_file():
+            return str(candidate)
     found = shutil.which("lms")
-    if found:
-        return found
-    fallback = lmstudio_home() / "bin" / "lms.exe"
-    return str(fallback) if fallback.is_file() else "lms"
+    return found or "lms"
 
 
 def _lms(args: list[str], *, timeout: float = 60) -> subprocess.CompletedProcess:
