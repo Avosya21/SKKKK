@@ -1156,32 +1156,48 @@ def _answer_chat_inner(
         )
 
     system = _load_prompt()
-    user = f"Вопрос: {question}\n\n"
-    if pushback:
-        user += _pushback_note(question) + "\n\n"
-    if memory:
-        user += memory + "\n\n"
-    if catalog:
-        user += catalog + "\n\n"
-    user += f"Контекст (найденные фрагменты по всему проекту):\n{context}"
-    if guidance_texts:
-        joined = "\n".join(f"- {line}" for line in guidance_texts[:8])
-        user += f"\n\nУказания пользователя из чата (приоритетнее созвонов при расхождении):\n{joined}"
-    if supplement:
-        user += f"\n\nДополнительно из БД проекта:\n{supplement}"
-    if tz_excerpt:
-        user += f"\n\nАктуальная выжимка проекта (current_tz.md):\n{tz_excerpt}"
-    if decisions:
-        user += ("\n\nЖурнал решений проекта (предметы обсуждения: состояние, кто и когда что сказал; для вопросов «что решили», "
-                 "«что отменили», «что было на дату» опирайся на него, называй даты и стороны):\n" + decisions)
-    if graph_part:
-        user += f"\n\n{graph_part}"
+
+    def compose(level: int) -> str:
+        """Запрос к модели. level 0 — всё; 1 — без графа, выжимки и половины фрагментов; 2 — только вопрос, перечень и ближайшие фрагменты."""
+        lines = context_lines if level == 0 else context_lines[: max(len(context_lines) // 2, 4) if level == 1 else 4]
+        text = f"Вопрос: {question}\n\n"
+        if pushback:
+            text += _pushback_note(question) + "\n\n"
+        if memory and level < 2:
+            text += memory + "\n\n"
+        if catalog:
+            text += catalog + "\n\n"
+        text += "Контекст (найденные фрагменты по всему проекту):\n" + ("\n---\n".join(lines) if context_lines else context)
+        if guidance_texts:
+            joined = "\n".join(f"- {line}" for line in guidance_texts[:8])
+            text += f"\n\nУказания пользователя из чата (приоритетнее созвонов при расхождении):\n{joined}"
+        if supplement and level < 2:
+            text += f"\n\nДополнительно из БД проекта:\n{supplement if level == 0 else supplement[: CHAT_SUPPLEMENT_CHARS // 2]}"
+        if tz_excerpt and level == 0:
+            text += f"\n\nАктуальная выжимка проекта (current_tz.md):\n{tz_excerpt}"
+        if decisions and level < 2:
+            text += ("\n\nЖурнал решений проекта (предметы обсуждения: состояние, кто и когда что сказал; для вопросов «что решили», "
+                     "«что отменили», «что было на дату» опирайся на него, называй даты и стороны):\n" + decisions)
+        if graph_part and level == 0:
+            text += f"\n\n{graph_part}"
+        return text
+
     if settings.dry_run:
         answer = f"Ответ по {len(sources)} источникам: {question}"
     else:
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
-        answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
+        answer = ""
+        for level in (0, 1, 2):
+            user = compose(level)
+            try:
+                answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
+                break
+            except RuntimeError as exc:
+                # Запрос не поместился в окно модели: сокращаем менее важные части и повторяем, а не отказываем человеку.
+                if "context size" not in str(exc).lower() or level == 2:
+                    raise
+                logger.warning("chat: запрос не поместился в окно модели (%s знаков, уровень %s) — сокращаю и повторяю", len(user), level)
     from app.app.services.plain_text import plainify_llm_markup
 
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))

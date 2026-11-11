@@ -279,6 +279,24 @@ def test_chat_uses_entities_from_hit_artifacts(client, db_engine, admin_token, t
     assert "Сущности по найденным материалам" in captured["user"]
     assert "бюджет 4 млн" in captured["user"]
 
+    # Запрос не поместился в окно модели — чат сокращает контекст и повторяет, а не отвечает «не удалось».
+    prompts: list[str] = []
+
+    def overflow_then_ok(settings, *, system, user, max_tokens, temperature=0.2):
+        prompts.append(user)
+        if len(prompts) == 1:
+            raise RuntimeError('LM Studio HTTP 400 for http://x/v1/completions: {"error":"Context size has been exceeded."}')
+        return "4 млн, ответ со второй попытки"
+
+    with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
+        with patch("app.app.services.chat.search_vectors", return_value=[hit]):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=overflow_then_ok):
+                db3 = SessionLocal()
+                out = answer_chat(db3, settings, pid, uid, "Какой бюджет?")
+                db3.close()
+    assert "со второй попытки" in out["answer"] and len(prompts) == 2
+    assert len(prompts[1]) <= len(prompts[0]) and "обсуждаем бюджет" in prompts[1] and "Какой бюджет?" in prompts[1]
+
 
 def test_chat_includes_director_document_when_vector_search_misses(client, db_engine, admin_token, tmp_data):
     from app.app.db import SessionLocal
