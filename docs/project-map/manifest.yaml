@@ -3817,6 +3817,27 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_jira
+    kind: model
+    path: app/app/models/jira.py
+    title: "Модели подключения Jira (docs/plans/JIRA-INTEGRATION-PLAN.md, этап 2)."
+    tags: [auto]
+    auto: true
+
+  - id: router_jira
+    kind: router
+    path: app/app/routers/jira.py
+    title: "Jira на главной странице: подключение личным токеном, список проектов Jira, загрузка выбранных, обновление и привязка."
+    tags: [auto]
+    auto: true
+
+  - id: svc_jira_import
+    kind: service
+    path: app/app/services/jira_import.py
+    title: "Jira в портале: личный токен пользователя, выбор проектов и загрузка задач с вложениями как материалов проекта."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}

@@ -219,6 +219,39 @@ class JiraClient:
                            for c in items[-max(0, comments):]] if comments > 0 else []
         return row
 
+    def issue_raw(self, key: str) -> dict[str, Any]:
+        """Задача целиком, как отдаёт Jira: поля списка, описание, комментарии, вложения, связи — для загрузки в портал."""
+        key = (key or "").strip().upper()
+        if not key or not all(ch.isalnum() or ch in "-_" for ch in key):
+            raise JiraError(f"Неверный ключ задачи Jira: {key!r} (ожидается, например, ABC-123)")
+        fields = ",".join(ISSUE_FIELDS + ("description", "comment", "attachment", "issuelinks", "project"))
+        return self._request("GET", f"/rest/api/2/issue/{key}", params={"fields": fields})
+
+    def download(self, url: str, dest, *, max_bytes: int) -> int:
+        """Скачать вложение Jira в файл ``dest``; больше ``max_bytes`` — ошибка, файл удаляется. Только адреса этой Jira."""
+        if not str(url).startswith(self.base_url + "/"):
+            raise JiraError("Адрес вложения не принадлежит этой Jira")
+        size = 0
+        try:
+            with self._http.stream("GET", url, follow_redirects=True) as response:
+                if response.status_code >= 400:
+                    raise JiraError(f"Jira не отдала вложение ({response.status_code})")
+                with open(dest, "wb") as out:
+                    for chunk in response.iter_bytes(1024 * 256):
+                        size += len(chunk)
+                        if size > max_bytes:
+                            raise JiraError("Вложение больше допустимого размера")
+                        out.write(chunk)
+        except (httpx.HTTPError, JiraError) as exc:
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if isinstance(exc, JiraError):
+                raise
+            raise JiraError(f"Вложение не скачалось: {exc.__class__.__name__}") from exc
+        return size
+
     def project_statuses(self, project_key: str) -> list[dict[str, Any]]:
         """Статусы проекта по видам задач: название в Jira, категория и статус портала — для сопоставления."""
         key = project_key.strip().upper()

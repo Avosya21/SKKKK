@@ -30,10 +30,13 @@ def list_projects(
     q = select(Project).where(Project.is_active.is_(True))
     if user.role != "admin":
         q = q.where(Project.id.in_(user_project_ids(db, user) or {-1}))
-        return db.scalars(q.order_by(Project.id.desc())).all()
     rows = db.scalars(q.order_by(Project.id.desc())).all()
-    names = creator_names(db, {p.created_by for p in rows})
-    return [ProjectOut.model_validate(p).model_copy(update={"creator_name": names.get(p.created_by)}) for p in rows]
+    from app.app.services.jira_import import jira_keys_by_project
+
+    jira = jira_keys_by_project(db, {p.id for p in rows})  # пометка «Jira» в списке
+    names = creator_names(db, {p.created_by for p in rows}) if user.role == "admin" else {}
+    return [ProjectOut.model_validate(p).model_copy(update={"creator_name": names.get(p.created_by), "jira_key": jira.get(p.id)})
+            for p in rows]
 
 
 def creator_names(db: Session, user_ids: set[int]) -> dict[int, str]:

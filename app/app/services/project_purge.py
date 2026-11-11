@@ -247,6 +247,9 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     # user_activity_log append-only: строки аудита не удаляем (project_id остаётся как история).
     db.execute(delete(Changelog).where(Changelog.project_id == pid))
     db.execute(delete(ProjectMember).where(ProjectMember.project_id == pid))
+    from app.app.services.jira_import import forget_project
+
+    forget_project(db, pid)  # привязки к Jira и доступ, выданный по Jira
     db.execute(delete(ProjectMcpToken).where(ProjectMcpToken.project_id == pid))
     db.execute(delete(AgentExchangeLog).where(AgentExchangeLog.project_id == pid))
     db.execute(delete(AgentQuestion).where(AgentQuestion.project_id == pid))
