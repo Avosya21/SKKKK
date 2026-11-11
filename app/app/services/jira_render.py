@@ -16,7 +16,7 @@ from typing import Any
 
 from app.app.services.jira_client import normalize_issue
 
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 
 STATUS_LABELS = {"open": "не начата", "in_progress": "в работе", "done": "завершена"}
 # Поля, которые выводятся в шапке и разделах сами; остальные непустые идут в «Дополнительные поля».
@@ -317,6 +317,15 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
     if worklogs:
         total = sum(int(w.get("timeSpentSeconds") or 0) for w in worklogs)
         lines += ["", f"## Трудозатраты ({len(worklogs)}, всего {duration(total) or '0м'})", ""]
+        per_person: dict[str, list[int]] = {}
+        for w in worklogs:
+            bucket = per_person.setdefault(person(w.get("author")), [0, 0])
+            bucket[0] += int(w.get("timeSpentSeconds") or 0)
+            bucket[1] += 1
+        # Итог по людям посчитан программой: модель складывает десятки записей с ошибками.
+        lines.append("Итого по людям: " + "; ".join(f"{name} — {duration(sec) or '0м'} (записей: {count})"
+                                                     for name, (sec, count) in sorted(per_person.items(), key=lambda kv: -kv[1][0])) + ".")
+        lines.append("")
         for w in worklogs:
             note = clean_text(w.get("comment")).replace("\n", " ")
             lines.append(f"- {when(w.get('started'))}, {person(w.get('author'))}: {w.get('timeSpent') or duration(w.get('timeSpentSeconds')) or '—'}"
