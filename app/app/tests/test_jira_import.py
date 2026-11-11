@@ -104,7 +104,8 @@ def test_import_brings_everything_without_cuts(client, jira, manager_token):
         "## Связанные задачи (1)", "- блокирует ABC-12 — Зависимая [Новая]", "## Внешние ссылки (1)", "- Инструкция: https://docs.example/instr",
         "## Комментарии (6)", "Комментарий 5: договорились", "### Тестовый Исполнитель, 2026-10-20 10:00 (изменён 2026-10-21 11:00)", "КОНЕЦ-КОММЕНТАРИЯ",
         "## Трудозатраты (4, всего 4ч)", "- 2026-10-04 09:00, Тестовый Исполнитель: 1h — работа 4",
-        "## Вложения (2)", "- дамп.zip (0 КБ, загрузил(а) Тестовый Исполнитель, 2026-11-01 09:00)", "## История изменений (2)",
+        "## Вложения (2)", "- дамп.zip (0 КБ, загрузил(а) Тестовый Исполнитель, 2026-11-01 09:00; содержимое в портал не загружено: вид файла .zip портал не разбирает)",
+        "; содержимое загружено в портал отдельным материалом)", "## История изменений (2)",
         "- 2026-10-05 10:00, Тестовый Автор: Статус (status): «Новая» → «В работе»; Исполнитель (assignee): «пусто» → «Тестовый Исполнитель»",
         "- 2026-10-06 10:00, Тестовый Исполнитель: Описание (description): текст изменён"):
         assert expected in text, expected
@@ -189,6 +190,56 @@ def test_material_date_comes_from_jira_not_from_upload(client, jira, manager_tok
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))  # повторная проверка дат не сбивает
     again = {a["original_filename"]: a["material_date"] for a in _artifacts(client, manager_token, project_id)}
     assert again == {a["original_filename"]: a["material_date"] for a in rows}
+
+
+def test_issue_course_is_listed_apart_from_full_history(client, jira, manager_token):
+    _import(client, manager_token)
+    text = _doc("Jira ABC-1 — Настроить обмен.md")
+    assert "## Ход задачи: кто и когда менял статус, исполнителя, срок (2)" in text
+    assert "- 2026-10-05 10:00, Тестовый Автор: статус — было «Новая», стало «В работе»" in text
+    assert "- 2026-10-05 10:00, Тестовый Автор: исполнитель — было «пусто», стало «Тестовый Исполнитель»" in text
+    assert text.index("## Ход задачи") < text.index("## История изменений")  # полная история остаётся ниже целиком
+
+
+def test_document_under_processing_is_not_replaced(client, jira, manager_token, monkeypatch):
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.job import Job
+
+    project_id = _import(client, manager_token)
+    before = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    with SessionLocal() as db:  # воркер прямо сейчас разбирает документ задачи ABC-1
+        pk = db.scalar(select(Artifact.id).where(Artifact.original_filename.like("Jira ABC-1 —%")))
+        job = db.scalar(select(Job).where(Job.artifact_id == pk))
+        job.status = "running"
+        job_id = job.id
+        db.commit()
+    monkeypatch.setattr(jr, "FORMAT_VERSION", jr.FORMAT_VERSION + 1)
+    jira.issues["ABC"]["ABC-1"]["fields"]["description"] = "Описание поменяли, пока шёл разбор."
+    client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
+    after = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    assert after["Jira ABC-1 — Настроить обмен.md"] == before["Jira ABC-1 — Настроить обмен.md"]  # не тронут
+    assert "отложено 1" in client.get(f"/projects/{project_id}/jira", headers=_h(manager_token)).json()["links"][0]["status_text"]
+    with SessionLocal() as db:
+        db.get(Job, job_id).status = "done"
+        db.commit()
+    client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
+    assert "Описание поменяли" in _doc("Jira ABC-1 — Настроить обмен.md")  # следующий проход обновил
+
+
+def test_chat_gets_named_issue_document_itself(client, jira, manager_token):
+    """Вопрос называет задачу по ключу — в контекст чата идёт её документ, а не похожие разделы других задач."""
+    from app.app.db import SessionLocal
+    from app.app.services.chat import jira_focus_block
+
+    project_id = _import(client, manager_token)
+    with SessionLocal() as db:
+        block = jira_focus_block(db, project_id, "Кто комментировал abc-1 и сколько трудозатрат? А что с XYZ-9 и ГОСТ-2020?")
+        assert block.startswith("Задачи Jira, названные в вопросе") and "[Jira ABC-1 — Настроить обмен.md]" in block
+        assert "## Комментарии (" in block and "## Трудозатраты (" in block and "ABC-2" not in block.split("]")[0]
+        assert jira_focus_block(db, project_id, "Что решили на встрече?") == ""
+        assert jira_focus_block(db, project_id + 1000, "Что с ABC-1?") == ""  # чужой проект задачу не видит
+        assert len(jira_focus_block(db, project_id, "ABC-1", limit_chars=300)) < 1500 and "(раздел сокращён" in jira_focus_block(db, project_id, "ABC-1", limit_chars=300)
 
 
 def test_jira_documents_are_not_rewritten_by_model(client, jira, manager_token):
@@ -321,6 +372,8 @@ def test_render_helpers():
         "a\nb (вложение: f.xls) (изображение: i.png) т (https://x) @u\n\n```\nselect 1;\n```\n\n**Итог**\n1. раз\n|a|b|")
     assert jr.flat({"value": "A", "child": {"value": "B"}}) == "A / B" and jr.flat([{"name": "x"}, "y", None]) == "x, y" and jr.flat(2.5) == "2.5"
     assert jr.duration(9000) == "2ч 30м" and jr.duration(0) == "" and jr.duration(1800) == "30м"
+    assert jr._hours(120600, "4d 1h 30m") == "33ч 30м (в Jira записано «4d 1h 30m»: d — рабочий день, w — рабочая неделя, не календарные)"
+    assert jr._hours(5400, "1h 30m") == "1ч 30м" and jr._hours(None, "2d") == "2d" and jr._hours(None, None) == ""
     assert ji.safe_filename('a/b:c*?"<>|d.') == "a b c d" and ji.jira_time("2026-11-02T10:00:00.000+0300").utcoffset().total_seconds() == 10800
     empty = jr.project_document({"key": "ABC", "name": "Пустой"}, [], "https://jira.example")
     assert jr.is_rendered(empty) and not jr.is_rendered("# [черновик] заметки\nтекст") and not jr.is_rendered("")

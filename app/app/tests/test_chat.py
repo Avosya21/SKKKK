@@ -1014,3 +1014,14 @@ def test_chat_last_meeting_in_context_when_search_misses(client, db_engine, admi
     assert "МАРКЕР-НОВОГО-СОЗВОНА" in prompt
     assert "МАРКЕР-СТАРОГО-СОЗВОНА" not in prompt
     assert any(s["filename"] == "встреча-192.wav" for s in out["sources"])
+
+
+def test_chat_window_estimate_and_overflow_detection():
+    from app.app.services import chat, llm_keeper
+
+    window = llm_keeper.load_profile().context_length
+    assert chat._fits_model_window("система", "короткий вопрос")
+    assert not chat._fits_model_window("", "я" * int(window * chat.CHAT_CHARS_PER_TOKEN))
+    assert chat._is_context_overflow(RuntimeError('{"error":"Context size has been exceeded."}'))
+    assert chat._is_context_overflow(RuntimeError("tokens to keep ... greater than the context length (n_keep: 34724>= n_ctx: 32768)"))
+    assert not chat._is_context_overflow(RuntimeError("connection refused"))

@@ -838,6 +838,94 @@ def _project_tz_excerpt(settings: Settings, project_id: int, *, max_chars: int =
     return text[:max_chars]
 
 
+CHAT_JIRA_FOCUS_ISSUES = 2  # задач Jira, названных в вопросе по ключу, в контекст документом
+CHAT_JIRA_FOCUS_CHARS = 12000  # начало документа задачи: поля, ход задачи, комментарии, трудозатраты, вложения (полная история — в конце)
+_JIRA_KEY = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{1,30}-\d{1,7})(?![A-Za-z0-9_])")
+
+
+_JIRA_SECTION_WORDS = (("Комментарии", ("коммент", "писал", "обсужд", "ответил")), ("Трудозатраты", ("трудозатр", "час", "списал", "времени")),
+                       ("Вложения", ("файл", "вложен", "загруж", "прикреп")), ("Ход задачи", ("статус", "перев", "исполнител", "срок")),
+                       ("История изменений", ("истори", "менял", "изменял")), ("Описание", ("описан", "о чём", "суть")))
+
+
+def _fit_issue_document(text: str, question: str, limit_chars: int) -> str:
+    """Документ задачи в пределах лимита: короткий — целиком; длинный — по разделам, каждому своя доля, а разделам,
+    о которых спрашивают (комментарии, трудозатраты, вложения, ход задачи), — тройная. Так длинное описание не вытесняет остальное."""
+    if len(text) <= limit_chars:
+        return text
+    sections = re.split(r"\n(?=## )", text)
+    asked = (question or "").lower()
+    weights = []
+    for section in sections:
+        title = section[:60]
+        hot = any(title.startswith("## " + name) and any(w in asked for w in words) for name, words in _JIRA_SECTION_WORDS)
+        weights.append(3 if hot else 1)
+    share = limit_chars / max(sum(weights), 1)
+    out = []
+    for section, weight in zip(sections, weights):
+        cap = int(share * weight)
+        out.append(section if len(section) <= cap else section[:cap].rstrip() + "\n(раздел сокращён: остальное — в найденных фрагментах)")
+    return "\n".join(out)
+
+
+def jira_focus_block(db: Session, project_id: int, question: str, limit_chars: int = CHAT_JIRA_FOCUS_CHARS) -> str:
+    """Вопрос называет задачу Jira по ключу («ABC-12») — её документ идёт в контекст сам, а не только найденными кусками:
+    поиск по смыслу мог принести похожие разделы другой задачи (трудозатраты, комментарии у всех задач выглядят одинаково)."""
+    keys = list(dict.fromkeys(m.upper() for m in _JIRA_KEY.findall(question or "")))[:8]
+    if not keys:
+        return ""
+    try:
+        from app.app.models.jira import JiraItem, JiraProjectLink
+
+        rows = db.execute(
+            select(JiraItem.ref, Artifact)
+            .join(JiraProjectLink, JiraProjectLink.id == JiraItem.link_id)
+            .join(Artifact, Artifact.id == JiraItem.artifact_id)
+            .where(JiraProjectLink.project_id == project_id, JiraItem.kind == "issue", JiraItem.ref.in_(keys))
+        ).all()
+    except Exception:  # noqa: BLE001 — таблиц Jira может не быть: чат отвечает как раньше
+        logger.warning("задачи Jira для чата не собраны", exc_info=True)
+        return ""
+    by_key = {ref: art for ref, art in rows}
+    parts = []
+    for key in keys:
+        art = by_key.get(key)
+        if art is None or len(parts) >= CHAT_JIRA_FOCUS_ISSUES:
+            continue
+        text = (art.transcription_text or "").strip()
+        if not text:
+            try:
+                text = Path(art.file_path).read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+        parts.append(f"[{art.original_filename}]\n{_fit_issue_document(text, question, limit_chars)}")
+    if not parts:
+        return ""
+    return "Задачи Jira, названные в вопросе (документ задачи — главный источник для ответа о ней):\n" + "\n---\n".join(parts)
+
+
+CHAT_ANSWER_TOKENS = 2048
+CHAT_CHARS_PER_TOKEN = 2.0  # русский текст с именами и числами: по журналу LM Studio 2.1–2.2 знака на токен, берём с запасом
+
+
+def _fits_model_window(system: str, user: str) -> bool:
+    """Поместится ли запрос в окно модели вместе с ответом (оценка по числу знаков; окно — из профиля LM Studio)."""
+    try:
+        from app.app.services import llm_keeper
+
+        window = int(llm_keeper.load_profile().context_length or 0)
+    except Exception:  # noqa: BLE001 — профиля нет (другой поставщик): не ограничиваем, сработает повтор по ошибке
+        return True
+    if window <= 0:
+        return True
+    return (len(system) + len(user)) / CHAT_CHARS_PER_TOKEN <= window - CHAT_ANSWER_TOKENS - 512
+
+
+def _is_context_overflow(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "context size" in text or "context length" in text or "n_keep" in text
+
+
 def answer_chat(
     db: Session,
     settings: Settings,
@@ -1156,6 +1244,7 @@ def _answer_chat_inner(
         )
 
     system = _load_prompt()
+    jira_focus = jira_focus_block(db, project_id, question)
 
     def compose(level: int) -> str:
         """Запрос к модели. level 0 — всё; 1 — без графа, выжимки и половины фрагментов; 2 — только вопрос, перечень и ближайшие фрагменты."""
@@ -1167,6 +1256,8 @@ def _answer_chat_inner(
             text += memory + "\n\n"
         if catalog:
             text += catalog + "\n\n"
+        if jira_focus:
+            text += (jira_focus if level == 0 else jira_focus[: CHAT_JIRA_FOCUS_CHARS // 2 * (3 - level)]) + "\n\n"
         text += "Контекст (найденные фрагменты по всему проекту):\n" + ("\n---\n".join(lines) if context_lines else context)
         if guidance_texts:
             joined = "\n".join(f"- {line}" for line in guidance_texts[:8])
@@ -1188,21 +1279,22 @@ def _answer_chat_inner(
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
         answer = ""
-        for level in (0, 1, 2):
+        start = next((lvl for lvl in (0, 1) if _fits_model_window(system, compose(lvl))), 2)
+        for level in range(start, 3):
             user = compose(level)
             try:
                 answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
                 break
             except RuntimeError as exc:
                 # Запрос не поместился в окно модели: сокращаем менее важные части и повторяем, а не отказываем человеку.
-                if "context size" not in str(exc).lower() or level == 2:
+                if not _is_context_overflow(exc) or level == 2:
                     raise
                 logger.warning("chat: запрос не поместился в окно модели (%s знаков, уровень %s) — сокращаю и повторяю", len(user), level)
     from app.app.services.plain_text import plainify_llm_markup
 
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
     # Цитаты сверяются только с материалами: предыдущий диалог и указания пользователя доказательством не считаются.
-    evidence = "\n".join(part for part in (catalog, context, supplement, tz_excerpt, decisions, graph_part) if part)
+    evidence = "\n".join(part for part in (catalog, jira_focus, context, supplement, tz_excerpt, decisions, graph_part) if part)
     answer, quote_check = verify_answer_quotes(
         answer, evidence, user_texts=[question, *guidance_texts],
         source_texts=lambda: _project_materials_text(db, project_id),

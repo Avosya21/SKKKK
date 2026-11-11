@@ -407,6 +407,13 @@ def _artifact_failed(db: Session, artifact_id: int | None) -> bool:
     return artifact is None or artifact.status == "error"
 
 
+def _artifact_busy(db: Session, artifact_id: int) -> bool:
+    """По материалу прямо сейчас идёт задача воркера (разбор или проверка)."""
+    from app.app.models.job import Job
+
+    return db.scalar(select(Job.id).where(Job.artifact_id == artifact_id, Job.status == "running").limit(1)) is not None
+
+
 def _replace_artifact(db: Session, settings: Settings, item: JiraItem, artifact: Artifact) -> None:
     """Задача изменилась: новый документ на месте, прежний удаляется со всем, что из него извлечено."""
     old_id = item.artifact_id
@@ -481,7 +488,7 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
     project = db.get(Project, link.project_id)
     if project is None or not project.is_active:
         raise JiraImportError("Проект портала удалён")
-    stats = {"issues_total": 0, "issues_new": 0, "issues_updated": 0, "issues_same": 0, "files_new": 0, "files_same": 0}
+    stats = {"issues_total": 0, "issues_new": 0, "issues_updated": 0, "issues_same": 0, "issues_busy": 0, "files_new": 0, "files_same": 0}
     link.status, link.status_text = "running", "читаю список задач"
     db.commit()
     max_bytes = int(settings.max_upload_bytes)
@@ -502,10 +509,14 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
                 stamp_jira_date(db.get(Artifact, file_row.artifact_id), jira_time(file_row.updated))
             stats["issues_same"] += 1
             continue
+        if item is not None and item.artifact_id and _artifact_busy(db, item.artifact_id):
+            # Воркер прямо сейчас разбирает прежний документ: заменить его — значит оборвать разбор ошибкой. Обновим в следующий проход.
+            stats["issues_busy"] += 1
+            continue
         raw = client.issue_full(key)
         fields = raw.get("fields") or {}
         original = safe_filename(f"Jira {key} — {row['summary']}") + ".md"
-        dest = _write_doc(settings, project.id, original, jira_render.issue_document(raw, client.base_url, link.jira_name))
+        dest = _write_doc(settings, project.id, original, jira_render.issue_document(raw, client.base_url, link.jira_name, allowed))
         artifact, created = register_file(db, settings, project, user_id, original, dest, jira_time(fields.get("updated")))
         if item is None:
             item = JiraItem(link_id=link.id, kind="issue", ref=key, issue_key=key)
@@ -545,7 +556,8 @@ def sync_link(db: Session, settings: Settings, link: JiraProjectLink, client: Ji
     link.status = "idle"
     link.status_text = (f"в Jira задач {stats['issues_total']}, загружено {len(to_load)}"
                         + (f" (ограничение JIRA_IMPORT_MAX_ISSUES={cap})" if cap > 0 and len(to_load) < len(listing) else "")
-                        + f": новых {stats['issues_new']}, обновлено {stats['issues_updated']}, без изменений {stats['issues_same']}; "
+                        + f": новых {stats['issues_new']}, обновлено {stats['issues_updated']}, без изменений {stats['issues_same']}"
+                        + (f", отложено {stats['issues_busy']} (сейчас разбираются, обновятся при следующей проверке)" if stats["issues_busy"] else "") + "; "
                         f"файлов: новых {stats['files_new']}, уже были {stats['files_same']}, не загружено {len(skipped)}")
     link.last_sync_at = datetime.now(timezone.utc)
     db.commit()
@@ -622,7 +634,7 @@ def check_link(db: Session, settings: Settings, link: JiraProjectLink, client: J
         except OSError:
             problems.append(f"{key}: файл документа не читается")
             stored = None
-        if stored is not None and stored != jira_render.issue_document(raw, client.base_url, link.jira_name):
+        if stored is not None and stored != jira_render.issue_document(raw, client.base_url, link.jira_name, allowed_extensions(settings)):
             problems.append(f"{key}: документ в портале отличается от Jira (задача изменилась или документ устарел) — нужна проверка обновлений")
         elif stored is not None:
             checked, missing = _who_and_when(raw, stored)

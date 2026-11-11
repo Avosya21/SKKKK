@@ -16,7 +16,7 @@ from typing import Any
 
 from app.app.services.jira_client import normalize_issue
 
-FORMAT_VERSION = 5
+FORMAT_VERSION = 7
 
 STATUS_LABELS = {"open": "не начата", "in_progress": "в работе", "done": "завершена"}
 # Поля, которые выводятся в шапке и разделах сами; остальные непустые идут в «Дополнительные поля».
@@ -38,6 +38,8 @@ _HISTORY_LABELS = {"status": "Статус", "assignee": "Исполнитель
                    "timespent": "Затрачено времени", "timeestimate": "Осталось времени", "timeoriginalestimate": "Оценка времени",
                    "worklogtimespent": "Время в записи трудозатрат", "worklogid": "Запись трудозатрат", "description": "Описание",
                    "comment": "Комментарий", "environment": "Окружение", "security": "Уровень безопасности", "workflow": "Процесс"}
+_COURSE_FIELDS = {"status": "статус", "assignee": "исполнитель", "resolution": "решение", "priority": "приоритет", "duedate": "срок",
+                  "summary": "название", "sprint": "спринт", "fix version": "версия исправления", "issuetype": "вид задачи"}
 _HISTORY_SECONDS = {"timespent", "timeestimate", "timeoriginalestimate", "worklogtimespent"}
 _NOISE_NAMES = {"rank", "ранг", "development", "разработка"}
 _LONG_TEXT_FIELDS = {"description", "comment", "environment", "описание", "комментарий", "окружение"}
@@ -186,8 +188,17 @@ def counts(raw: dict[str, Any]) -> dict[str, int]:
             "links": len(fields.get("issuelinks") or []), "extra_fields": len(extra_fields(raw))}
 
 
-def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None = None) -> str:
-    """Задача Jira как документ Markdown — полностью, без сокращений."""
+def _hours(seconds: Any, jira_text: Any) -> str:
+    """Время часами и минутами; запись Jira («4d 1h 30m») — в скобках с пояснением: её «день» — рабочий, не 24 часа."""
+    exact, shown = duration(seconds), str(jira_text or "").strip()
+    if exact and shown and re.search(r"\d[dw]", shown):
+        return f"{exact} (в Jira записано «{shown}»: d — рабочий день, w — рабочая неделя, не календарные)"
+    return exact or shown
+
+
+def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None = None, parsable: set[str] | None = None) -> str:
+    """Задача Jira как документ Markdown — полностью, без сокращений. ``parsable`` — расширения файлов, которые портал
+    разбирает: у каждого вложения сказано, загружено ли его содержимое отдельным материалом."""
     row = normalize_issue(raw, base_url)
     fields = raw.get("fields") or {}
     project = fields.get("project") if isinstance(fields.get("project"), dict) else {}
@@ -224,9 +235,9 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
         title = (parent.get("fields") or {}).get("summary") or ""
         _field(lines, "Родительская задача", parent["key"] + (f" — {title}" if title else ""))
     tracking = fields.get("timetracking") if isinstance(fields.get("timetracking"), dict) else {}
-    _field(lines, "Оценка времени", str(tracking.get("originalEstimate") or "") or duration(fields.get("timeoriginalestimate")))
+    _field(lines, "Оценка времени", _hours(fields.get("timeoriginalestimate"), tracking.get("originalEstimate")))
     _field(lines, "Осталось времени", str(tracking.get("remainingEstimate") or "") or duration(fields.get("timeestimate")))
-    _field(lines, "Затрачено времени", str(tracking.get("timeSpent") or "") or duration(fields.get("timespent")))
+    _field(lines, "Затрачено времени", _hours(fields.get("timespent"), tracking.get("timeSpent")))
     for label, own, total in (("Оценка времени с подзадачами", "timeoriginalestimate", "aggregatetimeoriginalestimate"),
                               ("Осталось времени с подзадачами", "timeestimate", "aggregatetimeestimate"),
                               ("Затрачено времени с подзадачами", "timespent", "aggregatetimespent")):
@@ -268,6 +279,17 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
     if related:
         lines += ["", f"## Связанные задачи ({len(related)})", ""] + related
 
+    # Ход задачи отдельно от полной истории: в ней смены статуса тонут среди сотен записей об учёте времени.
+    course = []
+    for h in (raw.get("changelog") or {}).get("histories") or [] if isinstance(raw.get("changelog"), dict) else []:
+        for item in h.get("items") or [] if isinstance(h, dict) else []:
+            label = _COURSE_FIELDS.get(str(item.get("field") or "").lower())
+            if label:
+                course.append(f"- {when(h.get('created'))}, {person(h.get('author'))}: {label} — было «{clean_text(item.get('fromString')) or 'пусто'}», "
+                              f"стало «{clean_text(item.get('toString')) or 'пусто'}»")
+    if course:
+        lines += ["", f"## Ход задачи: кто и когда менял статус, исполнителя, срок ({len(course)})", ""] + course
+
     remote = [r for r in raw.get("remotelinks") or [] if isinstance(r, dict)]
     if remote:
         lines += ["", f"## Внешние ссылки ({len(remote)})", ""]
@@ -303,7 +325,14 @@ def issue_document(raw: dict[str, Any], base_url: str, project_name: str | None 
     attachments = [a for a in fields.get("attachment") or [] if isinstance(a, dict)]
     if attachments:
         lines += ["", f"## Вложения ({len(attachments)})", ""]
-        lines += [f"- {a.get('filename') or 'файл'} ({int(a.get('size') or 0) // 1024} КБ, загрузил(а) {person(a.get('author'))}, {when(a.get('created'))})" for a in attachments]
+        for a in attachments:
+            name = str(a.get("filename") or "файл")
+            ext = ("." + name.rsplit(".", 1)[1].lower()) if "." in name else ""
+            note = ""
+            if parsable is not None:
+                note = ("; содержимое загружено в портал отдельным материалом" if ext in parsable
+                        else f"; содержимое в портал не загружено: вид файла {ext or 'без расширения'} портал не разбирает")
+            lines.append(f"- {name} ({int(a.get('size') or 0) // 1024} КБ, загрузил(а) {person(a.get('author'))}, {when(a.get('created'))}{note})")
 
     log = raw.get("changelog") if isinstance(raw.get("changelog"), dict) else {}
     histories = [h for h in log.get("histories") or [] if isinstance(h, dict)]
