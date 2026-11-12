@@ -16,7 +16,7 @@ from typing import Any
 
 from app.app.services.jira_client import normalize_issue
 
-FORMAT_VERSION = 8
+FORMAT_VERSION = 9
 
 STATUS_LABELS = {"open": "не начата", "in_progress": "в работе", "done": "завершена"}
 # Поля, которые выводятся в шапке и разделах сами; остальные непустые идут в «Дополнительные поля».
@@ -398,10 +398,10 @@ def project_document(info: dict[str, Any], issues: list[dict[str, Any]], base_ur
         open_people = Counter(row["assignee"] or "не назначен" for row in issues if row["portal_status"] != "done")
         lines += ["", "## Задачи по исполнителям", ""]
         lines += [f"- {who}: всего {count}, не завершено {open_people.get(who, 0)}" for who, count in people.most_common()]
-        lines += ["", "## Все задачи", "", "| Ключ | Вид | Статус | Состояние | Исполнитель | Срок | Обновлена | Название |", "|---|---|---|---|---|---|---|---|"]
+        lines += ["", "## Все задачи", "", "| Ключ | Вид | Статус | Состояние | Исполнитель | Автор | Создана | Срок | Обновлена | Название |", "|---|---|---|---|---|---|---|---|---|---|"]
         for row in issues:
             cells = [row["key"], row["type"] or "—", row["status"] or "—", STATUS_LABELS.get(row["portal_status"], "—"), row["assignee"] or "не назначен",
-                     row["deadline_at"] or "—", when(row["updated"]), (row["summary"] or "").replace("|", "/")]
+                     row.get("reporter") or "—", when(row.get("created")), row["deadline_at"] or "—", when(row["updated"]), (row["summary"] or "").replace("|", "/")]
             lines.append("| " + " | ".join(str(c).replace("\n", " ") for c in cells) + " |")
     else:
         lines += ["", "В проекте нет задач."]

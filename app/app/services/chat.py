@@ -904,6 +904,46 @@ def jira_focus_block(db: Session, project_id: int, question: str, limit_chars: i
     return "Задачи Jira, названные в вопросе (документ задачи — главный источник для ответа о ней):\n" + "\n---\n".join(parts)
 
 
+CHAT_JIRA_OVERVIEW_CHARS = 7000  # сводка проекта Jira в каждом ответе: счётчики и перечень задач
+
+
+def jira_overview_block(db: Session, project_id: int, limit_chars: int = CHAT_JIRA_OVERVIEW_CHARS, floor: int = 1500) -> str:
+    """Сводка проекта Jira (сколько задач, по статусам и исполнителям, перечень всех задач) — в каждом ответе по проекту,
+    связанному с Jira. Поиск по смыслу на вопрос «сколько задач создано в Jira» приносил куски одной задачи, и помощник
+    отвечал, что знает только о ней: общая картина не должна зависеть от того, что нашёл поиск."""
+    try:
+        from app.app.models.jira import JiraItem, JiraProjectLink
+
+        arts = db.scalars(
+            select(Artifact)
+            .join(JiraItem, JiraItem.artifact_id == Artifact.id)
+            .join(JiraProjectLink, JiraProjectLink.id == JiraItem.link_id)
+            .where(JiraProjectLink.project_id == project_id, JiraItem.kind == "summary")
+        ).all()
+    except Exception:  # noqa: BLE001 — таблиц Jira может не быть: чат отвечает как раньше
+        logger.warning("сводка Jira для чата не собрана", exc_info=True)
+        return ""
+    parts = []
+    for art in arts:
+        try:  # файл на диске — то, что собрано из Jira дословно; текст разбора появляется позже
+            text = Path(art.file_path).read_text(encoding="utf-8").strip()
+        except OSError:
+            text = (art.transcription_text or "").strip()
+        if not text:
+            continue
+        cap = max(limit_chars // max(len(arts), 1), floor)
+        if len(text) > cap:
+            rows = text[:cap].rsplit("\n", 1)[0]
+            shown = sum(1 for line in rows.splitlines() if line.startswith("| ") and not line.startswith("| Ключ"))
+            text = rows + f"\n(перечень сокращён: показано задач {shown}; остальные — в найденных фрагментах и по ключу задачи)"
+        parts.append(text)
+    if not parts:
+        return ""
+    return ("Сводка проекта в Jira — все задачи, выгруженные из Jira в этот проект (на вопросы «сколько задач/тикетов», «какие задачи», "
+            "«что выгружено из Jira», «кто исполнитель» отвечай по ней; подробности задачи — в её документе «Jira КЛЮЧ-N — …»):\n"
+            + "\n---\n".join(parts))
+
+
 CHAT_ANSWER_TOKENS = 2048
 CHAT_CHARS_PER_TOKEN = 2.0  # русский текст с именами и числами: по журналу LM Studio 2.1–2.2 знака на токен, берём с запасом
 
@@ -1190,7 +1230,8 @@ def _answer_chat_inner(
         logger.warning("журнал решений для чата не собран", exc_info=True)
         decisions = ""
 
-    if not context_lines and not memory and not tz_excerpt and not decisions and not catalog:
+    jira_overview = jira_overview_block(db, project_id)
+    if not context_lines and not memory and not tz_excerpt and not decisions and not catalog and not jira_overview:
         answer = "В материалах проекта ответа нет."
         finalize_chat_message(
             db,
@@ -1256,6 +1297,8 @@ def _answer_chat_inner(
             text += memory + "\n\n"
         if catalog:
             text += catalog + "\n\n"
+        if jira_overview:
+            text += (jira_overview if level < 2 else jira_overview[: CHAT_JIRA_OVERVIEW_CHARS // 2]) + "\n\n"
         if jira_focus:
             text += (jira_focus if level == 0 else jira_focus[: CHAT_JIRA_FOCUS_CHARS // 2 * (3 - level)]) + "\n\n"
         text += "Контекст (найденные фрагменты по всему проекту):\n" + ("\n---\n".join(lines) if context_lines else context)
@@ -1294,7 +1337,7 @@ def _answer_chat_inner(
 
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
     # Цитаты сверяются только с материалами: предыдущий диалог и указания пользователя доказательством не считаются.
-    evidence = "\n".join(part for part in (catalog, jira_focus, context, supplement, tz_excerpt, decisions, graph_part) if part)
+    evidence = "\n".join(part for part in (catalog, jira_overview, jira_focus, context, supplement, tz_excerpt, decisions, graph_part) if part)
     answer, quote_check = verify_answer_quotes(
         answer, evidence, user_texts=[question, *guidance_texts],
         source_texts=lambda: _project_materials_text(db, project_id),

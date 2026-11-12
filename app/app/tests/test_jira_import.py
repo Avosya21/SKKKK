@@ -114,7 +114,7 @@ def test_import_brings_everything_without_cuts(client, jira, manager_token):
     summary = _doc("Jira ABC — сводка проекта.md")
     for expected in ("# Jira: проект ABC — Проект Альфа (сводка)", "- Руководитель проекта: Тестовый Автор", "- Версии: Релиз 1 (выпущена 2026-09-01)",
                      "- Всего задач: 2", "- в работе: 2", "- Тестовый Исполнитель: всего 2, не завершено 2",
-                     "| ABC-2 | Задача | В работе | в работе | Тестовый Исполнитель | — | 2026-11-02 10:00 | Сверить остатки |"):
+                     "| ABC-2 | Задача | В работе | в работе | Тестовый Исполнитель | Тестовый Автор | 2026-10-01 10:00 | — | 2026-11-02 10:00 | Сверить остатки |"):
         assert expected in summary, expected
     from app.app.db import SessionLocal
     from app.app.models.artifact import Artifact
@@ -240,6 +240,21 @@ def test_chat_gets_named_issue_document_itself(client, jira, manager_token):
         assert jira_focus_block(db, project_id, "Что решили на встрече?") == ""
         assert jira_focus_block(db, project_id + 1000, "Что с ABC-1?") == ""  # чужой проект задачу не видит
         assert len(jira_focus_block(db, project_id, "ABC-1", limit_chars=300)) < 1500 and "(раздел сокращён" in jira_focus_block(db, project_id, "ABC-1", limit_chars=300)
+
+
+def test_chat_always_gets_jira_project_overview(client, jira, manager_token):
+    """Общий вопрос без ключа задачи («сколько тикетов создано в Jira?») — сводка проекта идёт помощнику всегда, без поиска."""
+    from app.app.db import SessionLocal
+    from app.app.services.chat import jira_overview_block
+
+    project_id = _import(client, manager_token)
+    with SessionLocal() as db:
+        block = jira_overview_block(db, project_id)
+        assert block.startswith("Сводка проекта в Jira") and "- Всего задач: 2" in block
+        assert "| ABC-1 |" in block and "| ABC-2 |" in block and "| Автор | Создана |" in block
+        assert jira_overview_block(db, project_id + 1000) == ""  # проект без Jira: блока нет
+        short = jira_overview_block(db, project_id, limit_chars=100, floor=300)
+        assert "(перечень сокращён" in short and len(short) < len(block)
 
 
 def test_jira_documents_are_not_rewritten_by_model(client, jira, manager_token):
