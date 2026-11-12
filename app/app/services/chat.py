@@ -945,7 +945,73 @@ def jira_overview_block(db: Session, project_id: int, limit_chars: int = CHAT_JI
 
 
 CHAT_ANSWER_TOKENS = 2048
-CHAT_CHARS_PER_TOKEN = 2.0  # русский текст с именами и числами: по журналу LM Studio 2.1–2.2 знака на токен, берём с запасом
+CHAT_CHARS_PER_TOKEN = 2.1  # русский текст с именами и числами: по журналу LM Studio 2.17 знака на токен (75606 знаков = 34724 токена)
+# Нижние пределы второстепенных частей запроса: ниже них часть не сокращается, пока есть что сокращать дальше по списку.
+CHAT_FLOORS = (("graph_part", 0, "граф"), ("memory", 4000, "прошлый диалог"), ("tz_excerpt", 1000, "выжимка"),
+               ("supplement", 3000, "дополнение из БД"), ("decisions", 1500, "журнал решений"))
+CHAT_MIN_FRAGMENTS = 6
+
+
+def _chat_budget_chars() -> int:
+    """Сколько знаков запроса помещается в окно модели вместе с ответом (0 — окно неизвестно: не ограничиваем)."""
+    try:
+        from app.app.services import llm_keeper
+
+        window = int(llm_keeper.load_profile().context_length or 0)
+    except Exception:  # noqa: BLE001 — профиля нет (другой поставщик)
+        return 0
+    return int((window - CHAT_ANSWER_TOKENS - 512) * CHAT_CHARS_PER_TOKEN) if window > 0 else 0
+
+
+def _keep_dialogue_tail(memory: str, cap: int) -> str:
+    """Прошлый диалог сокращается с начала: заголовок и самые свежие реплики остаются."""
+    if len(memory) <= cap:
+        return memory
+    header, _, body = memory.partition("\n")
+    kept: list[str] = []
+    total = len(header) + 60
+    for line in reversed(body.split("\n")):
+        if total + len(line) + 1 > cap:
+            break
+        kept.append(line)
+        total += len(line) + 1
+    return header + "\n(более ранние реплики опущены)\n" + "\n".join(reversed(kept))
+
+
+def fit_chat_parts(room: int | None, lines: list[str], *, memory: str, supplement: str, tz_excerpt: str, decisions: str,
+                   graph_part: str) -> dict[str, Any]:
+    """Уложить переменные части запроса в отведённое место (знаков). Найденные фрагменты — главное, они сокращаются последними:
+    сначала граф, затем старые реплики диалога, выжимка, дополнение из БД, журнал решений — каждая до своего нижнего предела;
+    только если и этого мало, отбрасываются самые дальние от вопроса фрагменты (с конца списка), но не меньше CHAT_MIN_FRAGMENTS.
+    Раньше запрос строился без оглядки на окно: при переполнении чат выбрасывал половину фрагментов или отвечал «не удалось»."""
+    parts = {"memory": memory, "supplement": supplement, "tz_excerpt": tz_excerpt, "decisions": decisions, "graph_part": graph_part}
+    kept = list(lines)
+    trimmed: list[str] = []
+
+    def need() -> int:
+        return sum(len(x) + 5 for x in kept) + sum(len(v) + 120 for v in parts.values() if v)
+
+    if room is not None:
+        for name, floor, label in CHAT_FLOORS:
+            excess = need() - room
+            if excess <= 0:
+                break
+            text = parts[name]
+            target = max(floor, len(text) - excess - 40)  # запас на пометку «(сокращено)»
+            if target >= len(text):
+                continue
+            if name == "memory":
+                parts[name] = _keep_dialogue_tail(text, target) if target else ""
+            else:
+                parts[name] = (text[:target].rstrip() + "\n(сокращено)") if target >= 200 else ""
+            trimmed.append(label)
+        dropped = 0
+        while need() > room and len(kept) > CHAT_MIN_FRAGMENTS:
+            kept.pop()
+            dropped += 1
+        if dropped:
+            trimmed.append(f"фрагментов отброшено {dropped}")
+    return {"lines": kept, "trimmed": trimmed, **parts}
 
 
 def _fits_model_window(system: str, user: str) -> bool:
@@ -1287,8 +1353,18 @@ def _answer_chat_inner(
     system = _load_prompt()
     jira_focus = jira_focus_block(db, project_id, question)
 
+    # Запрос заранее укладывается в окно модели: найденные фрагменты остаются, сокращается второстепенное (см. fit_chat_parts).
+    fixed_chars = (len(system) + len(question) + len(catalog or "") + len(jira_overview) + len(jira_focus)
+                   + sum(len(g) for g in guidance_texts[:8]) + 800)
+    fitted = fit_chat_parts(_chat_budget_chars() - fixed_chars if _chat_budget_chars() else None, context_lines,
+                            memory=memory or "", supplement=supplement or "", tz_excerpt=tz_excerpt or "", decisions=decisions or "",
+                            graph_part=graph_part or "")
+    full_lines = context_lines
+    context_lines, memory, supplement = fitted["lines"], fitted["memory"], fitted["supplement"]
+    tz_excerpt, decisions, graph_part = fitted["tz_excerpt"], fitted["decisions"], fitted["graph_part"]
+
     def compose(level: int) -> str:
-        """Запрос к модели. level 0 — всё; 1 — без графа, выжимки и половины фрагментов; 2 — только вопрос, перечень и ближайшие фрагменты."""
+        """Запрос к модели. level 0 — всё, что уложено в окно; 1 и 2 — запасные сокращения, если модель всё же ответила «не помещается»."""
         lines = context_lines if level == 0 else context_lines[: max(len(context_lines) // 2, 4) if level == 1 else 4]
         text = f"Вопрос: {question}\n\n"
         if pushback:
@@ -1322,8 +1398,13 @@ def _answer_chat_inner(
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
         answer = ""
-        start = next((lvl for lvl in (0, 1) if _fits_model_window(system, compose(lvl))), 2)
-        for level in range(start, 3):
+        logger.log(logging.WARNING if len(context_lines) < len(full_lines) else logging.INFO,
+                   "chat.prompt: знаков %s (система %s, диалог %s, перечень встреч %s, сводка Jira %s, задачи Jira %s, фрагменты %s из %s шт. %s, "
+                   "из БД %s, выжимка %s, решения %s, граф %s)%s", len(system) + len(compose(0)), len(system), len(memory or ""), len(catalog or ""),
+                   len(jira_overview), len(jira_focus), len(context_lines), len(full_lines), sum(len(x) for x in context_lines),
+                   len(supplement or ""), len(tz_excerpt or ""), len(decisions or ""), len(graph_part or ""),
+                   "; сокращено: " + ", ".join(fitted["trimmed"]) if fitted["trimmed"] else "")
+        for level in range(0, 3):
             user = compose(level)
             try:
                 answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)

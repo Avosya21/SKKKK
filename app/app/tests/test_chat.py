@@ -1025,3 +1025,27 @@ def test_chat_window_estimate_and_overflow_detection():
     assert chat._is_context_overflow(RuntimeError('{"error":"Context size has been exceeded."}'))
     assert chat._is_context_overflow(RuntimeError("tokens to keep ... greater than the context length (n_keep: 34724>= n_ctx: 32768)"))
     assert not chat._is_context_overflow(RuntimeError("connection refused"))
+
+
+def test_chat_parts_fit_window_keeping_found_fragments():
+    """Запрос укладывается в окно заранее: второстепенное сокращается до нижних пределов, найденные фрагменты остаются."""
+    from app.app.services import chat
+
+    lines = [f"фрагмент {i} " + "т" * 1500 for i in range(28)]
+    dialogue = "Предыдущий диалог:\n" + "\n".join(f"Пользователь: вопрос {i} " + "д" * 400 for i in range(60))
+    parts = dict(memory=dialogue, supplement="с" * 11000, tz_excerpt="в" * 2500, decisions="р" * 1800, graph_part="г" * 4800)
+    need = sum(len(x) for x in lines) + sum(len(v) for v in parts.values())
+
+    roomy = chat.fit_chat_parts(need + 5000, lines, **parts)
+    assert roomy["lines"] == lines and roomy["trimmed"] == [] and roomy["memory"] == dialogue  # места хватает — ничего не трогаем
+    assert chat.fit_chat_parts(None, lines, **parts)["trimmed"] == []  # окно неизвестно — не ограничиваем
+
+    tight = chat.fit_chat_parts(sum(len(x) for x in lines) + 12000, lines, **parts)
+    assert tight["lines"] == lines, "фрагменты сокращаются последними"
+    assert tight["graph_part"] == "" and "граф" in tight["trimmed"] and "прошлый диалог" in tight["trimmed"]
+    assert "вопрос 59" in tight["memory"] and "вопрос 0 " not in tight["memory"] and "(более ранние реплики опущены)" in tight["memory"]
+    assert len(tight["supplement"]) >= 3000 and len(tight["decisions"]) >= 1500
+
+    tiny = chat.fit_chat_parts(20000, lines, **parts)
+    assert chat.CHAT_MIN_FRAGMENTS <= len(tiny["lines"]) < len(lines) and tiny["lines"] == lines[: len(tiny["lines"])]
+    assert any(t.startswith("фрагментов отброшено") for t in tiny["trimmed"])
