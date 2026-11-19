@@ -38,5 +38,7 @@ class ProjectOut(BaseModel):
     is_active: bool
     # Кто завёл проект («Фамилия Имя» из карточки, иначе логин) — только в списке для админа.
     creator_name: str | None = None
+    # Ключ проекта Jira, если проект привязан к Jira (пометка «Jira» в списке).
+    jira_key: str | None = None
 
     model_config = {"from_attributes": True}

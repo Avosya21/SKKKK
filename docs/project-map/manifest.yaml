@@ -3839,6 +3839,62 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_jira
+    kind: model
+    path: app/app/models/jira.py
+    title: "Модели подключения Jira (docs/plans/JIRA-INTEGRATION-PLAN.md, этап 2)."
+    tags: [auto]
+    auto: true
+
+  - id: router_jira
+    kind: router
+    path: app/app/routers/jira.py
+    title: "Jira на главной странице: подключение личным токеном, список проектов Jira, загрузка выбранных, обновление и привязка."
+    tags: [auto]
+    auto: true
+
+  - id: svc_jira_client
+    kind: service
+    path: app/app/services/jira_client.py
+    title: "Клиент Jira (только чтение): проверка связи, список проектов, задачи проекта — docs/plans/JIRA-INTEGRATION-PLAN.md, этап 1."
+    tags: [auto]
+    auto: true
+
+  - id: svc_jira_import
+    kind: service
+    path: app/app/services/jira_import.py
+    title: "Jira в портале: личный токен пользователя, выбор проектов и загрузка задач с вложениями как материалов проекта."
+    tags: [auto]
+    auto: true
+
+  - id: svc_jira_render
+    kind: service
+    path: app/app/services/jira_render.py
+    title: "Задача и проект Jira как документы портала: всё, что есть в Jira, без сокращений (docs/plans/JIRA-INTEGRATION-PLAN.md, этап 4)."
+    tags: [auto]
+    auto: true
+
+  - id: script_check_jira_sync
+    kind: file
+    path: scripts/check_jira_sync.py
+    title: "Живая сверка «Jira ↔ портал»: всё ли из Jira загружено в проекты портала полностью. Только чтение."
+    tags: [auto]
+    auto: true
+
+  - id: script_jira_pull
+    kind: file
+    path: scripts/jira_pull.py
+    title: "Первые данные из Jira: проверка связи, список проектов и выгрузка задач проекта (только чтение)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_jira_mcp
+    kind: file
+    path: tools/jira_mcp.py
+    title: "Локальный MCP-сервер Jira (stdio): чтение задач Jira для ИИ-агента разработки. Только чтение."
+    tags: [auto]
+    auto: true
+
 edges:
   - {from: ui_meeting_dock, to: ui_btn_meeting_local_record, relation: contains_employee_only}
   - {from: ui_btn_meeting_local_record, to: mod_meeting_local_record, relation: uses}

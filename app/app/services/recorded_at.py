@@ -18,12 +18,13 @@ SOURCE_MANUAL_TIME = "manual_time"  # человек поставил дату �
 SOURCE_MESSAGES = "messages"  # переписка: первое сообщение выгрузки; у каждого пункта — время своего сообщения
 SOURCE_FILENAME_TIME = "filename_time"  # в имени файла дата и время («2026-08-26 14-30»): точность — минута
 SOURCE_DOC_TEXT = "doc_text"  # дата в шапке документа («Протокол от 19.08.2026»)
+SOURCE_JIRA = "jira"  # материал из Jira: дата и время из самой Jira (изменение задачи, загрузка вложения), а не загрузки в портал
 SOURCE_DOC_META = "doc_meta"  # свойства файла: docx/xlsx/pptx core.xml, PDF, EXIF снимка — дата последней правки
 # Источники, которым можно верить как дате созвона; «upload» — только замена.
 EXPLICIT_SOURCES = frozenset({SOURCE_MEETING, SOURCE_FILENAME, SOURCE_FILENAME_TIME, SOURCE_MEDIA, SOURCE_MANUAL,
-                              SOURCE_MANUAL_TIME, SOURCE_MESSAGES, SOURCE_DOC_TEXT, SOURCE_DOC_META})
+                              SOURCE_MANUAL_TIME, SOURCE_MESSAGES, SOURCE_DOC_TEXT, SOURCE_DOC_META, SOURCE_JIRA})
 # Известно время начала записи с точностью до минуты: таймкод реплики даёт момент (Я3).
-MINUTE_SOURCES = frozenset({SOURCE_MEETING, SOURCE_MEDIA, SOURCE_MANUAL_TIME, SOURCE_FILENAME_TIME})
+MINUTE_SOURCES = frozenset({SOURCE_MEETING, SOURCE_MEDIA, SOURCE_MANUAL_TIME, SOURCE_FILENAME_TIME, SOURCE_JIRA})
 PRECISION_DAY = "day"  # известен только день: время условное (полдень), порядок внутри дня не определён
 PRECISION_MINUTE = "minute"  # есть время начала: таймкод реплики даёт момент
 # Дату, выведенную автоматически из этих источников, можно уточнить автоматически (текст документа точнее свойств файла).

@@ -10,6 +10,28 @@
   <button class="btn btn-success" id="btn-new-project">Новый проект</button>
   {% endif %}
 </div>
+<div class="card mb-3 d-none" id="jira-card">
+  <div class="card-body py-2">
+    <div id="jira-disconnected" class="d-none">
+      <form class="d-flex gap-2 align-items-center flex-wrap" id="jira-connect-form" autocomplete="off">
+        <span class="fw-semibold">Jira</span>
+        <input type="password" class="form-control form-control-sm" id="jira-token" name="jira-token" placeholder="Ваш личный токен Jira" maxlength="4000" required autocomplete="off" aria-label="Личный токен Jira" style="max-width: 22rem;">
+        <button type="submit" class="btn btn-sm btn-primary primaryanalitics-action-btn" id="jira-connect-btn" data-idle-label="Подключить Jira">Подключить Jira</button>
+        <span class="text-muted small">Токен создаётся в Jira: профиль → «Персональные токены доступа». Хранится зашифрованным, виден только вам.</span>
+      </form>
+    </div>
+    <div id="jira-connected" class="d-none">
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <span class="fw-semibold">Jira</span>
+        <span class="small" id="jira-connected-name"></span>
+        <button type="button" class="btn btn-sm btn-outline-primary d-none" id="jira-pick-btn">Проекты из Jira</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="jira-disconnect-btn">Отключить</button>
+      </div>
+    </div>
+    <div class="alert alert-danger d-none mt-2 mb-0 py-1 small" id="jira-error" role="alert"></div>
+    <div class="text-muted small mt-1 d-none" id="jira-progress" aria-live="polite"></div>
+  </div>
+</div>
 <div id="projects-list" class="list-group"></div>
 <div class="modal fade" id="changelogModal" tabindex="-1" aria-labelledby="changelog-title" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
@@ -107,6 +129,27 @@
     </form>
   </div>
 </div>
+<div class="modal fade" id="jiraProjectsModal" tabindex="-1" aria-labelledby="jira-projects-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="jira-projects-title">Проекты из Jira</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">Отметьте проекты, которые нужно загрузить в портал. Задачи, комментарии и вложения скачаются и разберутся так же, как загруженные файлы. Это может занять время: материалы идут через общую очередь.</p>
+        <input type="search" class="form-control form-control-sm mb-2" id="jira-projects-filter" placeholder="Найти проект" aria-label="Найти проект Jira">
+        <div id="jira-projects-list" class="list-group"></div>
+        <div class="alert alert-danger d-none mt-2" id="jira-projects-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <span class="text-muted small me-auto" id="jira-projects-count"></span>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-primary primaryanalitics-action-btn" id="jira-import-btn" data-idle-label="Загрузить выбранные" disabled>Загрузить выбранные</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -166,6 +209,14 @@ async function loadProjects() {
     title.className = 'project-list-title text-decoration-none fw-semibold';
     title.href = `/projects/${p.id}`;
     title.textContent = p.name;
+    if (p.jira_key) {  // проект привязан к Jira: пометка рядом с названием
+      const jiraBadge = document.createElement('span');
+      jiraBadge.className = 'badge text-bg-info ms-2 fw-normal';
+      jiraBadge.textContent = 'Jira';
+      jiraBadge.title = 'Материалы проекта загружаются из Jira: ' + p.jira_key;
+      title.appendChild(jiraBadge);
+    }
+
 
     // Кто завёл проект — поле приходит только админу
     let creator = null;
@@ -437,5 +488,229 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
   }, { busyText: 'Создаю…' });
 };
 loadProjects();
+// --- Jira: подключение личным токеном, выбор проектов, ход загрузки (routers/jira.py) ---
+const jiraCard = document.getElementById('jira-card');
+const jiraError = document.getElementById('jira-error');
+const jiraProgress = document.getElementById('jira-progress');
+const jiraModalEl = document.getElementById('jiraProjectsModal');
+const jiraModal = jiraModalEl ? new bootstrap.Modal(jiraModalEl) : null;
+const jiraListEl = document.getElementById('jira-projects-list');
+const jiraImportBtn = document.getElementById('jira-import-btn');
+let jiraState = null;
+let jiraPortalProjects = [];
+let jiraPollTimer = null;
+
+function jiraShowError(el, text) {
+  el.textContent = text || '';
+  el.classList.toggle('d-none', !text);
+}
+
+async function jiraDetail(r) {
+  try { return PrimaryAnaliticsErrors.text((await r.json()).detail, r.status); } catch (_) { return 'Ошибка ' + r.status; }
+}
+
+async function loadJiraStatus() {
+  const r = await PrimaryAnalitics.api('/jira/status');
+  if (!r.ok) return;
+  jiraState = await r.json();
+  jiraCard.classList.toggle('d-none', !jiraState.available);
+  if (!jiraState.available) return;
+  document.getElementById('jira-disconnected').classList.toggle('d-none', jiraState.connected);
+  document.getElementById('jira-connected').classList.toggle('d-none', !jiraState.connected);
+  document.getElementById('jira-connected-name').textContent = jiraState.connected ? 'подключена: ' + (jiraState.name || 'токен принят') : '';
+  document.getElementById('jira-pick-btn').classList.toggle('d-none', !(jiraState.connected && jiraState.can_import));
+  jiraShowError(jiraError, jiraState.connected && jiraState.error ? 'Jira: ' + jiraState.error : '');
+}
+
+document.getElementById('jira-connect-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('jira-token');
+  const btn = document.getElementById('jira-connect-btn');
+  jiraShowError(jiraError, '');
+  PrimaryAnalitics.setButtonBusy(btn, true, { label: 'Проверяю…' });
+  try {
+    const r = await PrimaryAnalitics.api('/jira/connect', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ token: input.value.trim() }),
+    });
+    if (!r.ok) { jiraShowError(jiraError, await jiraDetail(r)); return; }
+    input.value = '';
+    await loadJiraStatus();
+    await loadProjects();
+    if (jiraState && jiraState.can_import) openJiraProjects();
+  } finally {
+    PrimaryAnalitics.setButtonBusy(btn, false);
+  }
+};
+
+document.getElementById('jira-disconnect-btn').onclick = async () => {
+  if (!window.confirm('Отключить Jira? Токен будет удалён. Проекты, доступ к которым выдан по Jira, пропадут из вашего списка; загруженные материалы останутся.')) return;
+  const r = await PrimaryAnalitics.api('/jira/connect', { method: 'DELETE' });
+  if (!r.ok) { jiraShowError(jiraError, await jiraDetail(r)); return; }
+  await loadJiraStatus();
+  await loadProjects();
+};
+
+function jiraSelectedPicks() {
+  return Array.from(jiraListEl.querySelectorAll('input[type=checkbox]:checked')).map((box) => {
+    const select = jiraListEl.querySelector('select[data-key="' + box.value + '"]');
+    const pick = { key: box.value };
+    if (select && select.value) pick.project_id = Number(select.value);
+    return pick;
+  });
+}
+
+function jiraSyncImportButton() {
+  const n = jiraSelectedPicks().length;
+  jiraImportBtn.disabled = n === 0;
+  document.getElementById('jira-projects-count').textContent = n ? 'Выбрано: ' + n : '';
+}
+
+function renderJiraProjects(rows) {
+  jiraListEl.innerHTML = '';
+  if (!rows.length) {
+    jiraListEl.innerHTML = '<div class="text-muted small p-2">Ваш токен не видит ни одного проекта Jira.</div>';
+    return;
+  }
+  const linkedIds = new Set(rows.filter((row) => row.linked).map((row) => row.linked.project_id));
+  for (const row of rows) {
+    const item = document.createElement('div');
+    item.className = 'list-group-item d-flex gap-2 align-items-center flex-wrap jira-project-row';
+    item.dataset.search = (row.key + ' ' + row.name).toLowerCase();
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.className = 'form-check-input m-0 flex-shrink-0';
+    box.style.cssText = 'width:1.25rem;height:1.25rem';
+    box.value = row.key;
+    box.id = 'jira-pick-' + row.key;
+    box.addEventListener('change', jiraSyncImportButton);
+    const countEl = document.createElement('span');
+    countEl.className = 'text-muted small';
+    box.addEventListener('change', () => { if (box.checked) jiraShowCount(row.key, countEl); });
+    const name = document.createElement('label');
+    name.className = 'mb-0';
+    name.style.cssText = 'flex:1 1 8rem;min-width:0;overflow-wrap:anywhere';
+    name.htmlFor = box.id;
+    name.textContent = row.name + ' ';
+    const key = document.createElement('span');
+    key.className = 'text-muted small';
+    key.textContent = row.key;
+    name.appendChild(key);
+    item.appendChild(box);
+    item.appendChild(name);
+    item.appendChild(countEl);
+    if (row.linked) {
+      const badge = document.createElement('span');
+      badge.className = 'badge text-bg-secondary text-wrap text-start';
+      badge.style.maxWidth = '100%';
+      badge.textContent = 'уже в портале: ' + (row.linked.project_name || 'проект ' + row.linked.project_id);
+      badge.title = 'Отметьте, чтобы проверить обновления сейчас';
+      item.appendChild(badge);
+    } else if (jiraState && jiraState.can_link_existing) {
+      const select = document.createElement('select');
+      select.className = 'form-select form-select-sm w-auto';
+      select.style.cssText = 'max-width:100%;min-width:0';
+      select.dataset.key = row.key;
+      select.setAttribute('aria-label', 'Куда загрузить ' + row.name);
+      select.innerHTML = '<option value="">новый проект</option>';
+      for (const p of jiraPortalProjects) {
+        if (linkedIds.has(p.id)) continue;
+        const option = document.createElement('option');
+        option.value = String(p.id);
+        option.textContent = 'влить в «' + p.name + '»';
+        select.appendChild(option);
+      }
+      item.appendChild(select);
+    }
+    jiraListEl.appendChild(item);
+  }
+  jiraSyncImportButton();
+}
+
+async function openJiraProjects() {
+  if (!jiraModal) return;
+  jiraShowError(document.getElementById('jira-projects-error'), '');
+  jiraListEl.innerHTML = '<div class="text-muted small p-2">Читаю список проектов из Jira…</div>';
+  jiraImportBtn.disabled = true;
+  document.getElementById('jira-projects-filter').value = '';
+  jiraModal.show();
+  const [jr, pr] = await Promise.all([PrimaryAnalitics.api('/jira/projects'), PrimaryAnalitics.api('/projects')]);
+  if (!jr.ok) {
+    jiraListEl.innerHTML = '';
+    jiraShowError(document.getElementById('jira-projects-error'), await jiraDetail(jr));
+    return;
+  }
+  jiraPortalProjects = pr.ok ? await pr.json() : [];
+  renderJiraProjects((await jr.json()).projects || []);
+}
+
+document.getElementById('jira-pick-btn').onclick = openJiraProjects;
+
+// Объём до загрузки: при отметке проекта показываем, сколько в нём задач
+async function jiraShowCount(key, target) {
+  if (target.dataset.loaded) return;
+  target.dataset.loaded = '1';
+  target.textContent = 'считаю задачи…';
+  const r = await PrimaryAnalitics.api('/jira/projects/' + encodeURIComponent(key) + '/count');
+  target.textContent = r.ok ? 'задач: ' + (await r.json()).issues : '';
+}
+
+document.getElementById('jira-projects-filter').oninput = (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  jiraListEl.querySelectorAll('.jira-project-row').forEach((row) => row.classList.toggle('d-none', Boolean(q) && !row.dataset.search.includes(q)));
+};
+
+jiraImportBtn.onclick = async () => {
+  const picks = jiraSelectedPicks();
+  if (!picks.length) return;
+  const errEl = document.getElementById('jira-projects-error');
+  jiraShowError(errEl, '');
+  PrimaryAnalitics.setButtonBusy(jiraImportBtn, true, { label: 'Запускаю…' });
+  try {
+    const r = await PrimaryAnalitics.api('/jira/import', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ projects: picks }),
+    });
+    if (!r.ok) { jiraShowError(errEl, await jiraDetail(r)); return; }
+    const started = (await r.json()).started || [];
+    jiraModal.hide();
+    await loadProjects();
+    watchJiraProgress(started.map((s) => s.project_id));
+  } finally {
+    PrimaryAnalitics.setButtonBusy(jiraImportBtn, false);
+  }
+};
+
+// Ход загрузки: опрос раз в 5 с, пока хоть одна привязка в очереди или в работе; в скрытой вкладке не опрашиваем
+function watchJiraProgress(projectIds) {
+  const ids = Array.from(new Set(projectIds));
+  if (jiraPollTimer) clearInterval(jiraPollTimer);
+  if (!ids.length) return;
+  const tick = async () => {
+    if (document.hidden) return;
+    const lines = [];
+    let busy = false;
+    for (const id of ids) {
+      const r = await PrimaryAnalitics.api('/projects/' + id + '/jira');
+      if (!r.ok) continue;
+      for (const link of (await r.json()).links || []) {
+        if (link.status === 'queued' || link.status === 'running') busy = true;
+        lines.push((link.project_name || link.jira_key) + ': ' + (link.status === 'error' ? 'ошибка — ' : '') + (link.status_text || link.status));
+      }
+    }
+    const shown = busy || lines.some((line) => line.includes('ошибка — '));
+    jiraProgress.textContent = shown ? 'Загрузка из Jira. ' + lines.join(' · ') : '';
+    jiraProgress.classList.toggle('d-none', !shown);
+    if (!busy) { clearInterval(jiraPollTimer); jiraPollTimer = null; }
+  };
+  tick();
+  jiraPollTimer = setInterval(tick, 5000);
+}
+
+loadJiraStatus();
+// Страницу открыли во время загрузки из Jira — показать её ход
+PrimaryAnalitics.api('/projects').then(async (r) => {
+  if (!r.ok) return;
+  const linked = (await r.json()).filter((p) => p.jira_key).map((p) => p.id);
+  if (linked.length) watchJiraProgress(linked);
+});
 </script>
 {% endblock %}

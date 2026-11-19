@@ -319,3 +319,7 @@ venv\Scripts\python.exe scripts\acceptance_all.py
 
 Тесты: `test_contract_quality.py`, `test_chunk_messages.py`, `test_tz_sections.py`, `test_task_board.py`, `test_project_digest.py`; полный прогон `pytest app -m "not gpu and not slow"` 14.10 — 1644 зелёных (один провал — устаревший §17 карты, исправлен). Интерфейс задач, «Что нового» и выборочной проверки — в браузере на копии БД (рабочий стол и 375 px, без горизонтальной прокрутки).
 
+## Jira (2026-11-18)
+
+`test_jira_client.py` — оба режима Jira без сети (`httpx.MockTransport`). `test_jira_import.py` — токен, загрузка, обновление, доступ, вливание; Jira подставная. `test_jira_e2e.py` — подставная Jira на реальном сокете. Живая сверка стенда: `scripts/check_jira_sync.py` (нужны `JIRA_BASE_URL` и привязанный проект). Запуск: `venv\Scripts\python.exe -m pytest app/app/tests/test_jira_client.py app/app/tests/test_jira_import.py app/app/tests/test_jira_e2e.py -n 0`.
+

@@ -17,6 +17,7 @@ from app.app.models.entity import (
     Topic,
     UserNote,
 )
+from app.app.models.jira import JiraAccount, JiraGrant, JiraItem, JiraProjectLink
 from app.app.models.job import Job
 from app.app.models.manual_task import ManualTask
 from app.app.models.meeting import Meeting, MeetingParticipant
@@ -35,6 +36,10 @@ from app.app.models.user_activity_log import UserActivityLog
 from app.app.models.user_profile import UserProfile
 
 __all__ = [
+    "JiraAccount",
+    "JiraGrant",
+    "JiraItem",
+    "JiraProjectLink",
     "ProjectVisit",
     "ManualTask",
     "AgentQuestion",

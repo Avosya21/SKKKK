@@ -42,6 +42,7 @@ from app.app.routers import (  # noqa: E402
     admin_memory,
     admin_map_graph,
     auth,
+    jira,
     knowledge,
     meetings,
     pages,
@@ -122,6 +123,9 @@ async def lifespan(_app: FastAPI):
     from app.app.services.llm import announce_llm_and_selfcheck
 
     announce_llm_and_selfcheck(settings, logger)
+    from app.app.services.jira_import import start_scheduler
+
+    start_scheduler(settings)  # проверка обновлений Jira по расписанию (JIRA_SYNC_MINUTES; без адреса Jira не запускается)
 
     async def _stale_loop():
         from app.app.models.meeting import STATUS_LIVE, Meeting
@@ -271,6 +275,7 @@ app.include_router(project_memory.router)
 app.include_router(companies_admin.router)
 app.include_router(meetings.router)
 app.include_router(speaker_profiles.router)
+app.include_router(jira.router)
 
 
 _CLIENT_LOG_LIMITER = None

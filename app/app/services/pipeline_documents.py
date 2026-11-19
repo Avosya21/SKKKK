@@ -268,6 +268,12 @@ def _chat_authors_to_people(db: Session, settings: Settings, artifact: Artifact)
         logger.warning("авторы переписки %s не записаны в реестр", artifact.artifact_id, exc_info=True)
 
 
+def _is_jira_document(raw: str) -> bool:
+    from app.app.services.jira_render import is_rendered
+
+    return is_rendered(raw)
+
+
 def process_document_artifact(db: Session, settings: Settings, artifact: Artifact) -> str:
     path = Path(artifact.file_path)
     set_status(db, artifact, "preprocessing")
@@ -340,6 +346,9 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
     elif artifact.file_type == "xlsx":
         clean = light_normalize(raw)  # только таблицы: LLM их не чистит (цифры переносятся дословно)
         mode = "light (spreadsheet)"
+    elif _is_jira_document(raw):
+        clean = light_normalize(raw)  # документ собран из Jira программой: модель его не переписывает
+        mode = "light (jira)"
     else:
         try:
             clean = normalize_document(settings, raw, source=artifact.artifact_id)

@@ -933,6 +933,112 @@ def _answer_chat_body(
         raise
 
 
+CHAT_JIRA_FOCUS_ISSUES = 2  # задач Jira, названных в вопросе по ключу, в контекст документом
+CHAT_JIRA_FOCUS_CHARS = 12000  # начало документа задачи: поля, ход задачи, комментарии, трудозатраты, вложения (полная история — в конце)
+_JIRA_KEY = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{1,30}-\d{1,7})(?![A-Za-z0-9_])")
+
+
+_JIRA_SECTION_WORDS = (("Комментарии", ("коммент", "писал", "обсужд", "ответил")), ("Трудозатраты", ("трудозатр", "час", "списал", "времени")),
+                       ("Вложения", ("файл", "вложен", "загруж", "прикреп")), ("Ход задачи", ("статус", "перев", "исполнител", "срок")),
+                       ("История изменений", ("истори", "менял", "изменял")), ("Описание", ("описан", "о чём", "суть")))
+
+
+def _fit_issue_document(text: str, question: str, limit_chars: int) -> str:
+    """Документ задачи в пределах лимита: короткий — целиком; длинный — по разделам, каждому своя доля, а разделам,
+    о которых спрашивают (комментарии, трудозатраты, вложения, ход задачи), — тройная. Так длинное описание не вытесняет остальное."""
+    if len(text) <= limit_chars:
+        return text
+    sections = re.split(r"\n(?=## )", text)
+    asked = (question or "").lower()
+    weights = []
+    for section in sections:
+        title = section[:60]
+        hot = any(title.startswith("## " + name) and any(w in asked for w in words) for name, words in _JIRA_SECTION_WORDS)
+        weights.append(3 if hot else 1)
+    share = limit_chars / max(sum(weights), 1)
+    out = []
+    for section, weight in zip(sections, weights):
+        cap = int(share * weight)
+        out.append(section if len(section) <= cap else section[:cap].rstrip() + "\n(раздел сокращён: остальное — в найденных фрагментах)")
+    return "\n".join(out)
+
+
+def jira_focus_block(db: Session, project_id: int, question: str, limit_chars: int = CHAT_JIRA_FOCUS_CHARS) -> str:
+    """Вопрос называет задачу Jira по ключу («ABC-12») — её документ идёт в контекст сам, а не только найденными кусками:
+    поиск по смыслу мог принести похожие разделы другой задачи (трудозатраты, комментарии у всех задач выглядят одинаково)."""
+    keys = list(dict.fromkeys(m.upper() for m in _JIRA_KEY.findall(question or "")))[:8]
+    if not keys:
+        return ""
+    try:
+        from app.app.models.jira import JiraItem, JiraProjectLink
+
+        rows = db.execute(
+            select(JiraItem.ref, Artifact)
+            .join(JiraProjectLink, JiraProjectLink.id == JiraItem.link_id)
+            .join(Artifact, Artifact.id == JiraItem.artifact_id)
+            .where(JiraProjectLink.project_id == project_id, JiraItem.kind == "issue", JiraItem.ref.in_(keys))
+        ).all()
+    except Exception:  # noqa: BLE001 — таблиц Jira может не быть: чат отвечает как раньше
+        logger.warning("задачи Jira для чата не собраны", exc_info=True)
+        return ""
+    by_key = {ref: art for ref, art in rows}
+    parts = []
+    for key in keys:
+        art = by_key.get(key)
+        if art is None or len(parts) >= CHAT_JIRA_FOCUS_ISSUES:
+            continue
+        text = (art.transcription_text or "").strip()
+        if not text:
+            try:
+                text = Path(art.file_path).read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+        parts.append(f"[{art.original_filename}]\n{_fit_issue_document(text, question, limit_chars)}")
+    if not parts:
+        return ""
+    return "Задачи Jira, названные в вопросе (документ задачи — главный источник для ответа о ней):\n" + "\n---\n".join(parts)
+
+
+CHAT_JIRA_OVERVIEW_CHARS = 7000  # сводка проекта Jira в каждом ответе: счётчики и перечень задач
+
+
+def jira_overview_block(db: Session, project_id: int, limit_chars: int = CHAT_JIRA_OVERVIEW_CHARS, floor: int = 1500) -> str:
+    """Сводка проекта Jira (сколько задач, по статусам и исполнителям, перечень всех задач) — в каждом ответе по проекту,
+    связанному с Jira. Поиск по смыслу на вопрос «сколько задач создано в Jira» приносил куски одной задачи, и помощник
+    отвечал, что знает только о ней: общая картина не должна зависеть от того, что нашёл поиск."""
+    try:
+        from app.app.models.jira import JiraItem, JiraProjectLink
+
+        arts = db.scalars(
+            select(Artifact)
+            .join(JiraItem, JiraItem.artifact_id == Artifact.id)
+            .join(JiraProjectLink, JiraProjectLink.id == JiraItem.link_id)
+            .where(JiraProjectLink.project_id == project_id, JiraItem.kind == "summary")
+        ).all()
+    except Exception:  # noqa: BLE001 — таблиц Jira может не быть: чат отвечает как раньше
+        logger.warning("сводка Jira для чата не собрана", exc_info=True)
+        return ""
+    parts = []
+    for art in arts:
+        try:  # файл на диске — то, что собрано из Jira дословно; текст разбора появляется позже
+            text = Path(art.file_path).read_text(encoding="utf-8").strip()
+        except OSError:
+            text = (art.transcription_text or "").strip()
+        if not text:
+            continue
+        cap = max(limit_chars // max(len(arts), 1), floor)
+        if len(text) > cap:
+            rows = text[:cap].rsplit("\n", 1)[0]
+            shown = sum(1 for line in rows.splitlines() if line.startswith("| ") and not line.startswith("| Ключ"))
+            text = rows + f"\n(перечень сокращён: показано задач {shown}; остальные — в найденных фрагментах и по ключу задачи)"
+        parts.append(text)
+    if not parts:
+        return ""
+    return ("Сводка проекта в Jira — все задачи, выгруженные из Jira в этот проект (на вопросы «сколько задач/тикетов», «какие задачи», "
+            "«что выгружено из Jira», «кто исполнитель» отвечай по ней; подробности задачи — в её документе «Jira КЛЮЧ-N — …»):\n"
+            + "\n---\n".join(parts))
+
+
 def _answer_chat_inner(
     db: Session,
     settings: Settings,
@@ -1102,7 +1208,8 @@ def _answer_chat_inner(
         logger.warning("журнал решений для чата не собран", exc_info=True)
         decisions = ""
 
-    if not context_lines and not memory and not tz_excerpt and not decisions and not catalog:
+    jira_overview = jira_overview_block(db, project_id)
+    if not context_lines and not memory and not tz_excerpt and not decisions and not catalog and not jira_overview:
         answer = "В материалах проекта ответа нет."
         finalize_chat_message(
             db,
@@ -1156,6 +1263,7 @@ def _answer_chat_inner(
         )
 
     system = _load_prompt()
+    jira_focus = jira_focus_block(db, project_id, question)
     user = f"Вопрос: {question}\n\n"
     if pushback:
         user += _pushback_note(question) + "\n\n"
@@ -1163,6 +1271,10 @@ def _answer_chat_inner(
         user += memory + "\n\n"
     if catalog:
         user += catalog + "\n\n"
+    if jira_overview:
+        user += jira_overview + "\n\n"
+    if jira_focus:
+        user += jira_focus + "\n\n"
     user += f"Контекст (найденные фрагменты по всему проекту):\n{context}"
     if guidance_texts:
         joined = "\n".join(f"- {line}" for line in guidance_texts[:8])
@@ -1186,7 +1298,7 @@ def _answer_chat_inner(
 
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
     # Цитаты сверяются только с материалами: предыдущий диалог и указания пользователя доказательством не считаются.
-    evidence = "\n".join(part for part in (catalog, context, supplement, tz_excerpt, decisions, graph_part) if part)
+    evidence = "\n".join(part for part in (catalog, jira_overview, jira_focus, context, supplement, tz_excerpt, decisions, graph_part) if part)
     answer, quote_check = verify_answer_quotes(
         answer, evidence, user_texts=[question, *guidance_texts],
         source_texts=lambda: _project_materials_text(db, project_id),
