@@ -2959,7 +2959,7 @@ nodes:
   - id: static_background
     kind: file
     path: app/app/static/background.js
-    title: "Фоновая работа по проекту (ПФ9): ход разбора, перепроверка, переизвлечение, повтор ошибок."
+    title: "Дальнейшая обработка проекта: строка хода текущей очереди, ошибки, перепроверка и переизвлечение."
     tags: [auto]
     auto: true
 
@@ -3708,7 +3708,7 @@ nodes:
   - id: ui_background_progress
     kind: file
     path: app/app/templates/partials/background_progress.html
-    title: "Дальнейшая обработка проекта (бывшая карточка «Фоновая работа», ПФ9 PLATFORM-FOUNDATION-PLAN) — внутри «Материалов проекта», под ходом расши"
+    title: "Дальнейшая обработка проекта — строка в «Материалах проекта» под ходом расшифровки. Свёрнута: что идёт сейчас. Раскрыта: полоска этой очеред"
     tags: [auto]
     auto: true
 

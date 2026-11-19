@@ -95,6 +95,7 @@ items:
   - {path: "docs/stages", kind: "этапы", purpose: "STAGE-00…10 с критериями готовности"}
   - {path: "docs/AGENT1C-BRIDGE.md", kind: "документ", purpose: "адреса и порты связи с агентом 1С"}
   - {path: "docs/AUDIT-REPAIR-LOG.md", kind: "журнал", purpose: "журнал исправлений по аудиту"}
+  - {path: "docs/BACKGROUND-PROGRESS-WORK-REPORT.md", kind: "отчёт", purpose: "ход дальнейшей обработки: полоска только текущей очереди, без вчерашних задач и без ошибок"}
   - {path: "docs/CHANGELOG-DEV.md", kind: "журнал", purpose: "журнал разработки из git (генерируется)"}
   - {path: "docs/DECISIONS.md", kind: "решения", purpose: "что нельзя менять без пользователя"}
   - {path: "docs/FINDINGS-2026-09.md", kind: "находки", purpose: "открытые и закрытые находки сентября"}

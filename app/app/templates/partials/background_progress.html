@@ -1,5 +1,5 @@
-{# Дальнейшая обработка проекта (бывшая карточка «Фоновая работа», ПФ9 PLATFORM-FOUNDATION-PLAN) — внутри «Материалов проекта», под ходом расшифровки:
-   одна строка с состоянием, по нажатию — ход, этапы, ошибки, перепроверка, переизвлечение, повтор ошибок. Логика: static/background.js #}
+{# Дальнейшая обработка проекта — строка в «Материалах проекта» под ходом расшифровки.
+   Свёрнута: что идёт сейчас. Раскрыта: полоска этой очереди, ошибки, кнопки. Логика: static/background.js #}
 <details class="bg-inline" id="bg-card">
   <summary class="bg-inline-summary">
     <span class="pip-toggle" aria-hidden="true">▶</span>
@@ -7,19 +7,18 @@
     <span class="bg-inline-state" id="bg-summary">загрузка…</span>
   </summary>
   <div class="bg-inline-body">
-    <p class="text-muted small mb-2">После расшифровки обработка проекта идёт в очереди, пока вы работаете: разбор материалов, извлечение требований, проверка, темы,
-      устаревшее и дубли, конфликты, выжимка, пересборки по кнопкам. Здесь виден ход, ошибки и можно перезапустить разбор. Перезапуск сервера задачи не теряет.</p>
     <div class="small text-muted mb-2" id="bg-status" aria-live="polite"></div>
 
-    <div id="bg-idle" class="text-muted small mb-3">Сейчас ничего не выполняется.</div>
-    <div id="bg-active" class="d-none mb-3">
-      <div class="progress mb-2" role="progressbar" aria-label="Ход разбора" aria-valuemin="0" aria-valuemax="100" id="bg-progress-wrap">
-        <div class="progress-bar" id="bg-progress" style="width:0%">0%</div>
+    <div id="bg-active" class="d-none mb-2">
+      <div class="d-flex align-items-center gap-2">
+        <div class="progress flex-grow-1" role="progressbar" aria-label="Сделано в этой очереди" aria-valuemin="0" aria-valuemax="100" id="bg-progress-wrap">
+          <div class="progress-bar" id="bg-progress" style="width:0%"></div>
+        </div>
+        <span class="small text-nowrap" id="bg-fraction">0 из 0</span>
       </div>
-      <div class="small" id="bg-current"></div>
-      <div class="small text-muted" id="bg-estimate"></div>
+      <div class="small text-muted mt-1 d-none" id="bg-current"></div>
     </div>
-    <div class="d-flex flex-wrap gap-2 mb-3" id="bg-stages"></div>
+    <div class="d-flex flex-wrap gap-1 mb-2 d-none" id="bg-stages"></div>
 
     <div id="bg-errors-box" class="d-none mb-3">
       <div class="small fw-semibold text-danger mb-1" id="bg-errors-title"></div>

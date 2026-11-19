@@ -65,25 +65,28 @@ def _settings():
     return get_settings().model_copy(update={"auto_review_mode": "shadow"})
 
 
-def test_progress_idle_then_active_with_stages_errors_and_estimate(db, setup):
+def test_progress_idle_then_active_with_stages_and_errors(db, setup):
     pid, ids = setup
     idle = pj.progress(db, pid)
     assert idle["active"] is False and idle["stages"] == [] and idle["percent"] is None and idle["current"] is None
-    now = datetime.utcnow()
-    _job(db, ids[0], "reextract", "done", started=now - timedelta(seconds=200), finished=now - timedelta(seconds=100))
-    _job(db, ids[1], "reextract", "running", started=now - timedelta(seconds=30))
-    _job(db, ids[2], "reextract", "queued")
-    _job(db, ids[0], "artifact", "error", started=now - timedelta(seconds=60), finished=now - timedelta(seconds=50), error="модель недоступна")
-    _job(db, ids[0], "summary", "queued")
+    assert idle["done"] == 0 and idle["total"] == 0
+    base = datetime.utcnow() - timedelta(minutes=10)
+    _job(db, ids[0], "reextract", "done", created=base, started=base, finished=base + timedelta(minutes=2))
+    _job(db, ids[1], "reextract", "running", created=base + timedelta(seconds=1), started=base + timedelta(minutes=2))
+    _job(db, ids[2], "reextract", "queued", created=base + timedelta(seconds=2))
+    _job(db, ids[0], "artifact", "error", created=base + timedelta(seconds=3), started=base + timedelta(minutes=3),
+         finished=base + timedelta(minutes=4), error="модель недоступна")
+    _job(db, ids[0], "summary", "queued", created=base + timedelta(seconds=4))
     got = pj.progress(db, pid)
-    assert got["active"] and got["pending"] == 3 and got["finished_24h"] == 2 and got["percent"] == 40
+    # Ошибка не двигает полоску: 1 успех и 3 живые задачи этой очереди, не «2 из 5».
+    assert got["active"] and got["pending"] == 3 and got["done"] == 1 and got["total"] == 4 and got["percent"] == 25
+    assert "finished_24h" not in got and "estimate_minutes" not in got
     stages = {s["scope"]: s for s in got["stages"]}
     assert (stages["reextract"]["done"], stages["reextract"]["running"], stages["reextract"]["queued"]) == (1, 1, 1)
     assert stages["artifact"]["error"] == 1 and stages["summary"]["queued"] == 1
     assert [s["scope"] for s in got["stages"]] == ["reextract", "artifact", "summary"]  # порядок конвейера, пустые этапы не показываются
     assert got["current"]["stage"] == "Извлечение требований" and got["current"]["material"] == "протокол.docx"
     assert got["errors_total"] == 1 and got["errors"][0]["message"] == "модель недоступна" and got["errors"][0]["stage"] == "Проверка требований моделью"
-    assert got["estimate_minutes"] >= 1  # по средней длительности завершённых задач и ожидающим
 
 
 def test_progress_shows_every_queue_kind_not_only_auto_review(db, setup):
@@ -120,6 +123,75 @@ def test_transcription_is_neither_cancelled_nor_retried(db, setup):
     assert pj.cancel_pending(db, pid) == 0 and pj.retry_errors(db, pid) == 0
     db.expire_all()
     assert db.get(Job, waiting.id).status == "queued" and db.get(Job, failed.id).status == "error"
+
+
+def test_superseded_transcription_errors_hidden_after_later_success(db, setup):
+    """Старые сбои расшифровки не показывают «Ошибок: N», если материал потом успешно дообработан."""
+    from app.app.models.job import Job
+
+    pid, ids = setup
+    now = datetime.utcnow()
+    db.add_all([
+        Job(artifact_id=ids[0], kind="process_artifact", status="error", phase="asr",
+            error_message="нет модели", finished_at=now - timedelta(hours=1)),
+        Job(artifact_id=ids[0], kind="process_artifact", status="error", phase="asr",
+            error_message="embed_voice", finished_at=now - timedelta(minutes=30)),
+        Job(artifact_id=ids[0], kind="process_artifact", status="done", phase="asr", finished_at=now),
+    ])
+    db.commit()
+    got = pj.progress(db, pid)
+    assert got["errors_total"] == 0 and got["errors"] == []
+    assert got["active"] is False and got["stages"] == [] and got["percent"] is None
+
+
+def test_progress_bar_is_the_current_wave_only(db, setup):
+    """Вчерашние успехи не заполняют полоску новой задачи. Сбой в этой очереди не считается сделанным."""
+    from app.app.models.job import Job
+
+    pid, ids = setup
+    yesterday = datetime.utcnow() - timedelta(days=1)
+    now = datetime.utcnow()
+    db.add(Job(artifact_id=ids[0], kind="auto_review", status="done", phase="review",
+               payload_json=json.dumps({"scope": "reextract", "mode": "shadow"}),
+               created_at=yesterday, started_at=yesterday, finished_at=yesterday + timedelta(minutes=3)))
+    db.commit()
+    assert pj.progress(db, pid)["stages"] == []  # закрытая партия без живых задач на экране не висит
+    _job(db, ids[1], "reextract", "queued", created=now)
+    fresh = pj.progress(db, pid)
+    assert fresh["done"] == 0 and fresh["total"] == 1 and fresh["percent"] == 0
+    assert [s["scope"] for s in fresh["stages"]] == ["reextract"]
+
+    burst = now - timedelta(minutes=30)
+    _job(db, ids[2], "artifact", "done", created=burst, started=burst, finished=burst + timedelta(minutes=5))
+    _job(db, ids[0], "artifact", "error", created=burst + timedelta(seconds=1), started=burst + timedelta(minutes=5),
+         finished=burst + timedelta(minutes=6), error="сбой")
+    _job(db, ids[1], "artifact", "running", created=burst + timedelta(seconds=2), started=burst + timedelta(minutes=6))
+    mixed = pj.progress(db, pid)
+    # Идущая задача держит очередь открытой, поэтому вчерашний успех снаружи, а сегодняшние — вместе.
+    # 1 успех и 2 живые (идёт проверка и ждёт извлечение); ошибка в «из 3» не входит.
+    assert mixed["done"] == 1 and mixed["pending"] == 2 and mixed["total"] == 3 and mixed["percent"] == 33
+
+
+def test_superseded_errors_are_not_done_inside_the_wave(db, setup):
+    from app.app.models.job import Job
+
+    pid, ids = setup
+    burst = datetime.utcnow() - timedelta(minutes=20)
+    db.add_all([
+        Job(artifact_id=ids[0], kind="process_artifact", status="error", phase="asr", error_message="нет модели",
+            created_at=burst, finished_at=burst + timedelta(minutes=1)),
+        Job(artifact_id=ids[0], kind="process_artifact", status="done", phase="asr",
+            created_at=burst + timedelta(seconds=30), finished_at=burst + timedelta(minutes=10)),
+        Job(artifact_id=ids[1], kind="auto_review", status="queued", phase="review",
+            payload_json=json.dumps({"scope": "artifact", "mode": "shadow"}),
+            created_at=burst + timedelta(seconds=40)),
+    ])
+    db.commit()
+    got = pj.progress(db, pid)
+    assert got["errors_total"] == 0
+    asr = next(s for s in got["stages"] if s["scope"] == "process:asr")
+    assert asr["error"] == 0 and asr["done"] == 1
+    assert got["done"] == 1 and got["total"] == 2 and got["percent"] == 50
 
 
 def test_old_finished_jobs_are_not_counted(db, setup):
@@ -279,6 +351,8 @@ def test_api_refuses_to_start_without_worker(client, admin_token, api_project, m
 
 def test_project_page_has_background_card_for_staff_only(client, manager_token, user_token, api_project):
     pid = api_project
-    assert "Дальнейшая обработка" in client.get(f"/projects/{pid}", headers=_auth(manager_token)).text
+    page = client.get(f"/projects/{pid}", headers=_auth(manager_token)).text
+    assert "Дальнейшая обработка" in page and "bg-fraction" in page
+    assert "осталось задач" not in page and "После расшифровки обработка проекта" not in page
     page = client.get(f"/projects/{pid}", headers=_auth(user_token)).text
     assert "Дальнейшая обработка" not in page and "/static/background.js" not in page
