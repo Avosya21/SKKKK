@@ -129,7 +129,7 @@ async def lifespan(_app: FastAPI):
 
     async def _stale_loop():
         from app.app.models.meeting import STATUS_LIVE, Meeting
-        from app.app.services.meetings import mark_stale_participants
+        from app.app.services.meetings import end_abandoned_meetings, mark_stale_participants
         while True:
             await asyncio.sleep(30)
             def _cleanup() -> None:
@@ -138,6 +138,8 @@ async def lifespan(_app: FastAPI):
                 try:
                     for meeting in db.query(Meeting).filter(Meeting.status == STATUS_LIVE).all():
                         mark_stale_participants(db, meeting)
+                    # После отметки ушедших: пустая live закрывается, рекордер отпускает файлы.
+                    end_abandoned_meetings(db)
                 finally:
                     db.close()
 
@@ -371,47 +373,6 @@ def _build_for(user: User) -> dict:
     return data
 
 
-def _print_credentials(passwords: dict[str, str], *, host: str, port: int) -> None:
-    if not passwords:
-        return
-    print()
-    print("=" * 52)
-    print("  Пароли ролей Primary Analytics (показываются один раз)")
-    print("=" * 52)
-    for role, password in passwords.items():
-        print(f"  {role:<8} {password}")
-    print("=" * 52)
-    print(f"  Вход: http://{host}:{port}/login")
-    print("  Имя и Telegram ID — любые, пароль берётся из списка выше.")
-    print("=" * 52)
-    print()
-
-
-def _sync_existing_users(passwords: dict[str, str]) -> int:
-    """После перевыпуска паролей обновить уже созданных пользователей.
-
-    Иначе аккаунт, заведённый под старым паролем роли, продолжит проверяться по
-    собственному устаревшему хешу и вход не пройдёт.
-    """
-    from app.app.bootstrap import role_hashes
-    from app.app.db import SessionLocal
-    from app.app.models.user import User
-
-    hashes = role_hashes()
-    db = SessionLocal()
-    try:
-        Base.metadata.create_all(bind=get_engine())
-        updated = 0
-        for user in db.scalars(select(User)).all():
-            new_hash = hashes.get(user.role)
-            if new_hash and user.password_hash != new_hash:
-                user.password_hash = new_hash
-                updated += 1
-        db.commit()
-        return updated
-    finally:
-        db.close()
-
 
 def _preflight(mode: str, *, skip: bool, host: str, port: int) -> int:
     """Прогнать проверку систем. Возвращает код выхода, 0 — можно стартовать."""
@@ -527,7 +488,6 @@ def _run_all(host: str, port: int, *, skip_checks: bool, reload: bool) -> int:
     if code:
         return code
 
-    _print_credentials(_NEW_CREDENTIALS, host=host, port=port)
     _ensure_edge()
     worker = _spawn_worker()
     try:
@@ -545,7 +505,6 @@ def _run_api(host: str, port: int, *, skip_checks: bool, reload: bool) -> int:
         return 0
     if code:
         return code
-    _print_credentials(_NEW_CREDENTIALS, host=host, port=port)
     _ensure_edge()
     _serve(host, port, reload=reload)
     return 0
@@ -571,32 +530,6 @@ def _run_check(host: str, port: int) -> int:
     settings = settings.model_copy(update={"web_host": host, "web_port": port})
     failed, _warned = summarize(run_preflight(settings, mode="all"))
     return 2 if failed else 0
-
-
-def _run_credentials(*, reset: bool, host: str, port: int) -> None:
-    from app.app.bootstrap import reset_role_passwords
-
-    if reset:
-        passwords = reset_role_passwords()
-        get_settings.cache_clear()
-        updated = _sync_existing_users(passwords)
-        from app.app.services.session_version import bump as bump_session_version
-
-        bump_session_version(reason="credentials_reset")
-        _print_credentials(passwords, host=host, port=port)
-        if updated:
-            print(f"Обновлено существующих пользователей: {updated}")
-        print("Открытые сессии закрыты (session_version).")
-        return
-
-    if _NEW_CREDENTIALS:
-        _print_credentials(_NEW_CREDENTIALS, host=host, port=port)
-        return
-
-    print(
-        "Пароли ролей уже заданы в .env, восстановить их из хеша нельзя.\n"
-        "Перевыпустить: python -m app.app.main credentials --reset"
-    )
 
 
 def _confirm(question: str) -> bool:
@@ -628,16 +561,18 @@ def _user_cards_interactive() -> None:
         db.close()
 
 
-def _reset_role_passwords_interactive(host: str, port: int) -> None:
-    """Пункт 9 меню запуска: перевыпуск паролей всех ролей с подтверждением."""
+def _revoke_all_sessions_interactive() -> None:
+    """Пункт 9 меню запуска: закрыть все открытые сессии портала."""
     print()
-    print("Будут перевыпущены пароли всех трёх ролей (admin, manager, user).")
-    print("Старые перестанут подходить для входа; все открытые сессии будут закрыты.")
-    if not _confirm("Перевыпустить?"):
+    print("Все открытые сессии будут закрыты (session_version). Войти нужно заново.")
+    if not _confirm("Закрыть все сессии?"):
         print("Отменено.")
         return
-    _run_credentials(reset=True, host=host, port=port)
-    log_event(startup_logger, "credentials.reset", source="startup_menu")
+    from app.app.services.session_version import bump as bump_session_version
+
+    ver = bump_session_version(reason="startup_menu_revoke")
+    print(f"Готово. session_version={ver}")
+    log_event(startup_logger, "sessions.revoke_all", source="startup_menu", version=ver)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -647,18 +582,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("all", "api", "worker", "check", "credentials"),
+        choices=("all", "api", "worker", "check"),
         default="all",
         help=(
             "all — проверка, Caddy, LiveKit, очистка голоса, портал и GPU-воркер (по умолчанию); "
             "api — Caddy, LiveKit, очистка голоса и портал; worker — только воркер; "
-            "check — только проверка систем; credentials — пароли ролей"
+            "check — только проверка систем"
         ),
     )
     settings = get_settings()
     parser.add_argument("--host", default=settings.web_host)
     parser.add_argument("--port", type=int, default=settings.web_port)
-    parser.add_argument("--reset", action="store_true", help="перевыпустить пароли ролей")
     parser.add_argument("--reload", action="store_true", help="автоперезапуск при правках кода")
     parser.add_argument("--skip-checks", action="store_true", help="пропустить проверку систем")
     parser.add_argument(
@@ -694,10 +628,7 @@ def main(argv: list[str] | None = None) -> int:
             actions={
                 "7": ("сбросить личный пароль пользователя", _reset_personal_password_interactive),
                 "8": ("карточки пользователей: компания, согласие на голос, сброс", _user_cards_interactive),
-                "9": (
-                    "перевыпустить пароли ролей",
-                    lambda: _reset_role_passwords_interactive(args.host, args.port),
-                ),
+                "9": ("закрыть все сессии портала", _revoke_all_sessions_interactive),
             },
         )
         get_settings.cache_clear()
@@ -720,7 +651,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_worker(skip_checks=args.skip_checks, host=args.host, port=args.port)
     if args.mode == "check":
         return _run_check(args.host, args.port)
-    _run_credentials(reset=args.reset, host=args.host, port=args.port)
     return 0
 
 

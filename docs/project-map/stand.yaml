@@ -18,9 +18,11 @@ updated: "2026-10-05"
 roots: [".", "docs", "tools", "venvs", "data", "asr", "scripts", "app/app/static/vendor"]
 
 # Прямые потомки этих каталогов не проверяются: временный мусор и каталоги IDE
-skip_dirs: ["__pycache__", ".git", ".idea", ".pytest_cache", "tmp"]
+skip_dirs: ["__pycache__", ".git", ".idea", ".pytest_cache", "tmp", "unsloth_compiled_cache"]
 # `*.py` и `*.ps1` — код: его полноту проверяет scripts/check_map_drift.py, здесь не дублируется
-skip_suffix: [".pyc", ".py", ".ps1", ".db-shm", ".db-wal", ".db-journal", ".lock", ".log"]
+skip_suffix: [".pyc", ".py", ".ps1", ".db-shm", ".db-wal", ".db-journal", ".lock", ".log", ".bak"]
+# Временные выгрузки агентов/приёмки под data/ и корень — не инвентарь стенда
+skip_prefixes: ["data/tmp_", "data/_tmp_", "data/_backup_", "tmp_"]
 
 # Каталоги документов: каждый файл должен быть упомянут хотя бы в одном документе карты
 # (PROJECT-MAP, PLAN, DECISIONS, TESTING, OPERATIONS, stages/README) — иначе он «сирота».
@@ -37,20 +39,23 @@ items:
   - {path: ".env", kind: "секреты", purpose: "боевые пароли ролей и ключи (не в git)"}
   - {path: ".env.example", kind: "шаблон", purpose: "образец .env со всеми переменными"}
   - {path: ".gitignore", kind: "git", purpose: "что не попадает в репозиторий"}
-  - {path: ".kiloignore", kind: "чужой инструмент", purpose: "исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел)"}
-  - {path: ".kilo", kind: "чужой инструмент", purpose: "рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится)"}
-  - {path: ".mcp.json", kind: "MCP", purpose: "локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py) и projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage)"}
+  - {path: ".kiloignore", kind: "чужой инструмент", purpose: "исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел)", optional: true}
+  - {path: ".kilo", kind: "чужой инструмент", purpose: "рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится)", optional: true}
+  - {path: ".mcp.json", kind: "MCP", purpose: "локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py), projectmap и primaryanalitics-jira (tools/jira_mcp.py, только чтение)"}
   - {path: ".claude", kind: "агент", purpose: "конфиг Claude Code: launch.json, worktrees"}
   - {path: ".projectmap", kind: "конфиг", purpose: "конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты"}
   - {path: ".cursor", kind: "агент", purpose: "правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max)"}
-  - {path: "AGENTS.md", kind: "инструкции", purpose: "правила работы агента: индекс, коммиты, «Исправлено»"}
+  - {path: "AGENTS.md", kind: "инструкции", purpose: "правила работы агента: индекс, порядок правки (карта→тесты→код), коммиты, «Исправлено»"}
+  - {path: ".cursor/rules/11-change-workflow.mdc", kind: "правило", purpose: "причина не заплатка; карта→тесты→код; карта актуальна после любой работы"}
   - {path: "AUDIT_REPORT.md", kind: "отчёт", purpose: "внешний аудит 2026-08: находки с первопричинами (исторический документ)"}
   - {path: "Companies.example.txt", kind: "шаблон", purpose: "образец справочника компаний"}
   - {path: "Companies.txt", kind: "данные", purpose: "справочник компаний и сторон проектов (не в git)"}
   - {path: "INSTALL.bat", kind: "установка", purpose: "установка проекта на новом ПК одной командой"}
-  - {path: "INSTALL.md", kind: "инструкция", purpose: "пошаговая установка и перенос проекта"}
+  - {path: "INSTALL.md", kind: "инструкция", purpose: "установка и перенос: что скачать вручную, версии моделей/pip, чеклист после смены диска, смоук/acceptance"}
   - {path: "Login_up.example.txt", kind: "шаблон", purpose: "образец списка допущенных логинов"}
   - {path: "Login_up.txt", kind: "данные", purpose: "кто имеет право входить в портал (не в git)"}
+  - {path: "Login_roles.example.txt", kind: "шаблон", purpose: "образец ролей логинов (admin/manager/user)"}
+  - {path: "Login_roles.txt", kind: "данные", purpose: "роли учёток при входе (не в git)"}
   - {path: "Panel_users.example.txt", kind: "шаблон", purpose: "образец списка логинов с доступом к панели /admin/users"}
   - {path: "Panel_users.txt", kind: "данные", purpose: "логины с доступом к панели /admin/users, по строке на логин (не в git)", optional: true}
   - {path: "logo_drafts", kind: "черновик", purpose: "наброски логотипа: SVG-варианты и скрипты их генерации (не в git)", optional: true}
@@ -64,9 +69,9 @@ items:
   - {path: "docs", kind: "документы", purpose: "план, карта, решения, этапы, промпты, планы, эталоны"}
   - {path: "experiments", kind: "эксперименты", purpose: "опыты вне рабочего контура: TTS (f5tts, fishspeech), видео (promo_video, procedural-film), диаризация (nemo-diar, diar-presets), Audio, for_anar"}
   - {path: "Nemotron-3-Diarization", kind: "модель", purpose: "веса Nemotron 3 Diarization (.nemo) — канон диаризации; не в git", optional: true}
-  - {path: "private", kind: "личное", purpose: "заметки вне git: 1C-ARCHITECT-PLAN.md, handoff/BRIEF-1C-DATASET-AGENT.md (локальный .git/info/exclude)"}
+  - {path: "private", kind: "личное", purpose: "заметки вне git: 1C-ARCHITECT-PLAN.md, handoff/BRIEF-1C-DATASET-AGENT.md (локальный .git/info/exclude)", optional: true}
   - {path: "scripts", kind: "код", purpose: "служебные скрипты: запуск, QA, индекс, eval, утилиты (§10)"}
-  - {path: "tests", kind: "пусто", purpose: "остаток: только __pycache__; рабочие тесты — app/app/tests и asr/tests"}
+  - {path: "tests", kind: "пусто", purpose: "остаток: только __pycache__; рабочие тесты — app/app/tests и asr/tests", optional: true}
   - {path: "tools", kind: "инструменты", purpose: "портативные бинарники и внешние сервисы (см. ниже)"}
   - {path: "vendor", kind: "вендор", purpose: "GigaAMGUI — клон для сборки контейнера GigaAM; не в git", optional: true}
   - {path: "venv", kind: "окружение", purpose: "Python 3.10.9 портала и всех служебных скриптов", optional: true}
@@ -77,6 +82,11 @@ items:
   - {path: "scripts/PrimaryAnalitics-1-Остановить.bat", kind: "лаунчер", purpose: "двойной щелчок: остановить портал и воркер"}
   - {path: "scripts/PrimaryAnalitics-2-Запуск-Cursor.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с LLM в облаке (Cursor API)"}
   - {path: "scripts/PrimaryAnalitics-3-Запуск-LM-Studio.bat", kind: "лаунчер", purpose: "двойной щелчок: запуск с локальной моделью (LM Studio)"}
+  - {path: "scripts/SKKKK-1-Остановить.bat", kind: "лаунчер", purpose: "устаревший ярлык (историческое имя SKKKK) → PrimaryAnalitics-1", optional: true}
+  - {path: "scripts/SKKKK-2-Запуск-Cursor.bat", kind: "лаунчер", purpose: "устаревший ярлык → PrimaryAnalitics-2", optional: true}
+  - {path: "scripts/SKKKK-3-Запуск-LM-Studio.bat", kind: "лаунчер", purpose: "устаревший ярлык → PrimaryAnalitics-3", optional: true}
+  - {path: "scripts/portal_smoke.py", kind: "смоук", purpose: "основной функциональный смоук портала после переноса (без полного UI); §10 карты, docs/TESTING.md"}
+  - {path: "scripts/e2e", kind: "код", purpose: "сквозные e2e материалы/knowledge и mint JWT для acceptance / portal_smoke (§10)"}
   - {path: "scripts/index_config.yaml", kind: "конфиг", purpose: "что индексировать: файлы, исключения, версия схемы, маскирование секретов"}
   - {path: "scripts/index_glossary.yaml", kind: "конфиг", purpose: "словарь синонимов для поиска по карте"}
   - {path: "scripts/voice_review.html", kind: "шаблон", purpose: "страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/"}
@@ -90,7 +100,7 @@ items:
   - {path: "docs/eval", kind: "эталоны", purpose: "золотые наборы для замеров: конфликты, вопросы, факты ТЗ"}
   - {path: "docs/plans", kind: "планы", purpose: "20 планов развития: индекс, встречи, требования, память решений"}
   - {path: "docs/project-map", kind: "карта", purpose: "манифест, инвентарь стенда, атлас зависимостей, свод по модулям"}
-  - {path: "docs/prompts", kind: "промпты", purpose: "25 промптов LLM: выжимки, сущности, ТЗ, чат, vision"}
+  - {path: "docs/prompts", kind: "промпты", purpose: "27 промптов LLM: выжимки (в т.ч. internal), сущности, ТЗ, чат, vision"}
   - {path: "docs/source", kind: "материалы", purpose: "исходные материалы (в git только README)"}
   - {path: "docs/stages", kind: "этапы", purpose: "STAGE-00…10 с критериями готовности"}
   - {path: "docs/AGENT1C-BRIDGE.md", kind: "документ", purpose: "адреса и порты связи с агентом 1С"}
@@ -99,8 +109,9 @@ items:
   - {path: "docs/CHANGELOG-DEV.md", kind: "журнал", purpose: "журнал разработки из git (генерируется)"}
   - {path: "docs/DECISIONS.md", kind: "решения", purpose: "что нельзя менять без пользователя"}
   - {path: "docs/FINDINGS-2026-09.md", kind: "находки", purpose: "открытые и закрытые находки сентября"}
-  - {path: "docs/LOCAL-RECORD-WORK-REPORT.md", kind: "отчёт", purpose: "локальная запись созвона: MP4 при живой странице, WebM при обрыве, плашка «не закрывайте»"}
   - {path: "docs/HOWTO-MANAGER.md", kind: "инструкция", purpose: "как работать менеджеру проекта"}
+  - {path: "docs/JIRA-INTEGRATION-WORK-REPORT.md", kind: "отчёт", purpose: "подключение Jira: что сделано, что найдено при проверке, что осталось"}
+  - {path: "docs/LOCAL-RECORD-WORK-REPORT.md", kind: "отчёт", purpose: "локальная запись созвона: MP4 при живой странице, WebM при обрыве, плашка «не закрывайте»"}
   - {path: "docs/OPERATIONS.md", kind: "инструкция", purpose: "эксплуатация: запуск, бэкапы, индекс, разбор сбоев"}
   - {path: "docs/PLAN-AGENT-EXCHANGE-V2.md", kind: "план", purpose: "фазы обмена с внешним агентом"}
   - {path: "docs/PLAN-REVIEW.md", kind: "ревизия", purpose: "результаты ревизии плана"}
@@ -112,6 +123,8 @@ items:
 
   # ─── tools ───
   - {path: "tools/android", kind: "эмулятор", purpose: "Android SDK, JDK, AVD pixel7, platform-tools — мобильные проверки комнаты; не в git", optional: true}
+  - {path: "tools/Python310", kind: "окружение", purpose: "портативный CPython 3.10 для INSTALL на машине без системного Python; не в git", optional: true}
+  - {path: "tools/python-3.10.11-amd64.exe", kind: "установщик", purpose: "офлайн-инсталлятор Python 3.10.11; не в git", optional: true}
   - {path: "tools/caddy", kind: "сервис", purpose: "caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git", optional: true}
   - {path: "tools/ffmpeg", kind: "бинарник", purpose: "портативный FFmpeg (если нет в PATH); не в git", optional: true}
   - {path: "tools/libreoffice", kind: "бинарник", purpose: "LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git", optional: true}
@@ -121,6 +134,7 @@ items:
   - {path: "tools/projectmap", kind: "инструмент", purpose: "переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md)"}
   - {path: "tools/tesseract", kind: "бинарник", purpose: "OCR rus+eng и tessdata; бинарник не в git, языковые данные в git", optional: true}
   - {path: "tools/projindex_mcp.py", kind: "MCP", purpose: "MCP-сервер индекса карты (stdio): поиск по коду и графу"}
+  - {path: "tools/jira_mcp.py", kind: "MCP", purpose: "MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи для агента разработки; ключ из .env"}
   - {path: "tools/_monitor_snapshot.py", kind: "утилита", purpose: "снимок состояния для мониторинга"}
 
   # ─── venvs ───
@@ -157,7 +171,7 @@ items:
 
   # ─── asr (каталоги и не-python файлы) ───
   - {path: "asr/docker", kind: "образы", purpose: "Dockerfile контейнеров ASR: tone.Dockerfile, tone_rest.py"}
-  - {path: "asr/experiments", kind: "пусто", purpose: "остатки экспериментов ASR (только __pycache__)"}
+  - {path: "asr/experiments", kind: "пусто", purpose: "остатки экспериментов ASR (только __pycache__)", optional: true}
   - {path: "asr/gigaam-keys", kind: "ключи", purpose: "ключи доступа к GigaAM-контейнеру; не в git"}
   - {path: "asr/gigaam-logs", kind: "логи", purpose: "логи прогонов GigaAM; не в git"}
   - {path: "asr/gigaam-patches", kind: "патчи", purpose: "патчи образа GigaAM (vad.py)"}
@@ -165,7 +179,7 @@ items:
   - {path: "asr/gigaam-uploads", kind: "обмен", purpose: "аудио для GigaAM-контейнера; не в git"}
   - {path: "asr/lab", kind: "контур", purpose: "боевой лабораторный конвейер: стадии 01–07, диаризация, proof, voice (§8.5)"}
   - {path: "asr/models", kind: "модели", purpose: "локальные модели: faster-whisper-large-v3, gigaam-v3-e2e-rnnt, t-one, whisper-sherpa; не в git", optional: true}
-  - {path: "asr/out", kind: "вывод", purpose: "dev-вывод ASR (в прод-контуре не читается); не в git"}
+  - {path: "asr/out", kind: "вывод", purpose: "dev-вывод ASR (в прод-контуре не читается); не в git", optional: true}
   - {path: "asr/tests", kind: "тесты", purpose: "unit-тесты модулей ASR"}
   - {path: "asr/whisper-cache", kind: "кэш", purpose: "HF-кэш faster-whisper; не в git", optional: true}
   - {path: "asr/work", kind: "обмен", purpose: "bridge для Docker-контейнеров ASR (общий mount); не в git"}

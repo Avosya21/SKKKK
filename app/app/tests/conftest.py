@@ -26,37 +26,24 @@ from sqlalchemy.orm import sessionmaker
 
 
 
+# Совместимость со старыми тестами, которые ещё импортируют имена (пароли ролей больше не используются).
 ADMIN_PASS = "admin-pass"
-
 MANAGER_PASS = "manager-pass"
-
 USER_PASS = "user-pass"
 
-
-
-# Фиксированные bcrypt-хеши — не считаем при каждом запуске pytest (см. docs/TESTING.md).
-
-ADMIN_PASSWORD_HASH = "$2b$12$KILB8fgzE1gBya1wzii.vOBk1IMZzwRATP.q0y6wXbkgm5ceFrar6"
-
-MANAGER_PASSWORD_HASH = "$2b$12$/WKdzAQ4tnmOPg5U5pN20Ok7F.ycnRrdYm8H1O7sEFvn5p5LuNKc."
-
-USER_PASSWORD_HASH = "$2b$12$zfnzv12XGxxmR740LIw6nOSGNB95H8lf.tz5FFcOZZMKELKYBYQPy"
-
-
-
 os.environ.setdefault("SECRET_KEY", "test-secret-key-32chars!!")
-
-os.environ["ADMIN_PASSWORD_HASH"] = ADMIN_PASSWORD_HASH
-
-os.environ["MANAGER_PASSWORD_HASH"] = MANAGER_PASSWORD_HASH
-
-os.environ["USER_PASSWORD_HASH"] = USER_PASSWORD_HASH
-
 os.environ["DRY_RUN"] = "1"
-# Личный пароль по умолчанию обязателен; старые тесты входят одним шагом — режим включают только тесты личного пароля.
+# Личный пароль по умолчанию off в тестах; required включают тесты личного пароля / карточки.
 os.environ["PERSONAL_PASSWORD"] = "off"
-# Перебиваем боевой .env (там мог остаться старый TTL 30 суток): канон — 8 часов.
 os.environ["JWT_EXPIRE_MINUTES"] = "480"
+# Коды входа в тестах — в лог/peek_dev_code, без реального B24/SMTP.
+os.environ["B24_AUTH"] = "on"
+os.environ["B24_AUTH_DEV"] = "1"
+os.environ["EMAIL_OTP"] = "on"
+os.environ["EMAIL_OTP_DEV"] = "1"
+# В тестах не упираться в лимит кодов B24/email (кроме явных тестов лимитера).
+os.environ["LOGIN_CODE_RATE_LOGIN_PER_HOUR"] = "1000"
+os.environ["LOGIN_CODE_RATE_IP_PER_HOUR"] = "1000"
 
 
 
@@ -165,6 +152,23 @@ def tmp_data(tmp_path: Path, monkeypatch) -> Path:
         encoding="utf-8",
     )
     monkeypatch.setenv("LOGIN_ALLOWLIST_PATH", str(allow))
+    roles = tmp_path / "Login_roles.txt"
+    roles.write_text(
+        "\n".join(
+            [
+                "Admin | admin",
+                "Manager | manager",
+                "User | user",
+                "Bootstrap admin | admin",
+                "Bootstrap manager | manager",
+                "Bootstrap user | user",
+                "dup_login_keep | manager",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOGIN_ROLES_PATH", str(roles))
     companies = tmp_path / "Companies.txt"
     companies.write_text("ACME | Исполнитель\nЗаказчик Тест | Заказчик\n", encoding="utf-8")
     monkeypatch.setenv("COMPANIES_PATH", str(companies))
@@ -280,49 +284,25 @@ def client(db_engine) -> Generator[TestClient, None, None]:
 
 
 
-def _login(client: TestClient, *, name: str, telegram_id: str, password: str) -> str:
+def _login(client: TestClient, *, name: str, telegram_id: str, password: str | None = None, role: str | None = None) -> str:
+    from app.app.tests.auth_helpers import access_token
 
-    r = client.post(
-
-        "/auth/login",
-
-        json={"name": name, "telegram_id": telegram_id, "password": password},
-
-    )
-
-    assert r.status_code == 200, r.text
-
-    return r.json()["access_token"]
-
-
-
+    return access_token(client, name=name, telegram_id=telegram_id, password=password, role=role)
 
 
 @pytest.fixture()
-
 def admin_token(client: TestClient) -> str:
-
-    return _login(client, name="Admin", telegram_id="tg-admin", password=ADMIN_PASS)
-
-
-
+    return _login(client, name="Admin", telegram_id="tg-admin", role="admin")
 
 
 @pytest.fixture()
-
 def manager_token(client: TestClient) -> str:
-
-    return _login(client, name="Manager", telegram_id="tg-manager", password=MANAGER_PASS)
-
-
-
+    return _login(client, name="Manager", telegram_id="tg-manager", role="manager")
 
 
 @pytest.fixture()
-
 def user_token(client: TestClient) -> str:
-
-    return _login(client, name="User", telegram_id="tg-user", password=USER_PASS)
+    return _login(client, name="User", telegram_id="tg-user", role="user", password=None)
 
 
 

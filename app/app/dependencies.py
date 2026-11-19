@@ -13,8 +13,6 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.models.user import User
-from app.app.services.auth import verify_password
-
 security = HTTPBearer(auto_error=False)
 
 SESSION_COOKIE_NAME = "primary_analitics_session"
@@ -33,9 +31,9 @@ def create_access_token(
     pf: bool | None = None,
     sv: int | None = None,
 ) -> str:
-    """Роль сессии — из пароля при входе; в БД (общая учётка) она не перезаписывается.
+    """Роль сессии — выбранная при входе (Login_roles); в БД общей учётки не перезаписывается.
 
-    `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль пройден,
+    `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль / шаг N/A пройден,
     `pf` — карточка заполнена, `sv` — глобальная версия сессий (см. `_check_session_gates`).
     """
     from app.app.services.session_version import current as current_session_version
@@ -84,57 +82,34 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
 
 
-def authenticate_new_user(settings: Settings, password: str) -> tuple[str, str] | None:
-    # Хеши ролей могут быть перевыпущены командой `credentials --reset`, пока API
-    # уже работает. `settings` закеширован через lru_cache, поэтому для входа
-    # читаем свежие хеши прямо из `.env`, чтобы новый пароль принимался сразу.
-    #
-    # Но в тестах/CI хеши часто задаются через env-переменные, и тогда чтение
-    # `.env` может привести к расхождению. Поэтому: если env-переменные уже есть,
-    # используем `settings.*` как источник истины.
-    import os
-    env_keys = {"ADMIN_PASSWORD_HASH", "MANAGER_PASSWORD_HASH", "USER_PASSWORD_HASH"}
-    use_fresh_from_env_file = not any(k in os.environ for k in env_keys)
-
-    if use_fresh_from_env_file:
-        from app.app.bootstrap import role_hashes
-
-        current = role_hashes()
-    else:
-        current = {}
-
-    pairs = (
-        ("admin", current.get("admin") or settings.admin_password_hash),
-        ("manager", current.get("manager") or settings.manager_password_hash),
-        ("user", current.get("user") or settings.user_password_hash),
-    )
-    for role, hashed in pairs:
-        if verify_password(password, hashed):
-            return role, hashed
-    return None
-
-
 def _check_session_gates(settings: Settings, user: User, payload: dict) -> None:
-    """Сессия действительна, пока совпадают `sv` (глобальная) и `pv` (личный пароль).
+    """Сессия действительна, пока совпадают `sv` (глобальная) и при необходимости `pv`.
 
-    Смена/сброс личного пароля или bump `session_version` (пароли ролей / «разлогинить всех»)
-    → 401. В режиме `required` без `pp`/`pf` сессия тоже недействительна.
+    Роль ``user`` (заказчик) без личного пароля: проверяем только ``sv``, ``pp``/``pf`` и карточку.
+    Смена/сброс личного пароля сотрудника или bump ``session_version`` → 401.
     """
     from app.app.services.session_version import current as current_session_version
 
     if int(payload.get("sv") or 0) != current_session_version():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
 
+    session_role = payload.get("role") or user.role
+    customer = session_role == "user"
+
     if settings.personal_password == "off":
         return
-    from app.app.services.personal_password import current_version
 
-    stale = int(payload.get("pv") or 0) != current_version(user.name)
     required = settings.personal_password == "required"
-    if stale or (required and not (payload.get("pp") and payload.get("pf"))):
+    if required and not (payload.get("pp") and payload.get("pf")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+
+    if not customer:
+        from app.app.services.personal_password import current_version
+
+        if int(payload.get("pv") or 0) != current_version(user.name):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+
     if required:
-        # Админ сбросил карточку — открытые сессии человека закрываются сразу.
         from app.app.services.user_profile import get_profile, is_complete
 
         db = object_session(user)

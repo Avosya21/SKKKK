@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     )
 
     secret_key: str = Field(min_length=8)
+    # Устаревшие хеши паролей ролей: больше не используются для входа (роли — Login_roles.txt).
     admin_password_hash: str = ""
     manager_password_hash: str = ""
     user_password_hash: str = ""
@@ -120,11 +121,33 @@ class Settings(BaseSettings):
     search_min_score: float = 0.35
     tz_rebuild_every_n: int = 3
     dry_run: bool = False
-    jwt_expire_minutes: int = 480  # 8 часов (рабочий день); смена — DECISIONS «Периметр HTTP»
+    jwt_expire_minutes: int = 21600  # 15 суток; смена — DECISIONS «Периметр HTTP»
     job_max_attempts: int = 3
     login_allowlist_path: Path = ROOT / "Login_up.txt"
-    # Личный пароль после пароля роли: required (всегда) | off — только тесты и аварийный откат.
+    # Роли логинов (admin правит файл): login | role[,role...]; нет строки → manager.
+    login_roles_path: Path = ROOT / "Login_roles.txt"
+    # Личный пароль сотрудников: required (всегда) | off — только тесты и аварийный откат.
+    # Роль user (заказчик) входит без личного пароля — код на email.
     personal_password: str = "required"
+    # Подтверждение входа: Битрикс24 (сотрудники) и/или email OTP (заказчик + запасной канал).
+    b24_auth: str = "off"
+    b24_auth_dev: bool = False
+    b24_webhook_chat: str = ""
+    b24_webhook_user: str = ""
+    email_otp: str = "off"
+    email_otp_dev: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_from_name: str = "Appa: Primary Analitics"
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    login_code_ttl_sec: int = 600
+    login_code_attempts: int = 3
+    login_code_rate_login_per_hour: int = 3
+    login_code_rate_ip_per_hour: int = 10
     # Пусто — `DATA_DIR/credentials.db`: изолированный экземпляр со своим DATA_DIR (QA, тесты) не трогает боевую базу.
     credentials_db_path: Path | None = None
     personal_password_min_len: int = 10
@@ -180,7 +203,22 @@ class Settings(BaseSettings):
             raise ValueError("PERSONAL_PASSWORD: required | off (off — только тесты и аварийный откат)")
         return mode
 
-    @field_validator("data_dir", "login_allowlist_path", "companies_path", "panel_users_path", mode="before")
+    @field_validator("b24_auth", "email_otp", mode="before")
+    @classmethod
+    def _on_off(cls, v: str | None) -> str:
+        mode = (v or "off").strip().lower()
+        if mode not in {"on", "off"}:
+            raise ValueError("ожидается on|off")
+        return mode
+
+    @field_validator(
+        "data_dir",
+        "login_allowlist_path",
+        "login_roles_path",
+        "companies_path",
+        "panel_users_path",
+        mode="before",
+    )
     @classmethod
     def _path(cls, v: str | Path) -> Path:
         return Path(v)

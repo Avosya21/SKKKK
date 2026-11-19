@@ -120,10 +120,6 @@ def check_rules(new: str, confirm: str, *, login: str) -> None:
         raise PasswordRuleError("Пароль не может состоять из пробелов")
     if login_key(new) == login_key(login):
         raise PasswordRuleError("Пароль не должен совпадать с логином")
-    from app.app.dependencies import authenticate_new_user
-
-    if authenticate_new_user(get_settings(), new):
-        raise PasswordRuleError("Пароль не должен совпадать с паролем роли")
 
 
 def verify(login: str, plain: str) -> bool:

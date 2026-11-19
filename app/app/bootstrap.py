@@ -12,29 +12,9 @@ import secrets
 import shutil
 from pathlib import Path
 
-import bcrypt
-
 ROOT = Path(__file__).resolve().parents[2]
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE = ROOT / ".env.example"
-
-ROLES: tuple[str, ...] = ("admin", "manager", "user")
-
-# Без похожих друг на друга символов: 0/O, 1/l/I.
-_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
-_PASSWORD_LENGTH = 14
-
-
-def hash_key(role: str) -> str:
-    return f"{role.upper()}_PASSWORD_HASH"
-
-
-def generate_password() -> str:
-    return "".join(secrets.choice(_ALPHABET) for _ in range(_PASSWORD_LENGTH))
-
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def _read_env() -> str:
@@ -59,11 +39,10 @@ def _set(text: str, key: str, value: str) -> str:
 
 
 def ensure_env() -> dict[str, str]:
-    """Дописать в `.env` то, без чего приложение не стартует.
+    """Дописать в `.env` SECRET_KEY, если пуст или placeholder.
 
-    Возвращает `{роль: пароль}` только для ролей, пароли которых сгенерированы
-    прямо сейчас. Уже заполненные хеши не трогает: восстановить из них исходный
-    пароль нельзя, поэтому и показать его больше нечем.
+    Раньше здесь же генерировались пароли ролей — больше не нужны (роли из Login_roles.txt).
+    Возвращает пустой dict (совместимость с вызовами, ожидавшими ``{роль: пароль}``).
     """
     text = _read_env()
     original = text
@@ -72,31 +51,6 @@ def ensure_env() -> dict[str, str]:
     if len(secret) < 8 or secret == "change-me":
         text = _set(text, "SECRET_KEY", secrets.token_hex(24))
 
-    created: dict[str, str] = {}
-    for role in ROLES:
-        if _get(text, hash_key(role)):
-            continue
-        password = generate_password()
-        text = _set(text, hash_key(role), hash_password(password))
-        created[role] = password
-
     if text != original:
         ENV_PATH.write_text(text, encoding="utf-8")
-    return created
-
-
-def reset_role_passwords() -> dict[str, str]:
-    """Перевыпустить пароли всех трёх ролей и вернуть `{роль: пароль}`."""
-    text = _read_env()
-    passwords: dict[str, str] = {}
-    for role in ROLES:
-        password = generate_password()
-        text = _set(text, hash_key(role), hash_password(password))
-        passwords[role] = password
-    ENV_PATH.write_text(text, encoding="utf-8")
-    return passwords
-
-
-def role_hashes() -> dict[str, str]:
-    text = _read_env()
-    return {role: _get(text, hash_key(role)) for role in ROLES}
+    return {}

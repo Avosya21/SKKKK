@@ -31,6 +31,7 @@ from app.app.models.decision_memory import DecisionEvent, MemoryShadowReview, Su
 from app.app.models.speech_act import SpeechAct
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.portal_setting import PortalSetting
+from app.app.models.login_code import B24Employee, LoginCode
 from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
 from app.app.models.user_profile import UserProfile
@@ -40,6 +41,8 @@ __all__ = [
     "JiraGrant",
     "JiraItem",
     "JiraProjectLink",
+    "LoginCode",
+    "B24Employee",
     "ProjectVisit",
     "ManualTask",
     "AgentQuestion",

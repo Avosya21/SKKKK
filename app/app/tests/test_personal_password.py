@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from app.app.tests.conftest import ADMIN_PASS
-
 GOOD = "correct-horse-battery"
 
 
@@ -63,12 +61,6 @@ def test_rules(pp, new, confirm, text):
 def test_rule_not_equal_to_login(pp):
     with pytest.raises(pp.PasswordRuleError, match="логином"):
         pp.check_rules("Long.Login.Name", "Long.Login.Name", login="long.login.name")
-
-
-def test_rule_not_equal_to_role_password(pp, monkeypatch):
-    monkeypatch.setattr(pp, "min_length", lambda: 4)
-    with pytest.raises(pp.PasswordRuleError, match="паролем роли"):
-        pp.check_rules(ADMIN_PASS, ADMIN_PASS, login="someone")
 
 
 def test_set_initial_twice_is_refused(pp):

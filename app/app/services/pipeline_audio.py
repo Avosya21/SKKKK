@@ -72,11 +72,36 @@ def _build_transcript_view(env: dict[str, str]) -> None:
         )
 
 
+def _enrich_call_summary_env(env: dict[str, str], artifact: Artifact) -> None:
+    """Флаг внутреннего проекта, словарь контуров и шаблон Jira для summarize_call."""
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+
+    db = SessionLocal()
+    try:
+        project = db.get(Project, artifact.project_id)
+        data = project.settings() if project else {}
+    finally:
+        db.close()
+    if data.get("internal_project"):
+        env["PRIMARY_ANALITICS_INTERNAL_PROJECT"] = "1"
+    dictionary = data.get("workstream_dictionary") or data.get("project_dictionary")
+    if dictionary:
+        if isinstance(dictionary, (list, dict)):
+            env["PRIMARY_ANALITICS_PROJECT_DICTIONARY"] = json.dumps(dictionary, ensure_ascii=False)
+        else:
+            env["PRIMARY_ANALITICS_PROJECT_DICTIONARY"] = str(dictionary).strip()
+    jira = data.get("jira_ticket_base") or data.get("jira_browse_url")
+    if jira:
+        env["PRIMARY_ANALITICS_JIRA_TICKET_BASE"] = str(jira).strip()
+
+
 def run_call_summary(settings: Settings, artifact: Artifact) -> bool:
     """Выжимка созвона: после спикеров и индекса, LLM + обновление HTML."""
     from app.app.services.artifact_audio import sync_transcript_view_reports
 
     env = _asr_env(settings, artifact)
+    _enrich_call_summary_env(env, artifact)
     path = ROOT / "asr" / "summarize_call.py"
     if not path.is_file():
         return False
@@ -86,6 +111,7 @@ def run_call_summary(settings: Settings, artifact: Artifact) -> bool:
         artifact=artifact.artifact_id,
         llm_provider=settings.llm_provider,
         llm=llm_runtime_label(settings.llm_provider),
+        internal=bool(env.get("PRIMARY_ANALITICS_INTERNAL_PROJECT")),
     )
     proc = subprocess.run(
         [sys.executable, str(path)],
@@ -306,12 +332,13 @@ def process_audio_artifact(db: Session, settings: Settings, artifact: Artifact) 
         giga = asr_dir / "docker_gigaam.txt"
         empty = all(not p.is_file() or not p.read_text(encoding="utf-8").strip() for p in (whisper, tone, giga))
         if empty:
-            artifact.error_message = "речь не обнаружена"
-            set_status(db, artifact, "done", reason="речь не обнаружена")
+            from app.app.services.lab_errors import NO_SPEECH
+
+            set_status(db, artifact, "done", error_message=NO_SPEECH, reason=NO_SPEECH)
             return ""
-        artifact.error_message = "ASR finished but no merged transcript found"
-        set_status(db, artifact, "error", reason="no merged transcript")
-        raise RuntimeError(artifact.error_message)
+        msg = "ASR finished but no merged transcript found"
+        set_status(db, artifact, "error", error_message=msg, reason="no merged transcript")
+        raise RuntimeError(msg)
 
     text = final_path.read_text(encoding="utf-8")
     artifact.transcription_file_path = str(final_path)

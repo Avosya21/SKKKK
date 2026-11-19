@@ -218,8 +218,7 @@ def _process_meeting_tracks(
         raise
     text = publish_lab_to_prod(db, settings, artifact, latest_run_id(settings, artifact) or "")
     if not text:
-        artifact.error_message = NO_SPEECH
-        set_status(db, artifact, "done", reason=NO_SPEECH)
+        set_status(db, artifact, "done", error_message=NO_SPEECH, reason=NO_SPEECH)
         mark_lab_step(ws, "merge", "ok", detail=NO_SPEECH)
         return ""
     mark_lab_step(ws, "merge", "ok")

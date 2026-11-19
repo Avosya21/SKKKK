@@ -54,23 +54,20 @@ def check_python() -> CheckResult:
 
 
 def check_env(settings: Settings) -> CheckResult:
-    from app.app.bootstrap import ENV_PATH, ROLES, role_hashes
+    from app.app.bootstrap import ENV_PATH
 
     if not ENV_PATH.is_file():
         return CheckResult("env", FAIL, f"нет файла {ENV_PATH}", "запустите main — он создаст .env")
     if len(settings.secret_key) < 8 or settings.secret_key == "change-me":
         return CheckResult("env", FAIL, "SECRET_KEY не задан", "перезапустите main для генерации")
-
-    hashes = role_hashes()
-    missing = [role for role in ROLES if not hashes.get(role)]
-    if missing:
-        return CheckResult(
-            "env",
-            FAIL,
-            f"нет паролей ролей: {', '.join(missing)}",
-            "python -m app.app.main credentials --reset",
-        )
-    return CheckResult("env", OK, f"{ENV_PATH.name}, пароли всех ролей заданы")
+    notes = []
+    if (settings.b24_auth or "").lower() == "on" and not (settings.b24_webhook_chat or "").strip():
+        notes.append("B24_AUTH=on без B24_WEBHOOK_CHAT")
+    if (settings.email_otp or "").lower() == "on" and not (settings.smtp_host or "").strip():
+        notes.append("EMAIL_OTP=on без SMTP_HOST")
+    if notes:
+        return CheckResult("env", WARN, f"{ENV_PATH.name}; " + "; ".join(notes))
+    return CheckResult("env", OK, f"{ENV_PATH.name}, SECRET_KEY задан")
 
 
 def check_data_dir(settings: Settings) -> CheckResult:

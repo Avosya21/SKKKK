@@ -661,8 +661,9 @@ def _process_lab_core(db: Session, settings: Settings, artifact: Artifact) -> st
         auto_accept_lab_voices(settings, artifact, run_id)
     text = publish_lab_to_prod(db, settings, artifact, run_id)
     if not text:
-        artifact.error_message = "речь не обнаружена"
-        set_status(db, artifact, "done", reason="речь не обнаружена")
+        from app.app.services.lab_errors import NO_SPEECH
+
+        set_status(db, artifact, "done", error_message=NO_SPEECH, reason=NO_SPEECH)
         return ""
 
     if known_speaker:

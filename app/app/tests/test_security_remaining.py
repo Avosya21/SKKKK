@@ -21,13 +21,10 @@ def test_session_version_bump_rejects_old_token(client, admin_token, db_engine):
 
 
 def test_new_login_after_bump_works(client, db_engine):
+    from app.app.tests.auth_helpers import access_token
+
     bump(reason="test-pre")
-    r = client.post(
-        "/auth/login",
-        json={"name": "Admin", "telegram_id": "tg-sv", "password": "admin-pass"},
-    )
-    assert r.status_code == 200
-    token = r.json()["access_token"]
+    token = access_token(client, name="Admin", telegram_id="tg-sv")
     assert client.get("/projects", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     assert current() >= 1
 
