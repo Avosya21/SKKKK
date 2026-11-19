@@ -36,18 +36,103 @@ def adb(*args: str, timeout: int = 60) -> str:
 
 
 def device_ready() -> bool:
+    """Эмулятор/телефон online и Android дошёл до boot_completed."""
+    lines = [ln.strip() for ln in adb("devices").splitlines()[1:] if ln.strip()]
+    online = [ln for ln in lines if ln.endswith("\tdevice") or ln.endswith(" device")]
+    if not online:
+        return False
     return adb("shell", "getprop", "sys.boot_completed").strip() == "1"
 
 
-def boot_emulator() -> None:
-    env = {**os.environ, "JAVA_HOME": str(ANDROID / "jdk"), "ANDROID_SDK_ROOT": str(ANDROID / "sdk"), "ANDROID_HOME": str(ANDROID / "sdk"), "ANDROID_AVD_HOME": str(ANDROID / "avd")}
-    subprocess.Popen([str(ANDROID / "sdk" / "emulator" / "emulator.exe"), "-avd", "pixel7", "-no-window", "-no-audio", "-no-snapshot", "-no-boot-anim",
-                      "-gpu", "swiftshader_indirect", "-camera-back", "virtualscene", "-camera-front", "emulated"],
-                     env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x00000008)
-    for _ in range(80):
+def _fix_avd_paths() -> None:
+    """После переноса с другой машины в pixel7.ini/hardware-qemu.ini остаются чужие абсолютные пути."""
+    old_markers = ("1C_NEW_PrimaryAnalitics", "1C_NEW_SKKKK", "C:\\Primary_Analitics")
+    root = str(ROOT)
+    for path in (
+        ANDROID / "avd" / "pixel7.ini",
+        ANDROID / "avd" / "pixel7.avd" / "hardware-qemu.ini",
+        ANDROID / "avd" / "pixel7.avd" / "emu-launch-params.txt",
+    ):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        new = text
+        for marker in old_markers:
+            # заменяем любой префикс до tools\android на текущий ROOT
+            if "tools\\android" in new.replace("/", "\\") and marker.split("\\")[0] in new:
+                import re
+
+                new = re.sub(
+                    r"[A-Za-z]:\\[^?\n]*?tools\\android",
+                    str(ANDROID).replace("/", "\\"),
+                    new,
+                    flags=re.IGNORECASE,
+                )
+        want = f"path={ANDROID / 'avd' / 'pixel7.avd'}"
+        if path.name == "pixel7.ini" and "path=" in new and str(ANDROID) not in new.replace("/", "\\"):
+            new = f"avd.ini.encoding=UTF-8\npath={ANDROID / 'avd' / 'pixel7.avd'}\npath.rel=pixel7.avd\ntarget=android-34\n"
+        if new != text:
+            path.write_text(new, encoding="utf-8")
+            print(f"patched AVD path: {path}", flush=True)
+
+
+def boot_emulator() -> bool:
+    """Поднятие AVD pixel7. True — boot_completed, False — не поднялся (см. лог)."""
+    _fix_avd_paths()
+    # Сломанный прошлый запуск оставляет multiinstance.lock — новый qemu молча не стартует.
+    avd_dir = ANDROID / "avd" / "pixel7.avd"
+    for stale in ("multiinstance.lock", "hardware-qemu.ini.lock"):
+        lock = avd_dir / stale
+        if lock.is_file():
+            try:
+                lock.unlink()
+                print(f"снят stale lock: {lock.name}", flush=True)
+            except OSError:
+                pass
+    env = {
+        **os.environ,
+        "JAVA_HOME": str(ANDROID / "jdk"),
+        "ANDROID_SDK_ROOT": str(ANDROID / "sdk"),
+        "ANDROID_HOME": str(ANDROID / "sdk"),
+        "ANDROID_AVD_HOME": str(ANDROID / "avd"),
+    }
+    log = ROOT / "data" / "logs" / "emulator_boot.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    fh = log.open("w", encoding="utf-8", errors="replace")
+    emu = ANDROID / "sdk" / "emulator" / "emulator.exe"
+    if not emu.is_file():
+        print(f"FAIL: нет эмулятора {emu}", flush=True)
+        return False
+    subprocess.Popen(
+        [
+            str(emu),
+            "-avd",
+            "pixel7",
+            "-no-window",
+            "-no-audio",
+            "-no-snapshot",
+            "-no-boot-anim",
+            "-gpu",
+            "swiftshader_indirect",
+            "-camera-back",
+            "virtualscene",
+            "-camera-front",
+            "emulated",
+        ],
+        env=env,
+        stdout=fh,
+        stderr=subprocess.STDOUT,
+        creationflags=0x00000008,
+    )
+    for i in range(80):
         if device_ready():
-            return
+            print(f"emulator boot ok за ~{i * 5} с", flush=True)
+            return True
+        if i and i % 6 == 0:
+            print(f"  … ждём эмулятор ~{i * 5} с; adb: {adb('devices')!r}", flush=True)
         time.sleep(5)
+    print(f"FAIL: эмулятор не загрузился за 400 с, лог {log}; adb={adb('devices')!r}", flush=True)
+    return False
 
 
 def prepare_chrome() -> None:
@@ -99,8 +184,13 @@ def main() -> int:
         return 77
     adb("start-server")
     if not device_ready() and args.boot:
-        boot_emulator()
+        if not boot_emulator():
+            print("FAIL: --boot не поднял pixel7 (см. data/logs/emulator_boot.log)", flush=True)
+            return 1
     if not device_ready():
+        if args.boot:
+            print("FAIL: после --boot устройство всё ещё не готово", flush=True)
+            return 1
         print("SKIP: нет Android-устройства (запустите эмулятор или подключите телефон; --boot запускает эмулятор)")
         return 77
     prepare_chrome()
@@ -128,7 +218,7 @@ def main() -> int:
             phone.fill("#guest-name", "Телефон")
             phone.click("#guest-join")
             phone.wait_for_selector("#meeting-stage.is-open", timeout=40000)
-            joined = wait_until(lambda: "Вы в комнате" in phone.inner_text("#meeting-room-status"), 40)
+            joined = wait_until(lambda: (phone.inner_text("#meeting-people") or "").startswith("В комнате"), 40)
             print("  статус:", phone.inner_text("#meeting-room-status")[:100], flush=True)
             check(bool(joined), "телефон вошёл в комнату")
             join_desktop(desk, args.base, token, "Компьютер")

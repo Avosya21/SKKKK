@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,7 @@ from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.dependencies import get_current_user
 from app.app.models.user import User
+from app.app.services.local_record_remux import MAX_UPLOAD_BYTES, RemuxError, remux_to_seekable_mp4
 from app.app.services.meeting_analyze import analyze_meeting
 from app.app.services.project_purge import purge_meeting
 from app.app.services.user_activity import ACTION_DELETE, BLOCK_PROJECT, log_activity
@@ -65,7 +67,7 @@ def create_project_meeting(
 ):
     project = require_meeting_staff(db, user, project_id)
     row, token = create_meeting(db, settings, project=project, actor=user)
-    return member_payload(settings, row, public_token=token, db=db)
+    return member_payload(settings, row, public_token=token, db=db, actor=user)
 
 
 @router.get("/projects/{project_id}/meetings")
@@ -76,7 +78,10 @@ def list_project_meetings(
     user: Annotated[User, Depends(get_current_user)],
 ):
     require_meeting_staff(db, user, project_id)
-    return [member_payload(settings, row, public_token=None, db=db) for row in list_meetings(db, project_id)]
+    return [
+        member_payload(settings, row, public_token=None, db=db, actor=user)
+        for row in list_meetings(db, project_id)
+    ]
 
 
 # Объявлен до /meetings/{meeting_id}: иначе «live» попадёт в meeting_id и запрос получит 422.
@@ -100,7 +105,7 @@ def get_project_meeting(
     user: Annotated[User, Depends(get_current_user)],
 ):
     meeting = _staff_meeting(db, user, project_id, meeting_id)
-    return member_payload(settings, meeting, public_token=None, db=db)
+    return member_payload(settings, meeting, public_token=None, db=db, actor=user)
 
 
 @router.post("/projects/{project_id}/meetings/{meeting_id}/start")
@@ -112,7 +117,7 @@ def start_project_meeting(
     user: Annotated[User, Depends(get_current_user)],
 ):
     meeting = _staff_meeting(db, user, project_id, meeting_id)
-    return member_payload(settings, start_meeting(db, meeting), public_token=None, db=db)
+    return member_payload(settings, start_meeting(db, meeting), public_token=None, db=db, actor=user)
 
 
 @router.post("/projects/{project_id}/meetings/{meeting_id}/end")
@@ -124,7 +129,9 @@ def end_project_meeting(
     user: Annotated[User, Depends(get_current_user)],
 ):
     meeting = _staff_meeting(db, user, project_id, meeting_id)
-    return member_payload(settings, end_meeting(db, meeting), public_token=None, db=db)
+    return member_payload(
+        settings, end_meeting(db, meeting, actor=user), public_token=None, db=db, actor=user
+    )
 
 
 @router.post("/projects/{project_id}/meetings/{meeting_id}/revoke-link")
@@ -292,3 +299,32 @@ def public_meeting_heartbeat(token: str, body: LeaveIn, db: Annotated[Session, D
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if not heartbeat_participant(db, meeting, body.identity):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+
+
+@router.post("/api/meetings/local-record/remux")
+async def remux_local_record(
+    user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    file: UploadFile = File(...),
+):
+    """Сотрудник: сырой WebM/MP4 локальной записи → seekable MP4 (перемотка). Файл в проект не кладётся."""
+    del user  # auth only
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Recording too large",
+        )
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty recording")
+    work = settings.data_dir / "tmp" / "local-record-remux"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        out = remux_to_seekable_mp4(raw, work_dir=work)
+    except RemuxError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return Response(
+        content=out,
+        media_type="video/mp4",
+        headers={"Content-Disposition": 'attachment; filename="sozvon-remux.mp4"'},
+    )

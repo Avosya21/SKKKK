@@ -3796,7 +3796,59 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: ui_btn_meeting_local_record
+    kind: button
+    path: "app/app/templates/meeting_room.html#meeting-local-record"
+    title: "Записать созвон — MP4 при выходе, закрытии комнаты и выкидывании; обрыв вкладки — WebM"
+    tags: [ui, meetings, record]
+
+  - id: mod_meeting_local_record
+    kind: module
+    path: "app/app/static/meeting_local_record.js"
+    title: "Локальная запись: WebM-first, remux MP4; обрыв страницы хранит куски в IndexedDB и отдаёт WebM"
+    tags: [ui, meetings, record]
+
+  - id: api_meeting_local_record_remux
+    kind: api
+    path: "app/app/routers/meetings.py"
+    title: "POST /api/meetings/local-record/remux — всегда H.264+AAC seekable MP4"
+    tags: [api, meetings, record]
+
+  - id: svc_local_record_remux
+    kind: service
+    path: "app/app/services/local_record_remux.py"
+    title: "Remux MediaRecorder → H.264+AAC MP4 (+faststart); без -c copy"
+    tags: [meetings, record, ffmpeg]
+
+  - id: script_e2e_meeting_record
+    kind: script
+    path: "scripts/e2e/e2e_meeting_record.py"
+    title: "E2E записи: MP4 на кнопке, выходе, завершении и закрытии комнаты; обновление — WebM"
+    tags: [e2e, meetings, record]
+
+  - id: script_e2e_meeting_stability
+    kind: script
+    path: "scripts/e2e/e2e_meeting_stability.py"
+    title: "E2E устойчивости комнаты: намерение кнопок, звук и запись, перезаход, слабая связь"
+    tags: [e2e, meetings]
+
+  - id: script_smoke_meeting_record
+    kind: file
+    path: scripts/smoke/smoke_meeting_record.py
+    title: "Смоук обёртка: делегирует scripts/e2e/e2e_meeting_record.py."
+    tags: [auto]
+    auto: true
+
 edges:
+  - {from: ui_meeting_dock, to: ui_btn_meeting_local_record, relation: contains_employee_only}
+  - {from: ui_btn_meeting_local_record, to: mod_meeting_local_record, relation: uses}
+  - {from: mod_meeting_local_record, to: api_meeting_local_record_remux, relation: POST_remux}
+  - {from: api_meeting_local_record_remux, to: svc_local_record_remux, relation: calls}
+  - {from: script_e2e_meeting_record, to: api_meeting_local_record_remux, relation: tests}
+  - {from: script_e2e_meeting_record, to: ui_btn_meeting_local_record, relation: tests}
+  - {from: script_e2e_meeting_record, to: ui_btn_meeting_end_all, relation: tests}
+  - {from: script_e2e_meeting_stability, to: ui_meeting_dock, relation: tests}
+
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
   - {from: svc_artifact_lab, to: lab_view, relation: imports}

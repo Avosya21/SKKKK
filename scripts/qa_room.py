@@ -75,7 +75,7 @@ def join(page, base: str, token: str, name: str):
     page.fill("#guest-name", name)
     page.click("#guest-join")
     page.wait_for_selector("#meeting-stage.is-open", timeout=30000)
-    wait_until(lambda: "Вы в комнате" in page.inner_text("#meeting-room-status"), 30)
+    wait_until(lambda: (page.inner_text("#meeting-people") or "").startswith("В комнате"), 30)
 
 
 def tiles(page) -> int:
@@ -186,13 +186,31 @@ def main() -> int:
             check("отличное" in title, f"подсказка по наведению словами: «{title}»")
             a.evaluate("() => { PrimaryAnaliticsMeeting._linkQuality = PrimaryAnaliticsMeeting.__qaLinkQuality; }")
 
-            # --- единообразие: у каждого участника на плитке те же палочки
-            remote = "(q) => { const LK = window.LivekitClient; const r = PrimaryAnaliticsMeeting.room; const p = Array.from(r.remoteParticipants.values()).find((x) => !String(x.identity).startsWith('primaryanalitics-')); r.emit(LK.RoomEvent.ConnectionQualityChanged, q, p); }"
-            a.evaluate(remote, "poor"); time.sleep(0.6)
-            tile_levels = a.evaluate("Array.from(document.querySelectorAll('.meeting-tile:not(.meeting-tile-local) .meeting-signal.is-tile')).map(x => x.dataset.level)")
+            # --- единообразие: у каждого участника на плитке те же палочки (.meeting-tile-link)
+            # На время проверки глушим чужие ConnectionQualityChanged (как у шапки), иначе LiveKit перебивает «poor».
+            a.evaluate("""() => {
+              const m = PrimaryAnaliticsMeeting; m.__qaQualityHandler = true;
+              const prev = m._quality; m.__qaQualitySnap = Object.assign({}, prev || {});
+            }""")
+            remote = """(q) => {
+              const LK = window.LivekitClient; const m = PrimaryAnaliticsMeeting; const r = m.room;
+              const p = Array.from(r.remoteParticipants.values()).find((x) => !String(x.identity).startsWith('primaryanalitics-'));
+              if (!p) throw new Error('нет remote гостя');
+              m._quality[p.identity] = q;
+              m._renderTiles(r, m._roomEls);
+            }"""
+            a.evaluate(remote, "poor"); time.sleep(0.3)
+            tile_levels = a.evaluate(
+                "Array.from(document.querySelectorAll('.meeting-tile:not(.meeting-tile-local) .meeting-tile-link')).map(x => x.dataset.level)"
+            )
             check(tile_levels == ["1"], f"чужая плитка: плохая связь показана одной красной палочкой (сейчас {tile_levels})")
-            check(a.locator(".meeting-tile-local .meeting-signal.is-tile").count() == 1, "своя плитка тоже с палочками")
+            check(a.locator(".meeting-tile-local .meeting-tile-link").count() == 1, "своя плитка тоже с палочками")
             check(a.locator(".meeting-chip.is-quality").count() == 0, "старых текстовых меток качества нет")
+            a.evaluate("""() => {
+              const m = PrimaryAnaliticsMeeting;
+              if (m.__qaQualitySnap) { m._quality = m.__qaQualitySnap; delete m.__qaQualitySnap; }
+              m._renderTiles(m.room, m._roomEls);
+            }""")
 
             # --- короткий обрыв сети (5 с): библиотека восстанавливает сама
             ctx_a.set_offline(True)
