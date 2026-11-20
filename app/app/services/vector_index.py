@@ -27,7 +27,16 @@ logger = logging.getLogger("primaryanalitics.vector")
 
 
 def load_sqlite_vec(dbapi_conn) -> bool:
-    """Подключить расширение к конкретному соединению SQLite."""
+    """Подключить расширение к конкретному соединению SQLite (если оно ещё не подключено).
+
+    Расширение подключается при создании соединения (db.py). Повторная загрузка на том же соединении, пока на нём не дочитан
+    запрос к таблице векторов, падает с «error during initialization» — отсюда были ложные предупреждения при удалении и
+    замене материалов. Поэтому сначала проверяем, не загружено ли оно уже."""
+    try:
+        dbapi_conn.execute("SELECT vec_version()").fetchone()
+        return True
+    except Exception:  # noqa: BLE001 — функции нет: расширение на этом соединении ещё не загружено
+        pass
     try:
         dbapi_conn.enable_load_extension(True)
         sqlite_vec.load(dbapi_conn)
