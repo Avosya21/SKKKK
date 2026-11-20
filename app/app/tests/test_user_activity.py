@@ -130,6 +130,8 @@ def test_followup_chat_reads_activity_log(client, db_engine, admin_token, tmp_da
 
     assert "а это про какой год?" in captured[0]
     assert "Предыдущий диалог этого пользователя" in captured[0]
+    assert "доказательством не считается" in captured[0]
+    assert "используй прошлый ответ" not in captured[0]
     assert "Какой бюджет?" in captured[0]
     assert "4 млн на 2026" in captured[0]
     assert "нет" not in out["answer"].lower() or "2026" in out["answer"]
