@@ -235,6 +235,13 @@
 {% block scripts %}
 <script>
 (function () {
+  const loginPanel = document.querySelector('.login-panel-inner');
+  if (window.PrimaryAnalitics && PrimaryAnalitics.token() && loginPanel) loginPanel.hidden = true;
+  if (window.PrimaryAnalitics && typeof PrimaryAnalitics.resumeLoginTab === 'function') {
+    PrimaryAnalitics.resumeLoginTab().then((left) => {
+      if (!left && loginPanel) loginPanel.hidden = false;
+    });
+  }
   const loginForm = document.getElementById('login-form');
   const registerForm = document.getElementById('register-form');
   const codeForm = document.getElementById('code-form');
@@ -270,7 +277,9 @@
   }
 
   function finish(payload) {
+    // Вход в этой вкладке открывает список проектов. Остальные вкладки помнят свой адрес и вернутся при обновлении.
     PrimaryAnalitics.setSession(payload);
+    try { sessionStorage.removeItem('primary_analitics_return'); } catch (e) { /* приватный режим */ }
     location.href = '/';
   }
 

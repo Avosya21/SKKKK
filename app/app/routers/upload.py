@@ -195,17 +195,14 @@ def _register_file_on_disk(
     return ArtifactOut.model_validate(art)
 
 
-@router.get("/{project_id}/artifacts", response_model=list[ArtifactOut])
-def list_artifacts(
-    project_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    user: Annotated[User, Depends(get_current_user)],
-):
-    require_project(db, user, project_id)
-    rows = db.scalars(
-        select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id.desc())
-    ).all()
+def artifact_outs(
+    db: Session,
+    settings: Settings,
+    user: User,
+    rows: list[Artifact],
+    kinds: dict[int, str] | None = None,
+) -> list[ArtifactOut]:
+    """Карточки материалов для списка: ход обработки, дата, кнопки. ``kinds`` — вид выгрузки Jira (задача или сводка)."""
     updated = False
     for row in rows:
         if reconcile_artifact_status(db, settings, row):
@@ -261,9 +258,34 @@ def list_artifacts(
             export = load_artifact_export(settings, row)
             last = period(export)[1] if export else None
             updates["material_period_end"] = last.date() if last else None
+        if kinds and row.id in kinds:
+            updates["jira_kind"] = kinds[row.id]
         item = item.model_copy(update=updates)
         out.append(item)
     return out
+
+
+@router.get("/{project_id}/artifacts", response_model=list[ArtifactOut])
+def list_artifacts(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Список материалов проекта: файлы, загруженные в портал, и вложения Jira.
+
+    Документы задач и сводка проекта сюда не входят — их видит администратор в ``GET …/jira/exports``.
+    """
+    require_project(db, user, project_id)
+    rows = db.scalars(
+        select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.id.desc())
+    ).all()
+    from app.app.services.jira_import import shelf_kinds
+
+    hidden = set(shelf_kinds(db, project_id))
+    # Статус чиним у всех карточек, включая выгрузки: иначе документ задачи так и останется «в очереди», пока его не откроет админ
+    ready = artifact_outs(db, settings, user, list(rows))
+    return [item for item in ready if item.id not in hidden]
 
 
 class RecordedAtIn(BaseModel):

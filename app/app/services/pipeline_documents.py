@@ -347,9 +347,10 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
         clean = light_normalize(raw)  # только таблицы: LLM их не чистит (цифры переносятся дословно)
         mode = "light (spreadsheet)"
     elif _is_jira_document(raw):
-        clean = light_normalize(raw)  # документ собран из Jira программой: модель его не переписывает
+        clean = light_normalize(raw)  # документ собран из Jira программой: модель его не переписывает (без потерь и искажений)
         mode = "light (jira)"
     else:
+        db.commit()  # закрыть транзакцию: очистка текста моделью идёт минуты, соединение не должно быть занято всё это время
         try:
             clean = normalize_document(settings, raw, source=artifact.artifact_id)
             mode = "llm"
@@ -358,6 +359,13 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
             clean = light_normalize(raw)
             mode = "light (llm failed)"
 
+    from app.app.services.jira_import import attachment_version_preface
+
+    # Копия вложения Jira с другим содержимым: в текст, который пойдёт в поиск и чат, дописывается, что изменилось
+    note = attachment_version_preface(db, artifact, clean)
+    if note:
+        clean = f"{note}\n\n{clean}"
+        mode = f"{mode} + version"
     log_event(
         logger,
         "document.normalized",

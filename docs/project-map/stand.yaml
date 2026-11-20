@@ -106,11 +106,14 @@ items:
   - {path: "docs/AGENT1C-BRIDGE.md", kind: "документ", purpose: "адреса и порты связи с агентом 1С"}
   - {path: "docs/AUDIT-REPAIR-LOG.md", kind: "журнал", purpose: "журнал исправлений по аудиту"}
   - {path: "docs/BACKGROUND-PROGRESS-WORK-REPORT.md", kind: "отчёт", purpose: "ход дальнейшей обработки: полоска только текущей очереди, без вчерашних задач и без ошибок"}
+  - {path: "docs/BROWSER-BUTTONS-WORK-REPORT.md", kind: "отчёт", purpose: "плашка браузера гасит показ экрана на пульте; микрофон и камера после значка браузера включаются снова"}
+  - {path: "docs/CHAT-ACCURACY-WORK-REPORT.md", kind: "отчёт", purpose: "точность ответов чата по созвону: оглавление без готового итога, кадр рядом с репликой той же минуты, прогон вопросов"}
   - {path: "docs/CHANGELOG-DEV.md", kind: "журнал", purpose: "журнал разработки из git (генерируется)"}
   - {path: "docs/DECISIONS.md", kind: "решения", purpose: "что нельзя менять без пользователя"}
   - {path: "docs/FINDINGS-2026-09.md", kind: "находки", purpose: "открытые и закрытые находки сентября"}
   - {path: "docs/HOWTO-MANAGER.md", kind: "инструкция", purpose: "как работать менеджеру проекта"}
   - {path: "docs/JIRA-INTEGRATION-WORK-REPORT.md", kind: "отчёт", purpose: "подключение Jira: что сделано, что найдено при проверке, что осталось"}
+  - {path: "docs/JIRA-COMPLETENESS-WORK-REPORT.md", kind: "отчёт", purpose: "проверка полноты забора из Jira 2026-11-19: сводка с ролями и номерами, повторное скачивание пропавшего файла"}
   - {path: "docs/LOCAL-RECORD-WORK-REPORT.md", kind: "отчёт", purpose: "локальная запись созвона: MP4 при живой странице, WebM при обрыве, плашка «не закрывайте»"}
   - {path: "docs/OPERATIONS.md", kind: "инструкция", purpose: "эксплуатация: запуск, бэкапы, индекс, разбор сбоев"}
   - {path: "docs/PLAN-AGENT-EXCHANGE-V2.md", kind: "план", purpose: "фазы обмена с внешним агентом"}
@@ -118,6 +121,7 @@ items:
   - {path: "docs/PLAN.md", kind: "план", purpose: "единый пошаговый план проекта"}
   - {path: "docs/PROJECT-MAP.md", kind: "карта", purpose: "карта проекта: архитектура, API, модули, инварианты"}
   - {path: "docs/PYCHARM-CUDA-ENCODER.md", kind: "документ", purpose: "настройка CUDA-кодировщика в PyCharm"}
+  - {path: "docs/RECOVERY-REPORT-2026-11-07.md", kind: "отчёт", purpose: "восстановление портала после переноса на D: проекты, документы, созвоны, базы знаний"}
   - {path: "docs/TESTING.md", kind: "тесты", purpose: "стратегия и команды тестирования"}
   - {path: "docs/UI-COPY.md", kind: "реестр", purpose: "реестр текстов интерфейса (генерируется)"}
 

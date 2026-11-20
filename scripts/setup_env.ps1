@@ -59,7 +59,20 @@ function Find-Python310 {
     return $null
 }
 
+function Repair-PyvenvCfgBom($dir) {
+    # UTF-8 BOM в pyvenv.cfg ломает разбор ключа home → Python ищет Lib по старому абсолютному пути.
+    $cfg = Join-Path $dir 'pyvenv.cfg'
+    if (-not (Test-Path -LiteralPath $cfg)) { return }
+    $bytes = [IO.File]::ReadAllBytes($cfg)
+    if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) { return }
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $text = $utf8.GetString($bytes, 3, $bytes.Length - 3)
+    [IO.File]::WriteAllText($cfg, $text, $utf8)
+    Write-Host "[FIX ] $dir\pyvenv.cfg: снят UTF-8 BOM"
+}
+
 function Test-Venv($dir) {
+    Repair-PyvenvCfgBom $dir
     $py = Join-Path $dir 'Scripts\python.exe'
     if (-not (Test-Path $py)) { return $false }
     try { & $py -c 'import sys' 2>$null; return ($LASTEXITCODE -eq 0) } catch { return $false }

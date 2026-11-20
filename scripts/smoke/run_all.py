@@ -6,7 +6,7 @@ from pathlib import Path
 
 here = Path(__file__).parent
 rows, failed = [], 0
-for name in ("smoke_perm", "smoke_presence", "smoke_flow", "smoke_room", "smoke_duplicate_tab", "smoke_guest_lobby", "smoke_tiles", "smoke_double_click", "smoke_stable_dom", "smoke_console", "smoke_forms", "smoke_end_confirm", "smoke_counters", "smoke_delete_live_guest", "smoke_widths_a11y", "smoke_agent_exchange", "smoke_agent_cards"):
+for name in ("smoke_perm", "smoke_presence", "smoke_flow", "smoke_room", "smoke_duplicate_tab", "smoke_guest_lobby", "smoke_tiles", "smoke_double_click", "smoke_stable_dom", "smoke_console", "smoke_forms", "smoke_end_confirm", "smoke_meeting_record", "smoke_counters", "smoke_delete_live_guest", "smoke_widths_a11y", "smoke_agent_exchange", "smoke_agent_cards"):
     r = subprocess.run(
         [sys.executable, str(here / f"{name}.py")], capture_output=True, text=True, encoding="utf-8", cwd=here,
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},

@@ -1,7 +1,8 @@
 """Jira на главной странице: подключение личным токеном, список проектов Jira, загрузка выбранных, обновление и привязка.
 
 Подключить токен может любой вошедший (так выдаётся доступ к уже загруженным проектам); загружать проекты — менеджер и
-администратор; влить Jira в существующий проект и снять привязку — только администратор. Логика — services/jira_import.py.
+администратор; влить Jira в существующий проект и снять привязку — только администратор. Документы задач и сводка проекта
+отдаются отдельно, ``GET /projects/{id}/jira/exports``, и только администратору. Логика — services/jira_import.py.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings, get_settings
@@ -146,6 +148,24 @@ def project_jira_check(project_id: int, db: Annotated[Session, Depends(get_db)],
     except (jira_import.JiraImportError, JiraError) as exc:
         raise _fail(exc) from exc
     return {"ok": all(r["ok"] for r in reports), "links": reports}
+
+
+@router.get("/projects/{project_id}/jira/exports")
+def project_jira_exports(project_id: int, db: Annotated[Session, Depends(get_db)],
+                         settings: Annotated[Settings, Depends(get_settings)],
+                         user: Annotated[User, Depends(get_current_user)]):
+    """Документы задач Jira и сводка проекта. В общий список материалов не входят. Видит только администратор."""
+    require_project(db, user, project_id)
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Выгрузки задач Jira видит только администратор")
+    from app.app.models.artifact import Artifact
+    from app.app.routers.upload import artifact_outs
+
+    kinds = jira_import.shelf_kinds(db, project_id)
+    if not kinds:
+        return []
+    rows = db.scalars(select(Artifact).where(Artifact.id.in_(kinds)).order_by(Artifact.id.desc())).all()
+    return artifact_outs(db, settings, user, list(rows), kinds)
 
 
 @router.put("/projects/{project_id}/jira/link")

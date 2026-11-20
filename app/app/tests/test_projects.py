@@ -187,6 +187,95 @@ def test_delete_project_with_mcp_exchange_bundle(client, manager_token):
     assert r.status_code == 204
 
 
+def test_delete_project_keeps_activity_log(client, manager_token):
+    """Регресс (проект 58): создание пишет user_activity_log; purge не удаляет журнал,
+    но строка projects должна уйти (раньше FK журнала на projects давал IntegrityError)."""
+    from sqlalchemy import select
+
+    from app.app.db import SessionLocal
+    from app.app.models.user_activity_log import UserActivityLog
+
+    pid = client.post(
+        "/projects",
+        json={"name": "Audit kept"},
+        headers={"Authorization": f"Bearer {manager_token}"},
+    ).json()["id"]
+
+    db = SessionLocal()
+    try:
+        before = list(
+            db.scalars(select(UserActivityLog.id).where(UserActivityLog.project_id == pid))
+        )
+        assert before, "создание проекта должно писать в журнал"
+    finally:
+        db.close()
+
+    r = client.delete(f"/projects/{pid}", headers={"Authorization": f"Bearer {manager_token}"})
+    assert r.status_code == 204
+
+    db = SessionLocal()
+    try:
+        left = list(
+            db.scalars(select(UserActivityLog).where(UserActivityLog.project_id == pid))
+        )
+        assert left, "журнал аудита должен остаться с project_id удалённого проекта"
+    finally:
+        db.close()
+
+
+def test_ensure_user_activity_log_no_fk_strips_legacy_fk(tmp_path):
+    """Миграция снимает унаследованные FK журнала (как в боевой app.db до фикса)."""
+    import sqlite3
+
+    from sqlalchemy import create_engine
+
+    from app.app.db import ensure_user_activity_log_no_fk
+
+    db_path = tmp_path / "audit.db"
+    raw = sqlite3.connect(db_path)
+    raw.execute("PRAGMA foreign_keys=ON")
+    raw.executescript(
+        """
+        CREATE TABLE users (id INTEGER PRIMARY KEY);
+        CREATE TABLE projects (id INTEGER PRIMARY KEY);
+        INSERT INTO users(id) VALUES (1);
+        INSERT INTO projects(id) VALUES (1);
+        CREATE TABLE user_activity_log (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            project_id INTEGER,
+            block VARCHAR(32) NOT NULL,
+            action VARCHAR(48) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(project_id) REFERENCES projects(id)
+        );
+        INSERT INTO user_activity_log(id, user_id, project_id, block, action, title)
+        VALUES (1, 1, 1, 'project', 'create', 'x');
+        """
+    )
+    raw.commit()
+    assert any(r[2] == "projects" for r in raw.execute("PRAGMA foreign_key_list(user_activity_log)"))
+    raw.close()
+
+    eng = create_engine(f"sqlite:///{db_path.as_posix()}")
+    with eng.connect() as conn:
+        ensure_user_activity_log_no_fk(conn)
+        fks = conn.exec_driver_sql("PRAGMA foreign_key_list(user_activity_log)").fetchall()
+        assert fks == []
+        n = conn.exec_driver_sql("SELECT COUNT(*) FROM user_activity_log").scalar_one()
+        assert n == 1
+        # После снятия FK удаление проекта не блокируется журналом.
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+        conn.exec_driver_sql("DELETE FROM projects WHERE id=1")
+        conn.commit()
+        left = conn.exec_driver_sql(
+            "SELECT project_id FROM user_activity_log WHERE id=1"
+        ).scalar_one()
+        assert left == 1
+
+
 def test_delete_project_with_decision_memory_rows(client, manager_token):
     """Регресс: память решений (subjects/speech_acts/decision_events/…) ссылается на artifacts/projects
     (FK) и раньше не чистилась в purge_project — delete падал с IntegrityError после разбора материала."""

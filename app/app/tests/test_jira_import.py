@@ -41,6 +41,21 @@ def _artifacts(client, token, project_id):
     return r.json()
 
 
+def _exports(client, token, project_id):
+    r = client.get(f"/projects/{project_id}/jira/exports", headers=_h(token))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _stored_names(project_id) -> dict[str, str]:
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+
+    with SessionLocal() as db:
+        rows = db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all()
+        return {row.original_filename: row.artifact_id for row in rows}
+
+
 def _doc(name: str) -> str:
     from app.app.db import SessionLocal
     from app.app.models.artifact import Artifact
@@ -79,14 +94,20 @@ def test_token_is_encrypted_and_never_returned(client, jira, manager_token):
     assert not client.get("/jira/status", headers=_h(manager_token)).json()["connected"]
 
 
-def test_import_brings_everything_without_cuts(client, jira, manager_token):
+def test_import_brings_everything_without_cuts(client, jira, manager_token, admin_token):
     project_id = _import(client, manager_token)
     projects = {p["id"]: p for p in client.get("/projects", headers=_h(manager_token)).json()}
     assert projects[project_id]["name"] == "Проект Альфа" and projects[project_id]["jira_key"] == "ABC"
     arts = _artifacts(client, manager_token, project_id)
-    assert sorted(a["original_filename"] for a in arts) == [
-        "Jira ABC — сводка проекта.md", "Jira ABC-1 — Настроить обмен.md", "Jira ABC-1 — схема.txt", "Jira ABC-2 — Сверить остатки.md"]
-    assert all(a["status"] == "uploaded" and a["source_type"] == "document" for a in arts)  # дальше — общий конвейер
+    assert [a["original_filename"] for a in arts] == ["Jira ABC-1 — схема.txt"]  # в списке только вложение
+    assert all(a["status"] == "uploaded" and a["source_type"] == "document" and a.get("jira_kind") is None for a in arts)
+    assert client.get(f"/projects/{project_id}/jira/exports", headers=_h(manager_token)).status_code == 403
+    exports = _exports(client, admin_token, project_id)
+    assert sorted(a["original_filename"] for a in exports) == [
+        "Jira ABC — сводка проекта.md", "Jira ABC-1 — Настроить обмен.md", "Jira ABC-2 — Сверить остатки.md"]
+    kinds = {a["original_filename"]: a["jira_kind"] for a in exports}
+    assert kinds["Jira ABC — сводка проекта.md"] == "summary"
+    assert kinds["Jira ABC-1 — Настроить обмен.md"] == "issue" and kinds["Jira ABC-2 — Сверить остатки.md"] == "issue"
     state = client.get(f"/projects/{project_id}/jira", headers=_h(manager_token)).json()["links"][0]
     assert state["status"] == "idle" and state["issues"] == 2 and state["files"] == 1 and state["issues_total"] == 2
     assert state["status_text"] == ("в Jira задач 2, загружено 2: новых 2, обновлено 0, без изменений 0; файлов: новых 1, уже были 0, не загружено 1")
@@ -136,7 +157,7 @@ def test_import_brings_everything_without_cuts(client, jira, manager_token):
 
 def test_update_replaces_changed_issue_and_skips_unchanged(client, jira, manager_token):
     project_id = _import(client, manager_token)
-    before = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    before = _stored_names(project_id)
     jira.detail_calls.clear()
     changed = issue("ABC-2", "Сверить остатки", "2026-11-05T12:00:00.000+0300")
     changed["fields"]["description"] = "Описание изменили."
@@ -145,7 +166,7 @@ def test_update_replaces_changed_issue_and_skips_unchanged(client, jira, manager
     r = client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
     assert r.status_code == 200, r.text
     assert sorted(jira.detail_calls) == ["ABC-2", "ABC-3"]  # неизменённую ABC-1 не перечитываем
-    after = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    after = _stored_names(project_id)
     assert len(after) == 5 and "Jira ABC-3 — Новая задача.md" in after
     assert after["Jira ABC-1 — Настроить обмен.md"] == before["Jira ABC-1 — Настроить обмен.md"]
     assert after["Jira ABC-2 — Сверить остатки.md"] != before["Jira ABC-2 — Сверить остатки.md"]  # прежний документ заменён
@@ -155,7 +176,7 @@ def test_update_replaces_changed_issue_and_skips_unchanged(client, jira, manager
     assert "в Jira задач 3, загружено 3: новых 1, обновлено 1, без изменений 1" in text and "не загружено 1" in text
     jira.detail_calls.clear()
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
-    assert jira.detail_calls == [] and len(_artifacts(client, manager_token, project_id)) == 5  # повтор ничего не плодит
+    assert jira.detail_calls == [] and len(_stored_names(project_id)) == 5  # повтор ничего не плодит
 
 
 def test_format_change_reloads_documents(client, jira, manager_token, monkeypatch):
@@ -164,7 +185,7 @@ def test_format_change_reloads_documents(client, jira, manager_token, monkeypatc
     monkeypatch.setattr(jr, "FORMAT_VERSION", jr.FORMAT_VERSION + 1)
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
     assert sorted(jira.detail_calls) == ["ABC-1", "ABC-2"]  # вид документа сменился — задачи перечитаны
-    assert len(_artifacts(client, manager_token, project_id)) == 4  # содержимое то же — дубликатов нет
+    assert len(_stored_names(project_id)) == 4  # содержимое то же — дубликатов нет
 
 
 def test_failed_parse_is_reloaded_on_next_sync(client, jira, manager_token):
@@ -172,7 +193,7 @@ def test_failed_parse_is_reloaded_on_next_sync(client, jira, manager_token):
     from app.app.models.artifact import Artifact
 
     project_id = _import(client, manager_token)
-    before = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    before = _stored_names(project_id)
     with SessionLocal() as db:  # разбор двух материалов упал (например, модель не загрузилась)
         for row in db.scalars(select(Artifact).where(Artifact.project_id == project_id)).all():
             if row.original_filename.startswith("Jira ABC-1") or "сводка" in row.original_filename:
@@ -180,7 +201,11 @@ def test_failed_parse_is_reloaded_on_next_sync(client, jira, manager_token):
         db.commit()
     jira.detail_calls.clear()
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
-    after = {a["original_filename"]: (a["artifact_id"], a["status"]) for a in _artifacts(client, manager_token, project_id)}
+    from app.app.models.artifact import Artifact as ArtifactRow
+
+    with SessionLocal() as db:
+        after = {row.original_filename: (row.artifact_id, row.status)
+                 for row in db.scalars(select(ArtifactRow).where(ArtifactRow.project_id == project_id))}
     assert len(after) == len(before) and "ABC-1" in jira.detail_calls and "ABC-2" not in jira.detail_calls
     for name, (artifact_id, status) in after.items():
         failed = name.startswith("Jira ABC-1 —") or "сводка" in name
@@ -188,14 +213,22 @@ def test_failed_parse_is_reloaded_on_next_sync(client, jira, manager_token):
 
 
 def test_material_date_comes_from_jira_not_from_upload(client, jira, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.services.recorded_at import material_date
+
     project_id = _import(client, manager_token)
-    rows = _artifacts(client, manager_token, project_id)
-    assert rows and {a["material_date_source"] for a in rows} == {"jira"}, [(a["original_filename"], a["material_date_source"]) for a in rows]
     today = __import__("datetime").date.today().isoformat()
-    assert all(a["material_date"] and a["material_date"] != today for a in rows)  # даты из Jira, не день загрузки
+    with SessionLocal() as db:
+        rows = list(db.scalars(select(Artifact).where(Artifact.project_id == project_id)))
+        dated = {row.original_filename: material_date(row) for row in rows}
+    assert dated and {source for _day, source in dated.values()} == {"jira"}, dated
+    assert all(day and day.isoformat() != today for day, _source in dated.values())  # даты из Jira, не день загрузки
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))  # повторная проверка дат не сбивает
-    again = {a["original_filename"]: a["material_date"] for a in _artifacts(client, manager_token, project_id)}
-    assert again == {a["original_filename"]: a["material_date"] for a in rows}
+    with SessionLocal() as db:
+        again = {row.original_filename: material_date(row)[0]
+                 for row in db.scalars(select(Artifact).where(Artifact.project_id == project_id))}
+    assert again == {name: day for name, (day, _source) in dated.items()}
 
 
 def test_issue_course_is_listed_apart_from_full_history(client, jira, manager_token):
@@ -213,7 +246,7 @@ def test_document_under_processing_is_not_replaced(client, jira, manager_token, 
     from app.app.models.job import Job
 
     project_id = _import(client, manager_token)
-    before = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    before = _stored_names(project_id)
     with SessionLocal() as db:  # воркер прямо сейчас разбирает документ задачи ABC-1
         pk = db.scalar(select(Artifact.id).where(Artifact.original_filename.like("Jira ABC-1 —%")))
         job = db.scalar(select(Job).where(Job.artifact_id == pk))
@@ -223,7 +256,7 @@ def test_document_under_processing_is_not_replaced(client, jira, manager_token, 
     monkeypatch.setattr(jr, "FORMAT_VERSION", jr.FORMAT_VERSION + 1)
     jira.issues["ABC"]["ABC-1"]["fields"]["description"] = "Описание поменяли, пока шёл разбор."
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
-    after = {a["original_filename"]: a["artifact_id"] for a in _artifacts(client, manager_token, project_id)}
+    after = _stored_names(project_id)
     assert after["Jira ABC-1 — Настроить обмен.md"] == before["Jira ABC-1 — Настроить обмен.md"]  # не тронут
     assert "отложено 1" in client.get(f"/projects/{project_id}/jira", headers=_h(manager_token)).json()["links"][0]["status_text"]
     with SessionLocal() as db:
@@ -393,7 +426,8 @@ def test_merge_into_existing_is_admin_only_and_key_is_unique(client, jira, admin
     client.post("/jira/connect", json={"token": "tok-admin"}, headers=_h(admin_token))
     r = client.post("/jira/import", json={"projects": [{"key": "XYZ", "project_id": existing}]}, headers=_h(admin_token))
     assert r.status_code == 200 and r.json()["started"][0]["project_id"] == existing
-    assert sorted(a["original_filename"] for a in _artifacts(client, admin_token, existing)) == ["Jira XYZ — сводка проекта.md", "Jira XYZ-1 — Первая задача.md"]
+    assert _artifacts(client, admin_token, existing) == []  # задач без вложений в списке материалов нет
+    assert sorted(a["original_filename"] for a in _exports(client, admin_token, existing)) == ["Jira XYZ — сводка проекта.md", "Jira XYZ-1 — Первая задача.md"]
     other = client.post("/projects", json={"name": "Другой", "internal": True}, headers=_h(admin_token)).json()["id"]
     assert client.put(f"/projects/{other}/jira/link", json={"jira_key": "XYZ"}, headers=_h(admin_token)).status_code == 409
     assert client.put(f"/projects/{other}/jira/link", json={"jira_key": "old"}, headers=_h(manager_token)).status_code == 403
@@ -401,7 +435,7 @@ def test_merge_into_existing_is_admin_only_and_key_is_unique(client, jira, admin
     assert existing in [p["id"] for p in client.get("/projects", headers=_h(manager_token)).json()]  # токен менеджера видит XYZ
     assert client.delete(f"/projects/{existing}/jira/link/XYZ", headers=_h(admin_token)).status_code == 204
     assert existing not in [p["id"] for p in client.get("/projects", headers=_h(manager_token)).json()]
-    assert len(_artifacts(client, admin_token, existing)) == 2  # материалы остаются
+    assert len(_exports(client, admin_token, existing)) == 2  # выгрузки остаются после снятия привязки
     assert client.delete(f"/projects/{other}", headers=_h(admin_token)).status_code in (200, 204)  # удаление проекта с привязкой
 
 
@@ -415,6 +449,60 @@ def test_jira_hidden_without_server_address(client, manager_token, monkeypatch):
         assert client.post("/jira/connect", json={"token": "x"}, headers=_h(manager_token)).status_code == 400
     finally:
         get_settings.cache_clear()
+
+
+def test_same_bytes_are_not_copied_from_jira(client, jira, admin_token):
+    """Файл уже загружен и байты те же — вложение Jira второй карточкой не становится."""
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.jira import JiraItem
+
+    existing = client.post("/projects", json={"name": "Уже есть", "internal": True}, headers=_h(admin_token)).json()["id"]
+    uploaded = client.post(
+        f"/projects/{existing}/upload", headers=_h(admin_token), data={"source_type": "document"},
+        files=[("files", ("схема.txt", jira.files["501"], "text/plain"))],
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    uploaded_id = uploaded.json()[0]["id"]
+    assert client.post("/jira/connect", json={"token": "tok-admin"}, headers=_h(admin_token)).status_code == 200
+    started = client.post("/jira/import", json={"projects": [{"key": "ABC", "project_id": existing}]}, headers=_h(admin_token))
+    assert started.status_code == 200, started.text
+    names = [a["original_filename"] for a in _artifacts(client, admin_token, existing)]
+    assert names.count("схема.txt") == 1 and "Jira ABC-1 — схема.txt" not in names
+    with SessionLocal() as db:
+        item = db.scalar(select(JiraItem).where(JiraItem.kind == "attachment", JiraItem.ref == "501"))
+        assert item is not None and item.artifact_id == uploaded_id
+        assert db.scalar(select(Artifact).where(Artifact.original_filename == "Jira ABC-1 — схема.txt")) is None
+
+
+def test_changed_attachment_is_copied_and_the_difference_goes_into_context(client, jira, admin_token):
+    """Байты другие — копия вложения остаётся в списке, а в текст разбора пишется, что изменилось."""
+    from app.app.config import get_settings
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.services.pipeline_documents import process_document_artifact
+
+    existing = client.post("/projects", json={"name": "Уже есть", "internal": True}, headers=_h(admin_token)).json()["id"]
+    previous = "строка была\nобщая\n".encode()
+    jira.files["501"] = "строка стала\nобщая\nдобавлено\n".encode()
+    uploaded = client.post(
+        f"/projects/{existing}/upload", headers=_h(admin_token), data={"source_type": "document"},
+        files=[("files", ("схема.txt", previous, "text/plain"))],
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert client.post("/jira/connect", json={"token": "tok-admin"}, headers=_h(admin_token)).status_code == 200
+    started = client.post("/jira/import", json={"projects": [{"key": "ABC", "project_id": existing}]}, headers=_h(admin_token))
+    assert started.status_code == 200, started.text
+    names = [a["original_filename"] for a in _artifacts(client, admin_token, existing)]
+    assert "схема.txt" in names and "Jira ABC-1 — схема.txt" in names
+    with SessionLocal() as db:
+        art = db.scalar(select(Artifact).where(Artifact.project_id == existing, Artifact.original_filename == "Jira ABC-1 — схема.txt"))
+        text = process_document_artifact(db, get_settings(), art)
+        db.commit()
+    assert text.startswith("## Что изменилось по сравнению с предыдущей версией")
+    assert "Предыдущая версия в проекте — «схема.txt»." in text
+    assert "-строка была" in text and "+строка стала" in text and "+добавлено" in text
+    assert "[конец сравнения с предыдущей версией]" in text
 
 
 def test_render_helpers():

@@ -3,9 +3,10 @@
     venv\\Scripts\\python scripts\\qa_all.py                 # тесты + смоук + аудит целостности + отчёт здоровья
     venv\\Scripts\\python scripts\\qa_all.py --per-file      # + каждый тест-файл отдельно (долго)
     venv\\Scripts\\python scripts\\qa_all.py --evals         # + eval ТЗ и чата на ПИЛОТЕ (нужна LM Studio, только чтение)
+    venv\\Scripts\\python scripts\\qa_all.py --acceptance    # полный acceptance на новой машине → scripts/acceptance_all.py
 
-Смоук требует SMOKE_ADMIN_PW / SMOKE_MANAGER_PW в окружении (иначе шаги пропускаются с пометкой SKIP).
-Код выхода 1, если любой шаг красный. Отчёт: data/eval/qa_<время>.json.
+Смоук требует SMOKE_PERSONAL_PW / SMOKE_OTP_CODE (иначе шаги пропускаются с пометкой SKIP).
+Код выхода 1, если любой шаг красный. Отчёт: data/eval/qa_<время>.json (acceptance — acceptance_*.json).
 """
 from __future__ import annotations
 
@@ -41,7 +42,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--per-file", action="store_true")
     ap.add_argument("--evals", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--acceptance",
+        action="store_true",
+        help="полный acceptance (материалы GPU + smoke/qa + pytest + health + evals)",
+    )
+    args, rest = ap.parse_known_args()
+    if args.acceptance:
+        cmd = [PY, str(ROOT / "scripts" / "acceptance_all.py"), *rest]
+        print("делегирую scripts/acceptance_all.py", flush=True)
+        return subprocess.call(cmd, cwd=ROOT, env=ENV)
     steps = [run("pytest (весь набор)", [PY, "-m", "pytest", "-q", "-p", "no:cacheprovider"])]
     if args.per_file:
         for path in sorted((ROOT / "app" / "app" / "tests").glob("test_*.py")):

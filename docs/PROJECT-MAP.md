@@ -372,12 +372,12 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Элемент | URL | Шаблон | Действие |
 |---------|-----|--------|----------|
 | Логотип **Appa** · Primary Analytics (с 2026-11-05) | `/` | `base.html` `.navbar-brand-logo`: маскот `static/brand/appa-mascot.png` (прозрачный фон) + подпись «Primary Analytics» (на телефоне скрыта; **внутри проекта** — `body.nav-in-project`, только картинка), стили — `design.css`. Иконка вкладки — `static/brand/favicon.ico` / `favicon.svg` / `apple-touch-icon.png` / `icon-192.png` / `icon-512.png` в `<head>` `base.html` и `meeting_public.html`; старые `appa-wordmark.svg` / `appa-symbol.svg` остаются в `static/brand` как запасной знак-слово | Список проектов |
-| **Выйти** (иконка у ника) | `/auth/logout` | `base.html` `#nav-logout` | `POST /auth/logout`, сброс cookie и localStorage |
+| **Выйти** (иконка у ника) | `/auth/logout` | `base.html` `#nav-logout` | `POST /auth/logout`, сброс cookie и localStorage. Перед уходом вкладка запоминает свой адрес (`sessionStorage` `primary_analitics_return` и `?next=`) |
 | **к проектам** | `/` | `project.html` nav | То же |
-| `/login` | `/login` | `login.html` | Вход: логин+пароль; «Первый раз? Зарегистрироваться». Шаг кода: выбор канала, «Отправить код» (после успеха блокируется) / «Войти»; «Отправить код ещё раз» после ошибки отправки/неверного кода или через 1 мин. Карточка. JWT + cookie |
+| `/login` | `/login` | `login.html` | Вход: логин+пароль; «Первый раз? Зарегистрироваться». Шаг кода: выбор канала, «Отправить код» (после успеха блокируется) / «Войти»; «Отправить код ещё раз» после ошибки отправки/неверного кода или через 1 мин. Карточка. JWT + cookie. Если сессия уже есть и в адресе безопасный `next` (страница этой вкладки), **302** туда, а не форма. Сам вход в этой вкладке по-прежнему открывает список проектов. Уже открытая форма входа замечает токен из другой вкладки (`storage`) и возврат на эту вкладку (`visibilitychange`) и сама уходит на свою страницу (`PrimaryAnalitics.resumeLoginTab`; адрес — `next`, `sessionStorage` или referrer) |
 | Гостевая встреча | `/m/{token}` | `meeting_public.html` | Без JWT. Нет навигации по проектам. Сырой токен не хранится — только sha256 |
 | `routers/project_mcp.py` (посылки файлов) | `/mcp/projects/{id}/files/…`, `/projects/{id}/exchange-files` | посылки файлов от агента (карты конфигурации, дипмапы; сервис `services/exchange_files.py`, политика — `docs/agent-exchange/POLICY.md` §10). Каталог для любого ключа проекта: `GET /mcp/projects/{project_id}/files/catalog` (принятые посылки, файлы с sha256, README, текущие версии; то же — инструмент `files_catalog`, а при подключении строка «ФАЙЛЫ ПРОЕКТА» в `instructions` и поле `files` в `project_overview`). По Bearer-ключу MCP с правом `files_access`: `POST /mcp/projects/{project_id}/files/bundles` (открыть по манифесту путь/размер/sha256; повтор того же манифеста — докачка), `GET /mcp/projects/{project_id}/files/bundles` (список), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}` (`?files=missing` — что ещё не принято), `PUT /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (`?offset=`, тело до 64 МБ, `X-Chunk-Sha256`), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (скачать, Range, `X-Sha256`). Владелец/админ проекта: `GET /projects/{project_id}/exchange-files`, `DELETE /projects/{project_id}/exchange-files/{bundle_id}` (удалить с диска). Только портальный admin: `GET /projects/{project_id}/extra-files` — все посылки с файлами и отправителем (`source_label`: агент по имени ключа или пользователь) для карточки «Дополнительные файлы»; `GET /projects/{project_id}/extra-files/{bundle_id}/data/{path:path}` — скачать файл посылки (Range, `X-Sha256`; только admin). В те же посылки ложатся `.cf` и `.dt` из формы материалов (виды `config_cf`, `infobase_dt`, отправитель `user:<id>`; см. §5 «Загрузить») |
-| HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
+| HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login?next=<адрес этой страницы>` (`require_html_user`, `safe_return_path`: только свой путь, без чужого сайта) |
 | `/audio`, `/download`, speaker API | те же URL | — | Без сессии — **401** |
 | `/health` | `/health` | — | Публично только `{"status":"ok"}` |
 | `/health/ready` | `/health/ready` | бейдж LLM в nav (`#nav-llm`: «Local LLM» при LM Studio, «Cursor») + значок «Нужен перезапуск» (админ) | Очередь/VRAM/LLM + `build` (код на диске новее API/воркера, `services/build_info.py`) — только с сессией |
@@ -430,6 +430,8 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 Задача Jira становится документом Markdown (`jira_render.issue_document`, без сокращений), вложение — обычным материалом. Сводка проекта (`jira_render.project_document`) содержит id проекта и задач, ссылки на аватары, роли с участниками и описание; если описания в Jira нет, в сводке так и написано. Документ из Jira конвейер берёт дословно (`light (jira)`). В чате сводка проекта идёт в каждый ответ (`chat.jira_overview_block`); если вопрос называет ключ задачи, её документ идёт в контекст сам (`chat.jira_focus_block`). Дата материала — из Jira (`recorded_at_source=jira`).
 
+Документы задач и сводка проекта в общий список материалов не входят. Их видит только администратор в сворачиваемом блоке «Выгрузки Jira» (`#jira-exports-box`, `GET /projects/{id}/jira/exports`; менеджеру и остальным — 403). После снятия привязки эти документы там и остаются: строки `jira_items` задач и сводки не удаляются (`unlink` снимает только строки вложений). Вложения остаются в списке. Файл с тем же содержимым, что уже загружен в портал, второй раз не кладётся. Если содержимое другое — в проект кладётся копия, а в текст разбора дописывается, чем она отличается от предыдущей версии с тем же именем (`jira_import.attachment_version_preface`).
+
 #### Блок «Материалы проекта» (`workspace-card`)
 
 Сворачиваемый, **свёрнут по умолчанию** (с 2026-10-15): заголовок — кнопка `.materials-toggle-btn` с подсказкой `#artifacts-toggle-hint` («(развернуть)» / «(свернуть)»), список — внутри `#artifacts-panel` (`collapse`). В шапке всегда видны сводка `#project-kpis` (Готово / Док. / Созвоны) и строка `#artifacts-status`. После успешной загрузки файлов блок раскрывается сам; строка полоски «Что нового» про материалы тоже его раскрывает (`px_digest.js`, `panel: 'artifacts-panel'`). Высота списка для резерва (`primary_analitics_artifacts_h_{id}`) запоминается только у раскрытого блока.
@@ -459,7 +461,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 | Элемент | API | Поведение |
 |---------|-----|-----------|
-| Badge статуса | `GET /projects/{id}/artifacts` | `reconcile_artifact_status` подтягивает `done`, если knowledge уже есть. Для аудио те же флаги кнопок: `speakers_match_available`, `speakers_match_ready`, `speakers_confirm_ready` (`speaker_action_flags`) |
+| Badge статуса | `GET /projects/{id}/artifacts` | Список — файлы, загруженные в портал, и вложения Jira. Документы задач и сводка проекта в ответ не входят (`jira_import.shelf_kinds`), их таблица — `#jira-exports-box`. `reconcile_artifact_status` подтягивает `done`, если knowledge уже есть, в том числе у выгрузок. Для аудио те же флаги кнопок: `speakers_match_available`, `speakers_match_ready`, `speakers_confirm_ready` (`speaker_action_flags`) |
 | Ссылка на имя файла | — | При `status=done` → `/artifacts/{id}/report` (стенogramма или отчёт документа) |
 | **match** | — | `/artifacts/{id}/report-speaker-match`. Видна **admin/manager**, когда в `sortformer_speaker_match.json` уже есть метки `speaker_N`. У `user` кнопки нет; URL — 403. Во время ASR / подготовки не показывается. |
 | **лаб** | — | `/artifacts/{id}/report-lab`. Только **admin** (кнопка и URL). Менеджеру `lab_runs` в JSON = 0. |
@@ -495,6 +497,8 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Статус чата** | `GET /projects/{id}/chat/status` | FastAPI → `chat.chat_is_pending()` + `llm_lanes.chat_status()` | `{pending, label, position}`: «В очереди к ИИ: перед вами N», «Загружаю модель…», «ИИ готовит ответ…» |
 
 **Вид** (с 2026-10-15, общие стили — блок «Чат с ассистентом» в конце `static/app.css`): лента `#chat-log` без своей рамки и подложки (рамка — у карточки `chat-card`); вопрос — пузырь справа (`.chat-message-user`), ответ — текст во всю ширину (`.chat-message-ai > .chat-answer`), подписей «Вы/ИИ» нет; уточнение — оранжевая полоска слева (`.is-clarification`), ошибка — `.is-error`; источники свёрнуты в `<details class="chat-sources">` «Источники (N)», у фрагмента созвона — ссылка на момент. Ссылка есть у **каждого** источника: у документов и сущностей — на отчёт материала (`_with_source_urls` в `chat.py`, в том числе для старых сообщений при `GET …/chat/history`). Своего списка «Источники:» в тексте ответа нет: промпт `rag_chat.md` просит называть источники прямо в тексте, а `strip_sources_tail` срезает такой хвост у новых ответов и при показе старых (сохранённый текст в БД не меняется). Пустой чат — подсказка `#chat-empty` по центру. Статус очереди `#chat-status` — над полем ввода, только пока ИИ отвечает. Поле `.chat-composer` с отступом 0.75rem от краёв карточки (селектор `.chat-card .card-body > .chat-composer` сильнее общего `.card-body > :last-child { margin-bottom: 0 }` из `design.css`). Кнопка **На весь экран** (`#chat-expand`, только на странице проекта): класс `chat-card--full` — карточка поверх страницы до 1100px, фон затемнён, прокрутка страницы снята (`body.chat-full-open`); закрыть — та же кнопка, Esc или клик мимо карточки.
+
+Вопрос про конкретный созвон кладёт в блок «Созвон, о котором вопрос» оглавление без разделов «Не закрыто» и «Итог встречи и договорённости» (они уже написаны как готовый ответ, и модель переносит оттуда выдуманный пункт), открытые вопросы этого созвона у которых есть цитата, и реплики. Описания кадров («Экран (показывал …)») не занимают места реплик, если вопрос не про экран: к выбранным репликам добавляется кадр той же минуты (отступ до 20 с, не больше трёх). Кадр другой минуты, даже с тем же заголовком формы, в запрос не дописывается. Кадр — что было видно; реплика может говорить о том, чего на кадре нет. Карточка решения, задачи или открытого вопроса без цитаты помечается как пересказ. Цитата в ответе сверяется с текстом фрагментов и материалов, не с оглавлением и не с текстом карточки.
 
 Enter в textarea — тоже отправка, Shift+Enter — новая строка. Отдельная страница `/projects/{id}/chat` (`chat.html`) — тот же endpoint и тот же вид: карточка на высоту окна, кнопка «К проекту». Повторный `POST /chat` при активном ответе — **409** (проверка и запись вопроса под одним замком). Обработка созвонов чат **не** блокирует (Р2, 2026-10-05): ответы идут полосой чата строго по очереди (§3.2).
 
@@ -623,6 +627,16 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 | Вопрос: **Одобрить черновик** / **Ответить** (поле «Ваш ответ агенту») | `POST …/agent-inbox/{qid}/answer` | admin |
 | Вердикт: **Подтвердить** / **Отклонить** | `POST …/agent-verdicts/{entity_id}/{action}` | admin |
 | **Настройки для агентов**: часовой пояс (`#px-s-tz`), пакет якорей кода (`#px-s-pack`), стороны участников (`#px-s-participants`, «Имя = заказчик/исполнитель»), подсказки заказчика/исполнителя (`#px-s-hint-customer`, `#px-s-hint-vendor`), права ключа по умолчанию (`#px-s-key-scope`), обмен вкл/выкл (`#px-s-enabled`), **Сохранить** | `GET` / `PUT …/agent-settings` | чтение admin, manager; сохранение admin |
+
+#### Выгрузки Jira (строка в «Материалах проекта», только admin)
+
+Сворачиваемая строка `<details id="jira-exports-box">` в конце «Материалов проекта», перед «Дополнительными файлами», тот же вид (`.bg-inline`). Рендерится только при `current_role == 'admin'`. Справа — `#jira-exports-count` («N документов · только админ»). Открытость помнит `localStorage` (`jira_exports_open`). Список обновляется вместе со списком материалов.
+
+В блоке — документы задач и сводка проекта (`jira_items.kind` `issue` и `summary`, имя файла начинается с `Jira `). Файл, который человек загрузил сам и который совпал с Jira по содержимому, остаётся в общей таблице. Счётчики «Готово / Док. / Созвоны» эти выгрузки не считают. Удаление и скачивание — те же, что у материала.
+
+| Элемент UI | API | Кто |
+|------------|-----|-----|
+| Таблица `#jira-exports-body` | `GET /projects/{id}/jira/exports` | только портальный admin (иначе 403; чужой проект — 404) |
 
 #### Дополнительные файлы (строка в «Материалах проекта», только admin)
 
@@ -841,8 +855,8 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
 | `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; шумодав DFN3 в браузере, сырая `primaryanalitics-raw` — рекордеру | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
-| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `primary_analitics_session`) |
-| все HTML-оболочки | **Выйти** (иконка у ника в шапке) | `POST /auth/logout` — сброс cookie + localStorage |
+| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `primary_analitics_session`). Обновление вкладки с уже живой сессией и безопасным `next` возвращает на страницу этой вкладки |
+| все HTML-оболочки | **Выйти** (иконка у ника в шапке) | `POST /auth/logout` — сброс cookie + localStorage; адрес вкладки остаётся в `next`, чтобы после входа в другой вкладке обновление открыло её страницу |
 | `/auth/logout` | *(JS `clearSession` / `#nav-logout`)* | `POST /auth/logout` — сброс cookie |
 
 API без кнопок в UI (для будущего / интеграций):  
@@ -1284,7 +1298,7 @@ data/projects/{project_id}/
 | `chat.py` | RAG: чанки (гибридный поиск `fuse_chunk_hits`) + `search_entities` + хвост `current_tz.md`; блок документов — дата материала, начало файла + фрагменты этого документа по словам вопроса (фрагменты поиска, уже вошедшие в блок документа, не повторяются); допконтекст — сначала «Изменения решений / Нерешённые противоречия» без обрезки, затем карточка, пункты найденных материалов (ближайшие к вопросу, `CHAT_MATERIAL_ENTITIES`), заметки, выжимки созвонов; в каждом ответе — перечень созвонов проекта по датам (новые сверху, `CHAT_MEETING_CATALOG`); созвон, названный в вопросе временем или именем («последний/предыдущий созвон», «вчера», «09.10», «встреча-192»), идёт в контекст блоком «Созвон, о котором вопрос» — выжимка + ближайшие фрагменты (`search_vectors(artifact_id=…)`), даже если поиск по смыслу его не нашёл (урок 2026-10-09); промпт `rag_chat.md`: более позднее уточнение заказчика главнее раннего документа, обе версии с датами; лента и память — `chat_messages` этого логина. С 2026-10-16 (урок пр. 28 — согласие под нажимом и выдуманная ссылка на выжимку): поиск идёт и по расширенному запросу (`chat_query.expand_query`, второй вектор сливается `_merge_vec_hits`, FTS — по расширенному тексту); возражение пользователя (`is_pushback`) ищется по самому утверждению (`claim_of`) и добавляет в промпт блок «Проверка утверждения пользователя» (`_pushback_note`); цитаты «…» ответа сверяются с материалами контекста без диалога (`chat_quotes.verify_answer_quotes`), ненайденные помечаются в тексте, отчёт — `meta_json.quote_check`, флаг `meta_json.pushback`; цитата, которой нет в контексте, ищется в полном тексте готовых материалов проекта (`_project_materials_text`), чтобы настоящая фраза из прошлого ответа не помечалась; при повторе вопроса прошлый ответ ИИ на него в ленту промпта не идёт (`user_activity.build_chat_user_memory(question=…)`, `is_repeat_question`) |
 | `chat_quotes.py` | Проверка цитат ответа чата без вызова модели: цитаты «…»/“…” от 4 слов (`extract_quotes`) ищутся в нормализованных материалах (ё→е, разряды чисел, знаки; точное вхождение, слитно без пробелов или ≥70% трёхсловных кусков; части через «…» отдельно); найденная только в полном тексте материалов (`source_texts`, читается один раз и только при промахе) — `in_source`, без пометки; цитата из вопроса или указаний не помечается (`from_user`), ненайденная получает пометку `UNVERIFIED_MARK` |
 | `chat_query.py` | Разбор вопроса чата перед поиском: `is_pushback` (возражение: «почему ты не сказал…», «ты ошибся», «разве не», «так получается»), `claim_of` (утверждение без вводных), `expand_query` — слова из групп `SYNONYM_GROUPS` (склад, статусы, оценка, сроки, аудит, обещания, конфигуратор), которых нет в вопросе |
-| `user_activity.py` | Журнал действий логина (`user_activity_log`) для аудита; чат в промпт берёт `chat_messages`, не этот журнал; прошлый ответ ИИ на повторённый вопрос (≥80% общих слов) заменяется пометкой `REPEAT_HIDDEN` |
+| `user_activity.py` | Журнал действий логина (`user_activity_log`) для аудита; чат в промпт берёт `chat_messages`, не этот журнал; прошлый ответ ИИ на повторённый вопрос (≥80% общих слов) заменяется пометкой `REPEAT_HIDDEN`; шапка ленты запрещает брать факты проекта из прошлого ответа |
 | `models/chat_message.py` | Per-user chat UI log (`project_id` + `user_id`) |
 | `models/user_activity_log.py` | Журнал аудита append-only: `login`, `profile_id`; INSERT через `log_activity`; SQLite-триггеры запрещают UPDATE/DELETE; purge проекта строки не удаляет; FK на users/projects нет (миграция `ensure_user_activity_log_no_fk` при старте снимает унаследованные FK — иначе DELETE projects падал) |
 | `models/portal_setting.py` / `session_version.py` | `portal_settings.session_version` — отзыв всех JWT (`sv` в токене) |
@@ -2293,6 +2307,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
+| `acceptance_all.py` | Полный acceptance на новой машине: материалы (GPU) + smoke/qa + pytest + health + evals. |
 | `align_people_sides.py` | Привести людей проектов к правилу «сторона — от компании в проекте» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ2, решение Р1). |
 | `audit_integrity.py` | Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы, устаревший индекс поиска. Только чтение. |
 | `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
@@ -2357,6 +2372,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `people_flow_report.py` | Отчёт расхождений «компания → сторона → человек → учётка → голос» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ0). |
 | `people_voice.py` | Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5). |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
+| `portal_smoke.py` | Полный функциональный смоук портала (без полного UI). |
 | `projectmap.py` | Запуск инструмента projectmap из репозитория: `venv\Scripts\python.exe scripts\projectmap.py check`. |
 | `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
@@ -2558,11 +2574,7 @@ MCP-сервер `primaryanalitics-index` (инструменты `graph_neighbo
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-11-18 12:53: сущностей 143, не описано 1, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
-
-**Расхождения:**
-
-- есть на диске, но не описано: `docs/RECOVERY-REPORT-2026-11-07.md`
+_Проверено 2026-11-20 17:45: сущностей 149, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2623,19 +2635,22 @@ _Проверено 2026-11-18 12:53: сущностей 143, не описан�
 | `docs/AGENT1C-BRIDGE.md` | документ | адреса и порты связи с агентом 1С | да |
 | `docs/AUDIT-REPAIR-LOG.md` | журнал | журнал исправлений по аудиту | да |
 | `docs/BACKGROUND-PROGRESS-WORK-REPORT.md` | отчёт | ход дальнейшей обработки: полоска только текущей очереди, без вчерашних задач и без ошибок | да |
+| `docs/BROWSER-BUTTONS-WORK-REPORT.md` | отчёт | плашка браузера гасит показ экрана на пульте; микрофон и камера после значка браузера включаются снова | да |
+| `docs/CHAT-ACCURACY-WORK-REPORT.md` | отчёт | точность ответов чата по созвону: оглавление без готового итога, кадр рядом с репликой той же минуты, прогон вопросов | нет (не в git) |
 | `docs/CHANGELOG-DEV.md` | журнал | журнал разработки из git (генерируется) | да |
 | `docs/DECISIONS.md` | решения | что нельзя менять без пользователя | да |
 | `docs/FINDINGS-2026-09.md` | находки | открытые и закрытые находки сентября | да |
 | `docs/HOWTO-MANAGER.md` | инструкция | как работать менеджеру проекта | да |
 | `docs/JIRA-INTEGRATION-WORK-REPORT.md` | отчёт | подключение Jira: что сделано, что найдено при проверке, что осталось | нет (не в git) |
 | `docs/JIRA-COMPLETENESS-WORK-REPORT.md` | отчёт | проверка полноты забора из Jira 2026-11-19: сводка с ролями и номерами, повторное скачивание пропавшего файла | нет (не в git) |
-| `docs/LOCAL-RECORD-WORK-REPORT.md` | отчёт | локальная запись созвона: MP4 при живой странице, WebM при обрыве, плашка «не закрывайте» | нет (не в git) |
+| `docs/LOCAL-RECORD-WORK-REPORT.md` | отчёт | локальная запись созвона: MP4 при живой странице, WebM при обрыве, плашка «не закрывайте» | да |
 | `docs/OPERATIONS.md` | инструкция | эксплуатация: запуск, бэкапы, индекс, разбор сбоев | да |
 | `docs/PLAN-AGENT-EXCHANGE-V2.md` | план | фазы обмена с внешним агентом | да |
 | `docs/PLAN-REVIEW.md` | ревизия | результаты ревизии плана | да |
 | `docs/PLAN.md` | план | единый пошаговый план проекта | да |
 | `docs/PROJECT-MAP.md` | карта | карта проекта: архитектура, API, модули, инварианты | да |
 | `docs/PYCHARM-CUDA-ENCODER.md` | документ | настройка CUDA-кодировщика в PyCharm | да |
+| `docs/RECOVERY-REPORT-2026-11-07.md` | отчёт | восстановление портала после переноса на D: проекты, документы, созвоны, базы знаний | нет (не в git) |
 | `docs/TESTING.md` | тесты | стратегия и команды тестирования | да |
 | `docs/UI-COPY.md` | реестр | реестр текстов интерфейса (генерируется) | да |
 
@@ -2655,7 +2670,7 @@ _Проверено 2026-11-18 12:53: сущностей 143, не описан�
 | `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
 | `tools/tesseract` | бинарник | OCR rus+eng и tessdata; бинарник не в git, языковые данные в git _(может отсутствовать)_ | да |
 | `tools/projindex_mcp.py` | MCP | MCP-сервер индекса карты (stdio): поиск по коду и графу | да |
-| `tools/jira_mcp.py` | MCP | MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи для агента разработки; ключ из .env | нет (не в git) |
+| `tools/jira_mcp.py` | MCP | MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи для агента разработки; ключ из .env | да |
 | `tools/_monitor_snapshot.py` | утилита | снимок состояния для мониторинга | да |
 
 ### 17.4. Окружения (`venvs/`)
@@ -2741,7 +2756,7 @@ _Проверено 2026-11-18 12:53: сущностей 143, не описан�
 | `scripts/SKKKK-2-Запуск-Cursor.bat` | лаунчер | устаревший ярлык → PrimaryAnalitics-2 | да |
 | `scripts/SKKKK-3-Запуск-LM-Studio.bat` | лаунчер | устаревший ярлык → PrimaryAnalitics-3 | да |
 | `scripts/portal_smoke.py` | смоук | основной функциональный смоук портала после переноса (без полного UI); §10 карты, docs/TESTING.md | нет (не в git) |
-| `scripts/e2e` | код | сквозные e2e материалы/knowledge и mint JWT для acceptance / portal_smoke (§10) | нет (не в git) |
+| `scripts/e2e` | код | сквозные e2e материалы/knowledge и mint JWT для acceptance / portal_smoke (§10) | да |
 | `scripts/index_config.yaml` | конфиг | что индексировать: файлы, исключения, версия схемы, маскирование секретов | да |
 | `scripts/index_glossary.yaml` | конфиг | словарь синонимов для поиска по карте | да |
 | `scripts/voice_review.html` | шаблон | страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/ | да |

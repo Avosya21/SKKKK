@@ -97,4 +97,9 @@ def test_e2e_scheduled_pass_over_real_http(client, jira_e2e, manager_token):
     done = ji.scheduled_pass(get_settings())  # настоящий транспорт, токен из базы
     assert done == {"accounts": 1, "links": 1}
     names = [a["original_filename"] for a in client.get(f"/projects/{project_id}/artifacts", headers=_h(manager_token)).json()]
-    assert "Jira XYZ-2 — Появилась позже.md" in names
+    assert "Jira XYZ-2 — Появилась позже.md" not in names  # документ задачи не в списке материалов
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+
+    with SessionLocal() as db:
+        assert db.scalar(select(Artifact).where(Artifact.original_filename == "Jira XYZ-2 — Появилась позже.md")) is not None

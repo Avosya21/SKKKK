@@ -405,6 +405,7 @@ main > .row.justify-content-center { margin-top: clamp(0px, 5vh, 3rem); }
   .ds-card-facts > span:nth-child(odd) { color: var(--ds-muted); }
   .ds-card-facts > span:nth-child(even) { min-width: 0; overflow-wrap: anywhere; }
   .ds-analyze { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+  .ds-analyze .meeting-analyze-cell { width: 100%; }
   .ds-card-actions {
     display: flex;
     flex-wrap: wrap;
@@ -495,3 +496,42 @@ pre#mcp-config, .card-body pre {
 .table td, .table th { font-size: .9rem; }
 .table td.small, .table td .small, .table th.small { font-size: .875rem; }
 .table td.text-muted, .table td .text-muted { font-size: .875rem; }
+
+/* Встречи: статус/лаб в одной колонке; «Повторить» и прочие кнопки — в .meeting-row-actions */
+.meetings-table { table-layout: fixed; width: 100%; }
+.meetings-table th:nth-child(1),
+.meetings-table td:nth-child(1) { width: 4.5rem; }
+.meetings-table th:nth-child(2),
+.meetings-table td:nth-child(2) { width: 7.5rem; }
+.meetings-table th:nth-child(3),
+.meetings-table td:nth-child(3) { width: 9rem; }
+.meetings-table th:nth-child(4),
+.meetings-table td:nth-child(4) { width: 11rem; }
+.meetings-table th:nth-child(5),
+.meetings-table td:nth-child(5) { width: auto; }
+.meeting-analyze-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .35rem;
+  min-width: 0;
+}
+.meeting-analyze-status { line-height: 1.25; }
+.meeting-analyze-cell .btn {
+  min-height: 2rem;
+  padding: .2rem .65rem;
+  font-size: .8125rem;
+}
+.meeting-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: .35rem;
+}
+.meeting-row-actions:empty { display: none; }
+.meeting-row-actions .btn {
+  min-height: 2rem;
+  padding: .2rem .65rem;
+  font-size: .8125rem;
+}

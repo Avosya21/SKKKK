@@ -4,7 +4,8 @@
 гость Б слушает. Встреча создаётся кодом приложения в песочнице (проект SMOKE_PROJECT_ID, по умолчанию 29).
 
 Проверяет:
-- у А: на микрофоне стоит процессор DFN3, рядом опубликована сырая дорожка `primaryanalitics-raw`;
+- у А: сырая дорожка `primaryanalitics-raw` есть уже при выключенном шумодаве; после включения «Шумодав» —
+  на микрофоне процессор DFN3;
 - сервер: что публикует А (микрофон, сырая, слои камеры); рекордер голоса `primaryanalitics-dfn` в комнате; WAV-дорожка А растёт
   и в ней сырой звук (паузы громче, чем слышит Б);
 - у Б: для А играет ровно одна дорожка (очищенная), на сырую Б не подписан; сколько шума срезано (дБ) при сохранённой
@@ -284,13 +285,25 @@ def main() -> int:
             check(bool(ida), f"Б видит гостя А ({ida})")
             b.evaluate("(id) => window.__watch(id)", ida)
 
-            # --- у А: DFN3 на микрофоне и сырая дорожка рядом
-            local_a = wait_until(lambda: (lambda pubs: pubs if any(x["name"] == RAW_TRACK_NAME for x in pubs) else None)(a.evaluate(LOCAL_A)), 25)
+            # --- у А: сырая дорожка сразу (шумодав по умолчанию выкл); DFN3 — после включения кнопки
+            local_a = wait_until(
+                lambda: (lambda pubs: pubs if any(x["name"] == RAW_TRACK_NAME for x in pubs) else None)(a.evaluate(LOCAL_A)),
+                25,
+            )
+            check(any(x["name"] == RAW_TRACK_NAME for x in (local_a or [])), f"у А опубликована сырая дорожка для записи ({local_a})")
+            check(a.get_attribute("#meeting-denoise", "aria-pressed") == "false", "шумодав по умолчанию выключен")
+            a.click("#meeting-denoise")
+            local_a = wait_until(
+                lambda: (lambda pubs: pubs if any(
+                    x["source"] == "microphone" and x["processor"] == "deepfilternet3-noise-filter" for x in pubs
+                ) else None)(a.evaluate(LOCAL_A)),
+                30,
+            )
             report["local_a"] = local_a
             mic_a = [x for x in (local_a or []) if x["source"] == "microphone"]
             check(bool(mic_a) and mic_a[0]["processor"] == "deepfilternet3-noise-filter",
                   f"у А на микрофоне шумодав DFN3 ({mic_a[0]['processor'] if mic_a else 'нет микрофона'})")
-            check(any(x["name"] == RAW_TRACK_NAME for x in (local_a or [])), f"у А опубликована сырая дорожка для записи ({local_a})")
+            check(a.get_attribute("#meeting-denoise", "aria-pressed") == "true", "после клика шумодав включён")
             time.sleep(3)
 
             # --- сервер: что опубликовано

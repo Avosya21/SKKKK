@@ -95,7 +95,7 @@ def test_waiting_does_not_block_the_server(client, manager_token, tmp_data):
 
     async def scenario():
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
             waiter = asyncio.create_task(ac.post(f"/mcp/projects/{pid}", headers={"Authorization": f"Bearer {plain}"},
                                                  json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "wait_reply", "arguments": {"request_id": 4242, "wait_s": 3}}}))
             await asyncio.sleep(0.3)

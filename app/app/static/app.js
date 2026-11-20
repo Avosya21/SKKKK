@@ -82,6 +82,71 @@ const PrimaryAnalitics = {
   token() {
     return localStorage.getItem('primary_analitics_token');
   },
+  /** Адрес этой вкладки, на который можно вернуть после входа. Чужой сайт — пусто. */
+  safeReturnPath(raw) {
+    if (raw == null) return '';
+    const text = String(raw).trim();
+    if (!text || text.length > 2000 || !text.startsWith('/') || text.startsWith('//') || text.startsWith('/\\')) return '';
+    if (/[\\\n\r\t ]/.test(text)) return '';
+    const lowered = text.toLowerCase();
+    if (text.includes('://') || lowered.includes('%5c') || lowered.includes('%2f%2f') || lowered.includes('%0a') || lowered.includes('%0d')) return '';
+    const path = text.split('?')[0].split('#')[0];
+    if (path === '/login' || path.startsWith('/login/')) return '';
+    return text;
+  },
+  currentReturnPath() {
+    if (location.pathname === '/login') return '';
+    return this.safeReturnPath(location.pathname + location.search + location.hash);
+  },
+  rememberReturn() {
+    const here = this.currentReturnPath();
+    if (!here) return;
+    try { sessionStorage.setItem('primary_analitics_return', here); } catch { /* приватный режим */ }
+  },
+  rememberReferrer() {
+    if (this.tabReturnPath()) return;
+    let ref;
+    try { ref = new URL(document.referrer); } catch { return; }
+    if (ref.origin !== location.origin) return;
+    const safe = this.safeReturnPath(ref.pathname + ref.search + ref.hash);
+    if (!safe) return;
+    try { sessionStorage.setItem('primary_analitics_return', safe); } catch { /* приватный режим */ }
+  },
+  loginUrl() {
+    const here = this.currentReturnPath();
+    if (!here) return '/login';
+    return '/login?next=' + encodeURIComponent(here);
+  },
+  goLogin() {
+    this.rememberReturn();
+    location.href = this.loginUrl();
+  },
+  tabReturnPath() {
+    let stored = '';
+    try { stored = sessionStorage.getItem('primary_analitics_return') || ''; } catch { stored = ''; }
+    const fromQuery = new URLSearchParams(location.search).get('next') || '';
+    return this.safeReturnPath(fromQuery) || this.safeReturnPath(stored) || '';
+  },
+  /** Страница входа при уже живой cookie: вернуть страницу этой вкладки. */
+  async resumeLoginTab() {
+    if (location.pathname !== '/login') return false;
+    if (this._resumingLogin) return false;
+    this._resumingLogin = true;
+    try {
+      this.rememberReferrer();
+      let response;
+      try {
+        response = await fetch('/me/profile', { credentials: 'same-origin' });
+      } catch {
+        return false;
+      }
+      if (!response.ok) return false;
+      location.replace(this.tabReturnPath() || '/');
+      return true;
+    } finally {
+      this._resumingLogin = false;
+    }
+  },
   clearSession({ skipServer = false } = {}) {
     localStorage.removeItem('primary_analitics_token');
     localStorage.removeItem('primary_analitics_role');
@@ -97,17 +162,19 @@ const PrimaryAnalitics = {
     }
   },
   async logout() {
+    this.rememberReturn();
+    const next = this.loginUrl();
     try {
       await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {
       /* cookie drop is best-effort */
     }
     this.clearSession({ skipServer: true });
-    location.href = '/login';
+    location.href = next;
   },
   requireAuth() {
     if (!this.token()) {
-      location.href = '/login';
+      this.goLogin();
       return false;
     }
     this.updateNav();
@@ -199,10 +266,14 @@ const PrimaryAnalitics = {
     const token = this.token();
     if (token) headers.set('Authorization', `Bearer ${token}`);
     return fetch(url, { ...opts, headers }).then((r) => {
-      if (r.status === 401) {
-        this.clearSession();
-        location.href = '/login';
-      }
+      if (r.status !== 401 || location.pathname === '/login') return r;
+      const sent = headers.get('Authorization') || '';
+      const sentToken = sent.toLowerCase().startsWith('bearer ') ? sent.slice(7).trim() : '';
+      const current = this.token() || '';
+      // Устаревший запрос: пока он шёл, сессия уже другая. Новую не гасим.
+      if (current && sentToken !== current) return r;
+      this.goLogin();
+      this.clearSession({ skipServer: !sentToken });
       return r;
     });
   },
@@ -483,6 +554,17 @@ const PrimaryAnalitics = {
 PrimaryAnalitics.updateNav();
 PrimaryAnalitics.updateLlmBadge();
 setInterval(() => PrimaryAnalitics.updateLlmBadge(), 60000);
+// Вход в другой вкладке пишет токен в localStorage. Эта вкладка, если на ней форма входа, сразу возвращает свою страницу.
+window.addEventListener('storage', (event) => {
+  if (event.key === 'primary_analitics_token' && event.newValue && location.pathname === '/login') {
+    PrimaryAnalitics.resumeLoginTab();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && location.pathname === '/login' && PrimaryAnalitics.token()) {
+    PrimaryAnalitics.resumeLoginTab();
+  }
+});
 document.getElementById('nav-logout')?.addEventListener('click', () => {
   PrimaryAnalitics.logout();
 });

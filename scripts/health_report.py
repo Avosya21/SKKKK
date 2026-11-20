@@ -31,6 +31,40 @@ def since_last_start(path: Path, marker: str) -> list[str]:
     return lines[-5000:]
 
 
+# ERROR, которые не красные для стенда: ожидаемый исход ASR / повторный preflight при уже живом процессе.
+_BENIGN_ERROR = (
+    "речь не обнаружена",
+    "no speech",
+    "primaryanalitics.preflight ",
+)
+_JOB_FAILED = re.compile(r"job (\d+) failed")
+
+
+def _job_fail_is_no_speech(job_id: int) -> bool:
+    """Падение задания из‑за «речь не обнаружена» — штатный исход, не авария стенда."""
+    db = ROOT / "data" / "app.db"
+    if not db.is_file():
+        return False
+    try:
+        con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+        row = con.execute("SELECT error_message FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        con.close()
+    except sqlite3.Error:
+        return False
+    if row is None:
+        return True  # задание/артефакт уже вычищены
+    err = (row[0] or "").lower()
+    return "речь не обнаружена" in err or "no speech" in err
+
+
+def _benign_error(logger: str, msg: str) -> bool:
+    blob = f"{logger} {msg}"
+    if any(p in blob for p in _BENIGN_ERROR):
+        return True
+    m = _JOB_FAILED.search(msg)
+    return bool(m and _job_fail_is_no_speech(int(m.group(1))))
+
+
 def analyze(api: list[str], worker: list[str]) -> dict:
     levels: Counter = Counter()
     problems: Counter = Counter()
@@ -40,6 +74,9 @@ def analyze(api: list[str], worker: list[str]) -> dict:
         if not m:
             continue
         _t, level, logger, msg = m.groups()
+        if level in ("ERROR", "CRITICAL") and _benign_error(logger, msg):
+            levels["INFO"] += 1  # ожидаемо — в счётчик ERROR не кладём
+            continue
         levels[level] += 1
         if level in ("ERROR", "CRITICAL"):
             problems[(logger + " " + msg)[:110]] += 1

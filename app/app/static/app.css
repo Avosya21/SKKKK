@@ -431,6 +431,13 @@ body.meeting-is-live {
   opacity: 0.88;
 }
 
+.meeting-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  width: 100%;
+}
+
 .meeting-tiles {
   display: grid;
   flex: 1 1 auto;
@@ -594,6 +601,38 @@ body.meeting-is-live {
   white-space: nowrap;
 }
 
+/* Качество связи участника — левый верх плитки (meeting_room._paintTileLink) */
+.meeting-tile-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 14px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: default;
+  pointer-events: none;
+}
+.meeting-tile-link i {
+  display: block;
+  width: 2.5px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.28);
+}
+.meeting-tile-link i:nth-child(1) { height: 4px; }
+.meeting-tile-link i:nth-child(2) { height: 6px; }
+.meeting-tile-link i:nth-child(3) { height: 9px; }
+.meeting-tile-link i:nth-child(4) { height: 12px; }
+.meeting-tile-link.is-good[data-level="4"] i,
+.meeting-tile-link.is-good[data-level="3"] i:nth-child(-n + 3) { background: #22c55e; }
+.meeting-tile-link.is-wait i { background: #eab308; }
+.meeting-tile-link.is-wait[data-level="1"] i:nth-child(n + 2) { background: rgba(234, 179, 8, 0.35); }
+.meeting-tile-link.is-lost i { background: #9ca3af; }
+
 .meeting-tile-fs {
   position: absolute;
   top: 0.5rem;
@@ -618,7 +657,7 @@ body.meeting-is-live {
 
 .meeting-dock {
   position: relative;
-  z-index: 2;
+  z-index: 30;
   display: flex;
   flex-shrink: 0;
   flex-wrap: nowrap;
@@ -814,6 +853,12 @@ body.meeting-is-live {
   background: #198754;
 }
 
+.meeting-dock-btn.is-recording,
+.meeting-dock-btn#meeting-local-record.is-on {
+  background: #b02a37;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
 .meeting-dock-btn-leave {
   background: #3a3f45;
 }
@@ -827,11 +872,12 @@ body.meeting-is-live {
 .meeting-confirm {
   position: absolute;
   inset: 0;
-  z-index: 60;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
 }
 
 .meeting-confirm-box {
@@ -945,6 +991,12 @@ body.meeting-is-live {
     width: 32px;
     min-width: 32px;
     height: 32px;
+  }
+
+  .meeting-tile-link {
+    top: 0.25rem;
+    left: 0.25rem;
+    padding: 3px 4px;
   }
 
   .meeting-tiles.is-dense .meeting-tile-fs {

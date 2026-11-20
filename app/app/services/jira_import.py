@@ -8,7 +8,11 @@
 Доступ: проект из Jira видит тот, чей токен видит его в Jira (``refresh_access`` выдаёт и снимает участие, таблица
 ``jira_grants``). Ключ проекта Jira привязан не более чем к одному проекту портала; влить Jira в существующий проект может
 только admin. Обновления: ``sync_link`` по кнопке и по расписанию (``JIRA_SYNC_MINUTES``) докачивает изменённые задачи —
-прежний документ задачи заменяется новым. Токен хранится зашифрованным (ключ — из ``SECRET_KEY``), в ответы и журнал не попадает.
+прежний документ задачи заменяется новым. Документы задач и сводка проекта в общий список материалов не входят
+(``shelf_kinds``, их отдаёт только администратору ``GET /projects/{id}/jira/exports``). Вложение с тем же содержимым, что
+уже загруженный файл, второй карточкой не становится. Если содержимое другое — в проект кладётся копия, а в текст разбора
+дописывается, чем она отличается от предыдущей версии с тем же именем (``attachment_version_preface``). Токен хранится
+зашифрованным (ключ — из ``SECRET_KEY``), в ответы и журнал не попадает.
 """
 
 from __future__ import annotations
@@ -289,8 +293,12 @@ def import_projects(db: Session, settings: Settings, user: User, picks: list[dic
 
 
 def unlink(db: Session, link: JiraProjectLink) -> None:
-    """Снять привязку: материалы, уже загруженные из Jira, остаются в проекте; выданный по Jira доступ снимается."""
-    for item in db.scalars(select(JiraItem).where(JiraItem.link_id == link.id)).all():
+    """Снять привязку: материалы, уже загруженные из Jira, остаются в проекте; выданный по Jira доступ снимается.
+
+    Строки задач и сводки не стираются: по ним эти документы и после снятия привязки не попадают в общий список материалов.
+    Строки вложений стираются — сами файлы остаются в списке.
+    """
+    for item in db.scalars(select(JiraItem).where(JiraItem.link_id == link.id, JiraItem.kind == "attachment")).all():
         db.delete(item)
     others = {l.project_id for l in db.scalars(select(JiraProjectLink).where(JiraProjectLink.id != link.id)).all()}
     if link.project_id not in others:
@@ -401,6 +409,126 @@ def _dest(settings: Settings, project_id: int, original: str) -> Path:
 
 def _item(db: Session, link_id: int, kind: str, ref: str) -> JiraItem | None:
     return db.scalar(select(JiraItem).where(JiraItem.link_id == link_id, JiraItem.kind == kind, JiraItem.ref == ref))
+
+
+_SHELF_KINDS = ("issue", "summary")
+# «Jira ABC-1 — схема.txt» и «Jira ABC — сводка проекта.md» — имена, которые даёт загрузка. Чужой файл с тем же
+# содержимым сохраняет своё имя и в этот список не попадает.
+_JIRA_EXPORT_NAME = re.compile(r"^Jira [A-Za-z][A-Za-z0-9_]*(?:-\d+)? — ", re.IGNORECASE)
+_VERSION_MARK = "## Что изменилось по сравнению с предыдущей версией"
+_VERSION_END = "[конец сравнения с предыдущей версией]"
+_PRIOR_TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".csv", ".log", ".json", ".yaml", ".yml", ".text"}
+
+
+def shelf_kinds(db: Session, project_id: int) -> dict[int, str]:
+    """Документы задач (``issue``) и сводка проекта (``summary``): не общий список материалов.
+
+    Ключ — id артефакта, значение — вид. Вложение и файл, который человек загрузил сам, сюда не входят.
+    """
+    rows = db.execute(
+        select(Artifact.id, JiraItem.kind)
+        .join(JiraItem, JiraItem.artifact_id == Artifact.id)
+        .where(
+            Artifact.project_id == project_id,
+            JiraItem.kind.in_(_SHELF_KINDS),
+            Artifact.original_filename.like("Jira %"),
+        )
+    ).all()
+    kinds: dict[int, str] = {}
+    for artifact_id, kind in rows:
+        kinds.setdefault(int(artifact_id), str(kind))
+    return kinds
+
+
+def logical_material_name(filename: str) -> str:
+    """Имя без приставки «Jira КЛЮЧ — », чтобы вложение сравнить с файлом, который уже загрузили в портал."""
+    return _JIRA_EXPORT_NAME.sub("", filename or "", count=1).casefold()
+
+
+def _without_version_note(text: str) -> str:
+    if not (text or "").startswith(_VERSION_MARK):
+        return text or ""
+    end = text.find(_VERSION_END)
+    if end < 0:
+        return text
+    return text[end + len(_VERSION_END):].lstrip("\n")
+
+
+def _prior_text(artifact: Artifact) -> str:
+    """Текст предыдущей версии: уже разобранный, иначе сам файл, если это текст."""
+    stored = _without_version_note(artifact.transcription_text or "").strip()
+    if stored:
+        return stored
+    path = Path(artifact.file_path or "")
+    if path.suffix.lower() in _PRIOR_TEXT_SUFFIXES and path.is_file():
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+    return ""
+
+
+def _uploaded_at(artifact: Artifact) -> float:
+    moment = artifact.upload_date
+    if moment is None:
+        return 0.0
+    try:
+        return moment.timestamp()
+    except (OSError, OverflowError, ValueError):
+        return 0.0
+
+
+def _diff_body(old: str, new: str, limit: int = 40) -> str:
+    import difflib
+
+    clipped = len(old) > 200_000 or len(new) > 200_000
+    old_lines = old.splitlines()[:4000] if clipped else old.splitlines()
+    new_lines = new.splitlines()[:4000] if clipped else new.splitlines()
+    diff = [line for line in difflib.unified_diff(old_lines, new_lines, fromfile="было", tofile="стало", lineterm="", n=1)
+            if not line.startswith(("---", "+++"))]
+    if not diff:
+        return "Текст после разбора совпадает с предыдущей версией. Отличаются байты файла."
+    shown = diff[:limit]
+    tail = f"\n… и ещё {len(diff) - limit} строк отличий." if len(diff) > limit else ""
+    clip = "\nСравнение обрезано: файлы длинные, показаны отличия начала." if clipped else ""
+    return "```\n" + "\n".join(shown) + "\n```" + tail + clip
+
+
+def attachment_version_preface(db: Session, artifact: Artifact, new_text: str) -> str:
+    """Чем новая копия вложения отличается от уже лежащего в проекте файла с тем же именем.
+
+    Пусто, если это не копия из Jira или предыдущей версии с другим содержимым нет. Одинаковые байты сюда не доходят:
+    ``register_file`` вторую карточку не создаёт.
+    """
+    name = artifact.original_filename or ""
+    if not name.startswith("Jira "):
+        return ""
+    linked = db.scalar(select(JiraItem.id).where(JiraItem.artifact_id == artifact.id, JiraItem.kind == "attachment").limit(1))
+    if linked is None:
+        return ""
+    logical = logical_material_name(name)
+    if not logical:
+        return ""
+    shelf = set(shelf_kinds(db, artifact.project_id))
+    others = db.scalars(select(Artifact).where(Artifact.project_id == artifact.project_id, Artifact.id != artifact.id)).all()
+    candidates = [other for other in others
+                  if other.id not in shelf and other.sha256 != artifact.sha256 and logical_material_name(other.original_filename) == logical]
+    if not candidates:
+        return ""
+    mine = _uploaded_at(artifact)
+    earlier = [other for other in candidates if _uploaded_at(other) <= mine]
+    previous = max(earlier or candidates, key=lambda other: (_uploaded_at(other), other.id))
+    old = _prior_text(previous)
+    if old.strip():
+        body = _diff_body(old.strip(), _without_version_note(new_text).strip())
+    else:
+        body = (f"Текст предыдущей версии ещё не разобран, построчное сравнение недоступно. "
+                f"Содержимое отличается от «{previous.original_filename}».")
+    return "\n".join([
+        _VERSION_MARK, "",
+        f"Этот файл — новая копия. Предыдущая версия в проекте — «{previous.original_filename}».",
+        "", body, "", _VERSION_END,
+    ])
 
 
 def _artifact_failed(db: Session, artifact_id: int | None) -> bool:
@@ -820,5 +948,10 @@ def forget_project(db: Session, project_id: int) -> None:
     link_ids = list(db.scalars(select(JiraProjectLink.id).where(JiraProjectLink.project_id == project_id)))
     if link_ids:
         db.execute(delete(JiraItem).where(JiraItem.link_id.in_(link_ids)))
+    # После снятия привязки строки задач и сводки остаются (чтобы выгрузки не вернулись в список материалов).
+    # Проект удаляется — эти строки больше не на что указывают.
+    artifact_ids = list(db.scalars(select(Artifact.id).where(Artifact.project_id == project_id)))
+    if artifact_ids:
+        db.execute(delete(JiraItem).where(JiraItem.artifact_id.in_(artifact_ids)))
     db.execute(delete(JiraProjectLink).where(JiraProjectLink.project_id == project_id))
     db.execute(delete(JiraGrant).where(JiraGrant.project_id == project_id))

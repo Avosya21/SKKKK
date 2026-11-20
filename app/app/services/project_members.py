@@ -46,7 +46,7 @@ def ensure_allowlist_user(db: Session, settings: Settings, login: str) -> User:
         name=display,
         telegram_id=_pending_telegram_id(display),
         role="user",
-        password_hash=settings.user_password_hash or "pending",
+        password_hash="pending",
     )
     db.add(user)
     db.flush()

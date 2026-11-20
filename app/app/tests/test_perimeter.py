@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
+
+
+def _login_next(location: str) -> str:
+    return parse_qs(urlparse(location).query)["next"][0]
+
 
 def test_anonymous_html_shell_redirects_to_login(anon_client):
     r = anon_client.get("/", follow_redirects=False)
     assert r.status_code == 302
-    assert r.headers.get("location") == "/login"
+    location = r.headers.get("location") or ""
+    assert location.startswith("/login?")
+    assert _login_next(location) == "/"
 
 
 def test_login_page_is_public(anon_client):
@@ -27,7 +35,9 @@ def test_anonymous_audio_is_401(anon_client, tmp_data, db_engine):
 def test_anonymous_report_redirects_to_login(anon_client):
     r = anon_client.get("/artifacts/art_missing/report", follow_redirects=False)
     assert r.status_code == 302
-    assert r.headers.get("location") == "/login"
+    location = r.headers.get("location") or ""
+    assert location.startswith("/login?")
+    assert _login_next(location) == "/artifacts/art_missing/report"
 
 
 def test_anonymous_speaker_enroll_is_401(anon_client):

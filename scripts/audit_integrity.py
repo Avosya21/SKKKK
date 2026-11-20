@@ -49,12 +49,22 @@ STALE_CHECK = "индекс не совпадает с текущим текст
 
 
 def stale_index(con: sqlite3.Connection, data_dir: Path) -> list[tuple[int, str]]:
-    """Готовые материалы, чей индекс (``chunks``) не совпадает с нарезкой текущего текста той же функцией, что
-    в ``indexing.index_artifact``: созвон — канон ``_final.txt``, документ — ``transcription_text``. (pk, artifact_id)."""
-    from app.app.services.chunking import chunk_document, chunk_transcript
-    from app.app.services.storage import artifact_knowledge_text
+    """Готовые материалы, чей индекс (``chunks``) не совпадает с нарезкой той же логикой, что ``indexing.index_artifact``:
+    созвон — канон ``_final.txt``; переписка с ``*_messages.json`` — ``chunk_messages``; иначе — ``chunk_document``.
+    (pk, artifact_id)."""
+    from app.app.services.chat_export import load_artifact_export, owned_elsewhere
+    from app.app.services.chunking import chunk_document, chunk_messages, chunk_transcript
+    from app.app.services.storage import artifact_knowledge_text, parsed_dir
 
-    settings = SimpleNamespace(data_dir=data_dir)
+    # Нужен полный Settings: пути parsed/ и экспорт сообщений завязаны на data_dir + остальное.
+    try:
+        from app.app.config import get_settings
+
+        settings = get_settings()
+        if Path(settings.data_dir).resolve() != data_dir.resolve():
+            settings = SimpleNamespace(**{**vars(settings), "data_dir": data_dir})
+    except Exception:  # noqa: BLE001
+        settings = SimpleNamespace(data_dir=data_dir)
     stale: list[tuple[int, str]] = []
     rows = con.execute(
         "SELECT id, artifact_id, project_id, file_type, source_type, transcription_text, transcription_file_path "
@@ -62,15 +72,27 @@ def stale_index(con: sqlite3.Connection, data_dir: Path) -> list[tuple[int, str]
     ).fetchall()
     for pk, aid, pid, file_type, source_type, text, text_path in rows:
         stored = [r[0] for r in con.execute("SELECT text FROM chunks WHERE artifact_id = ? ORDER BY chunk_index", (pk,))]
+        art = SimpleNamespace(
+            id=pk,
+            artifact_id=aid,
+            project_id=pid,
+            file_type=file_type,
+            source_type=source_type,
+            transcription_text=text,
+            transcription_file_path=text_path,
+        )
         if file_type == "audio":
-            art = SimpleNamespace(artifact_id=aid, project_id=pid, source_type=source_type, transcription_text=text,
-                                  transcription_file_path=text_path)
             canon = artifact_knowledge_text(settings, art)
             fresh = [c.text for c in chunk_transcript(canon)] if canon else []
-        elif stored:
-            fresh = [c.text for c in chunk_document((text or "").strip())]
         else:
-            continue  # документ без индекса — файл обмена с агентом, в конвейер знаний не идёт
+            export = load_artifact_export(settings, art)
+            if export and export.get("messages"):
+                skip = owned_elsewhere(parsed_dir(settings, pid, source_type), export)
+                fresh = [c.text for c in chunk_messages(export, skip_ids=skip)]
+            elif stored:
+                fresh = [c.text for c in chunk_document((text or "").strip())]
+            else:
+                continue  # документ без индекса — файл обмена с агентом, в конвейер знаний не идёт
         if stored != fresh:
             stale.append((pk, aid))
     return stale

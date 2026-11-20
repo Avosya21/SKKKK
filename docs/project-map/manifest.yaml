@@ -49,7 +49,7 @@ nodes:
   - id: router_pages
     kind: router
     path: "app/app/routers/pages.py"
-    title: "HTML pages, artifact reports, GET /meeting.webmanifest, meeting_voice_flags"
+    title: "HTML pages, artifact reports, GET /meeting.webmanifest, meeting_voice_flags; GET /login with a live session and safe next returns to that tab's page"
     tags: [api, ui]
 
   - id: router_acme
@@ -693,6 +693,12 @@ nodes:
     path: "app/app/templates/project.html#meetings-panel"
     title: "Сворачиваемый блок Встречи: создать/начать/проанализировать (merge дорожек)/отозвать"
     tags: [ui, meetings, project, collapse]
+
+  - id: ui_jira_exports
+    kind: ui_pattern
+    path: "app/app/templates/project.html#jira-exports-box"
+    title: "Сворачиваемый блок выгрузок Jira: документы задач и сводка проекта, только администратор"
+    tags: [ui, jira, project, collapse]
 
   - id: ui_btn_meeting_create
     kind: ui_action
@@ -4227,6 +4233,8 @@ edges:
   - {from: ui_project_page, to: ui_btn_upload, relation: contains}
   - {from: ui_project_page, to: ui_project_insights_layout, relation: contains}
   - {from: ui_project_page, to: ui_meetings_collapsible, relation: contains}
+  - {from: ui_project_page, to: ui_jira_exports, relation: contains}
+  - {from: ui_jira_exports, to: router_jira, relation: jira_exports}
   - {from: ui_project_page, to: ui_mcp_collapsible, relation: contains}
   - {from: ui_meetings_collapsible, to: ui_btn_meeting_create, relation: contains}
   - {from: ui_meetings_collapsible, to: ui_btn_meeting_analyze, relation: contains}

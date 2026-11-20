@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -164,13 +165,42 @@ def get_current_user(
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
+def safe_return_path(raw: str | None) -> str | None:
+    """Адрес этой вкладки портала. Чужой сайт и сама страница входа не подходят."""
+    if raw is None:
+        return None
+    text = raw.strip()
+    if len(text) > 2000 or not text.startswith("/") or text.startswith("//") or text.startswith("/\\"):
+        return None
+    if any(ch in text for ch in ("\\", "\n", "\r", "\t", " ")):
+        return None
+    lowered = text.lower()
+    if "://" in text or "%5c" in lowered or "%2f%2f" in lowered or "%0a" in lowered or "%0d" in lowered:
+        return None
+    path = text.split("?", 1)[0].split("#", 1)[0]
+    if path == "/login" or path.startswith("/login/"):
+        return None
+    return text
+
+
+def login_location(request: Request) -> str:
+    """Куда увести вкладку без сессии, сохранив её текущую страницу в next."""
+    target = request.url.path or "/"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    safe = safe_return_path(target)
+    if not safe:
+        return "/login"
+    return "/login?next=" + quote(safe, safe="")
+
+
 def require_html_user(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
 ) -> User:
-    """HTML shells: no session → 302 /login (not a JSON 401)."""
+    """HTML shells: no session → 302 /login?next=<эта страница> (not a JSON 401)."""
     try:
         return get_current_user(request, db, settings, creds)
     except HTTPException as exc:
@@ -178,7 +208,7 @@ def require_html_user(
             raise HTTPException(
                 status_code=status.HTTP_302_FOUND,
                 detail="Not authenticated",
-                headers={"Location": "/login"},
+                headers={"Location": login_location(request)},
             ) from exc
         raise
 
