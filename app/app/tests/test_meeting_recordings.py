@@ -427,6 +427,17 @@ def test_join_backoff_backs_off_failing_rooms_and_forgets_success():
     assert b.allowed("r")
 
 
+def test_recording_stops_when_meeting_is_not_live():
+    assert rec.recording_still_wanted("room-a", {"room-a", "room-b"}) is True
+    assert rec.recording_still_wanted("room-a", set()) is False
+    assert rec.recording_still_wanted("room-a", None) is True  # базу не прочитали — запись не бросаем
+    root = Path(__file__).resolve().parents[3]
+    for name in ("voice_cleaner.py", "screen_recorder.py"):
+        text = (root / "tools" / "livekit" / name).read_text(encoding="utf-8")
+        assert "recording_still_wanted" in text
+        assert "release files" in text
+
+
 def test_member_watch_leaves_after_two_server_misses():
     now = [0.0]
     watch = rec.MemberWatch(every=10.0, misses=2, clock=lambda: now[0])

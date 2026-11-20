@@ -593,6 +593,17 @@ class MemberWatch:
         return self._missed >= self.misses
 
 
+def recording_still_wanted(room_name: str, live: set[str] | None) -> bool:
+    """Писать дорожки, только пока встреча в базе ещё live.
+
+    None — базу не прочитали, запись не бросаем. Иначе рекордер остаётся в комнате после
+    «Завершить» (SDK иногда не видит DeleteRoom и держит WAV открытыми часами).
+    """
+    if live is None:
+        return True
+    return room_name in live
+
+
 def live_room_names(data_dir: Path) -> set[str] | None:
     """Комнаты идущих встреч (``meetings.status = 'live'``) из базы портала, только чтение. Рекордеры заходят только в них:
     комнату завершённой или удалённой встречи может заново создать клиент со старым токеном LiveKit (переподключение

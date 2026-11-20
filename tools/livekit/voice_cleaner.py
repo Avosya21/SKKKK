@@ -319,6 +319,10 @@ async def _join(url: str, token: str, room_name: str, member_check=None) -> None
         while True:
             if left.is_set() or room.connection_state != rtc.ConnectionState.CONN_CONNECTED:
                 return
+            live = await asyncio.to_thread(_recordings().live_room_names, _data_dir())
+            if not _recordings().recording_still_wanted(room_name, live):
+                print("voice_cleaner: meeting ended, release files", room_name, flush=True)
+                return
             if member_check is not None and watch.due() and watch.lost(await asyncio.to_thread(member_check)):
                 print("voice_cleaner: server lost us in", room_name, "- rejoin", flush=True)
                 return
