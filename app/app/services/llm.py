@@ -27,9 +27,10 @@ def _check_db_not_held(where: str) -> None:
     оно всё это время занято в пуле — при нескольких таких запросах пул исчерпывается и портал отвечает 500.
     Перед вызовом LLM транзакцию нужно закрыть (`db.commit()`)."""
     try:
-        from app.app.db import thread_held_connections
+        from app.app.db import release_idle_read_transactions, thread_held_connections
     except Exception:  # noqa: BLE001
         return
+    release_idle_read_transactions()  # воркер: транзакцию «только чтение» закрываем сами (корень — см. db.py)
     held = thread_held_connections()
     if not held:
         return

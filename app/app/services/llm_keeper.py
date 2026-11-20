@@ -31,6 +31,7 @@ logger = logging.getLogger("primaryanalitics.llm_keeper")
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE_PATH = ROOT / "tools" / "lmstudio" / "qwen-profile.json"
 DISABLE_ENV = "PRIMARY_ANALITICS_DISABLE_LLM_KEEPER"  # тесты: не трогать настоящий LM Studio
+LMS_EXE_ENV = "PRIMARY_ANALITICS_LMS_EXE"  # переопределение пути к CLI `lms` (тесты, нестандартная установка)
 MODEL_LOCK = "llm_model.lock"
 LAST_USE_FILE = "llm_last_use"
 # Загруженную и сверенную модель в этом процессе повторно через `lms ps` не сверяем чаще, чем раз в столько секунд.
@@ -80,11 +81,19 @@ def lmstudio_home() -> Path:
 
 
 def lms_exe() -> str:
+    """Путь к CLI `lms`. Приоритет: env ``LMS_EXE_ENV`` → собственный bin LM Studio (``~/.lmstudio/bin/lms(.exe)``) → PATH.
+
+    Старый порядок (PATH первым) брал сторонний `lms` из окружения, который мог не знать о локальной
+    установке LM Studio и поднимать модель «не той командой»."""
+    override = os.environ.get(LMS_EXE_ENV, "").strip()
+    if override:
+        return override
+    for name in ("lms.exe", "lms"):
+        candidate = lmstudio_home() / "bin" / name
+        if candidate.is_file():
+            return str(candidate)
     found = shutil.which("lms")
-    if found:
-        return found
-    fallback = lmstudio_home() / "bin" / "lms.exe"
-    return str(fallback) if fallback.is_file() else "lms"
+    return found or "lms"
 
 
 def _lms(args: list[str], *, timeout: float = 60) -> subprocess.CompletedProcess:
@@ -162,6 +171,26 @@ def load_args(profile: LmProfile, *, ttl_sec: int) -> list[str]:
     if ttl_sec > 0:
         args += ["--ttl", str(ttl_sec)]
     return [*args, "-y"]
+
+
+def without_mtp_flags(args: list[str]) -> list[str]:
+    """Те же аргументы `lms load` без флагов --speculative-draft-* (у флагов с числом убираем и число)."""
+    out: list[str] = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg.startswith("--speculative-draft-"):
+            skip = arg != "--speculative-draft-mtp"
+            continue
+        out.append(arg)
+    return out
+
+
+def _cli_lacks_mtp_flags(proc: subprocess.CompletedProcess) -> bool:
+    text = f"{proc.stderr or ''}{proc.stdout or ''}"
+    return "unknown option" in text and "--speculative-draft" in text
 
 
 def _quant_name(info: dict[str, Any]) -> str:
@@ -345,7 +374,12 @@ def _load_locked(settings: Settings, profile: LmProfile, *, reason: str) -> dict
     config_path = write_model_config(profile, str(info.get("indexedModelIdentifier") or ""))
     _wait_vram_for_load(profile, int(info.get("sizeBytes") or 0))
     started = time.monotonic()
-    proc = _lms(load_args(profile, ttl_sec=settings.lmstudio_load_ttl_sec), timeout=LMS_LOAD_TIMEOUT_SEC)
+    args = load_args(profile, ttl_sec=settings.lmstudio_load_ttl_sec)
+    proc = _lms(args, timeout=LMS_LOAD_TIMEOUT_SEC)
+    if proc.returncode != 0 and _cli_lacks_mtp_flags(proc):
+        # Старый lms не знает флагов MTP; те же настройки уже лежат в конфиге модели (write_model_config).
+        log_event(logger, "llm.load.cli_without_mtp_flags", level=logging.WARNING, model=profile.model_key)
+        proc = _lms(without_mtp_flags(args), timeout=LMS_LOAD_TIMEOUT_SEC)
     if proc.returncode != 0:
         raise LlmLoadError(f"lms load -> код {proc.returncode}: {(proc.stderr or proc.stdout)[-800:]}")
     entry = loaded_entry(profile.model_key)
