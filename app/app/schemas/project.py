@@ -29,6 +29,14 @@ class ProjectRename(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class DashboardIn(BaseModel):
+    project_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+class DashboardOut(BaseModel):
+    project_ids: list[int]
+
+
 class ProjectOut(BaseModel):
     id: int
     name: str

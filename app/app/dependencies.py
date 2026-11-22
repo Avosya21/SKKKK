@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -13,8 +14,6 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
 from app.app.models.user import User
-from app.app.services.auth import verify_password
-
 security = HTTPBearer(auto_error=False)
 
 SESSION_COOKIE_NAME = "primary_analitics_session"
@@ -33,9 +32,9 @@ def create_access_token(
     pf: bool | None = None,
     sv: int | None = None,
 ) -> str:
-    """Роль сессии — из пароля при входе; в БД (общая учётка) она не перезаписывается.
+    """Роль сессии — выбранная при входе (Login_roles); в БД общей учётки не перезаписывается.
 
-    `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль пройден,
+    `pv` — версия личного пароля логина на момент входа, `pp` — личный пароль / шаг N/A пройден,
     `pf` — карточка заполнена, `sv` — глобальная версия сессий (см. `_check_session_gates`).
     """
     from app.app.services.session_version import current as current_session_version
@@ -84,57 +83,34 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
 
 
-def authenticate_new_user(settings: Settings, password: str) -> tuple[str, str] | None:
-    # Хеши ролей могут быть перевыпущены командой `credentials --reset`, пока API
-    # уже работает. `settings` закеширован через lru_cache, поэтому для входа
-    # читаем свежие хеши прямо из `.env`, чтобы новый пароль принимался сразу.
-    #
-    # Но в тестах/CI хеши часто задаются через env-переменные, и тогда чтение
-    # `.env` может привести к расхождению. Поэтому: если env-переменные уже есть,
-    # используем `settings.*` как источник истины.
-    import os
-    env_keys = {"ADMIN_PASSWORD_HASH", "MANAGER_PASSWORD_HASH", "USER_PASSWORD_HASH"}
-    use_fresh_from_env_file = not any(k in os.environ for k in env_keys)
-
-    if use_fresh_from_env_file:
-        from app.app.bootstrap import role_hashes
-
-        current = role_hashes()
-    else:
-        current = {}
-
-    pairs = (
-        ("admin", current.get("admin") or settings.admin_password_hash),
-        ("manager", current.get("manager") or settings.manager_password_hash),
-        ("user", current.get("user") or settings.user_password_hash),
-    )
-    for role, hashed in pairs:
-        if verify_password(password, hashed):
-            return role, hashed
-    return None
-
-
 def _check_session_gates(settings: Settings, user: User, payload: dict) -> None:
-    """Сессия действительна, пока совпадают `sv` (глобальная) и `pv` (личный пароль).
+    """Сессия действительна, пока совпадают `sv` (глобальная) и при необходимости `pv`.
 
-    Смена/сброс личного пароля или bump `session_version` (пароли ролей / «разлогинить всех»)
-    → 401. В режиме `required` без `pp`/`pf` сессия тоже недействительна.
+    Роль ``user`` (заказчик) без личного пароля: проверяем только ``sv``, ``pp``/``pf`` и карточку.
+    Смена/сброс личного пароля сотрудника или bump ``session_version`` → 401.
     """
     from app.app.services.session_version import current as current_session_version
 
     if int(payload.get("sv") or 0) != current_session_version():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
 
+    session_role = payload.get("role") or user.role
+    customer = session_role == "user"
+
     if settings.personal_password == "off":
         return
-    from app.app.services.personal_password import current_version
 
-    stale = int(payload.get("pv") or 0) != current_version(user.name)
     required = settings.personal_password == "required"
-    if stale or (required and not (payload.get("pp") and payload.get("pf"))):
+    if required and not (payload.get("pp") and payload.get("pf")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+
+    if not customer:
+        from app.app.services.personal_password import current_version
+
+        if int(payload.get("pv") or 0) != current_version(user.name):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+
     if required:
-        # Админ сбросил карточку — открытые сессии человека закрываются сразу.
         from app.app.services.user_profile import get_profile, is_complete
 
         db = object_session(user)
@@ -189,13 +165,42 @@ def get_current_user(
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
+def safe_return_path(raw: str | None) -> str | None:
+    """Адрес этой вкладки портала. Чужой сайт и сама страница входа не подходят."""
+    if raw is None:
+        return None
+    text = raw.strip()
+    if len(text) > 2000 or not text.startswith("/") or text.startswith("//") or text.startswith("/\\"):
+        return None
+    if any(ch in text for ch in ("\\", "\n", "\r", "\t", " ")):
+        return None
+    lowered = text.lower()
+    if "://" in text or "%5c" in lowered or "%2f%2f" in lowered or "%0a" in lowered or "%0d" in lowered:
+        return None
+    path = text.split("?", 1)[0].split("#", 1)[0]
+    if path == "/login" or path.startswith("/login/"):
+        return None
+    return text
+
+
+def login_location(request: Request) -> str:
+    """Куда увести вкладку без сессии, сохранив её текущую страницу в next."""
+    target = request.url.path or "/"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    safe = safe_return_path(target)
+    if not safe:
+        return "/login"
+    return "/login?next=" + quote(safe, safe="")
+
+
 def require_html_user(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
 ) -> User:
-    """HTML shells: no session → 302 /login (not a JSON 401)."""
+    """HTML shells: no session → 302 /login?next=<эта страница> (not a JSON 401)."""
     try:
         return get_current_user(request, db, settings, creds)
     except HTTPException as exc:
@@ -203,7 +208,7 @@ def require_html_user(
             raise HTTPException(
                 status_code=status.HTTP_302_FOUND,
                 detail="Not authenticated",
-                headers={"Location": "/login"},
+                headers={"Location": login_location(request)},
             ) from exc
         raise
 

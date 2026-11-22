@@ -90,6 +90,9 @@ class ArtifactOut(BaseModel):
 
     material_period_end: date | None = None
 
+    # Документ задачи Jira (issue) или сводка проекта (summary). В общем списке материалов этих значений нет.
+    jira_kind: str | None = None
+
 
 
     model_config = {"from_attributes": True}

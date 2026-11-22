@@ -23,24 +23,24 @@ def test_csrf_post_with_cookie_allows_origin(cookie_auth_client):
 
 
 def test_csrf_skips_when_no_session_cookie(anon_client):
+    from app.app.tests.auth_helpers import login_via_code
+
     anon_client.cookies.clear()
     anon_client.headers.pop("Origin", None)
-    r = anon_client.post(
-        "/auth/login",
-        json={"name": "Admin", "telegram_id": "tg-csrf-login", "password": "admin-pass"},
-    )
-    assert r.status_code == 200
-    assert SESSION_COOKIE_NAME in r.cookies
+    data = login_via_code(anon_client, name="Admin", telegram_id="tg-csrf-login")
+    assert "access_token" in data
+    assert SESSION_COOKIE_NAME in anon_client.cookies
 
 
 def test_csrf_skips_login_even_with_stale_cookie(cookie_auth_client):
-    """Повторный вход с уже живой cookie не должен упираться в CSRF (префикс /auth/login)."""
+    """Повторный вход с уже живой cookie не должен упираться в CSRF (префикс /auth/login*)."""
     r = cookie_auth_client.post(
         "/auth/login",
-        json={"name": "Admin", "telegram_id": "tg-csrf-relogin", "password": "admin-pass"},
+        json={"name": "Admin", "telegram_id": "tg-csrf-relogin"},
         headers={"Origin": "https://evil.example"},
     )
     assert r.status_code == 200
+    assert r.json().get("step") == "code"
 
 
 def test_trusted_host_rejects_unknown_host(client):

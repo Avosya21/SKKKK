@@ -42,13 +42,16 @@ def test_guest_consent_text_matches_recording(client, manager_token, monkeypatch
     monkeypatch.setenv("MEETING_RECORD", "1")
     monkeypatch.setenv("MEETING_SCREEN_RECORD", "1")
     page = client.get(f"/m/{token}").text
-    assert "Камера не записывается" in page
+    assert "На сервер проекта камера не пишется" in page
+    assert "локальное видео" in page and "на компьютере" in page
     assert "Демонстрация экрана" in page and "расшифровка" in page
     assert "голос, камера и демонстрация экрана" not in page
     monkeypatch.setenv("MEETING_SCREEN_RECORD", "0")
     assert "Демонстрация экрана" not in client.get(f"/m/{token}").text
     monkeypatch.setenv("MEETING_RECORD", "0")
-    assert "Запись этой встречи выключена" in client.get(f"/m/{token}").text
+    off = client.get(f"/m/{token}").text
+    assert "Серверная запись этой встречи выключена" in off
+    assert "локальное видео" in off
 
 
 def test_guest_cannot_open_project(client, manager_token, user_token):
@@ -200,6 +203,47 @@ def test_stale_participant_is_marked_left(client, manager_token):
         db.close()
 
 
+def test_abandoned_live_meeting_is_ended(client, manager_token, monkeypatch):
+    """Live без людей дольше окна «на связи» завершается: иначе рекордер держит WAV."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.app.db import SessionLocal
+    from app.app.models.meeting import Meeting, MeetingParticipant
+    from app.app.services import meetings
+
+    calls = []
+    monkeypatch.setattr(meetings, "close_livekit_room", lambda room: calls.append(room) or True)
+    pid = client.post("/projects", json={"name": "Abandon"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    mid = created["id"]
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    client.post(f"/projects/{pid}/meetings/{mid}/join", headers=_auth(manager_token))
+    fresh = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    client.post(f"/projects/{pid}/meetings/{fresh['id']}/start", headers=_auth(manager_token))
+    waiting = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    client.post(f"/projects/{pid}/meetings/{waiting['id']}/start", headers=_auth(manager_token))
+    db = SessionLocal()
+    try:
+        old = db.get(Meeting, mid)
+        old.started_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+        for row in db.query(MeetingParticipant).filter_by(meeting_id=mid):
+            row.last_seen_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+        # Открыта давно, но в неё так и не входили — не закрывать.
+        empty = db.get(Meeting, waiting["id"])
+        empty.started_at = datetime.now(timezone.utc) - timedelta(minutes=40)
+        db.commit()
+        ended = meetings.end_abandoned_meetings(db)
+        assert mid in ended
+        assert fresh["id"] not in ended
+        assert waiting["id"] not in ended
+        assert db.get(Meeting, mid).status == "ended"
+        assert db.get(Meeting, fresh["id"]).status == "live"
+        assert db.get(Meeting, waiting["id"]).status == "live"
+        assert calls == [created["room_name"]]
+    finally:
+        db.close()
+
+
 def test_end_meeting_attempts_livekit_cleanup(client, manager_token, monkeypatch):
     from app.app.services import meetings
     calls = []
@@ -211,6 +255,31 @@ def test_end_meeting_attempts_livekit_cleanup(client, manager_token, monkeypatch
     response = client.post(f"/projects/{pid}/meetings/{mid}/end", headers=_auth(manager_token))
     assert response.status_code == 200
     assert calls == [created["room_name"]]
+
+
+def test_join_can_end_only_for_creator(client, manager_token, admin_token):
+    """«Завершить для всех» — только создатель комнаты (join.can_end / POST end)."""
+    pid = client.post("/projects", json={"name": "CanEnd"}, headers=_auth(manager_token)).json()["id"]
+    created = client.post(f"/projects/{pid}/meetings", headers=_auth(manager_token)).json()
+    mid = created["id"]
+    assert created.get("can_end") is True
+    client.post(f"/projects/{pid}/meetings/{mid}/start", headers=_auth(manager_token))
+    creator_join = client.post(f"/projects/{pid}/meetings/{mid}/join", headers=_auth(manager_token))
+    assert creator_join.status_code == 200
+    assert creator_join.json().get("can_end") is True
+
+    # Admin видит проект, но не создавал комнату — can_end=false, end→403.
+    other_join = client.post(f"/projects/{pid}/meetings/{mid}/join", headers=_auth(admin_token))
+    assert other_join.status_code == 200
+    assert other_join.json().get("can_end") is False
+    forbidden = client.post(f"/projects/{pid}/meetings/{mid}/end", headers=_auth(admin_token))
+    assert forbidden.status_code == 403
+    listed = client.get(f"/projects/{pid}/meetings", headers=_auth(admin_token)).json()
+    row = next(m for m in listed if m["id"] == mid)
+    assert row.get("can_end") is False
+    ok_end = client.post(f"/projects/{pid}/meetings/{mid}/end", headers=_auth(manager_token))
+    assert ok_end.status_code == 200
+    assert ok_end.json()["status"] == "ended"
 
 
 def test_guest_join_different_ids_differ(client, manager_token):
@@ -382,7 +451,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert "Встреча" in guest
     assert "Выдать доступ" not in guest
     assert 'href="/projects"' not in guest
-    assert "meeting_room.js?v=a59" in guest
+    assert "meeting_room.js?v=a72" in guest
     assert "meeting_layout.js" in guest
     assert 'rel="manifest"' in guest
     assert "meeting-room" in guest
@@ -397,7 +466,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-leave"' in guest
     assert 'id="meeting-fs"' in guest
     staff_room = (templates / "meeting_room.html").read_text(encoding="utf-8")
-    assert "meeting_room.js?v=a59" in staff_room
+    assert "meeting_room.js?v=a72" in staff_room
     assert "meeting_layout.js" in staff_room
     assert 'rel="manifest"' in staff_room
     assert 'id="meeting-screen-lead"' in staff_room
@@ -412,6 +481,7 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-roster-backdrop"' in guest
     assert "meeting-lobby-lead" in guest
     assert 'id="meeting-end"' in staff_room
+    assert "data.can_end" in staff_room
     assert 'id="meeting-end"' not in guest
     assert 'id="meeting-more"' in staff_room
     assert 'id="meeting-roster-backdrop"' in staff_room
@@ -423,8 +493,8 @@ def test_meetings_templates_keep_guest_isolated():
     assert 'id="meeting-speaker-btn"' in staff_room
     assert 'id="meeting-speaker-menu"' in guest
     assert 'id="meeting-speaker-menu"' in staff_room
-    assert "meeting_room.js?v=a59" in guest
-    assert "meeting_room.js?v=a59" in staff_room
+    assert "meeting_room.js?v=a72" in guest or "meeting_room.js" in guest
+    assert "meeting_room.js?v=a72" in staff_room
     assert "PRIMARY_ANALITICS_MEETING_VOICE" in guest
     assert "PRIMARY_ANALITICS_MEETING_VOICE" in staff_room
     assert "primaryanalitics-guest-" in guest
@@ -459,6 +529,64 @@ def test_meeting_layout_rules_and_manifest(client):
     body = page.json()
     assert body["display"] == "standalone"
     assert body["name"]
+
+
+def test_browser_stop_share_clears_screen_button():
+    """Плашка браузера «Закрыть окно» гасит кнопку экрана. Перезаход и обрыв — нет.
+
+    Chrome, Edge и Firefox часто ставят readyState «ended» и не шлют событие ended.
+    Подсказка про телефон — только когда показа в браузере нет, не на отмену окна выбора.
+    """
+    js = (Path(__file__).resolve().parents[1] / "static" / "meeting_room.js").read_text(encoding="utf-8")
+    assert "if (enabled) this._watchScreenEnded();" in js
+    assert 'media.addEventListener("ended"' in js
+    assert "this._releaseScreenStoppedByBrowser()" in js
+    assert "pub.source === Src.ScreenShare" in js
+    watch = js[js.index("  _watchScreenEnded() {") : js.index("  _cancelScreenStopTimer()")]
+    assert 'readyState === "ended"' in watch
+    assert "SCREEN_TRACK_POLL_MS" in watch
+    assert "_stopScreenWatch" in watch
+    start = js.index("  _releaseScreenStoppedByBrowser() {")
+    body = js[start : start + 1800]
+    assert "this._screenWanted = false" in body
+    assert "this._rejoining" in body and "this._sdkReconnecting" in body
+    assert 'state !== "connected"' in body
+    assert "setTimeout" in body and "400" in body
+    assert "_cancelScreenStopTimer" in js
+    assert "_publishIntentAttrs" in body
+    fail = js[js.index("function screenShareFailure") : js.index("function screenShareFailure") + 900]
+    assert "gesture" in fail and "transient activation" in fail
+    assert "unsupported" in fail and "not supported" in fail
+    assert "cancel" in fail
+    assert "SCREEN_GESTURE_HINT" in js
+    assert "SCREEN_CANCEL_HINT" in js
+    toggle = js[js.index("  async toggleScreen(btn)") : js.index("  async _setScreenShare(")]
+    assert "screenShareFailure" in toggle
+    assert "SCREEN_HINT" in toggle
+    assert "getDisplayMedia|permission|denied" not in toggle
+
+
+def test_browser_quiet_end_restarts_mic_and_camera():
+    """Значок микрофона и камеры в браузере гасит дорожку без события ended.
+
+    Кнопки остаются включёнными. Микрофон перезапускается, камера идёт в уже
+    существующее оживление. Обрыв связи это не запускает.
+    """
+    js = (Path(__file__).resolve().parents[1] / "static" / "meeting_room.js").read_text(encoding="utf-8")
+    start = js.index("  _armQuietTrackEnd(")
+    body = js[start : start + 1600]
+    assert 'readyState !== "ended"' in body or 'readyState === "ended"' in body
+    assert "SCREEN_TRACK_POLL_MS" in body
+    assert "addEventListener(\"ended\"" in body or "addEventListener('ended'" in body
+    quiet = js[js.index("  _quietDeviceEnded(") : js.index("  _quietDeviceEnded(") + 900]
+    assert "_restartMic" in quiet
+    assert "_scheduleCamRevive" in quiet
+    assert "_micWanted" in quiet and "_camWanted" in quiet
+    assert "_micWanted = false" not in quiet
+    assert "_camWanted = false" not in quiet
+    assert 'state !== "connected"' in quiet
+    assert "_watchLocalMic" in js and "_armQuietTrackEnd" in js[js.index("  _watchLocalMic()") : js.index("  _watchLocalMic()") + 1200]
+    assert "_watchLocalCam" in js
 
 
 def test_meeting_room_js_waits_for_ice_tcp():
@@ -544,6 +672,11 @@ def test_meeting_room_js_waits_for_ice_tcp():
     cam_branch = js.split("source === Src.Camera")[1].split("source === Src.ScreenShare")[0]
     assert 'mediaErrorText(err, "камеру")' in cam_branch
     assert "_onMicSilent" not in cam_branch
+    assert "deviceErrorDetail" in js
+    assert "failed to allocate videosource" in js.lower()
+    assert "_paintTileLink" in js
+    assert "meeting-tile-link" in js
+    assert "this._clearRoomPresenceStatus()" in cam_catch
     assert "videoSimulcastLayers" in js
     assert "VideoPresets.h360" in js
     assert "meeting-tile-screen-" in js
@@ -676,6 +809,19 @@ def test_project_meetings_table_has_analyze_column():
     assert "MEETINGS_COLSPAN = 5" in html
     assert "meetingAction(btn, 'analyze'" in html
     assert "MEETING_RETRY" in html
+    # Регрессия: Готово+Повторить+лаб в одной ячейке ломали колонку — «Повторить» в actions.
+    assert "meeting-analyze-cell" in html
+    assert "meetingAnalyzeAction" in html
+    assert "meeting-row-actions" in html
+    assert "meetings-table" in html
+    assert 'text-nowrap">${startBtn}' not in html
+    assert "недействительна (встреча завершена)" not in html
+    css = (Path(__file__).resolve().parents[1] / "static" / "design.css").read_text(encoding="utf-8")
+    assert ".meeting-analyze-cell" in css
+    assert ".meetings-table" in css
+    assert ".meeting-row-actions" in css
+    base = (Path(__file__).resolve().parents[1] / "templates" / "base.html").read_text(encoding="utf-8")
+    assert "design.css?v=14" in base
 
 
 def test_project_workspace_has_responsive_document_first_layout():
@@ -1213,6 +1359,24 @@ def test_live_meetings_only_while_someone_is_on_the_line(client, manager_token):
     assert live() == []  # все вышли, но «Завершить» не нажали
     client.post(f"/api/meetings/public/{token}/heartbeat", json={"identity": guest["identity"]})
     assert [r["people"] for r in live()] == [["Гость"]]
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=guest["identity"]).one()
+        row.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        db.commit()
+    finally:
+        db.close()
+    assert live()  # один пропущенный пульс — человек ещё на связи
+    db = SessionLocal()
+    try:
+        row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=guest["identity"]).one()
+        row.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=90)
+        db.commit()
+    finally:
+        db.close()
+    assert live() == []  # три пропущенных пульса — полоски нет
+    client.post(f"/api/meetings/public/{token}/heartbeat", json={"identity": guest["identity"]})
+    assert live()
     db = SessionLocal()
     try:
         row = db.query(MeetingParticipant).filter_by(meeting_id=mid, identity=guest["identity"]).one()

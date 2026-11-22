@@ -34,12 +34,23 @@ def test_heatmap_reports_all_eight_channels():
     assert heat["speakers"] == 8
 
 
-def test_default_model_is_nemotron(monkeypatch):
+def test_default_model_is_nemotron(monkeypatch, tmp_path):
+    fake = tmp_path / "Nemotron-3-Diarization.nemo"
+    fake.write_bytes(b"x")
+    monkeypatch.setenv("NEMOTRON_DIAR_MODEL", str(fake))
     monkeypatch.delenv("DIAR_MODEL", raising=False)
     spec = diar_models.selected_model()
     assert spec.key == diar_models.NEMOTRON
     assert spec.num_speakers == 8
     assert spec.min_prob == pytest.approx(0.20)
+
+
+def test_missing_nemotron_falls_back_to_sortformer(monkeypatch, tmp_path):
+    monkeypatch.delenv("DIAR_MODEL", raising=False)
+    monkeypatch.setenv("NEMOTRON_DIAR_MODEL", str(tmp_path / "no-such.nemo"))
+    spec = diar_models.selected_model()
+    assert spec.key == diar_models.SORTFORMER
+    assert spec.num_speakers == 4
 
 
 def test_env_rolls_back_to_sortformer(monkeypatch):
@@ -51,7 +62,10 @@ def test_env_rolls_back_to_sortformer(monkeypatch):
     assert spec.min_prob == pytest.approx(0.35)
 
 
-def test_explicit_name_beats_env(monkeypatch):
+def test_explicit_name_beats_env(monkeypatch, tmp_path):
+    fake = tmp_path / "Nemotron-3-Diarization.nemo"
+    fake.write_bytes(b"x")
+    monkeypatch.setenv("NEMOTRON_DIAR_MODEL", str(fake))
     monkeypatch.setenv("DIAR_MODEL", "sortformer4")
     assert diar_models.selected_model("nemotron3").key == diar_models.NEMOTRON
 

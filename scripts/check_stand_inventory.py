@@ -50,13 +50,14 @@ def load_stand(path: Path | None = None) -> dict:
     return yaml.safe_load((path or STAND).read_text(encoding="utf-8")) or {}
 
 
-def _skip_rules(spec: dict) -> tuple[set[str], tuple[str, ...]]:
+def _skip_rules(spec: dict) -> tuple[set[str], tuple[str, ...], tuple[str, ...]]:
     dirs = set(spec.get("skip_dirs") or []) | DEFAULT_SKIP_DIRS
     suffix = tuple(spec.get("skip_suffix") or []) or DEFAULT_SKIP_SUFFIX
-    return dirs, tuple(set(suffix) | set(DEFAULT_SKIP_SUFFIX))
+    prefixes = tuple(spec.get("skip_prefixes") or ())
+    return dirs, tuple(set(suffix) | set(DEFAULT_SKIP_SUFFIX)), prefixes
 
 
-def _children(rel: str, skip_dirs: set[str], skip_suffix: tuple[str, ...]) -> list[str]:
+def _children(rel: str, skip_dirs: set[str], skip_suffix: tuple[str, ...], skip_prefixes: tuple[str, ...] = ()) -> list[str]:
     """Прямые потомки каталога, кроме пропускаемых (относительные пути через `/`)."""
     base = ROOT if rel in ("", ".") else ROOT / rel
     if not base.is_dir():
@@ -65,7 +66,10 @@ def _children(rel: str, skip_dirs: set[str], skip_suffix: tuple[str, ...]) -> li
     for child in sorted(base.iterdir()):
         if child.name in skip_dirs or child.name.endswith(skip_suffix):
             continue
-        out.append(child.name if rel in ("", ".") else f"{rel}/{child.name}")
+        path = child.name if rel in ("", ".") else f"{rel}/{child.name}"
+        if any(path.startswith(p) or child.name.startswith(p) for p in skip_prefixes):
+            continue
+        out.append(path)
     return out
 
 
@@ -144,10 +148,10 @@ def check(spec: dict | None = None) -> dict:
     spec = spec if spec is not None else load_stand()
     items = spec.get("items") or []
     known = {str(item["path"]) for item in items}
-    skip_dirs, skip_suffix = _skip_rules(spec)
+    skip_dirs, skip_suffix, skip_prefixes = _skip_rules(spec)
     found: list[str] = []
     for root in spec.get("roots") or ["."]:
-        found.extend(_children(str(root), skip_dirs, skip_suffix))
+        found.extend(_children(str(root), skip_dirs, skip_suffix, skip_prefixes))
     unknown = sorted({path for path in found if path not in known})
     absent, absent_optional = [], []
     for item in items:

@@ -23,6 +23,8 @@ def test_build_livekit_yaml_uses_lan_host_and_public_turn():
     assert "domain: 203.0.113.10" in text
     assert "use_external_ip: false" in text
     assert "enable_loopback_candidate: true" in text
+    assert "empty_timeout: 30" in text
+    assert "departure_timeout: 10" in text
     assert "udp_port: 50000" in text
     assert "port_range_start" not in text
     assert "udp_port: 3478" in text

@@ -19,7 +19,7 @@ from app.app.db import get_engine
 from app.app.models.artifact import Artifact
 from app.app.models.chat_guidance import ChatGuidance
 from app.app.models.chat_message import ChatMessage
-from app.app.models.entity import Entity, Link, UserNote
+from app.app.models.entity import Chunk, Entity, Link, UserNote
 from app.app.services.chat_query import claim_of, expand_query, is_pushback
 from app.app.services.chat_quotes import verify_answer_quotes
 from app.app.services.llm import chat_completion_no_think
@@ -69,7 +69,15 @@ DOC_DUPLICATE_PROBE = 150  # начало фрагмента поиска, по 
 CHAT_MEETING_CATALOG = 10  # созвонов в перечне «по датам» в каждом ответе
 CHAT_FOCUS_MEETINGS = 3  # созвонов, которые вопрос назвал, в контекст целиком
 CHAT_FOCUS_CHUNKS = 6  # фрагментов такого созвона, ближайших к вопросу
+CHAT_FOCUS_FETCH = 30  # сколько ближайших смотреть, прежде чем оставить реплики: кадры формы часто ближе речи
+CHAT_FOCUS_SCREEN_MAX = 1  # чужих кадров, если реплик меньше, чем мест
+CHAT_FOCUS_SCREEN_BESIDE = 3  # кадров той же минуты, что выбранные реплики
+SCREEN_BESIDE_SEC = 20  # кадр ещё про этот момент, если отстоит от реплики не дальше
 CHAT_FOCUS_SUMMARY_CHARS = 6000
+_SCREEN_MARK = "Экран (показывал"
+# Запас под ChatML-обёртку /v1/completions и пустой <think></think> (см. llm.lmstudio_completions_raw).
+CHAT_PROMPT_OVERHEAD_TOKENS = 400
+CHAT_TRIM_NOTE = "\n\n[…часть контекста сокращена: не поместилась в окно модели…]"
 _MEETING_WORD = r"(?:созвон|встреч|звонк|звонок|разговор|совещан|планерк)"
 _LATEST_MEETING_RE = re.compile(
     r"(?<!\w)(пред)?(?:последн|прошл|предыдущ|свеж|недавн)\w*\s+(?:[\w-]+\s+){0,2}?" + _MEETING_WORD, re.IGNORECASE
@@ -671,7 +679,7 @@ def _supplement_context(
         parts.append("Карточка проекта:\n" + card[:2000])
 
     if entities:
-        ent_lines = [f"- {format_entity_line(e.entity_type, e.value_json, e.artifact)}" for e in entities]
+        ent_lines = [f"- {chat_entity_line(e.entity_type, e.value_json, e.artifact)}" for e in entities]
         parts.append("Сущности по найденным материалам:\n" + "\n".join(ent_lines))
 
     notes = db.scalars(
@@ -771,18 +779,210 @@ def _meetings_in_question(question: str, meetings: list[Artifact], *, today: dat
     return picked[:CHAT_FOCUS_MEETINGS]
 
 
+def is_screen_chunk_text(text: str) -> bool:
+    """Описание кадра, а не реплика. В индексе оно отдельным окном и начинается с «Экран (показывал …)»."""
+    return _SCREEN_MARK in (text or "")[:180]
+
+
+def question_about_screen(question: str) -> bool:
+    q = (question or "").lower().replace("ё", "е")
+    return any(word in q for word in ("экран", "на экране", "показывал", "кадр"))
+
+
+def _hit_span(hit: dict[str, Any]) -> tuple[float, float] | None:
+    start = hit.get("start_sec")
+    if start is None:
+        return None
+    end = hit.get("end_sec")
+    return float(start), float(start if end is None else end)
+
+
+def screens_beside_speech(
+    speech: list[dict[str, Any]],
+    screens: list[dict[str, Any]],
+    *,
+    slack_sec: float = SCREEN_BESIDE_SEC,
+    limit: int = CHAT_FOCUS_SCREEN_BESIDE,
+) -> list[dict[str, Any]]:
+    """Кадр той же минуты, что реплика. Кадр из другой части созвона, даже с тем же заголовком, не берётся.
+
+    Человек не выбирает, что важнее вообще. Он видит экран в ту секунду, когда это говорят: кадр — что видно
+    сейчас, реплика — что спикер утверждает, в том числе про будущее и про «было бы».
+    """
+    chosen: list[dict[str, Any]] = []
+    used: set[Any] = set()
+    for talk in speech:
+        span = _hit_span(talk)
+        if span is None:
+            continue
+        start, end = span
+        best: dict[str, Any] | None = None
+        best_dist: float | None = None
+        for screen in screens:
+            screen_span = _hit_span(screen)
+            if screen_span is None or screen.get("chunk_id") in used:
+                continue
+            screen_start, screen_end = screen_span
+            if screen_end < start - slack_sec or screen_start > end + slack_sec:
+                continue
+            dist = abs(((screen_start + screen_end) / 2) - ((start + end) / 2))
+            if best is None or best_dist is None or dist < best_dist:
+                best, best_dist = screen, dist
+        if best is None:
+            continue
+        used.add(best.get("chunk_id"))
+        chosen.append(best)
+        if len(chosen) >= limit:
+            break
+    return chosen
+
+
+def _screen_hits(db: Session, art: Artifact) -> list[dict[str, Any]]:
+    rows = db.scalars(select(Chunk).where(Chunk.artifact_id == art.id)).all()
+    hits: list[dict[str, Any]] = []
+    for row in rows:
+        if not is_screen_chunk_text(row.text or ""):
+            continue
+        hits.append(
+            {
+                "chunk_id": row.id,
+                "artifact_id": row.artifact_id,
+                "chunk_index": row.chunk_index,
+                "text": row.text,
+                "speaker": row.speaker,
+                "start_sec": row.start_sec,
+                "end_sec": row.end_sec,
+                "score": 0.0,
+            }
+        )
+    return hits
+
+
+def pick_focus_hits(
+    hits: list[dict[str, Any]], question: str, *, limit: int = CHAT_FOCUS_CHUNKS
+) -> list[dict[str, Any]]:
+    """Фрагменты созвона, о котором вопрос.
+
+    Вопрос про экран оставляет ближайшие кадры. Иначе места занимают реплики: заголовок формы на кадре
+    ближе к словам «авансовый отчёт», чем разговор о том, куда девается подпись, и речь в запрос не попадает.
+    Одно описание экрана остаётся, только если реплик меньше, чем мест.
+    """
+    ordered = list(hits)
+    if question_about_screen(question):
+        return ordered[:limit]
+    speech = [hit for hit in ordered if not is_screen_chunk_text(hit.get("text") or "")]
+    screen = [hit for hit in ordered if is_screen_chunk_text(hit.get("text") or "")]
+    picked = speech[:limit]
+    room = limit - len(picked)
+    if room > 0 and screen:
+        picked.extend(screen[: min(room, CHAT_FOCUS_SCREEN_MAX)])
+    return picked
+
+
+def chat_entity_line(
+    entity_type: str, value_json: str, artifact: Artifact | None, *, limit: int | None = None
+) -> str:
+    """Строка сущности для чата. Пересказ без цитаты не выдаётся за речь: иначе модель цитирует карточку."""
+    line = format_entity_line(entity_type, value_json, artifact)
+    quote = ""
+    try:
+        value = json.loads(value_json or "{}")
+    except json.JSONDecodeError:
+        value = {}
+    if isinstance(value, dict):
+        quote = str(value.get("quote") or "").strip()
+    mark = ""
+    if entity_type in ("decision", "task", "open_question") and not quote:
+        mark = " · пересказ, дословной цитаты нет — не приводи этот текст как речь"
+    if limit is not None and len(line) + len(mark) > limit:
+        line = line[: max(limit - len(mark), 0)].rstrip()
+    return line + mark
+
+
+def _focus_open_questions(db: Session, art: Artifact, query_vec: list[float], *, limit: int = 5) -> list[str]:
+    """Открытые вопросы этого созвона, у которых есть цитата. Без цитаты это тот же пересказ, что и пустое решение."""
+    rows = _entities_for_artifacts(db, {art.id}, query_vec, min_score=0.0, limit=40)
+    lines: list[str] = []
+    for entity in rows:
+        if entity.entity_type != "open_question":
+            continue
+        try:
+            value = json.loads(entity.value_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        quote = str(value.get("quote") or "").strip()
+        body = str(value.get("text") or "").strip()
+        if not quote or not body:
+            continue
+        lines.append(f"- {body} Цитата: «{quote}»")
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+_SUMMARY_DROP_TITLES = ("не закрыто", "итог встречи и договорённости")
+
+
+def chat_summary_for_focus(summary: str) -> str:
+    """Оглавление для чата без разделов, которые уже написаны как готовый ответ.
+
+    «Не закрыто» и «Итог» модель переносит в письмо целиком, в том числе выдуманный пункт.
+    Темы, поручения и оговорки остаются: по ним видно, о чём созвон.
+    """
+    kept: list[str] = []
+    dropping = False
+    for line in summary.splitlines():
+        heading = re.match(r"^#{1,3}\s+(.+?)\s*$", line)
+        if heading:
+            title = heading.group(1).strip().lower().rstrip(".")
+            dropping = title in _SUMMARY_DROP_TITLES
+            if dropping:
+                continue
+        if not dropping:
+            kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
 def _focus_meeting_block(
-    db: Session, settings: Settings, art: Artifact, query_vec: list[float]
+    db: Session, settings: Settings, art: Artifact, query_vec: list[float], question: str
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Блок «созвон, о котором вопрос»: выжимка и ближайшие к вопросу фрагменты этого созвона в порядке записи."""
+    """Блок «созвон, о котором вопрос»: оглавление без «Не закрыто» и «Итога», открытые вопросы с цитатой и реплики."""
     label = material_date_label(art)
     parts = [f"=== Созвон, о котором вопрос: {art.original_filename} ({label}) ==="]
     summary_path = parsed_dir(settings, art.project_id, art.source_type) / f"{art.artifact_id}_call_summary.md"
     if summary_path.is_file():
-        summary = summary_path.read_text(encoding="utf-8").strip()
+        summary = chat_summary_for_focus(summary_path.read_text(encoding="utf-8"))
         if summary:
-            parts.append("Выжимка созвона:\n" + summary[:CHAT_FOCUS_SUMMARY_CHARS])
-    hits = search_vectors(db, query_vec, project_id=art.project_id, limit=CHAT_FOCUS_CHUNKS, artifact_id=art.id)
+            parts.append(
+                "Оглавление созвона (не источник: где хранится, как передаётся и что уже решили — из реплик "
+                "и кадров той же минуты ниже; пункт оглавления, которого нет там, в ответ не переноси):\n"
+                + summary[:CHAT_FOCUS_SUMMARY_CHARS]
+            )
+    open_lines = _focus_open_questions(db, art, query_vec)
+    if open_lines:
+        parts.append(
+            "Открытые вопросы этого созвона (ещё не выбрано; не записывай вариант как готовый механизм):\n"
+            + "\n".join(open_lines)
+        )
+    raw_hits = search_vectors(
+        db, query_vec, project_id=art.project_id, limit=CHAT_FOCUS_FETCH, artifact_id=art.id
+    )
+    hits = pick_focus_hits(raw_hits, question)
+    if not question_about_screen(question):
+        speech = [hit for hit in hits if not is_screen_chunk_text(hit.get("text") or "")]
+        have = {hit.get("chunk_id") for hit in hits}
+        beside = [
+            hit for hit in screens_beside_speech(speech, _screen_hits(db, art)) if hit.get("chunk_id") not in have
+        ]
+        hits = [*hits, *beside]
+        if beside:
+            parts.append(
+                "Кадр «Экран (показывал …)» рядом с репликой — то, что было видно в эту минуту. Реплика — что спикер "
+                "утверждает, в том числе про то, чего на кадре нет: появится или было бы при настройке. Если расходятся, "
+                "напиши оба: на экране видно одно, спикер говорит другое. Кадр из другой минуты к этой реплике не относится."
+            )
     hits = sorted(hits, key=lambda h: (h.get("start_sec") is None, h.get("start_sec") or 0, h.get("chunk_index") or 0))
     for h in hits:
         speaker = f"[{h['speaker']}] " if h.get("speaker") and h.get("start_sec") is None else ""
@@ -945,22 +1145,10 @@ def jira_overview_block(db: Session, project_id: int, limit_chars: int = CHAT_JI
 
 
 CHAT_ANSWER_TOKENS = 2048
-CHAT_CHARS_PER_TOKEN = 2.1  # русский текст с именами и числами: по журналу LM Studio 2.17 знака на токен (75606 знаков = 34724 токена)
 # Нижние пределы второстепенных частей запроса: ниже них часть не сокращается, пока есть что сокращать дальше по списку.
 CHAT_FLOORS = (("graph_part", 0, "граф"), ("memory", 4000, "прошлый диалог"), ("tz_excerpt", 1000, "выжимка"),
                ("supplement", 3000, "дополнение из БД"), ("decisions", 1500, "журнал решений"))
 CHAT_MIN_FRAGMENTS = 6
-
-
-def _chat_budget_chars() -> int:
-    """Сколько знаков запроса помещается в окно модели вместе с ответом (0 — окно неизвестно: не ограничиваем)."""
-    try:
-        from app.app.services import llm_keeper
-
-        window = int(llm_keeper.load_profile().context_length or 0)
-    except Exception:  # noqa: BLE001 — профиля нет (другой поставщик)
-        return 0
-    return int((window - CHAT_ANSWER_TOKENS - 512) * CHAT_CHARS_PER_TOKEN) if window > 0 else 0
 
 
 def _keep_dialogue_tail(memory: str, cap: int) -> str:
@@ -982,8 +1170,7 @@ def fit_chat_parts(room: int | None, lines: list[str], *, memory: str, supplemen
                    graph_part: str) -> dict[str, Any]:
     """Уложить переменные части запроса в отведённое место (знаков). Найденные фрагменты — главное, они сокращаются последними:
     сначала граф, затем старые реплики диалога, выжимка, дополнение из БД, журнал решений — каждая до своего нижнего предела;
-    только если и этого мало, отбрасываются самые дальние от вопроса фрагменты (с конца списка), но не меньше CHAT_MIN_FRAGMENTS.
-    Раньше запрос строился без оглядки на окно: при переполнении чат выбрасывал половину фрагментов или отвечал «не удалось»."""
+    только если и этого мало, отбрасываются самые дальние от вопроса фрагменты (с конца списка), но не меньше CHAT_MIN_FRAGMENTS."""
     parts = {"memory": memory, "supplement": supplement, "tz_excerpt": tz_excerpt, "decisions": decisions, "graph_part": graph_part}
     kept = list(lines)
     trimmed: list[str] = []
@@ -997,7 +1184,7 @@ def fit_chat_parts(room: int | None, lines: list[str], *, memory: str, supplemen
             if excess <= 0:
                 break
             text = parts[name]
-            target = max(floor, len(text) - excess - 40)  # запас на пометку «(сокращено)»
+            target = max(floor, len(text) - excess - 40)
             if target >= len(text):
                 continue
             if name == "memory":
@@ -1014,22 +1201,50 @@ def fit_chat_parts(room: int | None, lines: list[str], *, memory: str, supplemen
     return {"lines": kept, "trimmed": trimmed, **parts}
 
 
-def _fits_model_window(system: str, user: str) -> bool:
-    """Поместится ли запрос в окно модели вместе с ответом (оценка по числу знаков; окно — из профиля LM Studio)."""
-    try:
-        from app.app.services import llm_keeper
-
-        window = int(llm_keeper.load_profile().context_length or 0)
-    except Exception:  # noqa: BLE001 — профиля нет (другой поставщик): не ограничиваем, сработает повтор по ошибке
-        return True
-    if window <= 0:
-        return True
-    return (len(system) + len(user)) / CHAT_CHARS_PER_TOKEN <= window - CHAT_ANSWER_TOKENS - 512
-
-
 def _is_context_overflow(exc: Exception) -> bool:
     text = str(exc).lower()
     return "context size" in text or "context length" in text or "n_keep" in text
+
+
+def _chat_prompt_token_limit(settings: Settings, *, max_tokens: int) -> int:
+    """Сколько токенов можно отдать на system+user, чтобы запрос влез в окно LM Studio."""
+    from app.app.services import llm_keeper
+
+    try:
+        ctx = int(llm_keeper.load_profile().context_length)
+    except Exception:  # noqa: BLE001 — профиль недоступен: берём типичное окно стенда
+        ctx = 32768
+    # Не больше доли чата (полосы) и не больше «окно − ответ − обёртка».
+    hard = ctx - max_tokens - CHAT_PROMPT_OVERHEAD_TOKENS
+    return max(4000, min(settings.lmstudio_chat_token_budget, hard))
+
+
+def _fit_chat_user(settings: Settings, system: str, user: str, *, max_tokens: int = 2048) -> str:
+    """Укоротить user-промпт, если он не влезает в окно модели (урок 2026-11-05: 34741 > 32768 → HTTP 400)."""
+    from app.app.services.llm_lanes import CHARS_PER_TOKEN, estimate_tokens
+
+    limit = _chat_prompt_token_limit(settings, max_tokens=max_tokens)
+    if estimate_tokens(system, user) <= limit:
+        return user
+    body = user
+    note = CHAT_TRIM_NOTE
+    while estimate_tokens(system, body + note) > limit and len(body) > 2000:
+        overflow = estimate_tokens(system, body + note) - limit
+        cut = max(int(overflow * CHARS_PER_TOKEN) + 800, 2500)
+        body = body[:-cut].rstrip()
+        # Режем по границе абзаца, чтобы не рвать цитату посередине строки.
+        split_at = body.rfind("\n\n")
+        if split_at > len(body) // 2:
+            body = body[:split_at].rstrip()
+    trimmed = body + note
+    logger.info(
+        "chat.prompt_trimmed chars_before=%s chars_after=%s tokens_est=%s limit=%s",
+        len(user),
+        len(trimmed),
+        estimate_tokens(system, trimmed),
+        limit,
+    )
+    return trimmed
 
 
 def answer_chat(
@@ -1162,6 +1377,7 @@ def _answer_chat_inner(
         guidance_texts = [guidance_reply, *guidance_texts]
 
     context_lines: list[str] = []
+    quote_parts: list[str] = []  # сверка цитат только по репликам и документам, не по оглавлению и пересказу карточек
     sources: list[dict[str, Any]] = []
     hit_artifact_db_ids: set[int] = set()
     hit_artifacts: list[Artifact] = []
@@ -1173,8 +1389,9 @@ def _answer_chat_inner(
     focus_chunk_ids: set[int] = set()
     focus_ids: set[int] = set()
     for art in _meetings_in_question(question, meetings):
-        block, focus_hits = _focus_meeting_block(db, settings, art, q_vecs[0])
+        block, focus_hits = _focus_meeting_block(db, settings, art, q_vecs[0], question)
         context_lines.append(block)
+        quote_parts.extend(h["text"] for h in focus_hits if h.get("text"))
         focus_chunk_ids.update(h["chunk_id"] for h in focus_hits)
         focus_ids.add(art.id)
         key = (art.artifact_id, art.original_filename)
@@ -1224,8 +1441,16 @@ def _answer_chat_inner(
         speaker = f"[{h['speaker']}] " if h.get("speaker") and h.get("start_sec") is None else ""
         if h.get("chunk_id") in focus_chunk_ids:  # уже в блоке созвона, о котором вопрос
             pass
+        elif (
+            art.id in focus_ids
+            and not question_about_screen(question)
+            and is_screen_chunk_text(h.get("text") or "")
+        ):
+            continue  # остальные кадры этого созвона не вытесняют реплики, которые уже отобраны в фокус
         elif not (art.id in doc_text and _squash(h["text"])[:DOC_DUPLICATE_PROBE] in doc_text[art.id]):
             context_lines.append(f"{chunk_header(art, h)}\n{speaker}{h['text']}")
+            if h.get("text"):
+                quote_parts.append(h["text"])
         key = (art.artifact_id, art.original_filename)
         if key not in seen_source_keys:
             seen_source_keys.add(key)
@@ -1260,8 +1485,10 @@ def _answer_chat_inner(
     if entity_hits:
         context_lines.append("=== Сущности проекта по вопросу ===")
         for h in entity_hits:
-            context_lines.append(f"- {h['line'][:600]} (artifact_id={h['artifact_id']})")
             art = db.get(Artifact, h["artifact_db_id"])
+            context_lines.append(
+                f"- {chat_entity_line(h['entity_type'], h['value_json'], art, limit=600)} (artifact_id={h['artifact_id']})"
+            )
             if not art:
                 continue
             key = (art.artifact_id, art.original_filename)
@@ -1352,13 +1579,15 @@ def _answer_chat_inner(
 
     system = _load_prompt()
     jira_focus = jira_focus_block(db, project_id, question)
+    from app.app.services.llm_lanes import CHARS_PER_TOKEN
 
-    # Запрос заранее укладывается в окно модели: найденные фрагменты остаются, сокращается второстепенное (см. fit_chat_parts).
+    # Сначала ужимаем второстепенное и сохраняем найденные фрагменты; _fit_chat_user остаётся последней страховкой окна.
+    token_limit = _chat_prompt_token_limit(settings, max_tokens=CHAT_ANSWER_TOKENS)
     fixed_chars = (len(system) + len(question) + len(catalog or "") + len(jira_overview) + len(jira_focus)
                    + sum(len(g) for g in guidance_texts[:8]) + 800)
-    fitted = fit_chat_parts(_chat_budget_chars() - fixed_chars if _chat_budget_chars() else None, context_lines,
-                            memory=memory or "", supplement=supplement or "", tz_excerpt=tz_excerpt or "", decisions=decisions or "",
-                            graph_part=graph_part or "")
+    fitted = fit_chat_parts(int(token_limit * CHARS_PER_TOKEN) - fixed_chars, context_lines,
+                            memory=memory or "", supplement=supplement or "", tz_excerpt=tz_excerpt or "",
+                            decisions=decisions or "", graph_part=graph_part or "")
     full_lines = context_lines
     context_lines, memory, supplement = fitted["lines"], fitted["memory"], fitted["supplement"]
     tz_excerpt, decisions, graph_part = fitted["tz_excerpt"], fitted["decisions"], fitted["graph_part"]
@@ -1398,16 +1627,14 @@ def _answer_chat_inner(
         # Закрыть транзакцию: ответ модели идёт десятки секунд, а соединение из пула всё это время было бы занято.
         db.commit()
         answer = ""
-        logger.log(logging.WARNING if len(context_lines) < len(full_lines) else logging.INFO,
-                   "chat.prompt: знаков %s (система %s, диалог %s, перечень встреч %s, сводка Jira %s, задачи Jira %s, фрагменты %s из %s шт. %s, "
-                   "из БД %s, выжимка %s, решения %s, граф %s)%s", len(system) + len(compose(0)), len(system), len(memory or ""), len(catalog or ""),
-                   len(jira_overview), len(jira_focus), len(context_lines), len(full_lines), sum(len(x) for x in context_lines),
-                   len(supplement or ""), len(tz_excerpt or ""), len(decisions or ""), len(graph_part or ""),
-                   "; сокращено: " + ", ".join(fitted["trimmed"]) if fitted["trimmed"] else "")
+        user = _fit_chat_user(settings, system, compose(0), max_tokens=CHAT_ANSWER_TOKENS)
+        if fitted["trimmed"]:
+            logger.info("chat.prompt: сокращено: %s; фрагментов %s из %s", ", ".join(fitted["trimmed"]), len(context_lines), len(full_lines))
         for level in range(0, 3):
-            user = compose(level)
+            if level:
+                user = compose(level)
             try:
-                answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=2048)
+                answer = chat_completion_no_think(settings, system=system, user=user, max_tokens=CHAT_ANSWER_TOKENS)
                 break
             except RuntimeError as exc:
                 # Запрос не поместился в окно модели: сокращаем менее важные части и повторяем, а не отказываем человеку.
@@ -1418,7 +1645,9 @@ def _answer_chat_inner(
 
     answer = strip_sources_tail(plainify_llm_markup(answer.strip()))
     # Цитаты сверяются только с материалами: предыдущий диалог и указания пользователя доказательством не считаются.
-    evidence = "\n".join(part for part in (catalog, jira_overview, jira_focus, context, supplement, tz_excerpt, decisions, graph_part) if part)
+    # Оглавление, карточки и выжимка проекта в запрос входят, но цитату не подтверждают: пересказ оттуда
+    # находился бы «в материалах», хотя в репликах его нет. Нет в показанных фрагментах — ищем в тексте материалов.
+    evidence = "\n".join(quote_parts)
     answer, quote_check = verify_answer_quotes(
         answer, evidence, user_texts=[question, *guidance_texts],
         source_texts=lambda: _project_materials_text(db, project_id),

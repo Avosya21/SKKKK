@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.app.tests.conftest import ADMIN_PASS
+from app.app.services import login_codes
 from app.app.tests.test_user_profile import jpeg
 
 GOOD = "correct-horse-battery"
@@ -23,16 +23,38 @@ def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _step1(client, name="Admin"):
-    r = client.post("/auth/login", json={"name": name, "telegram_id": "tg-" + name, "password": ADMIN_PASS})
+def _through_code(client, name="Admin", password=None):
+    from app.app.services import personal_password
+
+    if password is not None:
+        r = client.post(
+            "/auth/login",
+            json={"name": name, "telegram_id": "tg-" + name, "password": password},
+        )
+    elif personal_password.enabled() and not personal_password.has_password(name):
+        r = client.post("/auth/register", json={"name": name})
+    else:
+        r = client.post("/auth/login", json={"name": name, "telegram_id": "tg-" + name})
     assert r.status_code == 200, r.text
-    return r.json()
+    first = r.json()
+    assert first["step"] == "code", first
+    ticket = first["ticket"]
+    assert client.post("/auth/login/code/request", json={"ticket": ticket, "channel": "b24"}).status_code == 200
+    code = login_codes.peek_dev_code(name)
+    verified = client.post("/auth/login/code/verify", json={"ticket": ticket, "code": code})
+    assert verified.status_code == 200, verified.text
+    return verified.json()
+
+
+def _step1(client, name="Admin", password=None):
+    """Совместимость со старыми тестами: дойти до ответа после кода."""
+    return _through_code(client, name=name, password=password)
 
 
 def _to_profile_step(client, name="Admin"):
-    first = _step1(client, name)
-    assert first["step"] == "setup"
-    r = client.post("/auth/login/setup", json={"ticket": first["ticket"], "password": GOOD, "password_confirm": GOOD})
+    setup = _through_code(client, name=name)
+    assert setup["step"] == "setup"
+    r = client.post("/auth/login/setup", json={"ticket": setup["ticket"], "password": GOOD, "password_confirm": GOOD})
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["step"] == "profile" and "access_token" not in data
@@ -78,19 +100,16 @@ def test_first_login_goes_through_profile(req):
 def test_second_login_skips_profile(req):
     ticket = _to_profile_step(req)
     _submit(req, ticket, company_id=_acme(req, ticket))
-    step = _step1(req)
-    assert step["step"] == "personal"
-    r = req.post("/auth/login/personal", json={"ticket": step["ticket"], "password": GOOD})
-    assert r.status_code == 200 and "access_token" in r.json()
+    data = _through_code(req, password=GOOD)
+    assert "access_token" in data
 
 
 def test_existing_password_but_no_profile_goes_to_profile(req):
     from app.app.services import personal_password
 
     personal_password.set_initial("Admin", GOOD, GOOD)
-    step = _step1(req)
-    r = req.post("/auth/login/personal", json={"ticket": step["ticket"], "password": GOOD})
-    assert r.json()["step"] == "profile"
+    data = _through_code(req, password=GOOD)
+    assert data["step"] == "profile"
 
 
 @pytest.mark.parametrize(
@@ -127,10 +146,10 @@ def test_not_an_image_is_rejected(req):
 
 def test_profile_ticket_opens_only_profile_step(req):
     ticket = _to_profile_step(req)
-    assert req.post("/auth/login/personal", json={"ticket": ticket, "password": GOOD}).status_code == 401
     assert req.post("/auth/login/setup", json={"ticket": ticket, "password": GOOD, "password_confirm": GOOD}).status_code == 401
     assert req.get("/projects", headers=_bearer(ticket)).status_code == 401
-    first = _step1(req)  # пропуск шага 2 не открывает форму карточки
+    first = req.post("/auth/login", json={"name": "Admin", "telegram_id": "tg-Admin", "password": GOOD}).json()
+    assert first["step"] == "code"
     assert req.post("/auth/login/profile/options", json={"ticket": first["ticket"]}).status_code == 401
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.app.services.login_allowlist import load_allowlist, resolve_allowed_login
+from app.app.tests.auth_helpers import login_via_code
 
 
 def test_allowlist_skips_blank_and_comments(tmp_path: Path):
@@ -26,39 +27,29 @@ def test_missing_allowlist_denies(tmp_path: Path):
 
 
 def test_login_rejects_name_not_on_list(anon_client):
-    r = anon_client.post(
-        "/auth/login",
-        json={"name": "stranger", "telegram_id": "tg-x", "password": "admin-pass"},
-    )
+    r = anon_client.post("/auth/login", json={"name": "stranger", "telegram_id": "tg-x"})
     assert r.status_code == 401
-    assert "списке допущенных" in r.json()["detail"]
+    from app.app.routers.auth import LOGIN_BAD_PAIR
+
+    assert r.json()["detail"] == LOGIN_BAD_PAIR
 
 
 def test_login_accepts_allowlisted_name_any_case(anon_client):
-    r = anon_client.post(
-        "/auth/login",
-        json={"name": "ADMIN", "telegram_id": "tg-case", "password": "admin-pass"},
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["name"] == "Admin"
-    assert r.json()["role"] == "admin"
+    data = login_via_code(anon_client, name="ADMIN", telegram_id="tg-case")
+    assert data["name"] == "Admin"
+    assert data["role"] == "admin"
 
 
-def test_login_picks_up_allowlist_edit(anon_client):
+def test_login_picks_up_allowlist_edit(anon_client, tmp_path, monkeypatch):
     from app.app.config import get_settings
 
     path = Path(get_settings().login_allowlist_path)
-    r = anon_client.post(
-        "/auth/login",
-        json={"name": "newbie@example.com", "telegram_id": "tg-new", "password": "admin-pass"},
-    )
+    r = anon_client.post("/auth/login", json={"name": "newbie@example.com", "telegram_id": "tg-new"})
     assert r.status_code == 401
 
     text = path.read_text(encoding="utf-8")
     path.write_text(text + "newbie@example.com\n", encoding="utf-8")
-    r2 = anon_client.post(
-        "/auth/login",
-        json={"name": "Newbie@Example.COM", "telegram_id": "tg-new", "password": "admin-pass"},
-    )
-    assert r2.status_code == 200, r2.text
-    assert r2.json()["name"] == "newbie@example.com"
+    roles = Path(get_settings().login_roles_path)
+    roles.write_text(roles.read_text(encoding="utf-8") + "newbie@example.com | manager\n", encoding="utf-8")
+    data = login_via_code(anon_client, name="Newbie@Example.COM", telegram_id="tg-new")
+    assert data["name"] == "newbie@example.com"

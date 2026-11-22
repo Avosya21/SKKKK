@@ -29,7 +29,8 @@ def test_data_dir_check_creates_and_reports_free_space(tmp_path):
     assert settings.data_dir.is_dir()
 
 
-def test_env_check_fails_without_role_passwords(tmp_path, monkeypatch):
+def test_env_check_ok_with_secret_key(tmp_path, monkeypatch):
+    """Пароли ролей больше не в .env (личные пароли + Login_roles); check_env требует SECRET_KEY."""
     env_path = tmp_path / ".env"
     env_path.write_text("SECRET_KEY=test-secret-key-32chars!!\n", encoding="utf-8")
 
@@ -38,9 +39,22 @@ def test_env_check_fails_without_role_passwords(tmp_path, monkeypatch):
     monkeypatch.setattr(bootstrap, "ENV_PATH", env_path)
     monkeypatch.setattr(bootstrap, "ENV_EXAMPLE", tmp_path / "absent")
 
-    result = preflight.check_env(_settings(tmp_path))
+    result = preflight.check_env(_settings(tmp_path, b24_auth="off", email_otp="off"))
+    assert result.status == OK
+
+
+def test_env_check_fails_without_secret_key(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    env_path.write_text("SECRET_KEY=change-me\n", encoding="utf-8")
+
+    from app.app import bootstrap
+
+    monkeypatch.setattr(bootstrap, "ENV_PATH", env_path)
+    monkeypatch.setattr(bootstrap, "ENV_EXAMPLE", tmp_path / "absent")
+
+    result = preflight.check_env(_settings(tmp_path, secret_key="change-me"))
     assert result.status == FAIL
-    assert "credentials --reset" in result.hint
+    assert "SECRET_KEY" in result.detail
 
 
 def test_port_check_detects_occupied_port(tmp_path):

@@ -237,16 +237,72 @@ app\app\tests\
 - Реальные файлы: `venv\Scripts\python.exe scripts\reprocess_documents.py --all` — отчёт без изменений: новое извлечение против текущего `_clean` (доля текста, число таблиц, числа таблиц, пропавшие из `_clean`, табличные фрагменты в индексе).
 - Качество ответов чата на вопросах по таблицам — `scripts\eval_chat.py` на копии базы с наборами `docs/eval/chat_questions_tables_p23.json` (смета Клиент Б) и `chat_questions_tables_p34.json` (смета Клиент А): `--project 23 --questions …`.
 
+## Portal smoke — основная работоспособность (после переноса)
+
+Один файл для запуска из PyCharm: проверяет, что портал **обрабатывает материалы и пускает людей**, без полного UI комнаты.
+
+```powershell
+$env:SMOKE_BASE = "https://127.0.0.1:777"
+$env:SMOKE_PROJECT_ID = "29"
+$env:E2E_ALLOW_MINT = "1"
+# вход «как человек» (отдельный шаг; без пароля шаг = FAIL):
+$env:SMOKE_PERSONAL_PW = "<личный пароль>"
+# $env:SMOKE_OTP_CODE = "<код>"   # если не B24_AUTH_DEV
+
+venv\Scripts\python.exe scripts\portal_smoke.py
+# только стенд/вход: …\portal_smoke.py --stand-only
+# не чистить артефакты: …\portal_smoke.py --keep
+```
+
+Что проверяет: health/ready; venv lab/nemo-diar без BOM; модели (Parakeet, Sortformer, Nemotron при `DIAR_MODEL=nemotron3`, GigaAM, WeSpeaker); Docker GigaAM Up + том `asr/work`; LLM; Ollama bge-m3; LibreOffice/Tesseract/ffmpeg; mint JWT + вход логин/пароль/код + logout; создать проект → MCP → удалить; документы (txt/html/json/docx/odt/xlsx/csv/pptx/pdf/png) → `done` + якорь; wav и mp4 → ASR + диаризация актуальным способом (при падении — причина и наличие Sortformer, шаг всё равно FAIL); спикеры → knowledge; search / rebuild-tz / chat; граф, задачи, люди, заметка, download, background; встреча create→join→end→analyze.
+
+Отчёт: `data/eval/portal_smoke_YYYYMMDD_HHMMSS.json` и `portal_smoke_latest.json`. SKIP на обязательных шагах запрещён. Полный UI — `scripts\smoke\run_all.py` (отдельно). Многочасовая приёмка машины — `acceptance_all.py` ниже.
+
+## Acceptance на новой машине
+
+Полный живой прогон для стабилизации портала на D (реальный GPU + LLM, только песочница **проект 29**):
+
+```powershell
+# портал + воркер + LiveKit + GigaAM уже запущены (restart.ps1)
+$env:SMOKE_BASE = "https://127.0.0.1:777"
+$env:SMOKE_PROJECT_ID = "29"
+$env:SMOKE_PERSONAL_PW = "<личный пароль>"
+$env:SMOKE_OTP_CODE = "<свежий код B24>"
+# либо без OTP на этой машине:
+# $env:E2E_ALLOW_MINT = "1"
+# $env:SMOKE_BEARER_TOKEN = (venv\Scripts\python.exe scripts\e2e\mint_smoke_token.py)
+
+venv\Scripts\python.exe scripts\acceptance_all.py
+# то же: venv\Scripts\python.exe scripts\qa_all.py --acceptance
+# только материалы: …\acceptance_all.py --materials-only --keep-materials
+```
+
+Что входит (любой **FAIL** валит итог; для acceptance код **77** тоже FAIL — стенд обязан быть полным):
+
+1. `scripts/e2e/` — preflight (health, модели, Docker GigaAM, LLM) → все типы документов → аудио dual ASR/диаризация → enroll/confirm → search / rebuild-tz / chat  
+2. `scripts/smoke/run_all.py` — комната, роли, DOM  
+3. `qa_meeting_lifecycle`, `qa_room`, `qa_analysis`, `qa_media_path`  
+4. `qa_mobile_webkit` + `qa_mobile_android --boot` (эмулятор поднимается сам; нет AVD = FAIL)  
+5. `pytest app -m "not gpu and not slow"`  
+6. `health_report` + `audit_integrity`  
+7. eval ТЗ/чата на пилоте — локальные наборы `docs/eval/tz_facts_project18.json` и `docs/eval/chat_questions_project18.json` (или копии в `data/eval/`; шаблоны `chat_questions_*.json` / `tz_facts_*.json` в git не входят — только на машине стенда)
+
+Длительность: материалы ~1–2 ч на занятой карте; полный пакет — несколько часов. Отчёт: `data/eval/acceptance_YYYYMMDD_HHMMSS.json`. Зелёный = **ноль FAIL**. Acceptance сам поднимает GigaAM, Playwright-браузеры и Android (`qa_mobile_android --boot`).
+
+Фикстуры: `scripts/e2e/build_fixtures.py` (якорь `E2E_ACCEPTANCE_TOKEN_7F3A`). Оркестратор материалов: `scripts/e2e/run_materials.py`.
+
+После прогона: завершите оставшиеся `live`-встречи песочницы и не оставляйте e2e-артефакты в клиентских проектах. Смоук с `SMOKE_BEARER_TOKEN`: для проверки ролей нужен JWT нужной роли (mint с `SMOKE_ROLE`), один admin-токен на manager даст ложный доступ к админке. Развёртывание и версии моделей — `INSTALL.md`.
+
 ## Смоук на живом сервере
 
-`venv\Scripts\python scripts\smoke
-un_all.py` — роли, presence, песочничный поток, комната. Настройки через `SMOKE_BASE`, `SMOKE_PROJECT_ID`, `SMOKE_ADMIN_PW`, `SMOKE_MANAGER_PW`. Только песочница (проект 29). Зависимость: `app/requirements-dev.txt`.
+`venv\Scripts\python scripts\smoke\run_all.py` — роли, presence, песочничный поток, комната. Настройки через `SMOKE_BASE`, `SMOKE_PROJECT_ID`, `SMOKE_PERSONAL_PW`, `SMOKE_OTP_CODE`. Только песочница (проект 29). Зависимость: `app/requirements-dev.txt`.
 
 ## Проверка комнаты и анализа созвона без людей (20.09.2026)
 
 - `venv\Scripts\python.exe scripts\qa_room.py [--outage 170]`: два гостя в Chromium с фейковыми устройствами, зеркало по фронтальной/тыловой камере, выбор микрофона и динамика, обрывы сети (5 с и длинный), возврат в комнату. Создаёт встречу в песочнице (проект 29) кодом приложения, пароли не нужны.
 - `venv\Scripts\python.exe scripts\qa_analysis.py [--meeting ID]`: два «участника» публикуют синтезированную русскую речь (`scripts/qa_data_speech_*.wav`) в живую комнату, рекордеры пишут дорожки, встреча завершается, запускается анализ, проверяется транскрипт. Нужны запущенные сервер, воркер, LiveKit, рекордеры, LM Studio и Docker Desktop (GigaAM).
 - `venv\Scripts\python.exe scripts\qa_room_ui.py [--shots папка]`: телефон (Pixel 7) вертикально и горизонтально, с показом экрана и без — все плитки видны целиком и не наезжают, в горизонтали экран слева, участники лентой справа; пульт на ПК и телефоне — подсказки у всех кнопок, микрофон/звук/камера/шумодав/«Спикер-Сетка» переключаются и возвращаются, «Участники» и меню динамика закрываются по Esc, «Скопировать ссылку», «Развернуть окно»; говорящий не шлёт `setAttributes` на каждый кадр; камера, погашенная системой (имитация livekit-client и `devicechange`), возвращается сама, выключенная человеком — нет; после переподключения нет устаревшего «нет связи».
+- `venv\Scripts\python.exe scripts\e2e\e2e_meeting_stability.py [--only s1|s2|s3|s4|s5|s6]`: живой стенд, песочница, Chromium с фейковыми устройствами, пароль не нужен. s1 — кнопка хранит намерение и перезаход возвращает мик, камеру и экран; s2 — выключенный звук отписывает чужой микрофон, удержание записи подписывает его и кладёт в микс, в динамик он не играет; s3 — короткое восстановление связи не рвёт запись, закрытая комната не зацикливает перезаход, ошибка камеры подписана «Камера»; s4 — слабая связь не запускает оживление камеры, на обычной связи системный mute камеры оживает, экран остаётся; s5 — три индикатора, чип по атрибуту при пропавшей публикации, удержание говорящего 2 с и pin; s6 — смена аудиоустройств не перезапускает камеру, закрытая вкладка снимает полоску «Идёт созвон» примерно за минуту, пульс её держит. Код выхода 0 — нет FAIL.
 - `venv\Scripts\python.exe scripts\qa_meeting_lifecycle.py [--linger 150]`: жизненный цикл на живом сервере — создание (вход до запуска 409, комнаты LiveKit нет), удаление без запуска, запуск и запись, повторный вход с тем же `guest_id` без дублей, пульс (чужой identity — 403), отзыв ссылки (гость выведен, встреча идёт) и новая ссылка, удалить идущую — 409, завершение (комната закрыта, дорожки закрыты за секунды, гость видит «завершена», комната не воскресает, вход 409), удаление записанной встречи и временного проекта с идущей встречей (комната закрыта); через `--linger` секунд запись удалённых встреч не вернулась на диск.
 - `venv\Scripts\python.exe scripts\qa_media_path.py [--report отчёт.json]` (~2,5 мин, живой сервер, песочница): гость А подаёт в фейковый микрофон речь с шумом (гул + клавиатура, первые 3 с — только шум) и камеру, гость Б слушает. У А: на микрофоне процессор DFN3, опубликована сырая `primaryanalitics-raw`. Сервер: микрофон А (Opus/RED), одна сырая, слои камеры, рекордер `primaryanalitics-dfn` в комнате и ничего не публикует, `primaryanalitics-rec` в комнате, WAV А растёт ~96 000 Б/с. У Б: для А играет ровно одна дорожка, сырую Б не качает; паузы (10-й перцентиль полусекунд) у Б тише записи рекордера ≥ 6 дБ, речь (90-й перцентиль) ±6 дБ; потери < 2 %, маскировка < 5 %; камера ≥ 320 px, ≥ 10 к/с, замирания ≤ 5 % времени. «Шумодав» у А выкл/вкл — у Б тот же один поток, паузы громче ≥ 6 дБ и снова тише, без тишины и двойного звука; 4 переключения подряд — ни тика двойного звука, на странице Б один `<audio>`; рекордер выкинут из комнаты — звук у Б не меняется, рекордер возвращается, запись не обрезана и идёт дальше; экран одним слоем, 1–8 к/с. Логика без портала (маршрутизация, сырая дорожка, рекордер) — `app/app/tests/test_voice_cleaner.py`, `test_meetings.py`.
 - В `qa_room.py` проверки индикатора связи на время прогона пропускают в индикатор только события сценария: настоящие оценки LiveKit (на сервере камера гостя оценивается «good/poor» попеременно — браузер ходит на собственный публичный адрес) раньше давали ложные провалы.
@@ -284,4 +340,8 @@ un_all.py` — роли, presence, песочничный поток, комна
 | Точность разбора по решениям людей (`eval_contract_labels.py`) | — | сверить модель не на чем: 0 пунктов (нужна выборочная проверка) |
 
 Тесты: `test_contract_quality.py`, `test_chunk_messages.py`, `test_tz_sections.py`, `test_task_board.py`, `test_project_digest.py`; полный прогон `pytest app -m "not gpu and not slow"` 14.10 — 1644 зелёных (один провал — устаревший §17 карты, исправлен). Интерфейс задач, «Что нового» и выборочной проверки — в браузере на копии БД (рабочий стол и 375 px, без горизонтальной прокрутки).
+
+## Jira (2026-11-18)
+
+`test_jira_client.py` — оба режима Jira без сети (`httpx.MockTransport`). `test_jira_import.py` — токен, загрузка, обновление, доступ, вливание; Jira подставная. `test_jira_e2e.py` — подставная Jira на реальном сокете. Живая сверка стенда: `scripts/check_jira_sync.py` (нужны `JIRA_BASE_URL` и привязанный проект). Запуск: `venv\Scripts\python.exe -m pytest app/app/tests/test_jira_client.py app/app/tests/test_jira_import.py app/app/tests/test_jira_e2e.py -n 0`.
 

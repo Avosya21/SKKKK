@@ -17,6 +17,11 @@
 <div id="meeting-stage" class="meeting-stage is-open">
   <div class="meeting-stage-top">
     <div id="meeting-room-status" aria-live="polite">Вхожу…</div>
+    <div id="meeting-state" class="meeting-state" hidden>
+      <span id="meeting-link-state">Связь: проверяется</span>
+      <span id="meeting-publish-state">Мои дорожки: …</span>
+      <span id="meeting-hear-state">Слышу людей</span>
+    </div>
     <div id="meeting-people"></div>
   </div>
   <div id="meeting-tiles" class="meeting-tiles" role="list" aria-label="Участники комнаты"></div>
@@ -35,6 +40,7 @@
     <button type="button" class="meeting-dock-btn is-off" id="meeting-cam" aria-pressed="false" aria-label="Включить камеру" title="Камера"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3.5l4 4v-11l-4 4z"/></svg><span class="visually-hidden meeting-dock-label">Камера</span></button>
     <button type="button" class="meeting-dock-btn" id="meeting-cam-switch" hidden aria-label="Сменить камеру" title="Сменить камеру"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 15a5 5 0 0 1-4.6-3H9l-2.5-3L4 15h1.7A7 7 0 0 0 19 13h-2a5 5 0 0 1-5 5zm0-10a5 5 0 0 1 4.6 3H15l2.5 3L20 11h-1.7A7 7 0 0 0 5 13h2a5 5 0 0 1 5-5z"/></svg><span class="visually-hidden meeting-dock-label">Сменить камеру</span></button>
     <button type="button" class="meeting-dock-btn is-off" id="meeting-screen" aria-pressed="false" aria-label="Включить экран" title="Экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-5v2h2v2H7v-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg><span class="visually-hidden meeting-dock-label">Экран</span></button>
+    <button type="button" class="meeting-dock-btn is-off" id="meeting-local-record" aria-pressed="false" aria-label="Записать созвон" title="Записать созвон: после остановки файл скачается в папку загрузок браузера. В проект не загружается."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="currentColor"/></svg><span class="visually-hidden meeting-dock-label">Записать</span></button>
     <button type="button" class="meeting-dock-btn meeting-more" id="meeting-more" aria-expanded="false" aria-controls="meeting-more-tray" aria-label="Ещё" title="Ещё"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 10a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm6 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm6 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2z"/></svg><span class="visually-hidden">Ещё</span></button>
     <div id="meeting-more-tray" class="meeting-more-tray">
     <button type="button" class="meeting-dock-btn" id="meeting-screen-lead" aria-label="Экран сверху" title="Экран сверху"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm1 3v7h14V8H5z"/></svg><span class="visually-hidden">Экран сверху</span></button>
@@ -50,14 +56,14 @@
     <button type="button" class="meeting-dock-btn meeting-denoise is-off" id="meeting-denoise" aria-pressed="false" aria-label="Включить шумодав" title="Шумодав"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3c-1.5 3-4 5-7 6 3 1 5.5 3 7 6 1.5-3 4-5 7-6-3-1-5.5-3-7-6zm-6 12c-.8 1.6-2.2 2.7-4 3.2 1.8.5 3.2 1.6 4 3.2.8-1.6 2.2-2.7 4-3.2-1.8-.5-3.2-1.6-4-3.2zm12 0c-.8 1.6-2.2 2.7-4 3.2 1.8.5 3.2 1.6 4 3.2.8-1.6 2.2-2.7 4-3.2-1.8-.5-3.2-1.6-4-3.2z"/></svg><span class="visually-hidden meeting-dock-label">Шумодав</span></button>
     </div>
     <button type="button" class="meeting-dock-btn meeting-dock-btn-leave" id="meeting-leave" aria-label="Выйти из комнаты" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 17l1.4-1.4L8.8 13H20v-2H8.8l2.6-2.6L10 7l-5 5 5 5zM4 19h6v2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6v2H4v14z"/></svg><span class="visually-hidden">Выйти</span></button>
-    <button type="button" class="meeting-dock-btn meeting-dock-btn-end" id="meeting-end" aria-label="Завершить для всех" title="Завершить для всех"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm5 13.6L15.6 17 12 13.4 8.4 17 7 15.6 10.6 12 7 8.4 8.4 7 12 10.6 15.6 7 17 8.4 13.4 12z"/></svg><span class="visually-hidden">Завершить</span></button>
+    <button type="button" class="meeting-dock-btn meeting-dock-btn-end" id="meeting-end" hidden aria-label="Завершить для всех" title="Завершить для всех"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm5 13.6L15.6 17 12 13.4 8.4 17 7 15.6 10.6 12 7 8.4 8.4 7 12 10.6 15.6 7 17 8.4 13.4 12z"/></svg><span class="visually-hidden">Завершить</span></button>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/livekit/livekit-client.umd.js"></script>
-<script src="/static/meeting_layout.js?v=a5"></script>
-<script src="/static/meeting_room.js?v=a61"></script>
+<script src="/static/meeting_layout.js?v=a6"></script>
+<script src="/static/meeting_room.js?v=a76"></script>
 <script>
 window.PRIMARY_ANALITICS_MEETING_VOICE = {{ meeting_voice | tojson }};
 const projectId = {{ project_id }};
@@ -90,6 +96,7 @@ document.body.classList.add('meeting-is-live');
       camBtn,
       camSwitchBtn: document.getElementById('meeting-cam-switch'),
       screenBtn,
+      recordBtn: document.getElementById('meeting-local-record'),
       fsBtn: document.getElementById('meeting-fs'),
       moreBtn: document.getElementById('meeting-more'),
       soundBtn: document.getElementById('meeting-sound'),
@@ -109,7 +116,8 @@ document.body.classList.add('meeting-is-live');
       speakerSelect: document.getElementById('meeting-speaker'),
       toastEl: document.getElementById('meeting-toast'),
       endBtn: document.getElementById('meeting-end'),
-      endUrl: '/projects/' + projectId + '/meetings/' + meetingId + '/end',
+      endUrl: data.can_end ? ('/projects/' + projectId + '/meetings/' + meetingId + '/end') : '',
+      canEnd: Boolean(data.can_end),
       watchEndedUrl: '/projects/' + projectId + '/meetings/' + meetingId,
       meetingId: meetingId,
       leaveUrl: '/projects/' + projectId,
@@ -129,6 +137,16 @@ document.body.classList.add('meeting-is-live');
       },
       authedApi: true,
     });
+    // «Завершить для всех» — только создатель комнаты (join.can_end).
+    const endBtn = document.getElementById('meeting-end');
+    if (endBtn && data.can_end) {
+      endBtn.hidden = false;
+      // Один listener (не дублировать в _bindChrome): второй срывал confirm без resolve.
+      endBtn.addEventListener('click', () => PrimaryAnaliticsMeeting.endForAll());
+    } else if (endBtn) {
+      endBtn.hidden = true;
+      endBtn.removeAttribute('title');
+    }
   } catch (err) {
     statusEl.textContent = err && err.message ? err.message : 'Не удалось войти в комнату';
   }

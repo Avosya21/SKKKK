@@ -332,6 +332,9 @@
   .bg-inline-body {
     padding: 0.5rem 0 0.35rem 1.1rem;
   }
+  #bg-progress-wrap {
+    height: 0.45rem;
+  }
   .pipeline-live-body {
     padding: 0 0 0.5rem 1.1rem;
   }
@@ -796,6 +799,37 @@
     <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
 <div id="artifacts-nodate-note" class="small text-warning-emphasis mt-2 d-none"></div>
     {% if current_role == 'admin' %}
+    {# Выгрузки Jira (только администратор): документы задач и сводка проекта; в общую таблицу материалов не входят #}
+    <details class="bg-inline extra-inline mt-3 mb-0" id="jira-exports-box">
+      <summary class="bg-inline-summary">
+        <span class="pip-toggle" aria-hidden="true">▶</span>
+        <span class="bg-inline-title">Выгрузки Jira</span>
+        <span class="bg-inline-state" id="jira-exports-count" title="Видит только администратор">задачи и сводка · только админ</span>
+      </summary>
+      <div class="bg-inline-body">
+        <p class="text-muted small mb-2">
+          Документы задач и сводка проекта из Jira. В общий список выше не входят: там остаются файлы, загруженные в портал, и вложения из Jira.
+        </p>
+        <div id="jira-exports-status" class="text-muted small mb-2" aria-live="polite"></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" id="jira-exports-table">
+            <thead>
+              <tr>
+                <th>Вид</th>
+                <th>Файл</th>
+                <th class="col-download">Скачать</th>
+                <th>Статус</th>
+                <th>Ошибка</th>
+                <th class="col-delete"><span class="visually-hidden">Удалить</span></th>
+              </tr>
+            </thead>
+            <tbody id="jira-exports-body">
+              <tr><td colspan="6" class="text-muted small">Загрузка…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
     {# Дополнительные файлы (только администратор): посылки агентов (карта конфигурации, дипмапы) и .cf/.dt от пользователей; список грузится при раскрытии #}
     <details class="bg-inline extra-inline mt-3 mb-0" id="extra-files-box">
       <summary class="bg-inline-summary">
@@ -863,7 +897,7 @@
         <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="meetings-copy-link" data-idle-label="Копировать ссылку">Копировать ссылку</button>
       </div>
       <div class="table-responsive d-none d-md-block">
-        <table class="table table-sm table-hover mb-0">
+        <table class="table table-sm table-hover mb-0 meetings-table">
           <thead>
             <tr>
               <th>ID</th>
@@ -1124,6 +1158,7 @@
 <script>
 if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 const projectId = {{ project_id }};
+const jiraLinks = {{ jira_links | tojson }};
 // Список материалов приходит с сервера позже первой отрисовки: резервируем ему прежнюю высоту (запоминается по проекту), иначе всё ниже «уезжает»
 (function reserveArtifactsHeight() {
   try {
@@ -1423,7 +1458,7 @@ function inlineMarkdown(text) {
   let safe = escapeHtml(PrimaryAnalitics.cleanSummaryOutput(text || ''));
   safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
-  return safe;
+  return PrimaryAnalitics.linkifyJiraKeys(safe, jiraLinks);
 }
 
 function renderMarkdown(text) {
@@ -2056,6 +2091,48 @@ function buildCard(a) {
 // иначе каждые 3 с кнопки «уезжают» из-под курсора и клик попадает в удалённый элемент.
 let lastArtifactsSig = null;
 let lastMeetingsSig = null;
+let lastJiraExportsSig = null;
+let jiraExportCount = 0;
+
+function jiraExportKind(kind) {
+  return kind === 'summary' ? 'Сводка' : 'Задача';
+}
+
+async function refreshJiraExports() {
+  const box = document.getElementById('jira-exports-box');
+  const body = document.getElementById('jira-exports-body');
+  const countEl = document.getElementById('jira-exports-count');
+  const status = document.getElementById('jira-exports-status');
+  if (!box || !body) return;
+  let items = [];
+  try {
+    items = await PrimaryAnalitics.apiJson(`/projects/${projectId}/jira/exports`);
+    if (!Array.isArray(items)) items = [];
+  } catch (err) {
+    if (status) status.textContent = 'Не удалось загрузить выгрузки Jira';
+    return;
+  }
+  jiraExportCount = items.length;
+  if (countEl) {
+    countEl.textContent = items.length
+      ? `${PrimaryAnalitics.count(items.length, ['документ', 'документа', 'документов'])} · только админ`
+      : 'пока нет · только админ';
+  }
+  if (status) status.textContent = '';
+  const sig = JSON.stringify(items);
+  if (sig === lastJiraExportsSig) return;
+  lastJiraExportsSig = sig;
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="6" class="text-muted small">Выгрузок задач и сводки пока нет</td></tr>';
+    return;
+  }
+  body.innerHTML = items.map((a) => (
+    `<tr><td class="small text-nowrap">${jiraExportKind(a.jira_kind)}</td>${buildRow(a)}</tr>`
+  )).join('');
+  bindDownloadButtons(body);
+  bindDeleteButtons(body);
+  bindSpeakerConfirmButtons(body);
+}
 
 async function refreshArtifacts() {
   if (deleteArtifactModalEl && deleteArtifactModalEl.classList.contains('show')) return;
@@ -2065,7 +2142,12 @@ async function refreshArtifacts() {
   const EXCHANGE_FILE = /^analysis_(reply|request|question)_\d+\.json$/i;
   const arts = allArts.filter((a) => !EXCHANGE_FILE.test(a.original_filename || ''));
   const hiddenExchange = allArts.length - arts.length;
+  await refreshJiraExports();
   const artsSig = JSON.stringify(arts) + '|' + hiddenExchange;
+  const emptyText = !arts.length && jiraExportCount
+    ? 'В списке нет файлов, загруженных в портал, и вложений Jira. Выгрузки задач и сводка — в блоке ниже.'
+    : 'В этом проекте пока нет загруженных файлов.';
+  if (artifactsEmpty.textContent !== emptyText) artifactsEmpty.textContent = emptyText;
   if (artsSig === lastArtifactsSig) return;
   lastArtifactsSig = artsSig;
   const tbody = document.querySelector('#artifacts-table tbody');
@@ -2888,29 +2970,51 @@ function meetingLabLink(m) {
 }
 
 function meetingLinkState(m) {
-  if (m.status === 'ended') return 'недействительна (встреча завершена)';
-  return m.public_revoked ? 'отозвана' : 'активна';
+  if (m.status === 'ended') {
+    return { text: 'недействительна', title: 'Ссылка недействительна: встреча завершена' };
+  }
+  if (m.public_revoked) return { text: 'отозвана', title: 'Гостевая ссылка отозвана' };
+  return { text: 'активна', title: 'Гостевая ссылка активна' };
+}
+
+function meetingAnalyzeWrap(parts) {
+  const inner = parts.filter(Boolean).join('');
+  return inner ? `<div class="meeting-analyze-cell">${inner}</div>` : '';
+}
+
+function meetingAnalyzeButton(m, label) {
+  return `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(label)}</button>`;
 }
 
 function meetingAnalyzeCell(m) {
+  // Колонка статуса/отчёта: без «Повторить» — он в .meeting-row-actions, иначе Готово+кнопка+лаб ломают узкую ячейку.
   const lab = meetingLabLink(m);
-  if (m.status !== 'ended') return lab;
+  if (m.status !== 'ended') return meetingAnalyzeWrap([lab]);
   if (!m.track_count) {
     const empty = m.recording_problem === 'empty_tracks'
       ? '<span class="text-danger small" title="Дорожки голоса записаны пустыми (0 байт): запись была оборвана. Анализ невозможен.">запись пуста</span>'
       : '<span class="text-muted small">нет записи</span>';
-    return lab ? `${empty} ${lab}` : empty;
+    return meetingAnalyzeWrap([empty, lab]);
   }
   const status = m.analyze_status || 'ready';
   const label = MEETING_ANALYZE[status] || MEETING_ANALYZE.ready;
-  const retryBtn = `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(MEETING_RETRY)}</button>`;
-  let main = `<button type="button" class="btn btn-sm btn-outline-primary meeting-analyze" data-id="${m.id}">${escapeHtml(label)}</button>`;
-  if (status === 'queued' || status === 'running') {
-    main = `<span class="small">${escapeHtml(label)}</span>`;
-  } else if (status === 'done') {
-    main = `<span class="small">${escapeHtml(label)}</span> ${retryBtn}`;
+  let main = '';
+  if (status === 'queued' || status === 'running' || status === 'done') {
+    main = `<span class="small meeting-analyze-status">${escapeHtml(label)}</span>`;
+  } else if (status === 'error') {
+    main = ''; // кнопка «Повторить» только в колонке действий
+  } else {
+    main = meetingAnalyzeButton(m, label);
   }
-  return lab ? `${main} ${lab}` : main;
+  return meetingAnalyzeWrap([main, lab]);
+}
+
+function meetingAnalyzeAction(m) {
+  if (m.status !== 'ended' || !m.track_count) return '';
+  const status = m.analyze_status || 'ready';
+  if (status === 'queued' || status === 'running') return '';
+  if (status === 'done' || status === 'error') return meetingAnalyzeButton(m, MEETING_RETRY);
+  return '';
 }
 
 function showMeetingLink(url, meetingId) {
@@ -2946,11 +3050,14 @@ async function loadMeetings() {
     }
     meetingsBody.innerHTML = rows.map((m) => {
       const linkState = meetingLinkState(m);
+      const analyzeAction = meetingAnalyzeAction(m);
+      const endBtn = m.can_end
+        ? `<button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`
+        : '';
       const startBtn = m.status === 'created' || m.status === 'live'
         ? (m.status === 'created'
           ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
-          : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>
-             <button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`)
+          : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>${endBtn}`)
         : '';
       const linkBtns = m.status !== 'ended'
         ? `<button type="button" class="btn btn-sm btn-outline-danger meeting-revoke" data-id="${m.id}">Отозвать</button>
@@ -2961,19 +3068,22 @@ async function loadMeetings() {
       return `<tr>
         <td>${m.id}</td>
         <td>${escapeHtml(meetingStatusLabel(m.status))}</td>
-        <td class="small">${escapeHtml(linkState)}</td>
+        <td class="small"><span title="${escapeAttr(linkState.title)}">${escapeHtml(linkState.text)}</span></td>
         <td>${meetingAnalyzeCell(m)}</td>
-        <td class="text-end text-nowrap">${startBtn} ${linkBtns} ${delBtn}</td>
+        <td class="text-end"><div class="meeting-row-actions">${startBtn}${linkBtns}${analyzeAction}${delBtn}</div></td>
       </tr>`;
     }).join('');
     if (cards) {
       cards.innerHTML = rows.map((m) => {
         const linkState = meetingLinkState(m);
+        const analyzeAction = meetingAnalyzeAction(m);
+        const endBtn = m.can_end
+          ? `<button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`
+          : '';
         const startBtn = m.status === 'created' || m.status === 'live'
           ? (m.status === 'created'
             ? `<button type="button" class="btn btn-sm btn-outline-primary meeting-start" data-id="${m.id}">Начать</button>`
-            : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>
-               <button type="button" class="btn btn-sm btn-outline-secondary meeting-end" data-id="${m.id}">Завершить</button>`)
+            : `<a class="btn btn-sm btn-primary" href="/projects/${projectId}/meetings/${m.id}/room">Войти в комнату</a>${endBtn}`)
           : '';
         const linkBtns = m.status !== 'ended'
           ? `<button type="button" class="btn btn-sm btn-outline-danger meeting-revoke" data-id="${m.id}">Отозвать</button>
@@ -2987,10 +3097,10 @@ async function loadMeetings() {
             <span class="badge text-bg-light text-dark border">${escapeHtml(meetingStatusLabel(m.status))}</span>
           </div>
           <div class="ds-card-facts">
-            <span>Ссылка</span><span>${escapeHtml(linkState)}</span>
+            <span>Ссылка</span><span title="${escapeAttr(linkState.title)}">${escapeHtml(linkState.text)}</span>
             <span>Анализ</span><span class="ds-analyze">${meetingAnalyzeCell(m) || '<span class="text-muted">—</span>'}</span>
           </div>
-          <div class="ds-card-actions">${startBtn}${linkBtns}${delBtn}</div>
+          <div class="ds-card-actions">${startBtn}${linkBtns}${analyzeAction}${delBtn}</div>
         </div>`;
       }).join('');
     }
@@ -3158,6 +3268,14 @@ async function loadExtraFiles() {
     </tr>`;
   }).join('');
 }
+const jiraExportsBox = document.getElementById('jira-exports-box');
+if (jiraExportsBox) {
+  jiraExportsBox.addEventListener('toggle', () => {
+    try { localStorage.setItem('jira_exports_open', jiraExportsBox.open ? '1' : '0'); } catch (e) { /* без хранилища работает */ }
+  });
+  try { if (localStorage.getItem('jira_exports_open') === '1') jiraExportsBox.open = true; } catch (e) { /* без хранилища работает */ }
+}
+
 if (extraFilesBox) {
   // строка в «Материалах проекта»: открытость помним, список грузим при раскрытии
   extraFilesBox.addEventListener('toggle', () => {
@@ -3310,7 +3428,6 @@ if (grantMembersBody) {
   });
   loadGrantPanel();
 }
-
 // --- Jira: что загружено в проект, проверка обновлений и полноты (routers/jira.py) ---
 (function () {
   const card = document.getElementById('project-jira-card');

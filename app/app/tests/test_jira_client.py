@@ -82,7 +82,7 @@ def test_limit_stops_early():
 
 def test_normalize_issue_and_status_mapping():
     row = jc.normalize_issue(_issue(5, category="indeterminate"), "https://jira.example/")
-    assert row == {"key": "ABC-5", "summary": "Задача 5", "type": "Задача", "status": "Статус", "portal_status": "in_progress",
+    assert row == {"key": "ABC-5", "id": None, "summary": "Задача 5", "type": "Задача", "status": "Статус", "portal_status": "in_progress",
                    "assignee": "Тестовый Исполнитель", "reporter": "reporter", "priority": "Высокий", "deadline_at": "2026-12-01",
                    "created": "2026-11-01T10:00:00.000+0300", "updated": "2026-11-02T10:00:00.000+0300", "labels": ["портал"],
                    "parent": "ABC-1", "url": "https://jira.example/browse/ABC-5"}

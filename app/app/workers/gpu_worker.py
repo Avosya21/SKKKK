@@ -232,10 +232,16 @@ def run_once() -> bool:
                 seconds=round(time.monotonic() - started, 1),
             )
         except Exception as exc:
-            logger.exception("job %s failed", job_pk)
             from pathlib import Path
 
+            from app.app.services.lab_errors import NO_SPEECH, sanitize_lab_error
             from app.app.services.pipeline_resume import try_resume_transcript
+
+            cleaned = sanitize_lab_error(str(exc))
+            if cleaned == NO_SPEECH:
+                logger.warning("job %s stopped: %s", job_pk, NO_SPEECH)
+            else:
+                logger.exception("job %s failed", job_pk)
 
             db.rollback()
             artifact = db.get(Artifact, artifact_pk)
@@ -265,11 +271,9 @@ def run_once() -> bool:
                     artifact.status = "transcript_ready"
             else:
                 artifact.status = "error"
-            from app.app.services.lab_errors import sanitize_lab_error
-
-            artifact.error_message = sanitize_lab_error(str(exc))
+            artifact.error_message = cleaned
             db.commit()
-            finish_claimed_job(db, job_pk, artifact_pk, ok=False, error=sanitize_lab_error(str(exc)))
+            finish_claimed_job(db, job_pk, artifact_pk, ok=False, error=cleaned)
             log_event(
                 logger,
                 "job.failed",

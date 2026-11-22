@@ -4,8 +4,9 @@
 (``refresh_knowledge``), кнопки-пересборки (``project_task``) и автопроверка (``auto_review``, область ``scope``):
 переизвлечение требований → проверка требований → раскладка по темам → устаревшее и дубли → конфликты → итоговая выжимка.
 Здесь — то, чем все эти задачи показывают ход:
-сколько ждёт, что идёт сейчас, что закончилось за последние сутки, где ошибки и сколько осталось (по средней длительности
-таких же задач). Перезапуск воркера задачи не теряет (``queue.requeue_orphaned_jobs``); упавшие повторяются кнопкой.
+что идёт сейчас, сколько ещё в этой очереди и где ошибки за последние сутки. Полоска — доля успешных задач
+одной непрерывной занятости, без вчерашних закрытых и без ошибок. Перезапуск воркера задачи не теряет
+(``queue.requeue_orphaned_jobs``); упавшие повторяются кнопкой.
 Работает на уже существующей очереди, новых таблиц нет. Ту же очередь будут использовать будущие пересчёты памяти решений.
 """
 from __future__ import annotations
@@ -53,9 +54,8 @@ STAGES: tuple[tuple[str, str], ...] = (
 STAGE_LABEL = dict(STAGES)
 RECENT_HOURS = 24
 ERRORS_SHOWN = 10
-DEFAULT_SECONDS = {"reextract": 150, "artifact": 90, "topics": 40, "relevance": 120, "conflicts": 60, "summary": 90, "memory": 200, "memory_judge": 240,
-                   "process:asr": 900, "process:knowledge": 300, "refresh": 60}  # пока нет истории
-OTHER_SECONDS = 120
+# Задача, которая закончилась за секунду до постановки следующей, всё ещё эта очередь (воркер ставит продолжение сразу).
+WAVE_JOIN = timedelta(seconds=5)
 FOLLOW_UP_SCOPES = ("artifact", "topics", "relevance", "conflicts")
 # Расшифровку не убирают из очереди и не повторяют отсюда: без неё материал останется необработанным, а повтор —
 # это полная переобработка созвона. Остальные задачи можно остановить и повторить.
@@ -106,49 +106,86 @@ def _project_jobs(db: Session, project_id: int, *, since: datetime | None = None
     q = (select(Job, Artifact).join(Artifact, Artifact.id == Job.artifact_id)
          .where(Artifact.project_id == project_id, Job.kind.in_(kinds)))
     if since is not None:
-        q = q.where((Job.status.in_(("queued", "running"))) | (Job.created_at >= since))
+        q = q.where((Job.status.in_(("queued", "running"))) | (Job.created_at >= since) | (Job.finished_at >= since))
     return [(j, a) for j, a in db.execute(q.order_by(Job.id)).all()]
 
 
-def _average_seconds(db: Session) -> dict[str, float]:
-    """Средняя длительность последних завершённых задач каждого этапа (по всем проектам: модель и железо одни)."""
-    out: dict[str, list[float]] = {}
-    rows = db.execute(select(Job).where(Job.status == "done", Job.started_at.is_not(None), Job.finished_at.is_not(None))
-                      .order_by(Job.id.desc()).limit(500)).scalars().all()
-    for job in rows:
-        seconds = (job.finished_at - job.started_at).total_seconds()
-        if 0 < seconds < 3 * 3600:
-            out.setdefault(_stage(job), []).append(seconds)
-    return {stage: sum(v) / len(v) for stage, v in out.items() if v}
+def _naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _current_wave(jobs: list[tuple[Job, Artifact]]) -> list[tuple[Job, Artifact]]:
+    """Одна непрерывная занятость: живые задачи и те, чей интервал с ними соприкасается.
+
+    Закрытая вчера партия не входит: у неё конец раньше старта нынешних. Задачи, поставленные пачкой,
+    входят все — ранние уже завершились после того, как поздние были созданы.
+    """
+    active_at = [_naive_utc(job.created_at) for job, _art in jobs if job.status in ("queued", "running") and job.created_at]
+    if not active_at:
+        return []
+    start = min(active_at)
+    changed = True
+    while changed:
+        changed = False
+        for job, _art in jobs:
+            if job.status in ("queued", "running"):
+                continue
+            created = _naive_utc(job.created_at)
+            ended = _naive_utc(job.finished_at) or created
+            if created is None or ended is None or not (created < start and ended + WAVE_JOIN >= start):
+                continue
+            start = created
+            changed = True
+    return [(job, art) for job, art in jobs if (created := _naive_utc(job.created_at)) is not None and created >= start]
+
+
+def _superseded_process_error_ids(jobs: list[tuple[Job, Artifact]]) -> set[int]:
+    """Ошибки расшифровки, после которых тот же материал уже успешно дообработан — в карточке не пугаем."""
+    by_artifact: dict[int, list[Job]] = {}
+    for job, art in jobs:
+        if job.kind == KIND_PROCESS:
+            by_artifact.setdefault(art.id, []).append(job)
+    hide: set[int] = set()
+    for art_jobs in by_artifact.values():
+        if any(job.status == "done" for job in art_jobs):
+            hide.update(job.id for job in art_jobs if job.status == "error")
+    return hide
 
 
 def progress(db: Session, project_id: int) -> dict[str, Any]:
-    """Ход фоновой работы: этапы со счётчиками, текущая задача, ошибки, оценка оставшегося времени."""
+    """Ход текущей очереди: сколько уже удалось, что идёт, ошибки за сутки.
+
+    Процент — успехи этой непрерывной занятости, без ошибок и без закрытых раньше партий.
+    """
     since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=RECENT_HOURS)
     jobs = _project_jobs(db, project_id, since=since)
-    averages = _average_seconds(db)
+    superseded = _superseded_process_error_ids(jobs)
+    wave = _current_wave(jobs)
     stages = []
-    remaining = 0.0
     known = [key for key, _label in STAGES]
-    present = {_stage(j) for j, _a in jobs}
+    present = {_stage(j) for j, _a in wave}
     for key in known + sorted(present - set(known)):  # этап не из списка не пропадает: показывается под своим ключом
-        mine = [(j, a) for j, a in jobs if _stage(j) == key]
-        counts = {s: sum(1 for j, _a in mine if j.status == s) for s in ("queued", "running", "done", "error")}
-        left = counts["queued"] + counts["running"]
-        remaining += left * averages.get(key, DEFAULT_SECONDS.get(key, OTHER_SECONDS))
-        if mine:
+        mine = [(j, a) for j, a in wave if _stage(j) == key]
+        counts = {s: sum(1 for j, _a in mine if j.status == s and not (s == "error" and j.id in superseded))
+                  for s in ("queued", "running", "done", "error")}
+        if any(counts.values()):
             stages.append({"scope": key, "label": STAGE_LABEL.get(key, key), **counts})
     running = next(((j, a) for j, a in jobs if j.status == "running"), None)
-    total_active = sum(1 for j, _a in jobs if j.status in ("queued", "running"))
-    finished = sum(1 for j, _a in jobs if j.status in ("done", "error"))
-    errors = [(j, a) for j, a in jobs if j.status == "error"]
+    pending = sum(1 for j, _a in wave if j.status in ("queued", "running"))
+    done = sum(1 for j, _a in wave if j.status == "done")
+    total = done + pending
+    errors = [(j, a) for j, a in jobs if j.status == "error" and j.id not in superseded]
     return {
-        "active": total_active > 0,
-        "pending": total_active,
+        "active": pending > 0,
+        "pending": pending,
         "cancellable": sum(1 for j, _a in jobs if j.status == "queued" and j.kind in MANAGED_KINDS),
-        "finished_24h": finished,
-        "percent": round(100 * finished / (finished + total_active)) if (finished + total_active) else None,
-        "estimate_minutes": round(remaining / 60) if total_active else 0,
+        "done": done,
+        "total": total,
+        "percent": round(100 * done / total) if pending and total else None,
         "stages": stages,
         "current": {"stage": STAGE_LABEL.get(_stage(running[0]), _stage(running[0])), "material": _material_name(*running),
                     "since": _iso(running[0].started_at)} if running else None,

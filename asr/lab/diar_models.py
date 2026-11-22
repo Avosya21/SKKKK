@@ -80,6 +80,12 @@ def selected_model(name: str | None = None) -> DiarModel:
     key = (name or os.environ.get("DIAR_MODEL") or DEFAULT_MODEL).strip().lower()
     if key not in MODELS:
         raise ValueError(f"неизвестная модель диаризации {key!r}; есть: {', '.join(MODELS)}")
+    # На новой машине веса Nemotron часто ещё не скопированы (каталог не в git).
+    # Без отката загруженные записи падают на lab_onnx; Sortformer 4spk — в data/models/onnx-diar.
+    if key == NEMOTRON:
+        nemo = Path(os.environ.get("NEMOTRON_DIAR_MODEL") or NEMOTRON_FILE)
+        if not nemo.is_file():
+            return MODELS[SORTFORMER]
     return MODELS[key]
 
 

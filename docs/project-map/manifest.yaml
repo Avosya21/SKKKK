@@ -49,7 +49,7 @@ nodes:
   - id: router_pages
     kind: router
     path: "app/app/routers/pages.py"
-    title: "HTML pages, artifact reports, GET /meeting.webmanifest, meeting_voice_flags"
+    title: "HTML pages, artifact reports, GET /meeting.webmanifest, meeting_voice_flags; GET /login with a live session and safe next returns to that tab's page"
     tags: [api, ui]
 
   - id: router_acme
@@ -80,6 +80,36 @@ nodes:
     kind: file
     path: "Login_up.txt"
     title: "Allowed login names or emails, one per line"
+    tags: [auth]
+
+  - id: svc_login_roles
+    kind: service
+    path: "app/app/services/login_roles.py"
+    title: "Login_roles.txt → available portal roles; default manager; customer=user"
+    tags: [auth]
+
+  - id: file_login_roles
+    kind: file
+    path: "Login_roles.txt"
+    title: "login | role[,role...] edited by admin only"
+    tags: [auth]
+
+  - id: svc_login_codes
+    kind: service
+    path: "app/app/services/login_codes.py"
+    title: "One-time login codes (hash, TTL, rate limits)"
+    tags: [auth]
+
+  - id: svc_b24_auth
+    kind: service
+    path: "app/app/services/b24_auth.py"
+    title: "Bitrix24 OTP via incoming webhooks im.message.add / user.get"
+    tags: [auth]
+
+  - id: svc_email_otp
+    kind: service
+    path: "app/app/services/email_otp.py"
+    title: "Email OTP for customer role and staff fallback"
     tags: [auth]
 
   - id: router_projects
@@ -481,7 +511,7 @@ nodes:
   - id: asr_summarize_call
     kind: script
     path: "asr/summarize_call.py"
-    title: "Map/reduce call_summary.md and call_brief.md from signed speakers JSON"
+    title: "Map/reduce call summary/brief; internal → prompts + past memory; Jira screen → link only"
     tags: [asr, summary, llm]
 
   - id: asr_voice_audit
@@ -531,6 +561,18 @@ nodes:
     path: "docs/prompts/call_brief.md"
     title: "Call brief map/reduce — краткое резюме созвона"
     tags: [prompt, summary]
+
+  - id: prompt_summary_internal
+    kind: prompt
+    path: "docs/prompts/call_summary_internal.md"
+    title: "Internal call summary — проекты, тикеты, ПМ, необсуждённые"
+    tags: [prompt, summary, internal]
+
+  - id: prompt_brief_internal
+    kind: prompt
+    path: "docs/prompts/call_brief_internal.md"
+    title: "Internal call brief — урезанная схема дейли"
+    tags: [prompt, summary, internal]
 
   - id: prompt_doc_summary
     kind: prompt
@@ -652,6 +694,12 @@ nodes:
     title: "Сворачиваемый блок Встречи: создать/начать/проанализировать (merge дорожек)/отозвать"
     tags: [ui, meetings, project, collapse]
 
+  - id: ui_jira_exports
+    kind: ui_pattern
+    path: "app/app/templates/project.html#jira-exports-box"
+    title: "Сворачиваемый блок выгрузок Jira: документы задач и сводка проекта, только администратор"
+    tags: [ui, jira, project, collapse]
+
   - id: ui_btn_meeting_create
     kind: ui_action
     path: "app/app/templates/project.html"
@@ -694,11 +742,53 @@ nodes:
     title: "Звук — setSubscribed(false) на чужое аудио (вкл. clean-*), не muted; свой мик не трогает"
     tags: [ui, meetings, voice]
 
+  - id: ui_btn_meeting_local_record
+    kind: button
+    path: "app/app/templates/meeting_room.html#meeting-local-record"
+    title: "Записать созвон — MP4 при выходе, закрытии комнаты и выкидывании; обрыв вкладки — WebM"
+    tags: [ui, meetings, record]
+
+  - id: mod_meeting_local_record
+    kind: module
+    path: "app/app/static/meeting_local_record.js"
+    title: "Локальная запись: WebM-first, remux MP4; обрыв страницы хранит куски в IndexedDB и отдаёт WebM"
+    tags: [ui, meetings, record]
+
+  - id: api_meeting_local_record_remux
+    kind: api
+    path: "app/app/routers/meetings.py"
+    title: "POST /api/meetings/local-record/remux — всегда H.264+AAC seekable MP4"
+    tags: [api, meetings, record]
+
+  - id: svc_local_record_remux
+    kind: service
+    path: "app/app/services/local_record_remux.py"
+    title: "Remux MediaRecorder → H.264+AAC MP4 (+faststart); без -c copy"
+    tags: [meetings, record, ffmpeg]
+
+  - id: script_e2e_meeting_record
+    kind: script
+    path: "scripts/e2e/e2e_meeting_record.py"
+    title: "E2E записи: MP4 на кнопке, выходе, завершении и закрытии комнаты; обновление — WebM"
+    tags: [e2e, meetings, record]
+
+  - id: script_e2e_meeting_stability
+    kind: script
+    path: "scripts/e2e/e2e_meeting_stability.py"
+    title: "E2E устойчивости комнаты: намерение кнопок, звук и запись, перезаход, слабая связь, индикаторы, окно 60 с"
+    tags: [e2e, meetings]
+
   - id: ui_meeting_mic_silent_toast
     kind: ui_action
     path: "app/app/static/meeting_room.js"
     title: "Тост «Микрофон молчит» + Перезапустить только для Microphone/LocalAudioSilence; Camera/ScreenShare — отдельные тосты без mic_silent"
     tags: [ui, meetings, voice]
+
+  - id: ui_meeting_tile_link
+    kind: ui_action
+    path: "app/app/static/meeting_room.js"
+    title: "Палочки связи слева сверху плитки (.meeting-tile-link): зелёный ok, жёлтый wait/poor, серый lost"
+    tags: [ui, meetings]
 
   - id: ui_meeting_screen_tile
     kind: ui_action
@@ -721,7 +811,7 @@ nodes:
   - id: svc_meeting_voice
     kind: service
     path: "tools/livekit/voice_cleaner.py"
-    title: "CPU DeepFilterNet, identity primaryanalitics-dfn; сырые дорожки в data/meetings/{room}; не ASR"
+    title: "Рекордер голоса primaryanalitics-dfn; выходит и закрывает WAV, когда встреча уже не live"
     tags: [meetings, voice, livekit]
 
   - id: svc_screen_recorder
@@ -751,7 +841,7 @@ nodes:
   - id: ui_btn_meeting_end_all
     kind: ui_action
     path: "app/app/templates/meeting_room.html#meeting-end"
-    title: "Завершить для всех — POST /projects/{id}/meetings/{mid}/end из комнаты сотрудника"
+    title: "Завершить для всех — created_by; при записи сначала MP4, потом POST end и уход"
     tags: [ui, meetings]
 
   - id: ui_btn_guest_devices_check
@@ -817,7 +907,7 @@ nodes:
   - id: ui_index_page
     kind: ui_page
     path: "app/app/templates/index.html"
-    title: "Projects list and create project modal"
+    title: "Стартовая: список одной колонкой или доска справа; вид выбирается в настройках интерфейса"
     tags: [ui, projects]
 
   - id: ui_transcript_report
@@ -1990,9 +2080,65 @@ nodes:
   - id: script_qa_all
     kind: file
     path: scripts/qa_all.py
-    title: "Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт»."
+    title: "Единая команда QA (пункт плана 5.5); --acceptance делегирует scripts/acceptance_all.py."
     tags: [auto]
     auto: true
+
+  - id: script_acceptance_all
+    kind: file
+    path: scripts/acceptance_all.py
+    title: "Полный acceptance на новой машине: e2e materials + smoke/qa + pytest + health + evals → data/eval/acceptance_*.json."
+    tags: [acceptance, e2e]
+    auto: false
+
+  - id: script_portal_smoke
+    kind: file
+    path: scripts/portal_smoke.py
+    title: "Основной функциональный смоук портала (стенд, вход, документы, ASR/диар, знание, встреча); без полного UI; отчёт data/eval/portal_smoke_*.json."
+    tags: [smoke, e2e, acceptance]
+    auto: false
+
+  - id: script_e2e_run_materials
+    kind: file
+    path: scripts/e2e/run_materials.py
+    title: "Оркестратор живого e2e материалов/знания на песочнице (docs+audio+speakers+knowledge)."
+    tags: [acceptance, e2e]
+    auto: false
+
+  - id: script_e2e_preflight
+    kind: file
+    path: scripts/e2e/e2e_preflight.py
+    title: "Preflight acceptance: health/ready, модели ASR/diar, Docker GigaAM, LLM."
+    tags: [acceptance, e2e]
+    auto: false
+
+  - id: script_e2e_documents
+    kind: file
+    path: scripts/e2e/e2e_documents.py
+    title: "E2E: загрузка всех типов документов → done."
+    tags: [acceptance, e2e]
+    auto: false
+
+  - id: script_e2e_audio
+    kind: file
+    path: scripts/e2e/e2e_audio.py
+    title: "E2E: короткое аудио → speakers_pending (dual ASR + diar)."
+    tags: [acceptance, e2e]
+    auto: false
+
+  - id: script_e2e_speakers
+    kind: file
+    path: scripts/e2e/e2e_speakers.py
+    title: "E2E: enroll + speakers-confirm → knowledge done."
+    tags: [acceptance, e2e]
+    auto: false
+
+  - id: script_e2e_knowledge
+    kind: file
+    path: scripts/e2e/e2e_knowledge.py
+    title: "E2E: search по якорю, rebuild-tz, chat."
+    tags: [acceptance, e2e]
+    auto: false
 
   - id: script_qa_analysis
     kind: file
@@ -2630,7 +2776,7 @@ nodes:
   - id: router_people
     kind: router
     path: app/app/routers/people.py
-    title: "Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`)."
+    title: "Карточки людей: фото, своя карточка, личная доска, настройки интерфейса и задачи доски GET /me/board."
     tags: [auto]
     auto: true
 
@@ -2777,7 +2923,7 @@ nodes:
   - id: script_qa_room_ui
     kind: file
     path: scripts/qa_room_ui.py
-    title: "Комната созвона: раскладка на телефоне при повороте, пульт и окна, устойчивость индикаторов и камеры (живой LiveKit, песочница)."
+    title: "Комната: телефонная раскладка, пульт, значки мик/кам/связи на плитках, устойчивость камеры и mic_silent (песочница)."
     tags: [auto]
     auto: true
 
@@ -2959,7 +3105,7 @@ nodes:
   - id: static_background
     kind: file
     path: app/app/static/background.js
-    title: "Фоновая работа по проекту (ПФ9): ход разбора, перепроверка, переизвлечение, повтор ошибок."
+    title: "Дальнейшая обработка проекта: строка хода текущей очереди, ошибки, перепроверка и переизвлечение."
     tags: [auto]
     auto: true
 
@@ -3708,7 +3854,7 @@ nodes:
   - id: ui_background_progress
     kind: file
     path: app/app/templates/partials/background_progress.html
-    title: "Дальнейшая обработка проекта (бывшая карточка «Фоновая работа», ПФ9 PLATFORM-FOUNDATION-PLAN) — внутри «Материалов проекта», под ходом расши"
+    title: "Дальнейшая обработка проекта — строка в «Материалах проекта» под ходом расшифровки. Свёрнута: что идёт сейчас. Раскрыта: полоска этой очереди."
     tags: [auto]
     auto: true
 
@@ -3796,24 +3942,24 @@ nodes:
     tags: [auto]
     auto: true
 
-  - id: svc_jira_client
-    kind: service
-    path: app/app/services/jira_client.py
-    title: "Клиент Jira (только чтение): проверка связи, список проектов, задачи проекта — docs/plans/JIRA-INTEGRATION-PLAN.md, этап 1."
+  - id: model_login_code
+    kind: model
+    path: app/app/models/login_code.py
+    title: "Одноразовые коды входа (Битрикс24 / email)."
     tags: [auto]
     auto: true
 
-  - id: script_jira_pull
+  - id: script_rename_login
     kind: file
-    path: scripts/jira_pull.py
-    title: "Первые данные из Jira: проверка связи, список проектов и выгрузка задач проекта (только чтение)."
+    path: scripts/rename_login.py
+    title: "Одноразовая смена логина в app.db / credentials.db / файлах допуска."
     tags: [auto]
     auto: true
 
-  - id: tool_jira_mcp
+  - id: script_smoke_meeting_record
     kind: file
-    path: tools/jira_mcp.py
-    title: "Локальный MCP-сервер Jira (stdio): чтение задач Jira для ИИ-агента разработки. Только чтение."
+    path: scripts/smoke/smoke_meeting_record.py
+    title: "Смоук обёртка: делегирует scripts/e2e/e2e_meeting_record.py."
     tags: [auto]
     auto: true
 
@@ -3831,17 +3977,17 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: svc_jira_client
+    kind: service
+    path: app/app/services/jira_client.py
+    title: "Клиент Jira (только чтение): проверка связи, список проектов, задачи проекта — docs/plans/JIRA-INTEGRATION-PLAN.md, этап 1."
+    tags: [auto]
+    auto: true
+
   - id: svc_jira_import
     kind: service
     path: app/app/services/jira_import.py
     title: "Jira в портале: личный токен пользователя, выбор проектов и загрузка задач с вложениями как материалов проекта."
-    tags: [auto]
-    auto: true
-
-  - id: script_check_jira_sync
-    kind: file
-    path: scripts/check_jira_sync.py
-    title: "Сверка «живая Jira <-> локальный портал»: что подтянулось, полностью ли и актуально ли."
     tags: [auto]
     auto: true
 
@@ -3851,6 +3997,75 @@ nodes:
     title: "Задача и проект Jira как документы портала: всё, что есть в Jira, без сокращений (docs/plans/JIRA-INTEGRATION-PLAN.md, этап 4)."
     tags: [auto]
     auto: true
+
+  - id: script_check_jira_sync
+    kind: file
+    path: scripts/check_jira_sync.py
+    title: "Живая сверка «Jira ↔ портал»: всё ли из Jira загружено в проекты портала полностью. Только чтение."
+    tags: [auto]
+    auto: true
+
+  - id: script_jira_pull
+    kind: file
+    path: scripts/jira_pull.py
+    title: "Первые данные из Jira: проверка связи, список проектов и выгрузка задач проекта (только чтение)."
+    tags: [auto]
+    auto: true
+
+  - id: tool_jira_mcp
+    kind: file
+    path: tools/jira_mcp.py
+    title: "Локальный MCP-сервер Jira (stdio): чтение задач Jira для ИИ-агента разработки. Только чтение."
+    tags: [auto]
+    auto: true
+
+  - id: model_user_dashboard
+    kind: model
+    path: app/app/models/user_dashboard.py
+    title: "Проекты на личной доске пользователя (таблица user_dashboard_projects)."
+    tags: [db, projects]
+
+  - id: svc_dashboard
+    kind: service
+    path: app/app/services/dashboard.py
+    title: "Личная доска проектов на стартовой странице: порядок карточек справа у каждого пользователя."
+    tags: [service, projects]
+
+  - id: model_user_ui_setting
+    kind: model
+    path: app/app/models/user_ui_setting.py
+    title: "Настройка интерфейса пользователя (таблица user_ui_settings): стартовая страница, ширина колонки и высота задач."
+    tags: [db, ui]
+
+  - id: svc_ui_settings
+    kind: service
+    path: app/app/services/ui_settings.py
+    title: "Настройки интерфейса пользователя: стартовая страница, ширина колонки и высота задач."
+    tags: [service, ui]
+
+  - id: model_user_board
+    kind: model
+    path: app/app/models/user_board.py
+    title: "Снятые с личной доски задачи (таблица user_board_dismissals)."
+    tags: [db, projects]
+
+  - id: svc_board_tasks
+    kind: service
+    path: app/app/services/board_tasks.py
+    title: "Задачи личной доски: неназванные голоса у загрузившего и неотправлённый анализ у создателя комнаты."
+    tags: [service, projects]
+
+  - id: ui_board_tasks
+    kind: ui_action
+    path: app/app/templates/index.html
+    title: "Доска: открытые задачи и последние 15 обработок"
+    tags: [ui, projects]
+
+  - id: ui_nav_interface
+    kind: ui_action
+    path: app/app/templates/base.html
+    title: "Настройки: главная страница список или дашборд, подключение Jira"
+    tags: [ui]
 
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
@@ -3963,6 +4178,8 @@ edges:
   - {from: asr_summarize_call, to: file_speakers_json, relation: reads}
   - {from: asr_summarize_call, to: prompt_summary, relation: reads}
   - {from: asr_summarize_call, to: prompt_brief, relation: reads}
+  - {from: asr_summarize_call, to: prompt_summary_internal, relation: reads_if_internal_project}
+  - {from: asr_summarize_call, to: prompt_brief_internal, relation: reads_if_internal_project}
   - {from: asr_summarize_call, to: asr_llm_client, relation: imports}
   - {from: router_speakers, to: svc_speaker_profiles, relation: api}
   - {from: svc_speaker_profiles, to: asr_match_speakers, relation: legacy_recalculate_only}
@@ -3973,6 +4190,13 @@ edges:
   - {from: router_auth, to: svc_user_identity, relation: login_by_name}
   - {from: router_auth, to: svc_login_allowlist, relation: must_be_listed}
   - {from: svc_login_allowlist, to: file_login_allowlist, relation: reads}
+  - {from: router_auth, to: svc_login_roles, relation: calls}
+  - {from: svc_login_roles, to: file_login_roles, relation: reads}
+  - {from: router_auth, to: svc_login_codes, relation: calls}
+  - {from: router_auth, to: svc_b24_auth, relation: calls}
+  - {from: router_auth, to: svc_email_otp, relation: calls}
+  - {from: svc_b24_auth, to: svc_login_codes, relation: calls}
+  - {from: svc_email_otp, to: svc_login_codes, relation: calls}
   - {from: fastapi_main, to: svc_user_identity, relation: merge_duplicates_on_start}
   - {from: fastapi_main, to: router_projects, relation: mounts}
   - {from: router_projects, to: svc_project_access, relation: require_project}
@@ -3984,6 +4208,21 @@ edges:
   - {from: router_projects, to: svc_project_purge, relation: delete_project}
   - {from: router_upload, to: svc_project_purge, relation: delete_artifact}
   - {from: ui_index_page, to: ui_btn_delete_project, relation: contains}
+  - {from: ui_index_page, to: router_people, relation: dashboard}
+  - {from: ui_nav_interface, to: router_people, relation: home_layout}
+  - {from: router_people, to: svc_dashboard, relation: read_replace}
+  - {from: svc_dashboard, to: model_user_dashboard, relation: reads_writes}
+  - {from: svc_project_purge, to: model_user_dashboard, relation: deletes_rows}
+  - {from: router_people, to: svc_ui_settings, relation: read_replace}
+  - {from: svc_ui_settings, to: model_user_ui_setting, relation: reads_writes}
+  - {from: ui_index_page, to: svc_ui_settings, relation: home_layout}
+  - {from: ui_board_tasks, to: router_people, relation: tasks}
+  - {from: router_people, to: svc_board_tasks, relation: read_dismiss}
+  - {from: svc_board_tasks, to: model_user_board, relation: reads_writes}
+  - {from: svc_board_tasks, to: svc_dashboard, relation: visible_projects}
+  - {from: svc_board_tasks, to: svc_speaker_profiles, relation: unnamed_voices}
+  - {from: svc_board_tasks, to: svc_meeting_analyze, relation: not_sent}
+  - {from: svc_project_purge, to: model_user_board, relation: deletes_rows}
   - {from: ui_btn_delete_project, to: router_projects, relation: calls}
   - {from: ui_project_page, to: ui_btn_delete_artifact, relation: contains}
   - {from: ui_btn_delete_artifact, to: router_upload, relation: calls}
@@ -4057,6 +4296,8 @@ edges:
   - {from: ui_project_page, to: ui_btn_upload, relation: contains}
   - {from: ui_project_page, to: ui_project_insights_layout, relation: contains}
   - {from: ui_project_page, to: ui_meetings_collapsible, relation: contains}
+  - {from: ui_project_page, to: ui_jira_exports, relation: contains}
+  - {from: ui_jira_exports, to: router_jira, relation: jira_exports}
   - {from: ui_project_page, to: ui_mcp_collapsible, relation: contains}
   - {from: ui_meetings_collapsible, to: ui_btn_meeting_create, relation: contains}
   - {from: ui_meetings_collapsible, to: ui_btn_meeting_analyze, relation: contains}
@@ -4093,7 +4334,16 @@ edges:
   - {from: ui_meeting_dock, to: ui_btn_meeting_more, relation: contains}
   - {from: ui_meeting_dock, to: ui_btn_meeting_denoise, relation: contains}
   - {from: ui_meeting_dock, to: ui_btn_meeting_sound, relation: contains}
+  - {from: ui_meeting_dock, to: ui_btn_meeting_local_record, relation: contains_employee_only}
+  - {from: ui_btn_meeting_local_record, to: mod_meeting_local_record, relation: uses}
+  - {from: mod_meeting_local_record, to: api_meeting_local_record_remux, relation: POST_remux}
+  - {from: api_meeting_local_record_remux, to: svc_local_record_remux, relation: calls}
+  - {from: script_e2e_meeting_record, to: api_meeting_local_record_remux, relation: tests}
+  - {from: script_e2e_meeting_record, to: ui_btn_meeting_local_record, relation: tests}
+  - {from: script_e2e_meeting_record, to: ui_btn_meeting_end_all, relation: tests}
+  - {from: script_e2e_meeting_stability, to: ui_meeting_dock, relation: tests}
   - {from: ui_meeting_dock, to: ui_meeting_mic_silent_toast, relation: contains}
+  - {from: ui_meeting_dock, to: ui_meeting_tile_link, relation: contains}
   - {from: ui_meeting_dock, to: ui_meeting_screen_tile, relation: shares_screen}
   - {from: ui_meeting_public, to: ui_meeting_layout_rules, relation: uses}
   - {from: ui_meeting_public, to: static_meeting_webmanifest, relation: links}
@@ -4184,6 +4434,23 @@ edges:
   - {from: script_qa_room, to: ext_playwright_browsers, relation: drives}
   - {from: script_qa_mobile_webkit, to: ext_playwright_browsers, relation: drives}
   - {from: script_qa_mobile_android, to: ext_android_emulator, relation: connects}
+
+  # Acceptance / e2e materials (новая машина)
+  - {from: script_qa_all, to: script_acceptance_all, relation: delegates}
+  - {from: script_acceptance_all, to: script_e2e_run_materials, relation: runs}
+  - {from: script_acceptance_all, to: script_qa_all, relation: extends}
+  - {from: script_portal_smoke, to: script_e2e_run_materials, relation: uses}
+  - {from: script_portal_smoke, to: script_e2e_preflight, relation: extends}
+  - {from: script_portal_smoke, to: script_run_all_auto, relation: complements}
+  - {from: script_e2e_run_materials, to: script_e2e_preflight, relation: runs}
+  - {from: script_e2e_run_materials, to: script_e2e_documents, relation: runs}
+  - {from: script_e2e_run_materials, to: script_e2e_audio, relation: runs}
+  - {from: script_e2e_run_materials, to: script_e2e_speakers, relation: runs}
+  - {from: script_e2e_run_materials, to: script_e2e_knowledge, relation: runs}
+  - {from: script_e2e_audio, to: svc_pipeline_lab, relation: exercises}
+  - {from: script_e2e_speakers, to: router_speakers, relation: calls}
+  - {from: script_e2e_knowledge, to: router_knowledge, relation: calls}
+  - {from: script_e2e_documents, to: router_upload, relation: calls}
 
   # Стенд: внешние приложения, модели, окружения и портативные инструменты (§17)
   - {from: svc_ollama_runtime, to: ext_ollama, relation: ensures}

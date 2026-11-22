@@ -1,4 +1,4 @@
-/* Дальнейшая обработка проекта (ПФ9, бывшая карточка «Фоновая работа»): ход разбора, перепроверка, переизвлечение, повтор ошибок.
+/* Дальнейшая обработка проекта: строка хода текущей очереди, ошибки, перепроверка и переизвлечение.
    Живёт строкой-<details> в «Материалах проекта» под ходом расшифровки (partials/background_progress.html), значок — в шапке «Материалов».
    Смотрят админ и менеджер, запускает и останавливает только админ — сервер проверяет это сам. */
 (function () {
@@ -9,7 +9,6 @@
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const say = (text, bad) => { const el = $('bg-status'); el.textContent = text || ''; el.classList.toggle('text-danger', !!bad); };
   const errText = async (r) => { try { const d = (await r.json()).detail; return typeof d === 'string' ? d : JSON.stringify(d); } catch (e) { return 'Ошибка ' + r.status; } };
-  const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
   let timer = null;
   let lastMaterialsSig = '';
 
@@ -27,32 +26,35 @@
     const badge = $('bg-badge');
     badge.classList.toggle('d-none', !d.active && !d.errors_total);
     badge.className = 'badge flex-shrink-0 ' + (d.active ? 'text-bg-info' : 'text-bg-danger') + (d.active || d.errors_total ? '' : ' d-none');
-    badge.textContent = d.active ? `Идёт разбор: ${d.pending}` : (d.errors_total ? `Ошибок: ${d.errors_total}` : '');
+    badge.textContent = d.active ? `Идёт: ${d.pending}` : (d.errors_total ? `Ошибок: ${d.errors_total}` : '');
     const state = $('bg-summary');
+    const fraction = `${d.done} из ${d.total}`;
     state.textContent = d.active
-      ? `идёт, осталось задач: ${d.pending}` + (d.percent == null ? '' : ` (${d.percent}%)`) + (d.estimate_minutes ? `, ~${d.estimate_minutes} мин.` : '')
-      : (d.errors_total ? `не удалось выполнить: ${d.errors_total}` : 'ничего не выполняется');
+      ? (d.current ? `${d.current.stage}${d.current.material ? ' — ' + d.current.material : ''} · ${fraction}` : `В очереди: ${d.pending}`)
+      : (d.errors_total ? `Не выполнено: ${d.errors_total}` : 'Сейчас ничего не идёт');
     state.classList.toggle('is-active', !!d.active);
     state.classList.toggle('is-error', !d.active && !!d.errors_total);
-    $('bg-idle').classList.toggle('d-none', d.active);
     $('bg-active').classList.toggle('d-none', !d.active);
     if (d.active) {
-      const bar = $('bg-progress');
       const pct = d.percent == null ? 0 : d.percent;
-      bar.style.width = pct + '%'; bar.textContent = pct + '%';
+      $('bg-progress').style.width = pct + '%';
       $('bg-progress-wrap').setAttribute('aria-valuenow', String(pct));
-      $('bg-current').innerHTML = d.current
-        ? `Сейчас: <strong>${esc(d.current.stage)}</strong>${d.current.material ? ' — ' + esc(d.current.material) : ''} <span class="text-muted">с ${esc(fmtTime(d.current.since))}</span>`
-        : 'Ждёт своей очереди (воркер занят расшифровкой или другой задачей).';
-      $('bg-estimate').textContent = `Осталось задач: ${d.pending}` + (d.estimate_minutes ? `, примерно ${d.estimate_minutes} мин.` : '.');
+      $('bg-progress-wrap').setAttribute('aria-valuetext', fraction);
+      $('bg-fraction').textContent = fraction;
+      const waiting = $('bg-current');
+      waiting.textContent = d.current ? '' : 'Ждёт очереди';
+      waiting.classList.toggle('d-none', !!d.current);
     }
-    $('bg-stages').innerHTML = d.stages.map((s) => {
+    const leftStages = d.stages.filter((s) => s.queued + s.running > 0);
+    const showStages = leftStages.length > 1;
+    const stages = $('bg-stages');
+    stages.classList.toggle('d-none', !showStages);
+    stages.innerHTML = leftStages.map((s) => {
       const left = s.queued + s.running;
-      const cls = s.error ? 'text-bg-danger' : (left ? 'text-bg-info' : 'text-bg-light border');
-      return `<span class="badge ${cls}" title="Выполнено ${s.done}, в очереди ${s.queued}, идёт ${s.running}, с ошибкой ${s.error}">${esc(s.label)}: ${s.done}${left ? ' / ' + (s.done + left) : ''}${s.error ? ' · ошибок ' + s.error : ''}</span>`;
+      return `<span class="badge text-bg-light border" title="В очереди ${s.queued}, идёт ${s.running}">${esc(s.label)} · ${left}</span>`;
     }).join('');
     $('bg-errors-box').classList.toggle('d-none', !d.errors_total);
-    $('bg-errors-title').textContent = d.errors_total ? `Не удалось выполнить (за последние сутки): ${d.errors_total}` : '';
+    $('bg-errors-title').textContent = d.errors_total ? `Не выполнено: ${d.errors_total}` : '';
     $('bg-errors').innerHTML = d.errors.map((e) => `<li>${esc(e.stage)} — ${esc(e.material)}${e.message ? `: <span class="text-muted">${esc(e.message)}</span>` : ''}`
       + (e.retry === false ? ' <span class="text-muted">(расшифровку повторяют из карточки материала)</span>' : '') + '</li>').join('');
     const admin = !!d.can_run;

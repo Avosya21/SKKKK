@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Iterator
+from urllib.parse import urlparse
 
 import httpx
 
@@ -56,6 +57,7 @@ def normalize_issue(raw: dict[str, Any], base_url: str = "") -> dict[str, Any]:
     parent = fields.get("parent") if isinstance(fields.get("parent"), dict) else {}
     return {
         "key": key,
+        "id": str(raw.get("id")).strip() if raw.get("id") not in (None, "") else None,
         "summary": str(fields.get("summary") or "").strip(),
         "type": _name(fields.get("issuetype"), "name"),
         "status": _name(fields.get("status"), "name"),
@@ -290,6 +292,54 @@ class JiraClient:
         if not key or not all(ch.isalnum() or ch == "_" for ch in key):
             raise JiraError(f"Неверный ключ проекта Jira: {project_key!r} (ожидается, например, ABC)")
         return self._request("GET", f"/rest/api/2/project/{key}")
+
+    def project_card(self, project_key: str) -> dict[str, Any]:
+        """Карточка проекта для сводки: ответ Jira и состав ролей. Ошибка одной роли не отменяет остальные сведения."""
+        info = dict(self.project_info(project_key))
+        info["roles_resolved"] = self._project_roles(info.get("roles"))
+        return info
+
+    def _same_origin_path(self, url: Any) -> str | None:
+        """Путь запроса только на эту же Jira. Чужой адрес не запрашиваем."""
+        text = str(url or "").strip()
+        if not text:
+            return None
+        if text.startswith("/") and not text.startswith("//"):
+            return text
+        base, parsed = urlparse(self.base_url), urlparse(text)
+        if parsed.scheme in {"http", "https"} and parsed.netloc == base.netloc and parsed.path.startswith("/"):
+            return parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        return None
+
+    def _project_roles(self, roles: Any) -> list[dict[str, Any]]:
+        if not isinstance(roles, dict):
+            return []
+        out: list[dict[str, Any]] = []
+        for name, url in roles.items():
+            row: dict[str, Any] = {"name": str(name), "id": None, "actors": [], "missing": True}
+            path = self._same_origin_path(url)
+            data = None
+            if path:
+                try:
+                    data = self._request("GET", path)
+                except JiraError:
+                    data = None
+            if isinstance(data, dict):
+                row["missing"] = False
+                row["name"] = str(data.get("name") or name)
+                row["id"] = data.get("id")
+                for actor in data.get("actors") or []:
+                    if not isinstance(actor, dict):
+                        continue
+                    user = actor.get("actorUser") if isinstance(actor.get("actorUser"), dict) else {}
+                    group = actor.get("actorGroup") if isinstance(actor.get("actorGroup"), dict) else {}
+                    who = str(actor.get("displayName") or _name(user, "displayName", "name") or _name(group, "displayName", "name") or "").strip()
+                    account = str(user.get("name") or user.get("accountId") or group.get("name") or "").strip()
+                    kind = "группа" if group or "group" in str(actor.get("type") or "").lower() else "пользователь"
+                    if who or account:
+                        row["actors"].append({"name": who or account, "kind": kind, "account": account})
+            out.append(row)
+        return sorted(out, key=lambda item: str(item["name"]).lower())
 
     def count(self, project_key: str) -> int:
         """Сколько задач в проекте Jira."""

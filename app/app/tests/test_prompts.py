@@ -10,7 +10,14 @@ from app.app.services.prompts import fenced_blocks, load_prompt_block
 PROMPTS = Path(__file__).resolve().parents[3] / "docs" / "prompts"
 # Файлы, которые целиком уходят в модель как один системный промпт (примеры JSON внутри — часть текста).
 WHOLE_FILE = {"lab_proof_text.md", "lab_sense_speakers.md"}
-EXPECTED_BLOCKS = {"rebuild_tz.md": 6, "call_summary.md": 4, "call_brief.md": 4, "doc_summary.md": 4}
+EXPECTED_BLOCKS = {
+    "rebuild_tz.md": 6,
+    "call_summary.md": 4,
+    "call_brief.md": 4,
+    "call_summary_internal.md": 4,
+    "call_brief_internal.md": 4,
+    "doc_summary.md": 4,
+}
 
 
 def test_fenced_blocks_skip_header_and_prose():

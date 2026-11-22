@@ -77,9 +77,11 @@ def _headers(token: str) -> dict[str, str]:
 
 def test_anonymous_gets_login_redirect_and_401(client, graph_api):
     """Без входа: HTML-оболочка — 302 на /login, данные — 401 (не JSON-страница)."""
+    from urllib.parse import parse_qs, urlparse
+
     page = client.get("/admin/map/graph", follow_redirects=False)
     assert page.status_code == 302
-    assert page.headers["location"] == "/login"
+    assert parse_qs(urlparse(page.headers["location"]).query)["next"] == ["/admin/map/graph"]
     assert client.get("/admin/map/graph/data").status_code == 401
     assert client.get("/admin/map/graph/summary").status_code == 401
 

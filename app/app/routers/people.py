@@ -1,4 +1,4 @@
-"""Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`).
+"""Карточки людей: фото (`/people/{id}/avatar`), своя карточка (`/me/profile`, `/me/avatar`), личная доска (`/me/dashboard`), настройки (`GET /me/ui`, `PUT /me/ui`) и задачи доски (`GET /me/board`, `POST /me/board/dismiss`).
 
 Фото видят вошедшие пользователи портала; гостям созвона — отдельный адрес в `routers/meetings.py`.
 Компанию и согласие на голос здесь не меняют: это делает админ (меню запуска, `scripts/user_profile.py`).
@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -19,8 +19,19 @@ from app.app.dependencies import get_current_user
 from app.app.models.company import Company
 from app.app.models.user import User
 from app.app.models.user_profile import UserProfile
+from app.app.schemas.project import DashboardIn, DashboardOut
 from app.app.services import avatars
 from app.app.services import user_profile as profiles
+from app.app.services.board_tasks import dismiss_task, read_board
+from app.app.services.dashboard import read_dashboard, replace_dashboard
+from app.app.services.ui_settings import (
+    LIST_WIDTH_MAX,
+    LIST_WIDTH_MIN,
+    TASKS_HEIGHT_MAX,
+    TASKS_HEIGHT_MIN,
+    read_ui_settings,
+    update_ui_settings,
+)
 
 router = APIRouter(tags=["people"])
 
@@ -135,3 +146,95 @@ async def update_my_avatar(
         code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if len(data) > avatars.MAX_BYTES else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=code, detail=str(exc)) from None
     return profile_out(db, user, profile)
+
+
+@router.get("/me/dashboard", response_model=DashboardOut)
+def get_my_dashboard(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    return DashboardOut(project_ids=read_dashboard(db, user))
+
+
+@router.put("/me/dashboard", response_model=DashboardOut)
+def put_my_dashboard(
+    body: DashboardIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    return DashboardOut(project_ids=replace_dashboard(db, user, body.project_ids))
+
+
+class UiSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    home: Literal["list", "dashboard"] | None = None
+    list_width: int | None = Field(default=None, ge=LIST_WIDTH_MIN, le=LIST_WIDTH_MAX)
+    tasks_height: int | None = Field(default=None, ge=TASKS_HEIGHT_MIN, le=TASKS_HEIGHT_MAX)
+
+
+class UiSettingsOut(BaseModel):
+    home: Literal["list", "dashboard"]
+    list_width: int | None
+    tasks_height: int | None
+
+
+@router.get("/me/ui", response_model=UiSettingsOut)
+def get_my_ui(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    home, list_width, tasks_height = read_ui_settings(db, user)
+    return UiSettingsOut(home=home, list_width=list_width, tasks_height=tasks_height)
+
+
+@router.put("/me/ui", response_model=UiSettingsOut)
+def put_my_ui(
+    body: UiSettingsIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    home, list_width, tasks_height = update_ui_settings(
+        db, user, body.model_fields_set, body.home, body.list_width, body.tasks_height
+    )
+    return UiSettingsOut(home=home, list_width=list_width, tasks_height=tasks_height)
+
+
+class BoardItem(BaseModel):
+    kind: Literal["speakers", "meeting", "material"]
+    ref: str
+    title: str
+    hint: str
+    project_id: int
+    project_name: str
+    href: str
+    at: str | None
+
+
+class BoardOut(BaseModel):
+    open: list[BoardItem]
+    done: list[BoardItem]
+
+
+class BoardDismissIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["speakers", "meeting"]
+    ref: str = Field(min_length=1, max_length=64)
+
+
+@router.get("/me/board", response_model=BoardOut)
+def get_my_board(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    return BoardOut.model_validate(read_board(db, user))
+
+
+@router.post("/me/board/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+def dismiss_my_board_task(
+    body: BoardDismissIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    dismiss_task(db, user, body.kind, body.ref)

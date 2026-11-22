@@ -118,15 +118,16 @@ def test_pick_cli_action_error_does_not_stop_startup(monkeypatch):
     assert startup_llm._pick_cli("cursor", {"9": ("пароли", boom)}) == "cursor"
 
 
-def test_reset_role_passwords_needs_confirmation(monkeypatch):
+def test_revoke_all_sessions_needs_confirmation(monkeypatch):
     from app.app import main as main_mod
+    from app.app.services import session_version
 
-    calls = []
-    monkeypatch.setattr(main_mod, "_run_credentials", lambda **kw: calls.append(kw))
+    bumps = []
+    monkeypatch.setattr(session_version, "bump", lambda **kw: bumps.append(kw) or 1)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "")
-    main_mod._reset_role_passwords_interactive("127.0.0.1", 1777)
-    assert calls == []
+    main_mod._revoke_all_sessions_interactive()
+    assert bumps == []
 
     monkeypatch.setattr("builtins.input", lambda _prompt="": "да")
-    main_mod._reset_role_passwords_interactive("127.0.0.1", 1777)
-    assert calls == [{"reset": True, "host": "127.0.0.1", "port": 1777}]
+    main_mod._revoke_all_sessions_interactive()
+    assert bumps and bumps[0].get("reason") == "startup_menu_revoke"

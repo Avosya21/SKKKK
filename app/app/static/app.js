@@ -82,6 +82,71 @@ const PrimaryAnalitics = {
   token() {
     return localStorage.getItem('primary_analitics_token');
   },
+  /** Адрес этой вкладки, на который можно вернуть после входа. Чужой сайт — пусто. */
+  safeReturnPath(raw) {
+    if (raw == null) return '';
+    const text = String(raw).trim();
+    if (!text || text.length > 2000 || !text.startsWith('/') || text.startsWith('//') || text.startsWith('/\\')) return '';
+    if (/[\\\n\r\t ]/.test(text)) return '';
+    const lowered = text.toLowerCase();
+    if (text.includes('://') || lowered.includes('%5c') || lowered.includes('%2f%2f') || lowered.includes('%0a') || lowered.includes('%0d')) return '';
+    const path = text.split('?')[0].split('#')[0];
+    if (path === '/login' || path.startsWith('/login/')) return '';
+    return text;
+  },
+  currentReturnPath() {
+    if (location.pathname === '/login') return '';
+    return this.safeReturnPath(location.pathname + location.search + location.hash);
+  },
+  rememberReturn() {
+    const here = this.currentReturnPath();
+    if (!here) return;
+    try { sessionStorage.setItem('primary_analitics_return', here); } catch { /* приватный режим */ }
+  },
+  rememberReferrer() {
+    if (this.tabReturnPath()) return;
+    let ref;
+    try { ref = new URL(document.referrer); } catch { return; }
+    if (ref.origin !== location.origin) return;
+    const safe = this.safeReturnPath(ref.pathname + ref.search + ref.hash);
+    if (!safe) return;
+    try { sessionStorage.setItem('primary_analitics_return', safe); } catch { /* приватный режим */ }
+  },
+  loginUrl() {
+    const here = this.currentReturnPath();
+    if (!here) return '/login';
+    return '/login?next=' + encodeURIComponent(here);
+  },
+  goLogin() {
+    this.rememberReturn();
+    location.href = this.loginUrl();
+  },
+  tabReturnPath() {
+    let stored = '';
+    try { stored = sessionStorage.getItem('primary_analitics_return') || ''; } catch { stored = ''; }
+    const fromQuery = new URLSearchParams(location.search).get('next') || '';
+    return this.safeReturnPath(fromQuery) || this.safeReturnPath(stored) || '';
+  },
+  /** Страница входа при уже живой cookie: вернуть страницу этой вкладки. */
+  async resumeLoginTab() {
+    if (location.pathname !== '/login') return false;
+    if (this._resumingLogin) return false;
+    this._resumingLogin = true;
+    try {
+      this.rememberReferrer();
+      let response;
+      try {
+        response = await fetch('/me/profile', { credentials: 'same-origin' });
+      } catch {
+        return false;
+      }
+      if (!response.ok) return false;
+      location.replace(this.tabReturnPath() || '/');
+      return true;
+    } finally {
+      this._resumingLogin = false;
+    }
+  },
   clearSession({ skipServer = false } = {}) {
     localStorage.removeItem('primary_analitics_token');
     localStorage.removeItem('primary_analitics_role');
@@ -97,17 +162,19 @@ const PrimaryAnalitics = {
     }
   },
   async logout() {
+    this.rememberReturn();
+    const next = this.loginUrl();
     try {
       await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {
       /* cookie drop is best-effort */
     }
     this.clearSession({ skipServer: true });
-    location.href = '/login';
+    location.href = next;
   },
   requireAuth() {
     if (!this.token()) {
-      location.href = '/login';
+      this.goLogin();
       return false;
     }
     this.updateNav();
@@ -199,10 +266,14 @@ const PrimaryAnalitics = {
     const token = this.token();
     if (token) headers.set('Authorization', `Bearer ${token}`);
     return fetch(url, { ...opts, headers }).then((r) => {
-      if (r.status === 401) {
-        this.clearSession();
-        location.href = '/login';
-      }
+      if (r.status !== 401 || location.pathname === '/login') return r;
+      const sent = headers.get('Authorization') || '';
+      const sentToken = sent.toLowerCase().startsWith('bearer ') ? sent.slice(7).trim() : '';
+      const current = this.token() || '';
+      // Устаревший запрос: пока он шёл, сессия уже другая. Новую не гасим.
+      if (current && sentToken !== current) return r;
+      this.goLogin();
+      this.clearSession({ skipServer: !sentToken });
       return r;
     });
   },
@@ -479,28 +550,90 @@ const PrimaryAnalitics = {
   cleanSummaryOutput(text) {
     return this.sanitizeSummaryMarkdown(this.plainifyLlmMarkup(text));
   },
+
+  /** Ключ загруженной задачи в уже экранированном HTML — ссылка на карточку Jira.
+   *  spec: {base, keys}. Чужой ключ, ключ внутри кода и ключ внутри адреса не трогаем. */
+  linkifyJiraKeys(html, spec) {
+    const source = html == null ? '' : String(html);
+    const base = String((spec && spec.base) || '').trim().replace(/\/+$/, '');
+    const keys = spec && spec.keys;
+    if (!base || !/^https?:\/\//i.test(base) || !Array.isArray(keys) || !keys.length) return source;
+    const keyOk = new RegExp("^[A-Za-z0-9][A-Za-z0-9_]{1,40}-\\d{1,7}$");
+    const known = new Map();
+    for (const key of keys) {
+      if (typeof key === 'string' && keyOk.test(key)) known.set(key.toUpperCase(), key);
+    }
+    if (!known.size) return source;
+    const esc = (value) => String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+    let inAnchor = 0;
+    let inCode = 0;
+    return source.split(/(<[^>]+>)/).map((part) => {
+      const open = /^<\s*(a|code)(\s|>)/i.exec(part);
+      const close = /^<\s*\/\s*(a|code)\s*>/i.exec(part);
+      if (open) {
+        if (open[1].toLowerCase() === 'a') inAnchor += 1;
+        else inCode += 1;
+        return part;
+      }
+      if (close) {
+        if (close[1].toLowerCase() === 'a') inAnchor = Math.max(0, inAnchor - 1);
+        else inCode = Math.max(0, inCode - 1);
+        return part;
+      }
+      if (part.startsWith('<') || inAnchor || inCode) return part;
+      const re = new RegExp("(^|[^A-Za-z0-9_])([A-Za-z0-9][A-Za-z0-9_]{1,40}-\\d{1,7})(?![A-Za-z0-9_])", "g");
+      return part.replace(re, (full, prefix, raw) => {
+        if (prefix === '/') return full;
+        const canon = known.get(raw.toUpperCase());
+        if (!canon) return full;
+        const href = base + '/browse/' + encodeURIComponent(canon);
+        const label = 'Открыть ' + canon + ' в Jira';
+        return prefix
+          + '<a class="jira-issue-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" title="'
+          + esc(label) + '" aria-label="' + esc(label) + '">' + raw + '</a>';
+      });
+    }).join('');
+  },
 };
 PrimaryAnalitics.updateNav();
 PrimaryAnalitics.updateLlmBadge();
 setInterval(() => PrimaryAnalitics.updateLlmBadge(), 60000);
+// Вход в другой вкладке пишет токен в localStorage. Эта вкладка, если на ней форма входа, сразу возвращает свою страницу.
+window.addEventListener('storage', (event) => {
+  if (event.key === 'primary_analitics_token' && event.newValue && location.pathname === '/login') {
+    PrimaryAnalitics.resumeLoginTab();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && location.pathname === '/login' && PrimaryAnalitics.token()) {
+    PrimaryAnalitics.resumeLoginTab();
+  }
+});
 document.getElementById('nav-logout')?.addEventListener('click', () => {
   PrimaryAnalitics.logout();
 });
 
-// Меню пользователя в шапке: «Моя карточка» и «Личный пароль» (если личные пароли включены).
+// Меню пользователя в шапке: «Моя карточка», «Личный пароль» (если личные пароли включены), «Настройки».
 (function () {
   const $ = (id) => document.getElementById(id);
   const passBtn = $('nav-password');
   const profileBtn = $('nav-profile');
+  const uiBtn = $('nav-ui');
   const passForm = $('password-form');
   const meForm = $('me-form');
-  if (!passBtn || !passForm || !localStorage.getItem('primary_analitics_role') || location.pathname === '/login') return;
+  if (!passBtn || !passForm || !uiBtn || !localStorage.getItem('primary_analitics_role') || location.pathname === '/login') return;
   let state = null;
   let me = null;
   let newPhoto = null;
+  let uiHome = 'list';
 
   function syncMenu() {
-    const any = !passBtn.classList.contains('d-none') || !profileBtn.classList.contains('d-none');
+    const any = !passBtn.classList.contains('d-none') || !profileBtn.classList.contains('d-none') || !uiBtn.classList.contains('d-none');
     // Пустое меню не раскрываем.
     if (any) $('nav-me').setAttribute('data-bs-toggle', 'dropdown');
     else $('nav-me').removeAttribute('data-bs-toggle');
@@ -647,6 +780,99 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
       bootstrap.Modal.getOrCreateInstance($('profileModal')).hide();
     }, { busyText: 'Сохраняю…' });
   });
+
+  function markHome(home) {
+    uiHome = home === 'dashboard' ? 'dashboard' : 'list';
+    $('ui-home-list').checked = uiHome === 'list';
+    $('ui-home-dashboard').checked = uiHome === 'dashboard';
+  }
+
+  uiBtn.addEventListener('click', async () => {
+    showError('ui-error', '');
+    const r = await PrimaryAnalitics.api('/me/ui');
+    if (r.ok) markHome((await r.json()).home);
+    else markHome(uiHome);
+    bootstrap.Modal.getOrCreateInstance($('uiModal')).show();
+  });
+
+  async function saveHome(home) {
+    if (home === uiHome) return;
+    const previous = uiHome;
+    markHome(home);
+    const r = await PrimaryAnalitics.api('/me/ui', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ home }),
+    });
+    if (!r.ok) {
+      markHome(previous);
+      showError('ui-error', 'Не удалось сохранить настройку.');
+      return;
+    }
+    showError('ui-error', '');
+    window.dispatchEvent(new CustomEvent('primary-analitics-home', { detail: { home } }));
+  }
+  $('ui-home-list').addEventListener('change', () => { if ($('ui-home-list').checked) saveHome('list'); });
+  $('ui-home-dashboard').addEventListener('change', () => { if ($('ui-home-dashboard').checked) saveHome('dashboard'); });
+
+  // Jira: личный токен в том же окне. Блок скрыт, пока на сервере не задан адрес Jira.
+  const jiraBox = $('jira-settings');
+  const jiraForm = $('jira-connect-form');
+  if (jiraBox && jiraForm) {
+    async function loadJiraStatus(extra) {
+      const r = await PrimaryAnalitics.api('/jira/status');
+      if (!r.ok) return null;
+      const data = await r.json();
+      jiraBox.classList.toggle('d-none', !data.available);
+      if (!data.available) return data;
+      $('jira-disconnected').classList.toggle('d-none', !!data.connected);
+      $('jira-connected').classList.toggle('d-none', !data.connected);
+      $('jira-connected-name').textContent = data.connected ? 'подключена: ' + (data.name || 'токен принят') : '';
+      $('jira-pick-btn').classList.toggle('d-none', !(data.connected && data.can_import && location.pathname === '/'));
+      showError('jira-error', data.connected && data.error ? 'Jira: ' + data.error : '');
+      const detail = Object.assign({}, data, extra || {});
+      window.PrimaryAnaliticsJira = { state: detail };
+      window.dispatchEvent(new CustomEvent('primary-analitics-jira', { detail }));
+      return data;
+    }
+
+    jiraForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = $('jira-token');
+      const btn = $('jira-connect-btn');
+      showError('jira-error', '');
+      PrimaryAnalitics.setButtonBusy(btn, true, { label: 'Проверяю…' });
+      try {
+        const r = await PrimaryAnalitics.api('/jira/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: input.value.trim() }),
+        });
+        if (!r.ok) {
+          const payload = await readJson(r);
+          showError('jira-error', apiError(payload, r.status));
+          return;
+        }
+        input.value = '';
+        await loadJiraStatus({ reloadProjects: true, justConnected: true });
+      } finally {
+        PrimaryAnalitics.setButtonBusy(btn, false);
+      }
+    });
+
+    $('jira-disconnect-btn').addEventListener('click', async () => {
+      if (!window.confirm('Отключить Jira? Токен будет удалён. Проекты, доступ к которым выдан по Jira, пропадут из вашего списка; загруженные материалы останутся.')) return;
+      const r = await PrimaryAnalitics.api('/jira/connect', { method: 'DELETE' });
+      if (!r.ok) {
+        const payload = await readJson(r);
+        showError('jira-error', apiError(payload, r.status));
+        return;
+      }
+      await loadJiraStatus({ reloadProjects: true });
+    });
+
+    loadJiraStatus();
+  }
 })();
 
 

@@ -119,7 +119,7 @@ def main() -> int:
                 ok = wait_until(lambda: all(wav_frames(w) > f5[w.name] + 16000 for w in wavs() if w.name in f5), 90, 1.0)
                 check(bool(ok), "запись идёт после перезапуска API")
                 check(len(wavs()) == n_files, "после перезапуска API новых файлов нет")
-                check(wait_until(lambda: "Вы в комнате" in pages[0].inner_text("#meeting-room-status"), 60) is not None, "А остался в комнате после перезапуска API")
+                check(wait_until(lambda: (pages[0].inner_text("#meeting-people") or "").startswith("В комнате"), 60) is not None, "А остался в комнате после перезапуска API")
             # обрыв: закрыть вкладку Б без «выйти» (внезапно)
             pages[1].close()
             time.sleep(6)

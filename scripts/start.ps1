@@ -1,4 +1,4 @@
-# PrimaryAnalitics — запуск API + GPU-воркер с выбором LLM
+﻿# PrimaryAnalitics — запуск API + GPU-воркер с выбором LLM
 param(
     [ValidateSet("cursor", "gemma", "")]
     [string]$Llm = "",

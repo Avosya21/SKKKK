@@ -10,12 +10,12 @@ from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.app.config import Settings, get_settings
 from app.app.db import get_db
-from app.app.dependencies import get_current_user, require_html_user
+from app.app.dependencies import get_current_user, require_html_user, safe_return_path
 from app.app.services.meeting_recordings import recording_enabled, screen_recording_enabled
 from app.app.services.meetings import (
     get_meeting,
@@ -24,6 +24,7 @@ from app.app.services.meetings import (
     ongoing_payload,
     require_meeting_staff,
 )
+from app.app.services.ui_settings import read_ui_settings
 from app.app.services.project_access import (
     can_grant_access,
     staff_ui_role,
@@ -170,9 +171,23 @@ def meeting_webmanifest(start: str = "/"):
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
+def login_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     # Telegram ID на форме скрыт (решение владельца 2026-09-28): эта версия сервера принимает вход без него. Признак даёт
     # маршрут, а не шаблон: шаблон подхватывается с диска сразу, код — после перезапуска, и старый код без поля не пустил бы.
+    # Сессия уже открыта в другой вкладке, а эта помнит свою страницу в next — вернуть её, не форму входа.
+    # Без next форму оставляем: вход, который человек завершает здесь, сам открывает список проектов.
+    try:
+        get_current_user(request, db, settings, None)
+    except HTTPException:
+        pass
+    else:
+        target = safe_return_path(request.query_params.get("next"))
+        if target:
+            return RedirectResponse(target, status_code=302)
     return templates.TemplateResponse(request, "login.html", {"title": "Вход", "hide_telegram": True})
 
 
@@ -243,12 +258,21 @@ def load_changelog() -> list[dict[str, str]]:
 @router.get("/", response_class=HTMLResponse)
 def index_page(
     request: Request,
+    db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_html_user)],
 ):
+    home_layout, list_width, tasks_height = read_ui_settings(db, user)
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"title": "Проекты", "current_role": user.role, "changelog": load_changelog()},
+        {
+            "title": "Проекты",
+            "current_role": user.role,
+            "changelog": load_changelog(),
+            "home_layout": home_layout,
+            "list_width": list_width,
+            "tasks_height": tasks_height,
+        },
     )
 
 
@@ -269,18 +293,27 @@ def project_page(
 
     from app.app.models.artifact import Artifact
 
-    names = db.scalars(select(Artifact.original_filename).where(Artifact.project_id == project_id)).all()
-    artifact_count = sum(1 for n in names if not re.match(r"^analysis_(reply|request|question)_\d+\.json$", n or "", re.IGNORECASE))
+    from app.app.services.jira_import import shelf_kinds
+
+    hidden = set(shelf_kinds(db, project_id))
+    names = db.execute(select(Artifact.id, Artifact.original_filename).where(Artifact.project_id == project_id)).all()
+    # высота списка — только то, что видно в таблице: без служебных json обмена и без выгрузок задач Jira
+    artifact_count = sum(
+        1 for artifact_id, name in names
+        if artifact_id not in hidden and not re.match(r"^analysis_(reply|request|question)_\d+\.json$", name or "", re.IGNORECASE)
+    )
     # Полоска «Идёт созвон» рисуется сразу с сервера: появись она после загрузки — страница ниже «прыгнула» бы
     live_meetings = []
     if role in ("admin", "manager"):
         live_meetings = [ongoing_payload(m, people) for m, people in ongoing_meetings(db, project_id)]
     # «Что нового с прошлого захода» (PORTAL-ACCURACY-MANAGER-PLAN Ш5): рисуется сервером, как полоска созвона, — без прыжка страницы
     from app.app.config import get_settings
+    from app.app.services.jira_import import jira_link_spec
     from app.app.services.project_digest import digest_for_page
 
+    settings = get_settings()
     try:
-        digest = digest_for_page(db, get_settings(), project, user, role)
+        digest = digest_for_page(db, settings, project, user, role)
     except Exception:  # полоска не должна ломать страницу проекта
         logging.getLogger("primaryanalitics.pages").exception("project digest failed project=%s", project_id)
         digest = {"lines": []}
@@ -296,6 +329,7 @@ def project_page(
             "project_name": project.name,
             "current_role": role,
             "can_grant_access": can_grant_access(db, user, project),
+            "jira_links": jira_link_spec(db, settings, project_id),
         },
     )
 
@@ -338,10 +372,17 @@ def chat_page(
     user: Annotated[User, Depends(require_html_user)],
 ):
     project = require_project(db, user, project_id)
+    from app.app.services.jira_import import jira_link_spec
+
     return templates.TemplateResponse(
         request,
         "chat.html",
-        {"title": f"Чат {project_id}", "project_id": project_id, "current_role": _page_role(db, user, project)},
+        {
+            "title": f"Чат {project_id}",
+            "project_id": project_id,
+            "current_role": _page_role(db, user, project),
+            "jira_links": jira_link_spec(db, get_settings(), project_id),
+        },
     )
 
 

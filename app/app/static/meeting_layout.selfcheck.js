@@ -8,6 +8,19 @@
     "mic_silent → silent",
   );
   console.assert(layout.flagState({ isMuted: false }, {}) === layout.FLAG_ON, "live → on");
+  console.assert(
+    layout.flagState(null, { send_audio: "1" }, "send_audio") === layout.FLAG_ON,
+    "missing publication keeps send_audio",
+  );
+  console.assert(
+    layout.flagState(null, { send_audio: "0" }, "send_audio") === layout.FLAG_OFF,
+    "missing publication send_audio off",
+  );
+  console.assert(layout.audioSubscribe(false, false) === false, "sound off, no record → unsubscribe");
+  console.assert(layout.audioSubscribe(false, true) === true, "record holds the mic subscription");
+  console.assert(layout.audioSubscribe(true, false) === true, "sound on → subscribe");
+  console.assert(layout.speakerHold("a", 9000, 10000, "b", 2000) === "a", "speaker holds for 2s");
+  console.assert(layout.speakerHold("a", 7000, 10000, "b", 2000) === "b", "speaker yields after 2s");
   const pubs = [{ id: "a" }, { id: "b" }];
   console.assert(
     layout.soundPlan(false, pubs).every(function (row) {

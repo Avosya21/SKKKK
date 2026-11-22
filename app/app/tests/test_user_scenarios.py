@@ -28,23 +28,21 @@ def test_s02_login_page_is_public(anon_client):
     assert "text/html" in r.headers.get("content-type", "")
 
 
-def test_s03_wrong_password_rejected(anon_client):
+def test_s03_unknown_login_rejected(anon_client):
     r = anon_client.post(
         "/auth/login",
-        json={"name": "Admin", "telegram_id": "tg-bad", "password": "wrong"},
+        json={"name": "nobody-here", "telegram_id": "tg-bad"},
     )
     assert r.status_code == 401
 
 
 def test_s04_login_returns_token_and_cookie(anon_client):
-    r = anon_client.post(
-        "/auth/login",
-        json={"name": "Admin", "telegram_id": "tg-ok", "password": "admin-pass"},
-    )
-    assert r.status_code == 200
-    assert r.json()["access_token"]
-    assert r.json()["role"] == "admin"
-    assert r.cookies.get("primary_analitics_session")
+    from app.app.tests.auth_helpers import login_via_code
+
+    data = login_via_code(anon_client, name="Admin", telegram_id="tg-ok")
+    assert data["access_token"]
+    assert data["role"] == "admin"
+    assert anon_client.cookies.get("primary_analitics_session")
 
 
 def test_s05_logout_then_projects_401(cookie_auth_client):

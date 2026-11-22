@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import uuid
 
-from app.app.tests.conftest import MANAGER_PASS, USER_PASS
+from app.app.tests.auth_helpers import access_token
 
 PUBLIC_PREFIXES = ("/api/meetings/public", "/m/", "/health", "/login", "/static", "/auth", "/docs", "/openapi", "/redoc",
                    "/meeting.webmanifest", "/.well-known")
@@ -12,11 +12,9 @@ PUBLIC_PREFIXES = ("/api/meetings/public", "/m/", "/health", "/login", "/static"
 ALLOWED = {("GET", "/projects"), ("POST", "/projects"), ("GET", "/api/chat-status")}
 
 
-def _login(client, name, tg, pw):
-    r = client.post("/auth/login", json={"name": name, "telegram_id": tg, "password": pw})
-    assert r.status_code == 200, r.text
-    return {"Authorization": "Bearer " + r.json()["access_token"]}
-
+def _login(client, name, tg, pw=None):
+    token = access_token(client, name=name, telegram_id=tg)
+    return {"Authorization": "Bearer " + token}
 
 def _seed(client, manager):
     from app.app.db import SessionLocal
@@ -42,8 +40,8 @@ def test_foreign_ids_never_return_2xx_for_outsider(client, manager_token):
     manager = {"Authorization": f"Bearer {manager_token}"}
     pid, mid, art_id, art_pk = _seed(client, manager)
     for label, outsider in (
-        ("user", _login(client, "User", "tg-outsider", USER_PASS)),
-        ("чужой менеджер", _login(client, "Bootstrap manager", "tg-other-mgr", MANAGER_PASS)),
+        ("user", _login(client, "User", "tg-outsider")),
+        ("чужой менеджер", _login(client, "Bootstrap manager", "tg-other-mgr")),
     ):
         _sweep(client, outsider, label, pid, mid, art_id)
 

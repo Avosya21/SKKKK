@@ -32,7 +32,8 @@ def issue(key: str, summary: str, updated: str, *, category: str = "indeterminat
         "resolution": None, "resolutiondate": None, "environment": None, "timetracking": {}, "watches": {"watchCount": 0},
         "customfield_10001": None, "timespent": None, "workratio": -1,
     }
-    raw = {"key": key, "fields": fields, "names": {"customfield_10001": "Спринт", "customfield_10002": "Оценка в баллах",
+    raw = {"id": key.rsplit("-", 1)[-1], "key": key, "fields": fields,
+           "names": {"customfield_10001": "Спринт", "customfield_10002": "Оценка в баллах",
                                                   "customfield_10003": "Заказчик", "customfield_10004": "Rank"},
            "changelog": {"total": 0, "histories": []}}
     if rich:
@@ -93,12 +94,23 @@ class FakeJira:
             return 200, {"displayName": f"Учётка {token.split('-')[-1]}"}
         if path.endswith("/rest/api/2/project"):
             return 200, [{"key": k, "name": self.names[k]} for k in keys]
+        if "/rest/api/2/project/" in path and "/role/" in path:
+            key = path.split("/project/")[1].split("/")[0]
+            if key not in keys:
+                return 404, {}
+            role_id = path.rsplit("/", 1)[1]
+            return 200, {"name": "Administrators", "id": int(role_id), "actors": [
+                {"displayName": "Тестовый Автор", "type": "atlassian-user-role-actor", "actorUser": {"name": "author"}}]}
         if "/rest/api/2/project/" in path:
             key = path.rsplit("/", 1)[1]
             if key not in keys:
                 return 404, {}
-            return 200, {"key": key, "name": self.names[key], "description": "Описание проекта.", "lead": dict(AUTHOR), "projectTypeKey": "software",
-                         "components": [{"name": "Обмен с сайтом"}], "versions": [{"name": "Релиз 1", "released": True, "releaseDate": "2026-09-01"}]}
+            return 200, {"id": "10000", "key": key, "name": self.names[key], "description": "Описание проекта.",
+                         "lead": {**AUTHOR, "avatarUrls": {"48x48": f"{self.base}/secure/useravatar?ownerId=author"}},
+                         "avatarUrls": {"48x48": f"{self.base}/secure/projectavatar?pid=10000"},
+                         "projectTypeKey": "software", "roles": {"Administrators": f"{self.base}/rest/api/2/project/{key}/role/10002"},
+                         "components": [{"id": "10010", "name": "Обмен с сайтом"}],
+                         "versions": [{"id": "10020", "name": "Релиз 1", "released": True, "releaseDate": "2026-09-01"}]}
         if path.endswith("/search"):
             key = params["jql"].split('"')[1]
             if key not in keys:

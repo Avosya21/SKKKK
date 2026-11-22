@@ -112,9 +112,10 @@ def test_reset_card_closes_open_sessions(client, monkeypatch, db_engine):
         row = next(r for r in console.card_rows(db) if r.login == "Admin")
         console.reset_card(db, row, source="test")
     assert client.get("/projects", headers=headers).status_code == 401
-    step = _step1(client)
-    r = client.post("/auth/login/personal", json={"ticket": step["ticket"], "password": GOOD})
-    assert r.json()["step"] == "profile"
+    from app.app.tests.test_login_profile import _through_code
+
+    data = _through_code(client, password=GOOD)
+    assert data["step"] == "profile"
 
 
 def test_script(db, ivan, capsys, monkeypatch):

@@ -6,6 +6,9 @@ SMOKE_PROJECT_ID, по умолчанию 29) и завершаются в ко�
     экран в горизонтали — главное окно слева, участники — лентой справа;
   • пульт на ПК и телефоне: у каждой кнопки подсказка; микрофон, звук, камера, шумодав, «Спикер/Сетка» переключаются
     и возвращаются; «Участники» и меню динамика открываются и закрываются (Esc); «Скопировать ссылку»; «Развернуть окно»;
+  • значки на плитках: у каждого участника палочки связи слева сверху (.meeting-tile-link: good/wait/lost) и два чипа
+    мик/кам; кнопка мика/камеры меняет aria-pressed и чип на своей плитке; камера «нет» и «выкл» оба с классом is-off;
+    после успешного вкл/выкл камеры в углу нет «Вы в комнате», связи и дорожек (и нет английского Failed to allocate…);
   • говорящий не шлёт setAttributes на каждый кадр (метка «микрофон молчит» — только при смене состояния);
   • камера, погашенная системой (наушники на телефоне, возврат из фона), возвращается сама; выключенная человеком — нет;
   • после переподключения участника у других нет устаревшего «нет связи».
@@ -162,6 +165,106 @@ def dock(browser, base: str) -> None:
         end_meeting(db, meeting)
 
 
+TILE_ICONS = """() => Array.from(document.querySelectorAll('.meeting-tile:not(.meeting-tile-screen)')).map((tile) => {
+  const link = tile.querySelector('.meeting-tile-link');
+  const chips = Array.from(tile.querySelectorAll('.meeting-tile-flags .meeting-chip')).map((c) => ({
+    classes: Array.from(c.classList),
+    title: c.getAttribute('title') || '',
+    aria: c.getAttribute('aria-label') || '',
+  }));
+  const tone = link ? (link.classList.contains('is-good') ? 'good' : link.classList.contains('is-lost') ? 'lost' : link.classList.contains('is-wait') ? 'wait' : '') : '';
+  return {
+    local: tile.classList.contains('meeting-tile-local'),
+    hasLink: !!link,
+    tone: tone,
+    linkLevel: link ? (link.dataset.level || '') : '',
+    chips: chips.length,
+    camOff: chips.some((c) => c.classes.includes('is-off') && /камер/i.test(c.title + c.aria)),
+    camNoneClass: chips.some((c) => c.classes.includes('is-none') && /камер/i.test(c.title + c.aria)),
+    micOff: chips.some((c) => c.classes.includes('is-off') && /микрофон/i.test(c.title + c.aria)),
+    micOn: chips.some((c) => c.classes.includes('is-on') && /микрофон/i.test(c.title + c.aria)),
+  };
+})"""
+
+
+def icons(browser, base: str) -> None:
+    """Кнопки пульта ↔ чипы на плитках и палочки связи слева сверху у каждого участника."""
+    db, meeting, token = make_meeting()
+    try:
+        viewer = guest(browser, base, token, "Наблюдатель")
+        page = guest(browser, base, token, "Проверка значков", cam=False)
+        wait_until(lambda: page.locator(".meeting-tile").count() >= 2, 20)
+        wait_until(lambda: viewer.locator(".meeting-tile").count() >= 2, 20)
+        time.sleep(1.0)
+
+        def snap(whose):
+            return whose.evaluate(TILE_ICONS)
+
+        rows = snap(page)
+        check(len(rows) >= 2, f"[значки] на плитке не меньше двух участников (сейчас {len(rows)})")
+        check(all(r["hasLink"] for r in rows), "[значки] у каждой плитки участника есть .meeting-tile-link слева сверху")
+        check(all(r["tone"] in ("good", "wait", "lost") for r in rows),
+              f"[значки] тон связи только good/wait/lost: {[r['tone'] for r in rows]}")
+        check(all(r["chips"] == 2 for r in rows),
+              f"[значки] у каждой плитки ровно два чипа мик/кам (не палочки в ряду): {[r['chips'] for r in rows]}")
+        # Камера ещё не включалась: «нет камеры» визуально is-off, без серого is-none
+        local = next((r for r in rows if r["local"]), None)
+        check(local is not None, "[значки] есть своя плитка")
+        if local:
+            check(local["camOff"] and not local["camNoneClass"],
+                  "[значки] камера «нет» на своей плитке выглядит как is-off (не is-none)")
+
+        # Микрофон: кнопка ↔ чип
+        mic_pressed = lambda: page.evaluate("document.getElementById('meeting-mic').getAttribute('aria-pressed')")  # noqa: E731
+        before_mic = mic_pressed()
+        page.click("#meeting-mic")
+        def local_row():
+            for row in snap(page):
+                if row["local"]:
+                    return row
+            return None
+
+        check(bool(wait_until(lambda: mic_pressed() != before_mic, 5)), "[значки] кнопка микрофона меняет aria-pressed")
+        check(bool(wait_until(lambda: (local_row() or {}).get("micOff"), 5)),
+              "[значки] после выкл. мика на своей плитке чип is-off")
+        page.click("#meeting-mic")
+        check(bool(wait_until(lambda: mic_pressed() == before_mic, 5)), "[значки] микрофон возвращается")
+        check(bool(wait_until(lambda: (local_row() or {}).get("micOn"), 5)),
+              "[значки] после вкл. мика на своей плитке чип снова «включён»")
+
+        # Камера: кнопка, чип у себя и у наблюдателя, статус без английского зависания
+        page.click("#meeting-cam")
+        check(bool(wait_until(lambda: page.evaluate("PrimaryAnaliticsMeeting.room.localParticipant.isCameraEnabled"), 10)),
+              "[значки] камера включается кнопкой")
+        check(bool(wait_until(lambda: local_row() and not local_row()["camOff"], 10)),
+              "[значки] на своей плитке чип камеры больше не «выкл»")
+        check(bool(wait_until(lambda: viewer.locator(".meeting-tile:not(.meeting-tile-local).meeting-tile-has-video").count() >= 1, 20)),
+              "[значки] наблюдатель видит видео")
+        status = page.inner_text("#meeting-room-status")
+        check("Вы в комнате" not in status and "Мои дорожки" not in status, f"[значки] после вкл. камеры угол без связи и дорожек (сейчас: {status!r})")
+        check("Failed to allocate" not in status and "videosource" not in status.lower(),
+              f"[значки] в статусе нет английской ошибки allocate (сейчас: {status!r})")
+
+        page.click("#meeting-cam")
+        check(bool(wait_until(lambda: page.evaluate("!PrimaryAnaliticsMeeting.room.localParticipant.isCameraEnabled"), 10)),
+              "[значки] камера выключается кнопкой")
+        check(bool(wait_until(lambda: (local_row() or {}).get("camOff") and not (local_row() or {}).get("camNoneClass"), 10)),
+              "[значки] после выкл. камеры чип is-off (не is-none)")
+        check(bool(wait_until(lambda: viewer.locator(".meeting-tile:not(.meeting-tile-local).meeting-tile-cam-off").count() >= 1, 10)),
+              "[значки] у наблюдателя чужая плитка с выкл. камерой")
+        status2 = page.inner_text("#meeting-room-status")
+        check("Вы в комнате" not in status2 and "Мои дорожки" not in status2, f"[значки] после выкл. камеры угол без связи и дорожек (сейчас: {status2!r})")
+
+        # Палочки связи остаются на месте после переключений
+        after = snap(page)
+        check(all(r["hasLink"] and r["tone"] in ("good", "wait", "lost") for r in after),
+              "[значки] после кнопок у всех плиток по-прежнему есть палочки связи")
+        page.context.close()
+        viewer.context.close()
+    finally:
+        end_meeting(db, meeting)
+
+
 def resilience(browser, base: str) -> None:
     db, meeting, token = make_meeting()
     try:
@@ -225,6 +328,7 @@ def main() -> int:
         browser = p.chromium.launch(headless=True, args=ARGS)
         phone_layout(browser, args.base, shots)
         dock(browser, args.base)
+        icons(browser, args.base)
         resilience(browser, args.base)
         browser.close()
     check(not JS_ERRORS, f"ошибок JS нет ({JS_ERRORS[:3]})")

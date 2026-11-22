@@ -44,17 +44,21 @@ def test_manager_lists_only_own_admin_sees_all(client, admin_token, manager_toke
     assert a.json()["id"] not in mgr_ids
 
 
-def test_role_change_keeps_created_project(client, manager_token):
+def test_role_change_keeps_created_project(client, manager_token, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from app.app.config import get_settings
+    from app.app.tests.auth_helpers import access_token
+
     pid = client.post("/projects", json={"name": "KeepMine"}, headers=_auth(manager_token)).json()["id"]
-    r = client.post(
-        "/auth/login",
-        json={"name": "Manager", "telegram_id": "tg-manager", "password": "user-pass"},
-    )
-    assert r.status_code == 200
-    assert r.json()["role"] == "user"
-    ids = [p["id"] for p in client.get("/projects", headers=_auth(r.json()["access_token"])).json()]
+    roles = Path(get_settings().login_roles_path)
+    lines = [ln for ln in roles.read_text(encoding="utf-8").splitlines() if not ln.lower().startswith("manager |")]
+    roles.write_text("\n".join(lines) + "\nManager | user\n", encoding="utf-8")
+    get_settings.cache_clear()
+    token = access_token(client, name="Manager", telegram_id="tg-manager", role="user")
+    ids = [p["id"] for p in client.get("/projects", headers=_auth(token)).json()]
     assert pid in ids
-    assert client.get(f"/projects/{pid}", headers=_auth(r.json()["access_token"])).status_code == 200
+    assert client.get(f"/projects/{pid}", headers=_auth(token)).status_code == 200
 
 
 def test_contributor_sees_project_they_uploaded_to(client, admin_token, manager_token, db_engine):

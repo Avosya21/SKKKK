@@ -193,6 +193,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("artifacts", "recorded_at_precision", "VARCHAR(8)"),
     ("user_activity_log", "login", "VARCHAR(128)"),
     ("user_activity_log", "profile_id", "INTEGER"),
+    ("user_ui_settings", "list_width", "INTEGER"),
+    ("user_ui_settings", "tasks_height", "INTEGER"),
 ]
 
 _AUDIT_APPEND_ONLY_SQL = (
@@ -212,6 +214,90 @@ def ensure_audit_append_only(conn) -> None:
         return
     for stmt in _AUDIT_APPEND_ONLY_SQL:
         conn.exec_driver_sql(stmt)
+
+
+def ensure_user_activity_log_no_fk(conn) -> None:
+    """Убрать унаследованные FK журнала на users/projects.
+
+    Модель и DECISIONS — без FK: purge проекта и слияние учёток оставляют строки аудита.
+    Старая схема с FK ломала DELETE projects (FOREIGN KEY constraint failed), а
+    PRAGMA foreign_keys=OFF внутри транзакции SQLite — no-op.
+    """
+    rows = conn.exec_driver_sql("PRAGMA table_info(user_activity_log)").fetchall()
+    if not rows:
+        return
+    fks = conn.exec_driver_sql("PRAGMA foreign_key_list(user_activity_log)").fetchall()
+    if not fks:
+        return
+    cols = {row[1] for row in rows}
+    # Явный список — порядок как в модели; лишние будущие колонки не потеряем через SELECT *.
+    wanted = [
+        "id",
+        "user_id",
+        "login",
+        "profile_id",
+        "project_id",
+        "block",
+        "action",
+        "title",
+        "content",
+        "target_kind",
+        "target_id",
+        "meta_json",
+        "created_at",
+    ]
+    select_cols = ", ".join(c for c in wanted if c in cols)
+    # DROP дочерней таблицы с FK на projects/users — при FK=ON допустим; pragma не нужен.
+    conn.exec_driver_sql(
+        "CREATE TABLE user_activity_log__nofk ("
+        "id INTEGER NOT NULL PRIMARY KEY,"
+        "user_id INTEGER NOT NULL,"
+        "login VARCHAR(128),"
+        "profile_id INTEGER,"
+        "project_id INTEGER,"
+        "block VARCHAR(32) NOT NULL,"
+        "action VARCHAR(48) NOT NULL,"
+        "title VARCHAR(255) NOT NULL,"
+        "content TEXT,"
+        "target_kind VARCHAR(32),"
+        "target_id VARCHAR(128),"
+        "meta_json TEXT,"
+        "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL"
+        ")"
+    )
+    conn.exec_driver_sql(
+        f"INSERT INTO user_activity_log__nofk ({select_cols}) "
+        f"SELECT {select_cols} FROM user_activity_log"
+    )
+    conn.exec_driver_sql("DROP TABLE user_activity_log")
+    conn.exec_driver_sql("ALTER TABLE user_activity_log__nofk RENAME TO user_activity_log")
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_user_project_id "
+        "ON user_activity_log (user_id, project_id, id)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_project_block "
+        "ON user_activity_log (project_id, block)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_log_user_id ON user_activity_log (user_id)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_log_login ON user_activity_log (login)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_log_profile_id ON user_activity_log (profile_id)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_log_project_id ON user_activity_log (project_id)"
+    )
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_user_activity_log_block ON user_activity_log (block)"
+    )
+    # Триггеры висели на старой таблице — ставим заново.
+    for stmt in _AUDIT_APPEND_ONLY_SQL:
+        conn.exec_driver_sql(stmt)
+    conn.commit()
 
 
 def apply_schema_migrations() -> None:
@@ -263,6 +349,7 @@ def apply_schema_migrations() -> None:
                     "WHERE profile_id IS NULL AND EXISTS (SELECT 1 FROM user_profiles WHERE user_profiles.user_id = user_activity_log.user_id)"
                 )
             conn.commit()
+        ensure_user_activity_log_no_fk(conn)
         ensure_audit_append_only(conn)
         conn.commit()
 

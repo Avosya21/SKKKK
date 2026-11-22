@@ -14,17 +14,46 @@
   const TEXT_QUALITY_POOR = "плохая связь";
   const TEXT_QUALITY_LOST = "нет связи";
 
-  function flagState(pub, attrs) {
-    if (!pub) return FLAG_NONE;
+  const ATTR_SEND_AUDIO = "send_audio";
+  const ATTR_SEND_VIDEO = "send_video";
+  const ATTR_SEND_SCREEN = "send_screen";
+  const SPEAKER_HOLD_MS = 2000;
+
+  function flagState(pub, attrs, intentAttr) {
+    if (!pub) {
+      if (intentAttr && attrs && attrs[intentAttr] === "1") return FLAG_ON;
+      if (intentAttr && attrs && attrs[intentAttr] === "0") return FLAG_OFF;
+      return FLAG_NONE;
+    }
     if (pub.isMuted) return FLAG_OFF;
-    if (attrs && attrs[ATTR_MIC_SILENT] === ATTR_MIC_SILENT_ON) return FLAG_SILENT;
+    if ((!intentAttr || intentAttr === ATTR_SEND_AUDIO) && attrs && attrs[ATTR_MIC_SILENT] === ATTR_MIC_SILENT_ON) {
+      return FLAG_SILENT;
+    }
     return FLAG_ON;
   }
 
+  // Подписка на чужой микрофон: слышать или держать для локальной записи. Одно решение на оба случая.
+  function audioSubscribe(soundOn, holdForRecord) {
+    return Boolean(soundOn || holdForRecord);
+  }
+
   function soundPlan(soundOn, pubs) {
+    const subscribed = audioSubscribe(soundOn, false);
     return (pubs || []).map(function (pub) {
-      return { pub: pub, subscribed: Boolean(soundOn) };
+      return { pub: pub, subscribed: subscribed };
     });
+  }
+
+  // Большая плитка не прыгает, пока прошлый говорящий молчит меньше holdMs.
+  function speakerHold(currentId, currentSpokeAt, now, candidateId, holdMs) {
+    const wait = holdMs || SPEAKER_HOLD_MS;
+    if (!candidateId) {
+      if (currentId && currentSpokeAt && now - currentSpokeAt < wait) return currentId;
+      return currentId || "";
+    }
+    if (!currentId || currentId === candidateId) return candidateId;
+    if (currentSpokeAt && now - currentSpokeAt < wait) return currentId;
+    return candidateId;
   }
 
   function qualityKey(quality) {
@@ -91,7 +120,9 @@
   root.PrimaryAnaliticsLayout = {
     bestGrid: bestGrid,
     flagState: flagState,
+    audioSubscribe: audioSubscribe,
     soundPlan: soundPlan,
+    speakerHold: speakerHold,
     qualityBadge: qualityBadge,
     tileOrder: tileOrder,
     FLAG_NONE: FLAG_NONE,
@@ -103,5 +134,9 @@
     SCREEN_ID_PREFIX: SCREEN_ID_PREFIX,
     ATTR_MIC_SILENT: ATTR_MIC_SILENT,
     ATTR_MIC_SILENT_ON: ATTR_MIC_SILENT_ON,
+    ATTR_SEND_AUDIO: ATTR_SEND_AUDIO,
+    ATTR_SEND_VIDEO: ATTR_SEND_VIDEO,
+    ATTR_SEND_SCREEN: ATTR_SEND_SCREEN,
+    SPEAKER_HOLD_MS: SPEAKER_HOLD_MS,
   };
 })(typeof window !== "undefined" ? window : globalThis);

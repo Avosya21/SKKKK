@@ -4,7 +4,115 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from app.app.models.chat_message import ChatMessage
-from app.app.services.chat import CHAT_PENDING_TEXT, answer_chat, chat_is_pending
+from app.app.services.chat import (
+    CHAT_PENDING_TEXT,
+    CHAT_TRIM_NOTE,
+    _fit_chat_user,
+    answer_chat,
+    chat_entity_line,
+    chat_is_pending,
+    chat_summary_for_focus,
+    pick_focus_hits,
+    screens_beside_speech,
+)
+
+
+def test_fit_chat_user_trims_oversized_prompt(monkeypatch):
+    """Большой контекст ужимается под окно модели, вопрос в начале сохраняется."""
+    from app.app.config import Settings
+    from app.app.services.llm_lanes import estimate_tokens
+
+    class _Profile:
+        context_length = 32768
+
+    monkeypatch.setattr("app.app.services.llm_keeper.load_profile", lambda: _Profile())
+    settings = Settings(lmstudio_chat_token_budget=8000)
+    system = "system"
+    user = "Вопрос: что решили?\n\n" + ("блок контекста проекта. " * 8000)
+    out = _fit_chat_user(settings, system, user, max_tokens=2048)
+    assert out.startswith("Вопрос: что решили?")
+    assert CHAT_TRIM_NOTE in out
+    assert estimate_tokens(system, out) <= 8000
+    assert len(out) < len(user)
+
+
+def test_pick_focus_hits_keeps_speech_when_screens_rank_higher():
+    """Кадр формы с заголовком документа не занимает все места: в фокус входят реплики."""
+    screen = "[12:22 - 12:29] Экран (показывал Иван): форма «Авансовые отчеты», таблица сумм"
+    speech = "[44:19 - 44:39] Иван: у авансового отчёта нету статуса, что он подписан"
+    hits = [
+        {"chunk_id": 1, "text": screen, "start_sec": 742},
+        {"chunk_id": 2, "text": screen + " ещё", "start_sec": 800},
+        {"chunk_id": 3, "text": speech, "start_sec": 2659},
+        {"chunk_id": 4, "text": "[45:58 - 46:48] Иван: подписанная PDF засунется в присоединённые файлы", "start_sec": 2758},
+    ]
+    picked = pick_focus_hits(hits, "Сформулируй вопрос по авансовому отчету последнего созвона", limit=2)
+    assert [h["chunk_id"] for h in picked] == [3, 4]
+
+
+def test_screen_beside_speech_keeps_the_frame_of_that_minute():
+    """Кадр той же минуты остаётся, кадр другой минуты с тем же заголовком — нет."""
+    speech = [{"chunk_id": 3, "text": "реплика", "start_sec": 2659, "end_sec": 2679}]
+    early = {"chunk_id": 1, "text": "форма", "start_sec": 742, "end_sec": 749}
+    same_minute = {"chunk_id": 9, "text": "присоединённые файлы", "start_sec": 2660, "end_sec": 2680}
+    picked = screens_beside_speech(speech, [early, same_minute])
+    assert [h["chunk_id"] for h in picked] == [9]
+
+
+def test_pick_focus_hits_keeps_screens_when_question_is_about_the_screen():
+    screen = "[08:36 - 08:45] Экран (показывал Иван): форма «Авансовые отчеты»"
+    speech = "[09:00 - 09:10] Иван: смотри на форму"
+    hits = [
+        {"chunk_id": 1, "text": screen, "start_sec": 516},
+        {"chunk_id": 2, "text": speech, "start_sec": 540},
+    ]
+    picked = pick_focus_hits(hits, "что было на экране в начале созвона", limit=1)
+    assert [h["chunk_id"] for h in picked] == [1]
+
+
+def test_chat_summary_for_focus_drops_ready_made_sections():
+    """«Не закрыто» и «Итог» не входят в оглавление чата: оттуда письмо копирует выдуманный пункт."""
+    summary = """## О встрече
+Созвон про авансовый отчёт.
+
+## По темам
+- Три подписи: директор, подотчётное лицо, бухгалтер.
+
+## Не закрыто
+- Если факт подписания хранится в Битрикс24.
+
+## Итог встречи и договорённости
+- Согласовано создание дубля авансового отчёта в ЗУП.
+"""
+    kept = chat_summary_for_focus(summary)
+    assert "Три подписи" in kept
+    assert "Битрикс24" not in kept
+    assert "Согласовано создание дубля" not in kept
+    assert "Не закрыто" not in kept
+    assert "Итог встречи" not in kept
+
+
+def test_chat_entity_line_marks_paraphrase_without_quote():
+    line = chat_entity_line(
+        "decision",
+        json.dumps({"text": "Факт подписания хранится в Битрикс24", "quote": ""}, ensure_ascii=False),
+        None,
+    )
+    assert "дословной цитаты нет" in line
+    long = chat_entity_line(
+        "decision",
+        json.dumps({"text": "а" * 800, "quote": ""}, ensure_ascii=False),
+        None,
+        limit=600,
+    )
+    assert long.endswith("дословной цитаты нет — не приводи этот текст как речь")
+    assert len(long) <= 600
+    quoted = chat_entity_line(
+        "decision",
+        json.dumps({"text": "решили", "quote": "да, так и делаем"}, ensure_ascii=False),
+        None,
+    )
+    assert "дословной цитаты нет" not in quoted
 
 
 def test_chat_without_data(client, db_engine, admin_token, tmp_data):

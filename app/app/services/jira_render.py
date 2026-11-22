@@ -2,7 +2,7 @@
 
 ``issue_document`` — задача целиком: поля (включая пользовательские, по их названиям в Jira), описание, все комментарии,
 трудозатраты, подзадачи, связи, внешние ссылки, вложения, история изменений. ``project_document`` — сводка проекта:
-сведения о проекте и таблица всех задач — по ней помощник отвечает на обзорные вопросы («что в работе», «что у кого»).
+сведения о проекте (id, аватары, роли с участниками, описание — в том числе пустое) и таблица всех задач с их id.
 Разметка Jira (``[^файл]``, ``!картинка!``, ``{code}``, ``[текст|ссылка]``) переводится в обычный текст. Функции чистые:
 сети и базы нет. Изменился вид документа — увеличить ``FORMAT_VERSION``: при следующей проверке задачи перезагрузятся.
 """
@@ -123,6 +123,22 @@ def flat(value: Any) -> str:
 
 def _names(items: Any) -> str:
     return ", ".join(str(x.get("name") or "").strip() for x in items or [] if isinstance(x, dict) and x.get("name"))
+
+
+def _names_with_id(items: Any) -> str:
+    parts = []
+    for item in items or []:
+        if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+            continue
+        name = str(item["name"]).strip()
+        parts.append(f"{name} (id {item['id']})" if item.get("id") not in (None, "") else name)
+    return ", ".join(parts)
+
+
+def _avatar_line(urls: Any) -> str:
+    if not isinstance(urls, dict):
+        return ""
+    return "; ".join(f"{size} {url.strip()}" for size, url in sorted(urls.items()) if isinstance(url, str) and url.strip())
 
 
 def _field(lines: list[str], label: str, value: str) -> None:
@@ -373,21 +389,56 @@ def project_document(info: dict[str, Any], issues: list[dict[str, Any]], base_ur
     lines = [f"# Jira: проект {key} — {name} (сводка)", "",
              f"Сводка проекта Jira {key} «{name}»: сведения о проекте и перечень всех его задач со статусами, исполнителями и сроками.",
              f"Ссылка: {base_url.rstrip('/')}/browse/{key}", ""]
-    _field(lines, "Руководитель проекта", person(info.get("lead")) if isinstance(info.get("lead"), dict) else "")
+    _field(lines, "ID в Jira", str(info.get("id") or "").strip())
+    lead = info.get("lead") if isinstance(info.get("lead"), dict) else {}
+    lead_name = person(lead) if lead else ""
+    account = str(lead.get("name") or lead.get("key") or lead.get("accountId") or "").strip()
+    if lead_name and account and account not in lead_name:
+        lead_name = f"{lead_name} (учётная запись {account})"
+    _field(lines, "Руководитель проекта", lead_name)
+    _field(lines, "Аватар проекта", _avatar_line(info.get("avatarUrls")))
+    _field(lines, "Аватар руководителя", _avatar_line(lead.get("avatarUrls")))
     _field(lines, "Вид проекта", flat(info.get("projectTypeKey")))
     category = info.get("projectCategory") if isinstance(info.get("projectCategory"), dict) else {}
     _field(lines, "Категория", flat(category.get("name")))
-    _field(lines, "Компоненты", _names(info.get("components")))
+    _field(lines, "Компоненты", _names_with_id(info.get("components")))
     versions = [v for v in info.get("versions") or [] if isinstance(v, dict) and v.get("name")]
     if versions:
-        lines.append("- Версии: " + "; ".join(
-            f"{v['name']}" + (f" (выпущена {v['releaseDate']})" if v.get("released") and v.get("releaseDate") else
-                              " (выпущена)" if v.get("released") else f" (план {v['releaseDate']})" if v.get("releaseDate") else "")
-            for v in versions))
+        def _version(v: dict) -> str:
+            ident = f"id {v['id']}, " if v.get("id") not in (None, "") else ""
+            if v.get("released") and v.get("releaseDate"):
+                tail = f"{ident}выпущена {v['releaseDate']}"
+            elif v.get("released"):
+                tail = f"{ident}выпущена".removesuffix(", ")
+            elif v.get("releaseDate"):
+                tail = f"{ident}план {v['releaseDate']}"
+            else:
+                tail = ident.removesuffix(", ")
+            return f"{v['name']}" + (f" ({tail})" if tail else "")
+
+        lines.append("- Версии: " + "; ".join(_version(v) for v in versions))
+    roles = [r for r in info.get("roles_resolved") or [] if isinstance(r, dict)]
+    if roles:
+        lines += ["", "## Роли", ""]
+        for role in roles:
+            title = str(role.get("name") or "роль")
+            if role.get("id") not in (None, ""):
+                title += f" (id {role['id']})"
+            if role.get("missing"):
+                lines.append(f"- {title}: состав Jira не отдала")
+                continue
+            actors = []
+            for actor in role.get("actors") or []:
+                if not isinstance(actor, dict):
+                    continue
+                who = str(actor.get("name") or "—")
+                kind = str(actor.get("kind") or "участник")
+                account_id = str(actor.get("account") or "").strip()
+                actors.append(f"{who} ({kind}, {account_id})" if account_id else f"{who} ({kind})")
+            lines.append(f"- {title}: {', '.join(actors) if actors else 'участников нет'}")
     _field(lines, "Всего задач", str(len(issues)) + (f" (в портал загружено {loaded})" if loaded is not None and loaded != len(issues) else ""))
     description = clean_text(info.get("description"))
-    if description:
-        lines += ["", "## Описание проекта", "", description]
+    lines += ["", "## Описание проекта", "", description or "В Jira описание проекта не задано."]
     if issues:
         by_state = Counter(row["portal_status"] for row in issues)
         by_status = Counter(row["status"] or "—" for row in issues)
@@ -398,10 +449,13 @@ def project_document(info: dict[str, Any], issues: list[dict[str, Any]], base_ur
         open_people = Counter(row["assignee"] or "не назначен" for row in issues if row["portal_status"] != "done")
         lines += ["", "## Задачи по исполнителям", ""]
         lines += [f"- {who}: всего {count}, не завершено {open_people.get(who, 0)}" for who, count in people.most_common()]
-        lines += ["", "## Все задачи", "", "| Ключ | Вид | Статус | Состояние | Исполнитель | Автор | Создана | Срок | Обновлена | Название |", "|---|---|---|---|---|---|---|---|---|---|"]
+        lines += ["", "## Все задачи", "",
+                  "| ID | Ключ | Вид | Статус | Состояние | Исполнитель | Автор | Создана | Срок | Обновлена | Название |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
         for row in issues:
-            cells = [row["key"], row["type"] or "—", row["status"] or "—", STATUS_LABELS.get(row["portal_status"], "—"), row["assignee"] or "не назначен",
-                     row.get("reporter") or "—", when(row.get("created")), row["deadline_at"] or "—", when(row["updated"]), (row["summary"] or "").replace("|", "/")]
+            cells = [row.get("id") or "—", row["key"], row["type"] or "—", row["status"] or "—", STATUS_LABELS.get(row["portal_status"], "—"),
+                     row["assignee"] or "не назначен", row.get("reporter") or "—", when(row.get("created")), row["deadline_at"] or "—",
+                     when(row["updated"]), (row["summary"] or "").replace("|", "/")]
             lines.append("| " + " | ".join(str(c).replace("\n", " ") for c in cells) + " |")
     else:
         lines += ["", "В проекте нет задач."]

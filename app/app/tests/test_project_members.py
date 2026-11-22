@@ -55,16 +55,17 @@ def test_granted_manager_can_use_staff_api(client, admin_token, user_token, db_e
     )
     assert r.status_code == 200
     assert client.post(f"/projects/{pid}/reextract-entities", headers=_auth(user_token)).status_code == 403
-    as_manager = client.post(
-        "/auth/login",
-        json={"name": "User", "telegram_id": "tg-user", "password": "manager-pass"},
-    )
-    assert as_manager.status_code == 200
-    assert as_manager.json()["role"] == "manager"
-    reextract = client.post(
-        f"/projects/{pid}/reextract-entities",
-        headers=_auth(as_manager.json()["access_token"]),
-    )
+    from pathlib import Path
+
+    from app.app.config import get_settings
+    from app.app.tests.auth_helpers import access_token
+
+    roles = Path(get_settings().login_roles_path)
+    lines = [ln for ln in roles.read_text(encoding="utf-8").splitlines() if not ln.lower().startswith("user |")]
+    roles.write_text("\n".join(lines) + "\nUser | manager\n", encoding="utf-8")
+    get_settings.cache_clear()
+    token = access_token(client, name="User", telegram_id="tg-user", role="manager")
+    reextract = client.post(f"/projects/{pid}/reextract-entities", headers=_auth(token))
     assert reextract.status_code == 200
 
 
@@ -124,14 +125,18 @@ def test_candidates_come_from_allowlist_without_account(client, manager_token, m
 
 
 def test_user_password_hides_staff_blocks_on_own_project(client, manager_token):
+    from pathlib import Path
+
+    from app.app.config import get_settings
+    from app.app.tests.auth_helpers import access_token
+
     pid = client.post("/projects", json={"name": "OwnAsUser"}, headers=_auth(manager_token)).json()["id"]
-    r = client.post(
-        "/auth/login",
-        json={"name": "Manager", "telegram_id": "tg-manager", "password": "user-pass"},
-    )
-    assert r.status_code == 200
-    assert r.json()["role"] == "user"
-    html = client.get(f"/projects/{pid}", headers=_auth(r.json()["access_token"])).text
+    roles = Path(get_settings().login_roles_path)
+    lines = [ln for ln in roles.read_text(encoding="utf-8").splitlines() if not ln.lower().startswith("manager |")]
+    roles.write_text("\n".join(lines) + "\nManager | user\n", encoding="utf-8")
+    get_settings.cache_clear()
+    token = access_token(client, name="Manager", telegram_id="tg-manager", role="user")
+    html = client.get(f"/projects/{pid}", headers=_auth(token)).text
     assert "Выдать доступ" not in html
     assert "Удалённый доступ (MCP)" not in html
     assert 'id="mcp-access-pane"' not in html

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ title }} — Primary Analytics</title>
   <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/app.css?v=19" rel="stylesheet">
+  <link href="/static/app.css?v=20" rel="stylesheet">
   <link href="/static/design.css?v=11" rel="stylesheet">
   <link rel="manifest" href="/meeting.webmanifest?start=/m/{{ token }}">
   <link rel="icon" href="/static/brand/favicon.ico?v=2" sizes="any">
@@ -57,12 +57,14 @@
               <ul class="mb-1 ps-3">
                 <li>Ваш голос — отдельной дорожкой для каждого участника.</li>
                 {% if record_screen %}<li>Демонстрация экрана — видео, если вы её включите.</li>{% endif %}
-                <li>Камера не записывается: её видят только участники в комнате.</li>
-                <li>Из записи автоматически делаются расшифровка и краткое резюме; они сохраняются в проекте организатора.</li>
+                <li>На сервер проекта камера не пишется: для расшифровки используются дорожки голоса{% if record_screen %} и экрана{% endif %}.</li>
+                <li>Сотрудник в комнате может сохранить у себя на компьютере локальное видео того, что видит в звонилке (камеры, экран, звук). Этот файл в материалы проекта не загружается.</li>
+                <li>Из серверной записи автоматически делаются расшифровка и краткое резюме; они сохраняются в проекте организатора.</li>
               </ul>
               Нажимая «Войти во встречу», вы соглашаетесь с этим.
               {% else %}
-              Запись этой встречи выключена: голос, камера и экран не сохраняются.
+              Серверная запись этой встречи выключена: голос, камера и экран на сервер проекта не сохраняются.
+              Сотрудник в комнате всё же может сохранить у себя на компьютере локальное видео того, что видит в звонилке; в материалы проекта этот файл не загружается.
               {% endif %}
             </div>
             <div class="alert alert-danger d-none" id="guest-error" role="alert"></div>
@@ -102,6 +104,11 @@
 <div id="meeting-stage" class="meeting-stage" hidden>
   <div class="meeting-stage-top">
     <div id="meeting-room-status" aria-live="polite">Подключаюсь…</div>
+    <div id="meeting-state" class="meeting-state" hidden>
+      <span id="meeting-link-state">Связь: проверяется</span>
+      <span id="meeting-publish-state">Мои дорожки: …</span>
+      <span id="meeting-hear-state">Слышу людей</span>
+    </div>
     <div id="meeting-people"></div>
   </div>
   <div id="meeting-tiles" class="meeting-tiles" role="list" aria-label="Участники комнаты"></div>
@@ -138,10 +145,10 @@
   </div>
 </div>
 <script src="/static/errors_ru.js?v=1"></script>
-<script src="/static/app.js?v=4"></script>
+<script src="/static/app.js?v=6"></script>
 <script src="/static/vendor/livekit/livekit-client.umd.js"></script>
-<script src="/static/meeting_layout.js?v=a5"></script>
-<script src="/static/meeting_room.js?v=a61"></script>
+<script src="/static/meeting_layout.js?v=a6"></script>
+<script src="/static/meeting_room.js?v=a76"></script>
 <script>
 window.PRIMARY_ANALITICS_MEETING_VOICE = {{ meeting_voice | tojson }};
 const token = {{ token|tojson }};

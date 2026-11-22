@@ -359,6 +359,13 @@ def process_document_artifact(db: Session, settings: Settings, artifact: Artifac
             clean = light_normalize(raw)
             mode = "light (llm failed)"
 
+    from app.app.services.jira_import import attachment_version_preface
+
+    # Копия вложения Jira с другим содержимым: в текст, который пойдёт в поиск и чат, дописывается, что изменилось
+    note = attachment_version_preface(db, artifact, clean)
+    if note:
+        clean = f"{note}\n\n{clean}"
+        mode = f"{mode} + version"
     log_event(
         logger,
         "document.normalized",

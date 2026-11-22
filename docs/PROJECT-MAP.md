@@ -103,7 +103,7 @@ flowchart TB
 | Порт UI | Снаружи **Caddy `:777` HTTPS**. Портал — `WEB_HOST=127.0.0.1` `WEB_PORT=1777`. Порт **8000** занят MCP 1С |
 | БД | SQLite `data/app.db`, `PRAGMA foreign_keys=ON`, WAL. Хеши личных паролей — отдельно: `DATA_DIR/credentials.db` (`CREDENTIALS_DB_PATH`, Argon2id). Карточки: `user_profiles` (1:1 с `users`), `companies` (из `Companies.txt`); реестр людей проекта (платформа памяти решений, флаг `MEMORY_PLATFORM`): `people` (человек, в т. ч. без учётки), `person_aliases` (написания), `project_parties` (сторона компании в проекте), `unknown_actors` (очередь «Кто это?»), `people_log` (журнал правок); `speaker_profiles.person_id`, `meeting_participants.person_id`, `artifacts.recorded_at_precision`; фото — файлы `data/people/<user_id>/avatar-<ключ>-512|96.webp` |
 | Векторы | sqlite-vec **0.1.9** (`chunks` + `entity_vectors` BLOB) |
-| Auth | JWT + cookie `primary_analitics_session` на **8 часов** (HttpOnly, SameSite=Lax, Secure при HTTPS); вход только если логин есть в `Login_up.txt` (без учёта регистра); Bearer из localStorage ещё принимается. `PERSONAL_PASSWORD=required` (по умолчанию; `off` — тесты и аварийный откат): шаг 2 — личный пароль, шаг 3 — карточка. В токене `sv` — глобальная версия сессий (`portal_settings`), `pv` — версия личного пароля, `pp`/`pf` — шаги входа; bump `sv` при `credentials --reset` и `POST /admin/users/sessions/revoke-all`. Мутации с cookie: CSRF Origin/Referer; Host — allowlist (`ALLOWED_HOSTS`) |
+| Auth | JWT + cookie `primary_analitics_session` на **15 дней** (HttpOnly, SameSite=Lax, Secure при HTTPS); allowlist `Login_up.txt`; роли `Login_roles.txt`. Вход: пара логин+пароль + код B24/email; первый вход — `/auth/register` (код → пароль). Все роли с личным паролем при `PERSONAL_PASSWORD=required`. Карточка после setup. В токене `sv` / `pv` / `pp` / `pf`. CSRF Origin/Referer; Host — allowlist (`ALLOWED_HOSTS`) |
 | Очередь | таблица `jobs`, **один** GPU-воркер |
 | LLM | `LLM_PROVIDER=cursor` **или** `lmstudio` (переключатель при старте) |
 
@@ -236,7 +236,7 @@ GigaAM-контейнер (`primaryanalitics-gigaam`): образ из `vendor/G
 
 | Задача | Команда | Что делает |
 |--------|---------|------------|
-| Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1` (предпочитает `tools\Python310`, не слепому `py -3.10`); проверка — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`). Инструкция: `INSTALL.md` (clone ≠ стенд, чеклист до старта, pip/`cursor-sdk`) |
+| Установка на новом ПК | `INSTALL.bat` (корень) → `scripts/bootstrap.ps1` | полная установка одной командой; окружение после переноса папки — `scripts/setup_env.ps1` (предпочитает `tools\Python310`, не слепому `py -3.10`); проверка — `scripts/check_env.ps1` (отчёт `data/logs/env-check.txt`). Инструкция: `INSTALL.md` (clone ≠ стенд; что скачать вручную и версии моделей/pip; после переноса диска; смоук/acceptance; карта и хуки) |
 | Локальная LLM | `run_server.ps1` (корень) | выключает автозагрузку LM Studio, поднимает сервер `:1234` и грузит модель по профилю `tools/lmstudio/qwen-profile.json` через `scripts/llm_model.py load` (`-SkipLoad` — только сервер). Сервер PrimaryAnalitics не поднимает |
 | Автозапуск сервера LM Studio | `scripts/install_lmstudio_autostart.ps1` [`-Unregister`] [`-LoadModel`] [`-RunNow`] | задача планировщика `PrimaryAnalitics-LMStudio` при входе в Windows → `run_server.ps1 -SkipLoad` |
 | **Перезапуск (основной способ)** | `scripts/restart.ps1` [`-Llm saved\|gemma\|cursor`] [`-Force`] [`-SkipChecks`] | 1) **отказ, если идёт встреча** (`scripts/live_meetings.py`, код 3) — иначе оборвётся запись голоса; `-Force` перезапускает всё равно; 2) встреч нет — гасит все копии `voice_cleaner` / `screen_recorder` и их pid-файлы; 3) проверки: Ollama `:11434`, при `lmstudio` — LM Studio `:1234` и загружена ли `LMSTUDIO_MODEL`; 4) `start.ps1 -SkipChecks` в фоне, лог `data/logs/restart.log` (+ `.err`); 5) ждёт `/health` **и новый PID воркера** (старый сервер может ещё отвечать); 6) в фоне обновляет индекс проекта |
@@ -350,8 +350,8 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | Файл | Prefix | Назначение |
 |------|--------|------------|
 | `routers/pages.py` | `/` | HTML-страницы, отчёты арtefact, audio stream |
-| `routers/auth.py` | `/auth` | POST login: логин из `Login_up.txt` (без регистра); пароль = роль (`admin`/`manager`/`user`); Telegram ID необязателен (поле на форме скрыто с 2026-09-28, `hide_telegram` в `pages.login_page`): указан — пишется, нет — прежний или заглушка `placeholder_telegram_id`; JWT **и** cookie. При `PERSONAL_PASSWORD=required` login отдаёт `{step: setup|personal, ticket}` (пропуск 5 мин, одноразовый, годится только для своего шага) → `POST /auth/login/setup` (новый + повтор) или `/auth/login/personal`; карточка не заполнена → `{step: profile, ticket}` (15 мин) → `POST /auth/login/profile/options` (компании без стороны, текст уведомления о голосе) и `POST /auth/login/profile` (multipart: ФИО, компания, должность, фото) → сессия. `GET /auth/password/state`, `POST /auth/password/change` (меню в шапке) |
-| `routers/people.py` | `/people`, `/me` | `GET /people/{id}/avatar?size=96|512&v=` (вошедшим; с текущей версией — кеш навсегда, без — 5 мин); `GET|PUT /me/profile` (ФИО, должность; компанию и согласие не меняет — 422), `PUT /me/avatar` |
+| `routers/auth.py` | `/auth` | `POST /auth/login` — пара логин+пароль (одна ошибка «Неверен логин или пароль»); `POST /auth/register` — первый вход (allowlist, без пароля до кода; 409 если пароль уже есть). Далее: `POST /auth/login/code/request`, `POST /auth/login/code/verify` (`b24`/`email`, роль при `role_pending`) → `POST /auth/login/setup` → `POST /auth/login/profile/options`, `POST /auth/login/profile` → сессия. `GET /auth/login/probe` устарел для UI. `GET /auth/password/state`, `POST /auth/password/change`, `POST /auth/logout` |
+| `routers/people.py` | `/people`, `/me` | `GET /people/{id}/avatar?size=96|512&v=` (вошедшим; с текущей версией — кеш навсегда, без — 5 мин); `GET|PUT /me/profile` (ФИО, должность; компанию и согласие не меняет — 422), `PUT /me/avatar`; личная доска `GET /me/dashboard`, `PUT /me/dashboard`; настройки интерфейса `GET /me/ui`, `PUT /me/ui` (`home`: `list` или `dashboard`, `list_width`, `tasks_height`); задачи доски `GET /me/board`, снятие `POST /me/board/dismiss` |
 | `routers/projects.py` | `/projects` | список, создание, **переименование** (`PATCH /{id}` `{name}`), **полное удаление** (`DELETE /{id}`) |
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, задачи (`tasks`, `tasks/{entity_id}`, `manual-tasks/{task_id}`), «Что нового» (`digest`, `digest/dismiss`), reextract-entities, conflicts, notes |
@@ -366,18 +366,20 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/acme.py` | `/.well-known/acme-challenge` | HTTP-01 → Caddy (Let's Encrypt на IP) |
 | `routers/meetings.py` | `/projects/{id}/meetings`, `/api/meetings/public` | встречи проекта (+ идущие сейчас `GET …/meetings/live` для полоски «Идёт созвон») + гостевой join/leave/heartbeat по токену + сотрудник: `/projects/{id}/meetings/{mid}/heartbeat` и `/leave` (identity только `member:{user.id}`); `GET /api/meetings/public/{token}/avatars/{user_id}` — фото сотрудника гостю, только участника этой встречи. Сотрудник входит под «Имя Фамилия» из карточки |
 | `routers/speaker_profiles.py` | `/api` | enroll, карточка голоса `speaker-card` (имя + компания + сторона → «Люди и стороны»), merge, lab enroll/merge, recalculate, speakers-confirm, rebuild-summary, reindex |
+| `routers/jira.py` | `/jira`, `/projects/{id}/jira` | только чтение Jira: `GET /jira/status`, `POST /jira/connect`, `DELETE /jira/connect`, `GET /jira/projects`, `GET /jira/projects/{jira_key}/count`, `POST /jira/import`, `GET /projects/{id}/jira`, `POST /projects/{id}/jira/sync`, `GET /projects/{id}/jira/check`, `PUT /projects/{id}/jira/link`, `DELETE /projects/{id}/jira/link/{jira_key}`. Токен личный и зашифрован; в Jira портал ничего не пишет (`services/jira_import.py`, план `docs/plans/JIRA-INTEGRATION-PLAN.md`) |
 
 ### 5.2. Общая навигация
 
 | Элемент | URL | Шаблон | Действие |
 |---------|-----|--------|----------|
 | Логотип **Appa** · Primary Analytics (с 2026-11-05) | `/` | `base.html` `.navbar-brand-logo`: маскот `static/brand/appa-mascot.png` (прозрачный фон) + подпись «Primary Analytics» (на телефоне скрыта; **внутри проекта** — `body.nav-in-project`, только картинка), стили — `design.css`. Иконка вкладки — `static/brand/favicon.ico` / `favicon.svg` / `apple-touch-icon.png` / `icon-192.png` / `icon-512.png` в `<head>` `base.html` и `meeting_public.html`; старые `appa-wordmark.svg` / `appa-symbol.svg` остаются в `static/brand` как запасной знак-слово | Список проектов |
-| **Выйти** (иконка у ника) | `/auth/logout` | `base.html` `#nav-logout` | `POST /auth/logout`, сброс cookie и localStorage |
+| **Выйти** (иконка у ника) | `/auth/logout` | `base.html` `#nav-logout` | `POST /auth/logout`, сброс cookie и localStorage. Перед уходом вкладка запоминает свой адрес (`sessionStorage` `primary_analitics_return` и `?next=`) |
+| **Настройки** | `GET /me/ui`, `PUT /me/ui`; Jira: `GET /jira/status`, `POST /jira/connect`, `DELETE /jira/connect` | `base.html` `#nav-ui`, окно `#uiModal` | Пункт меню пользователя рядом с «Моя карточка» и «Личный пароль». Переключатель «Главная страница»: `list` — прежний список проектов одной колонкой, `dashboard` — список слева и доска справа. Нет строки — список. Дашборд только после явного выбора. Чужое значение — **422**. Выбор свой у каждого пользователя. Ниже — подключение Jira (`#jira-settings`): видно, если задан `JIRA_BASE_URL`. Поле `#jira-token` + **Подключить Jira**; когда токен есть — имя учётки, **Проекты из Jira** (только на `/`) и **Отключить**. Токен хранится зашифрованным, в ответ не возвращается |
 | **к проектам** | `/` | `project.html` nav | То же |
-| `/login` | `/login` | `login.html` | Вход только для логинов из `Login_up.txt` (регистр не важен); JWT + cookie `primary_analitics_session`. С 2026-11-05 на десктопе: слева крупный Appa + «Appa: Primary Analitics», справа плашка (Логин / Пароль доступа к сервису); личный пароль и карточка — те же шаги в плашке |
+| `/login` | `/login` | `login.html` | Вход: логин+пароль; «Первый раз? Зарегистрироваться». Шаг кода: выбор канала, «Отправить код» (после успеха блокируется) / «Войти»; «Отправить код ещё раз» после ошибки отправки/неверного кода или через 1 мин. Карточка. JWT + cookie. Если сессия уже есть и в адресе безопасный `next` (страница этой вкладки), **302** туда, а не форма. Сам вход в этой вкладке по-прежнему открывает список проектов. Уже открытая форма входа замечает токен из другой вкладки (`storage`) и возврат на эту вкладку (`visibilitychange`) и сама уходит на свою страницу (`PrimaryAnalitics.resumeLoginTab`; адрес — `next`, `sessionStorage` или referrer) |
 | Гостевая встреча | `/m/{token}` | `meeting_public.html` | Без JWT. Нет навигации по проектам. Сырой токен не хранится — только sha256 |
 | `routers/project_mcp.py` (посылки файлов) | `/mcp/projects/{id}/files/…`, `/projects/{id}/exchange-files` | посылки файлов от агента (карты конфигурации, дипмапы; сервис `services/exchange_files.py`, политика — `docs/agent-exchange/POLICY.md` §10). Каталог для любого ключа проекта: `GET /mcp/projects/{project_id}/files/catalog` (принятые посылки, файлы с sha256, README, текущие версии; то же — инструмент `files_catalog`, а при подключении строка «ФАЙЛЫ ПРОЕКТА» в `instructions` и поле `files` в `project_overview`). По Bearer-ключу MCP с правом `files_access`: `POST /mcp/projects/{project_id}/files/bundles` (открыть по манифесту путь/размер/sha256; повтор того же манифеста — докачка), `GET /mcp/projects/{project_id}/files/bundles` (список), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}` (`?files=missing` — что ещё не принято), `PUT /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (`?offset=`, тело до 64 МБ, `X-Chunk-Sha256`), `GET /mcp/projects/{project_id}/files/bundles/{bundle_id}/data/{path:path}` (скачать, Range, `X-Sha256`). Владелец/админ проекта: `GET /projects/{project_id}/exchange-files`, `DELETE /projects/{project_id}/exchange-files/{bundle_id}` (удалить с диска). Только портальный admin: `GET /projects/{project_id}/extra-files` — все посылки с файлами и отправителем (`source_label`: агент по имени ключа или пользователь) для карточки «Дополнительные файлы»; `GET /projects/{project_id}/extra-files/{bundle_id}/data/{path:path}` — скачать файл посылки (Range, `X-Sha256`; только admin). В те же посылки ложатся `.cf` и `.dt` из формы материалов (виды `config_cf`, `infobase_dt`, отправитель `user:<id>`; см. §5 «Загрузить») |
-| HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login` (`require_html_user`) |
+| HTML-оболочки (`/`, проект, граф, ТЗ, чат, `/report*`) | те же URL | Jinja | Без сессии — **302** на `/login?next=<адрес этой страницы>` (`require_html_user`, `safe_return_path`: только свой путь, без чужого сайта) |
 | `/audio`, `/download`, speaker API | те же URL | — | Без сессии — **401** |
 | `/health` | `/health` | — | Публично только `{"status":"ok"}` |
 | `/health/ready` | `/health/ready` | бейдж LLM в nav (`#nav-llm`: «Local LLM» при LM Studio, «Cursor») + значок «Нужен перезапуск» (админ) | Очередь/VRAM/LLM + `build` (код на диске новее API/воркера, `services/build_info.py`) — только с сессией |
@@ -395,14 +397,20 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Отмена** | — | UI | — | Закрыть модалку |
 | **Исправлено** (шапка, слева от бейджа LLM, `nav-changelog`) | — | UI | auth | Модалка `#changelogModal`: список изменений для пользователя, новые сверху. Данные — `app/app/changelog.json`, читает `load_changelog()` в `routers/pages.py` при рендере `/`. Агент не пишет сам: после правки спрашивает «Добавить ли в список Исправлено …?» и пишет только после согласия (правило в `AGENTS.md`, `.cursor/rules/10-changelog.mdc`) |
 | Клик по проекту | — | navigate | свои или admin | `/projects/{id}`; чужой URL — **404** |
-| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый блок: текст описания слева, **Переименовать** и **Удалить проект** справа (admin/manager). Без описания стрелка всё равно есть, чтобы открыть действия |
+| **Описание** (стрелка справа от названия) | — | UI | auth | Сворачиваемый блок: текст описания и кнопки **Переименовать** / **Удалить проект** (admin/manager). В широком списке текст слева, кнопки справа. В узкой колонке «Все проекты» текст на всю ширину карточки, кнопки под ним — иначе строка схлопывается в столбик букв. Без описания стрелка всё равно есть, чтобы открыть действия |
 | **Переименовать** | `PATCH /projects/{id}` `{name}` | FastAPI | admin любой; manager только свой | Модалка `#renameProjectModal` с полем `#rename-project-name` (текущее название выделено). Название чистится `normalize_project_name` (пустое — 400, длиннее 255 — 422); папка проекта по ID не меняется. В журнал действий — `rename` «Переименовал проект: старое → новое» |
 | **Удалить проект** | `GET /projects/{id}/delete-preview` → `DELETE /projects/{id}` | FastAPI | admin любой; manager только свой | Сначала модалка «Подтверждение удаления»: счётчики из `delete-preview` (`#delete-project-counts`: документы, созвоны, встречи, заметки) + чекбокс «Подтверждаю полное удаление» (`#delete-project-ack`); без галочки кнопка «Удалить» неактивна. Затем полное удаление дерева и записей БД |
-| Авто-загрузка | `GET /projects` | FastAPI | auth | admin — все активные; иначе создал / загрузил / чат / `project_members`. Пустой список: «Нет своих проектов.» Кнопка **Новый проект** только admin/manager. Админу у каждого проекта справа серым — кто его завёл (`creator_name` в ответе: «Фамилия Имя» из карточки `user_profiles`, без карточки — логин; остальным ролям поле пустое) |
-| Блок **Jira** (`#jira-card`, над списком; виден, если на сервере задан `JIRA_BASE_URL`): поле `#jira-token` + **Подключить Jira** | `GET /jira/status`, `POST /jira/connect` `{token}` | FastAPI → Jira | auth | Токен проверяется в Jira (`/myself`) и сохраняется зашифрованным (`jira_accounts`); в ответах и журнале его нет. Пользователь сразу получает доступ к проектам из Jira, которые видит его токен. Ошибка токена — текст под полем |
-| **Проекты из Jira** (`#jira-pick-btn`) → модалка `#jiraProjectsModal`: список с галочками, поиск, **Загрузить выбранные** | `GET /jira/projects`, `POST /jira/import` | FastAPI → Jira | admin, manager | Для каждого выбранного проекта Jira создаётся проект портала (как «Новый проект») или, у admin, материалы вливаются в выбранный существующий; задачи и вложения скачиваются в фоне и становятся материалами проекта (общий конвейер). Уже привязанный проект помечен «уже в портале» — отметка запускает проверку обновлений. При отметке показывается число задач проекта (`GET /jira/projects/{jira_key}/count`) |
-| **Отключить** (`#jira-disconnect-btn`) | `DELETE /jira/connect` | FastAPI | auth | Токен удаляется; доступ, выданный по Jira, снимается; загруженные материалы остаются |
-| Пометка **Jira** у названия проекта; строка хода загрузки `#jira-progress` | `GET /projects` (`jira_key`), `GET /projects/{id}/jira` | FastAPI | свои или admin | Проект привязан к Jira; ход загрузки опрашивается раз в 5 с, пока привязка в очереди или в работе, в том числе после перезагрузки страницы |
+| Авто-загрузка | `GET /projects` | FastAPI | auth | admin — все активные; иначе создал / загрузил / чат / `project_members`. Пустой список: «Проектов пока нет» / «Начните с первого проекта». Кнопка **Новый проект** только admin/manager. Админу у каждого проекта справа серым — кто его завёл (`creator_name` в ответе: «Фамилия Имя» из карточки `user_profiles`, без карточки — логин; остальным ролям поле пустое). У проекта из Jira — пометка **Jira** (`jira_key`) |
+| Вид стартовой | `GET /me/ui` | `index.html` | auth | Нет строки — `home=list`: одна колонка `#projects-classic`, как список до доски — название, пометка Jira, автор, описание, переименование и удаление; доски на экране нет. `home=dashboard` только если человек сам выбрал его в настройках: две колонки, у `body` класс `projects-dashboard`, ширина страницы та же, что у списка и шапки. Набор доски при этом сохраняется |
+| Колонка **Все проекты** (`#projects-list`) | `GET /projects` | UI | auth | Проекты, которых нет на доске. Порядок как в `GET /projects` (новые выше). Клик по названию открывает `/projects/{id}` |
+| Колонка **Доска** (`#projects-board-list`) | `GET /me/dashboard`, `PUT /me/dashboard` | FastAPI | auth | Личный набор справа, пустой пока ничего не перенесли. Адрес на `/me`, не на `/projects/…`: страница проекта занимает `GET /projects/{id}`. Тело записи: `{project_ids: [id, …]}` — порядок карточек. Чужой или повторяющийся id — **400**, доска не меняется. Проект без доступа или неактивный в ответ не входит. Узкое окно (<992px): сначала доска, под ней список |
+| Ручка перетаскивания | `PUT /me/dashboard` | UI | auth | Проект стоит в одной колонке. Ручка переносит между колонками и меняет порядок на доске. Пока карточку несут, её копия едет за указателем, а исходная строка остаётся на месте бледной. При «уменьшить движение» копия не появляется. Отдельных кнопок переноса нет. Новый проект появляется слева |
+| Задачи (`#board-open`) | `GET /me/board` | FastAPI | auth | Под карточками доски, только в режиме дашборда. Без своей высоты панель 14rem, что не помещается — листается внутри неё. «Определить спикеров» — у того, кто загрузил материал, пока голоса не названы и страница расстановки уже доступна. «Анализ внутреннего созвона» — у создателя комнаты, пока созвон закончен, дорожки есть и анализ ещё не отправлен. Ссылка открывает расстановку или блок встреч проекта. Если работу сделал другой человек, строка пропадает сама. Урна — `POST /me/board/dismiss` — прячет строку только у этого человека |
+| Сделано (`#board-done`) | `GET /me/board` | FastAPI | auth | Последние 15, в той же прокрутке. Под названием — время, когда закончилась обработка (`jobs.finished_at`; если отметки нет — время постановки материала). Материалы, которые загрузил этот человек и которые уже обработаны, и внутренние созвоны с готовым анализом, если он создал комнату или в неё заходил. Выгрузки Jira не входят. Новые сверху. В режиме «Список» панели нет |
+| Ширина колонок (`#projects-board-split`) | `GET /me/ui`, `PUT /me/ui` `{list_width}` | UI | auth | Разделитель между «Все проекты» и «Доска». Тянется мышкой или стрелками с клавиатуры. Ширина в пикселях, 272–640, своя у каждого. Нет числа — ширина из вёрстки. Смена вида стартовой ширину не сбрасывает. Уже 992px колонки друг под другом, разделитель скрыт |
+| Высота задач (`#board-tasks-split`) | `GET /me/ui`, `PUT /me/ui` `{tasks_height}` | UI | auth | Горизонтальный разделитель над панелью «Задачи». Тянется вверх-вниз мышкой или стрелками. Высота в пикселях, 140–640, и не выше, чем позволяет колонка доски. Своя у каждого. Нет числа — 14rem. Смена вида стартовой и ширины колонки высоту не сбрасывает |
+| Ход загрузки Jira (`#jira-progress`) | `GET /projects/{id}/jira` | UI | auth | Строка над списком, только пока загрузка идёт или упала с ошибкой. Подключение и отключение — в **Настройках** (§5.2) |
+| **Проекты из Jira** (`#jira-pick-btn` в настройках) → `#jiraProjectsModal` | `GET /jira/projects`, `GET /jira/projects/{jira_key}/count`, `POST /jira/import` | FastAPI | admin, manager | Кнопка на стартовой, когда токен подключён. Галочки, поиск, число задач, **Загрузить выбранные**. Admin может влить ключ в существующий проект |
 
 ### 5.4. Страница проекта — `/projects/{id}` (`project.html`)
 
@@ -422,12 +430,18 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 #### Блок «Jira» (`#project-jira-card`, над «Материалами проекта»; виден, если проект привязан к Jira)
 
-| Кнопка / элемент | API | Кто | Роль | Результат |
-|------------------|-----|-----|------|-----------|
-| Строка состояния `#pj-summary`, `#pj-status` | `GET /projects/{id}/jira` | FastAPI | свои или admin | Проект Jira, сколько задач и файлов загружено (и сколько задач в Jira), когда проверено, ход загрузки (опрос раз в 5 с, пока идёт) |
-| Список **Вложения, которые не загружены** (`#pj-skipped`) | тот же ответ (`not_loaded`) | UI | свои или admin | Задача и причина: вид файла портал не разбирает, размер, сбой скачивания |
-| **Проверить обновления** (`#pj-sync-btn`) | `POST /projects/{id}/jira/sync` | FastAPI → Jira | admin, manager проекта | Докачать новые и изменённые задачи и вложения токеном нажавшего |
-| **Проверить полноту** (`#pj-check-btn`) | `GET /projects/{id}/jira/check` | FastAPI → Jira | admin, manager проекта | Сверка без изменений: «Всё сходится» с числами (задачи, комментарии, трудозатраты, история, вложения) либо перечень расхождений (`#pj-check`) |
+| Элемент | API | Кто | Результат |
+|---------|-----|-----|-----------|
+| Строка `#pj-summary`, `#pj-status` | `GET /projects/{id}/jira` | свои или admin | Сколько задач и файлов загружено, ход и ошибка |
+| **Проверить обновления** (`#pj-sync-btn`) | `POST /projects/{id}/jira/sync` | admin, manager проекта | Новые и изменённые задачи и вложения; вложение, карточка которого есть, а файла на диске нет, скачивается снова |
+| **Проверить полноту** (`#pj-check-btn`) | `GET /projects/{id}/jira/check` | admin, manager проекта | Сверка без записи: документ каждой задачи буква в букву, вложения и причины пропуска |
+| Привязка к существующему проекту | `PUT /projects/{id}/jira/link`, `DELETE /projects/{id}/jira/link/{jira_key}` | admin | Ключ Jira не больше чем у одного проекта портала |
+
+Задача Jira становится документом Markdown (`jira_render.issue_document`, без сокращений), вложение — обычным материалом. Сводка проекта (`jira_render.project_document`) содержит id проекта и задач, ссылки на аватары, роли с участниками и описание; если описания в Jira нет, в сводке так и написано. Документ из Jira конвейер берёт дословно (`light (jira)`). В чате сводка проекта идёт в каждый ответ (`chat.jira_overview_block`); если вопрос называет ключ задачи, её документ идёт в контекст сам (`chat.jira_focus_block`). Дата материала — из Jira (`recorded_at_source=jira`).
+
+Ключ загруженной задачи в резюме проекта и в ответе ассистента на странице — ссылка на карточку `{JIRA_BASE_URL}/browse/КЛЮЧ` (новая вкладка, синяя `--ds-link`, обычное начертание). Список ключей и адрес отдаёт страница (`jira_import.jira_link_spec`: привязка есть, у задачи есть документ, адрес Jira задан). Текст резюме и ответ в базе не меняются: ссылку рисует `PrimaryAnalitics.linkifyJiraKeys` при показе (`project.html` — резюме и ассистент, `chat.html` — отдельная страница чата). Чужой ключ, ключ внутри кода и ключ, который уже стоит внутри адреса, остаётся текстом. После снятия привязки ссылок нет.
+
+Документы задач и сводка проекта в общий список материалов не входят. Их видит только администратор в сворачиваемом блоке «Выгрузки Jira» (`#jira-exports-box`, `GET /projects/{id}/jira/exports`; менеджеру и остальным — 403). После снятия привязки эти документы там и остаются: строки `jira_items` задач и сводки не удаляются (`unlink` снимает только строки вложений). Вложения остаются в списке. Файл с тем же содержимым, что уже загружен в портал, второй раз не кладётся. Если содержимое другое — в проект кладётся копия, а в текст разбора дописывается, чем она отличается от предыдущей версии с тем же именем (`jira_import.attachment_version_preface`).
 
 #### Блок «Материалы проекта» (`workspace-card`)
 
@@ -458,7 +472,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 | Элемент | API | Поведение |
 |---------|-----|-----------|
-| Badge статуса | `GET /projects/{id}/artifacts` | `reconcile_artifact_status` подтягивает `done`, если knowledge уже есть. Для аудио те же флаги кнопок: `speakers_match_available`, `speakers_match_ready`, `speakers_confirm_ready` (`speaker_action_flags`) |
+| Badge статуса | `GET /projects/{id}/artifacts` | Список — файлы, загруженные в портал, и вложения Jira. Документы задач и сводка проекта в ответ не входят (`jira_import.shelf_kinds`), их таблица — `#jira-exports-box`. `reconcile_artifact_status` подтягивает `done`, если knowledge уже есть, в том числе у выгрузок. Для аудио те же флаги кнопок: `speakers_match_available`, `speakers_match_ready`, `speakers_confirm_ready` (`speaker_action_flags`) |
 | Ссылка на имя файла | — | При `status=done` → `/artifacts/{id}/report` (стенogramма или отчёт документа) |
 | **match** | — | `/artifacts/{id}/report-speaker-match`. Видна **admin/manager**, когда в `sortformer_speaker_match.json` уже есть метки `speaker_N`. У `user` кнопки нет; URL — 403. Во время ASR / подготовки не показывается. |
 | **лаб** | — | `/artifacts/{id}/report-lab`. Только **admin** (кнопка и URL). Менеджеру `lab_runs` в JSON = 0. |
@@ -480,7 +494,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 
 Источник — **не** обрезанный excerpt сырого текста. Если у аудио нет `_final.txt` — fallback на чанки / `transcription_text`. Роут в `knowledge.py`.
 
-Результат: `data/projects/{id}/project_state/current_tz.md`, архив в `versions/`, запись `changelog`.
+Результат: `data/projects/{id}/project_state/current_tz.md`, архив в `versions/`, запись `changelog`. На карточке «Резюме проекта» (`#tz-content`) ключ загруженной задачи Jira показывается ссылкой (см. блок «Jira»).
 
 Авто-пересборка (решение владельца 2026-09-29): материал в конце знаний (`pipeline_knowledge._enqueue_auto_review`) ставит за своими проверками artifact → topics → relevance → conflicts задачу `auto_review` scope `summary` → `requirements_reextract.summary_for_review` → `rebuild_project_summary` (`prepare_for_llm` + `rebuild_tz_fast`). Воркер один, задачи идут по порядку постановки, поэтому выжимка собирается, когда актуальность и конфликты уже выключили заменённое. Одна на партию: задача пропускается без вызова модели, если в очереди ждёт ещё одна выжимка проекта (`tz.summary_jobs_queued`); `maybe_auto_rebuild_tz` при такой задаче не собирает сразу (`reason=after_checks`), в том числе после упавшего последнего файла партии. Раньше собиралась сразу после знаний, до проверок: новый документ, заменивший требование, оставлял старое в выжимке и в ответах чата. Без автопроверки (режим off) — как раньше: документ — в конце партии (`_other_pending_jobs`), созвоны — каждые **N** готовых материалов (`TZ_REBUILD_EVERY_N`, по умолчанию 3).
 
@@ -493,7 +507,9 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | **Журнал действий** | `GET /projects/{id}/activity` | FastAPI → `user_activity.list_activity()` | API для аудита и памяти чата; **в UI чата не показывается** |
 | **Статус чата** | `GET /projects/{id}/chat/status` | FastAPI → `chat.chat_is_pending()` + `llm_lanes.chat_status()` | `{pending, label, position}`: «В очереди к ИИ: перед вами N», «Загружаю модель…», «ИИ готовит ответ…» |
 
-**Вид** (с 2026-10-15, общие стили — блок «Чат с ассистентом» в конце `static/app.css`): лента `#chat-log` без своей рамки и подложки (рамка — у карточки `chat-card`); вопрос — пузырь справа (`.chat-message-user`), ответ — текст во всю ширину (`.chat-message-ai > .chat-answer`), подписей «Вы/ИИ» нет; уточнение — оранжевая полоска слева (`.is-clarification`), ошибка — `.is-error`; источники свёрнуты в `<details class="chat-sources">` «Источники (N)», у фрагмента созвона — ссылка на момент. Ссылка есть у **каждого** источника: у документов и сущностей — на отчёт материала (`_with_source_urls` в `chat.py`, в том числе для старых сообщений при `GET …/chat/history`). Своего списка «Источники:» в тексте ответа нет: промпт `rag_chat.md` просит называть источники прямо в тексте, а `strip_sources_tail` срезает такой хвост у новых ответов и при показе старых (сохранённый текст в БД не меняется). Пустой чат — подсказка `#chat-empty` по центру. Статус очереди `#chat-status` — над полем ввода, только пока ИИ отвечает. Поле `.chat-composer` с отступом 0.75rem от краёв карточки (селектор `.chat-card .card-body > .chat-composer` сильнее общего `.card-body > :last-child { margin-bottom: 0 }` из `design.css`). Кнопка **На весь экран** (`#chat-expand`, только на странице проекта): класс `chat-card--full` — карточка поверх страницы до 1100px, фон затемнён, прокрутка страницы снята (`body.chat-full-open`); закрыть — та же кнопка, Esc или клик мимо карточки.
+**Вид** (с 2026-10-15, общие стили — блок «Чат с ассистентом» в конце `static/app.css`): лента `#chat-log` без своей рамки и подложки (рамка — у карточки `chat-card`); вопрос — пузырь справа (`.chat-message-user`), ответ — текст во всю ширину (`.chat-message-ai > .chat-answer`), подписей «Вы/ИИ» нет; уточнение — оранжевая полоска слева (`.is-clarification`), ошибка — `.is-error`; источники свёрнуты в `<details class="chat-sources">` «Источники (N)», у фрагмента созвона — ссылка на момент. Ключ загруженной задачи в ответе — ссылка на карточку Jira (правило — в блоке «Jira» выше). Ссылка есть у **каждого** источника: у документов и сущностей — на отчёт материала (`_with_source_urls` в `chat.py`, в том числе для старых сообщений при `GET …/chat/history`). Своего списка «Источники:» в тексте ответа нет: промпт `rag_chat.md` просит называть источники прямо в тексте, а `strip_sources_tail` срезает такой хвост у новых ответов и при показе старых (сохранённый текст в БД не меняется). Пустой чат — подсказка `#chat-empty` по центру. Статус очереди `#chat-status` — над полем ввода, только пока ИИ отвечает. Поле `.chat-composer` с отступом 0.75rem от краёв карточки (селектор `.chat-card .card-body > .chat-composer` сильнее общего `.card-body > :last-child { margin-bottom: 0 }` из `design.css`). Кнопка **На весь экран** (`#chat-expand`, только на странице проекта): класс `chat-card--full` — карточка поверх страницы до 1100px, фон затемнён, прокрутка страницы снята (`body.chat-full-open`); закрыть — та же кнопка, Esc или клик мимо карточки.
+
+Вопрос про конкретный созвон кладёт в блок «Созвон, о котором вопрос» оглавление без разделов «Не закрыто» и «Итог встречи и договорённости» (они уже написаны как готовый ответ, и модель переносит оттуда выдуманный пункт), открытые вопросы этого созвона у которых есть цитата, и реплики. Описания кадров («Экран (показывал …)») не занимают места реплик, если вопрос не про экран: к выбранным репликам добавляется кадр той же минуты (отступ до 20 с, не больше трёх). Кадр другой минуты, даже с тем же заголовком формы, в запрос не дописывается. Кадр — что было видно; реплика может говорить о том, чего на кадре нет. Карточка решения, задачи или открытого вопроса без цитаты помечается как пересказ. Цитата в ответе сверяется с текстом фрагментов и материалов, не с оглавлением и не с текстом карточки.
 
 Enter в textarea — тоже отправка, Shift+Enter — новая строка. Отдельная страница `/projects/{id}/chat` (`chat.html`) — тот же endpoint и тот же вид: карточка на высоту окна, кнопка «К проекту». Повторный `POST /chat` при активном ответе — **409** (проверка и запись вопроса под одним замком). Обработка созвонов чат **не** блокирует (Р2, 2026-10-05): ответы идут полосой чата строго по очереди (§3.2).
 
@@ -527,16 +543,17 @@ Enter в textarea — тоже отправка, Shift+Enter — новая ст
 | Список | `GET /projects/{id}/meetings` | admin, manager; `public_token` всегда `null` |
 | Идущие сейчас (полоска «Идёт созвон») | `GET /projects/{id}/meetings/live` | admin, manager; `[{id, started_at, people, room_url}]` — только встречи с людьми на связи (`ongoing_meetings`). Маршрут объявлен до `/meetings/{mid}` |
 | **Начать** | `POST /projects/{id}/meetings/{mid}/start` | admin, manager |
-| **Завершить** | `POST /projects/{id}/meetings/{mid}/end` | admin, manager |
+| **Завершить** | `POST /projects/{id}/meetings/{mid}/end` | только **создатель комнаты** (`Meeting.created_by`); иначе 403. В списке встреч кнопка при `can_end` |
 | **Отозвать** | `POST /projects/{id}/meetings/{mid}/revoke-link` | admin, manager |
 | **Новая ссылка** | `POST /projects/{id}/meetings/{mid}/regenerate-link` | admin, manager; сырой токен один раз |
-| **Проанализировать** | `POST /projects/{id}/meetings/{mid}/analyze` | admin, manager. Один артефакт + job. Повтор `done`/`error` — **Повторить**, тот же артефакт. Воркер для встречи всегда гонит `process_meeting_artifact`, не `asr.resume` со старой стенограммы. queued/running — 409 |
-| **лаб встречи** | `GET /artifacts/{id}/report-meeting-lab` | только admin. В колонке анализа, если уже есть `analyze_jobs[0].artifact_id`; и в таблице файлов у артефакта встречи |
+| **Проанализировать** | `POST /projects/{id}/meetings/{mid}/analyze` | admin, manager. Один артефакт + job. Повтор `done`/`error` — **Повторить** в `.meeting-row-actions` (не в колонке статуса). Колонка `.meeting-analyze-cell`: статус («Готово»/очередь) + «лаб встречи». Воркер для встречи всегда гонит `process_meeting_artifact`, не `asr.resume` со старой стенограммы. queued/running — 409 |
+| **лаб встречи** | `GET /artifacts/{id}/report-meeting-lab` | только admin. В колонке анализа (`.meeting-analyze-cell`), если уже есть `analyze_jobs[0].artifact_id`; и в таблице файлов у артефакта встречи |
 | **Удалить созвон** | `DELETE /projects/{id}/meetings/{mid}` | admin, manager. Иконка корзины в строке (как у файлов). Стирает `meetings` / `meeting_participants`, `data/meetings/{room}/`, артефакт `встреча-{id}.wav` + дочерние lab-папки и jobs очереди |
-| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `PRIMARY_ANALITICS_MEETING_VOICE` из `pages.meeting_voice_flags`. Шумодав — **в браузере говорящего** (`MEETING_VOICE_DFN3=1`): DFN3 (`DeepFilterNoiseFilterProcessor`) — процессор livekit-client на моём микрофоне (`_startDfn3`/`_applyVoice`), захват без шумоподавления браузера; `#meeting-denoise` включает/выключает фильтр (`setEnabled`), серверу ничего не шлёт; по умолчанию шумодав выключен (`_denoiseOn: false`), DFN3 грузится при первом включении. Рядом — сырая дорожка `primaryanalitics-raw` (клон исходника `_mediaStreamTrack`, `_syncRawTrack`: смена устройства, мьют, раз в 2 с) только для рекордера: слушатели от неё отписываются (`isRawPub`). Нет DFN3 (телефон, нет WASM, не загрузился) — шумоподавление браузера, кнопка перезахватывает микрофон, сырой дорожки нет. Что играть решает один `_routeAudio` (`voicePlan`): всё звуковое от людей, кроме `primaryanalitics-raw`; «осиротевшие» `<audio>` снимаются; сверка по событиям LiveKit и раз в 2 с (`_startAudioRoute`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). `#meeting-sound` — отписка чужого аудио (`setSubscribed(false)`), не `muted`. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
+| **Remux локальной записи** | `POST /api/meetings/local-record/remux` | сотрудник (Bearer); multipart `file` → **H.264+AAC** seekable MP4 (ffmpeg всегда перекодирует, `+faststart`; copy/Opus запрещены); в `artifacts` не пишется; `services/local_record_remux.py` |
+| Гостевая страница | `GET /m/{token}` | без входа; лобби (`guest_id` в `localStorage`), затем `#meeting-stage` / `#meeting-dock`. Флаги `PRIMARY_ANALITICS_MEETING_VOICE` из `pages.meeting_voice_flags`. Шумодав — **в браузере говорящего** (`MEETING_VOICE_DFN3=1`): DFN3 (`DeepFilterNoiseFilterProcessor`) — процессор livekit-client на моём микрофоне (`_startDfn3`/`_applyVoice`), захват без шумоподавления браузера; `#meeting-denoise` включает/выключает фильтр (`setEnabled`), серверу ничего не шлёт; по умолчанию шумодав выключен (`_denoiseOn: false`), DFN3 грузится при первом включении. Рядом — сырая дорожка `primaryanalitics-raw` (клон исходника `_mediaStreamTrack`, `_syncRawTrack`: смена устройства, мьют, раз в 2 с) только для рекордера: слушатели от неё отписываются (`isRawPub`). Нет DFN3 (телефон, нет WASM, не загрузился) — шумоподавление браузера, кнопка перезахватывает микрофон, сырой дорожки нет. Что играть решает один `_routeAudio` (`voicePlan`): всё звуковое от людей, кроме `primaryanalitics-raw`; «осиротевшие» `<audio>` снимаются; сверка по событиям LiveKit и раз в 2 с (`_startAudioRoute`). Чужой звук — `<audio>`, не `AudioContext.destination` (иначе Chrome AEC молчит и начинается петля). `#meeting-sound` — `audioSubscribe`: выключенный звук отписывает чужие микрофоны, локальная запись на это время подписку держит и `<audio>` не вставляет. Флаги мик/кам — `flagState` (`none`/`off`/`silent`/`on`) + rAF `redraw` на `TrackPublished`/`Unpublished`/`Subscribed`/`StreamStateChanged`/`ParticipantNameChanged`/`ParticipantAttributesChanged`/`ConnectionQualityChanged`; не `isMicrophoneEnabled`. Тост «Микрофон молчит» + `setAttributes({mic_silent:"1"})` (не metadata). Чип качества (`poor`/`lost`); пресеты `VideoPresets.h360`/`h540`, simulcast h180+h360. PWA: `<link rel="manifest">` → `GET /meeting.webmanifest`. На узком экране (`max-width: 767.98px`) в доке мик/звук/кам/экран/`#meeting-more`/выход; сетка, участники, ссылка, динамик, fullscreen, denoise — в `#meeting-more-tray`. Динамик — иконка `#meeting-speaker-btn` + меню устройств, не текст в доке. Флаги плитки — иконки мик/кам. Список — bottom sheet + `#meeting-roster-backdrop`. На телефоне старт в сетке: все плитки в один экран (`phoneGridCols` / `--meeting-cols`); шаринг — верхняя плитка, остальные рядом. Режим спикера по кнопке. На десктопе плитки 16:9 одинакового размера, шаринг не растягивает сетку. «На весь экран» = сцена + док. Экран на телефоне — `getDisplayMedia` |
 | Статус для гостя | `GET /api/meetings/public/{token}` | `project_id: null` |
 | **Войти во встречу** | `POST /api/meetings/public/{token}/join` `{display_name, guest_id, company_name?}` | `guest_id` из `localStorage` `primaryanalitics-guest-{token}`; identity = `guest:` + sha256(hash токена + guest_id)[:32]; перезаход — та же identity и одна строка `meeting_participants`. Без `guest_id` — как раньше (`token_hex`). Невалидный id → 400. До start → 409; после → LiveKit JWT (`canPublish`, без `canPublishSources`). Обязательный выбор **Ваша компания** (`#guest-company-select` — компании сторон проекта `guest_companies`, пункт «Другая компания…» открывает поле `#guest-company`; у проекта без сторон — только поле) пишется в `meeting_participants.company_name`; после встречи (при включённой платформе) незнакомый гость — новый человек проекта с согласием на голос «согласие при входе во встречу», компания и сторона — от указанной стороны проекта (Р7, `people._guest_person`); «Кто это?» — только если одиночное имя подходит нескольким людям. **ЛГ5:** сотрудник, зашедший гостем («Имя Фамилия» или «Фамилия Имя Отчество»), — его человек по карточке (`people._staff_by_name`); гость «Гость …» — «Кто это?»; гость без компании — единственный заказчик проекта с пометкой `people.company_unconfirmed` (на подтверждение) |
-| **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. `#meeting-end` → `POST .../end` для всех. «Скопировать ссылку»: сырой токен не хранится (вариант A) — тост «ссылка во вкладке, где встречу создали, или через «Новая ссылка»»; `sessionStorage` `primaryanalitics-meeting-invite-{id}` если ещё открыта вкладка создания |
+| **Войти в комнату** (сотрудник) | `POST /projects/{id}/meetings/{mid}/join` и страница `/projects/{id}/meetings/{mid}/room` | admin, manager; тот же LiveKit room. Join отдаёт `can_end` (true только у `created_by`). `#meeting-end` скрыта, пока `can_end`; иначе → `POST .../end` для всех. «Скопировать ссылку»: сырой токен не хранится (вариант A) — тост «ссылка во вкладке, где встречу создали, или через «Новая ссылка»»; `sessionStorage` `primaryanalitics-meeting-invite-{id}` если ещё открыта вкладка создания |
 | Сигналинг LiveKit | `wss://<хост>:777/livekit` → Caddy → `:7880` | Поднимает `main` (`edge_runtime`). Native exe, не Docker. ICE = `node_ip` `PRIMARY_ANALITICS_PUBLIC_HOST` + LAN + 127.0.0.1, без STUN (иначе рекламируется чужой исходящий IP). TURN = тот же хост. Медиа: TCP 7881, UDP mux 50000, TURN 3478. Смена `livekit.yaml` перезапускает exe. Чистильщик ждёт `:7880`, затем `LIVEKIT_RTC_INTERNAL` |
 | Запись дорожек | `data/meetings/{room_name}/manifest.json` | `voice_cleaner` пишет сырой звук каждого `member:`/`guest:` (дорожка `primaryanalitics-raw`, без неё — основная); `primaryanalitics-rec` — видео шаринга (`source: screen_video`, identity = кто включил экран). Связь созвона = `meetings.room_name`. Повторный `track_subscribed` той же личности переключает запись на новый трек, не оставляет первую тихую. `MEETING_RECORD=0` выкл. Камера не пишется |
 | Анализ дорожек | `data/meetings/{room_name}/analyze.json` + `events.jsonl` | `meeting_analyze.py`: очередь GPU на каждую WAV с речью; lab `03_diar` пишет одного `speaker_0` без Sortformer |
@@ -545,14 +562,15 @@ Enter в textarea — тоже отправка, Shift+Enter — новая ст
 
 | Кнопка | Действие |
 |--------|----------|
-| **Микрофон** (`#meeting-mic`) / **Звук** (`#meeting-sound`) / **Камера** (`#meeting-cam`) / **Экран** (`#meeting-screen`) | вкл/выкл своего микрофона, звука собеседников, камеры, показа экрана |
+| **Микрофон** (`#meeting-mic`) / **Звук** (`#meeting-sound`) / **Камера** (`#meeting-cam`) / **Экран** (`#meeting-screen`) | вкл/выкл своего микрофона, звука собеседников, камеры, показа экрана. Плашка браузера «Закрыть окно» / Stop sharing гасит трек: `_watchScreenEnded` смотрит событие `ended` и `readyState === "ended"` (Chrome, Edge и Firefox часто событие не шлют). `_releaseScreenStoppedByBrowser` через 400 мс, если комната ещё на связи, снимает намерение `_screenWanted`, атрибут `send_screen` и подсветку. Отказ в окне выбора — «Показ экрана отменён»; потеря клика (Firefox) — «Нажмите «Экран» ещё раз»; подсказка про телефон только когда `getDisplayMedia` нет. Перезаход и обрыв связи намерение экрана не сбрасывают |
+| **Записать созвон** (`#meeting-local-record`, только комната сотрудника) | локальная запись «как на экране» (`meeting_local_record.js`): 1080p/24fps; захват **WebM-first** (Chrome/Яндекс/Opera/Edge); финал — remux **H.264+AAC MP4** (клиент проверяет `ftyp`) и скачивание в «Загрузки» (без `showSaveFilePicker`). Повторное нажатие, **Выйти** и **Завершить для всех** вызывают одну остановку `stop()` → remux, пока страница ещё открыта; пауза `DOWNLOAD_HANDOFF_MS`, затем disconnect и уход (переход в том же ходе обрывает скачивание). Пока идёт сохранение, на комнате плашка `#meeting-record-save`: «Погодите, не закрывайте страницу. Идёт сохранение записи.» Закрытие вкладки в этот момент браузер переспрашивает. У создателя сохранение до `POST …/end`. У остальных — тот же MP4 и уход, когда встреча стала `ended` или LiveKit прислал `ROOM_DELETED` / `ROOM_CLOSED` (опрос больше не обязателен). Удаление из комнаты — тоже MP4 и уход. Вторая вкладка сохраняет MP4 и оставляет экран «другая вкладка». Полный перезаход сохраняет MP4 сразу, не дожидаясь нового connect. Ссылка в шапке, «Выйти» из портала и «Назад» в браузере при живой записи тоже сначала сохраняют MP4. Обновление и закрытие вкладки по-прежнему отдают WebM при следующем открытии. Скрипт подключён в `base.html`. Если вкладка закрылась, обновилась или упала, каждая секунда уже лежит в IndexedDB браузера (`primaryanalitics-local-record`); при следующем открытии любой страницы портала скачивается WebM без перемотки и показывается плашка «Скачать WebM». Успешный MP4 эту копию стирает. Убитый процесс браузера не дописывает последнюю незафиксированную секунду. `pausePaint` на confirm; data `local_recording`; e2e `scripts/e2e/e2e_meeting_record.py` (кнопка, выход во время записи, завершение во время записи, обновление страницы сохраняет WebM) |
 | **Выбрать микрофон** (`#meeting-mic-pick-btn`, создаётся скриптом) | список микрофонов; смена на ходу `switchActiveDevice(audioinput)` без перезахода |
 | **Динамик** (`#meeting-speaker-btn`) | выбор устройства вывода (`setSinkId`); если браузер не умеет — в меню подсказка |
 | **Сменить камеру** (`#meeting-cam-switch`) | следующая камера `switchActiveDevice(videoinput)`; видна, когда камера включена и камер 2+ |
 | **Ещё** (`#meeting-more`) → **Экран сверху** (`#meeting-screen-lead`), **Спикер** (`#meeting-layout`, раскладка), **Участники** (`#meeting-roster`; закрыть — `#meeting-roster-close`), **Скопировать ссылку** (`#meeting-copy`), **На весь экран** (`#meeting-fs`), **Шумодав** (`#meeting-denoise`) | вид и сервис, без сервера |
 | **Развернуть окно** (у плитки) | плитка на весь экран |
-| **Выйти** (`#meeting-leave`) | гость: `POST /api/meetings/public/{token}/leave`; сотрудник: `POST /projects/{id}/meetings/{mid}/leave` |
-| **Завершить для всех** (`#meeting-end`, только сотрудник) | `POST /projects/{id}/meetings/{mid}/end` |
+| **Выйти** (`#meeting-leave`) | если идёт локальная запись — сначала тот же MP4, что у кнопки «Запись», затем уход. Гость: `POST /api/meetings/public/{token}/leave`; сотрудник: `POST /projects/{id}/meetings/{mid}/leave` |
+| **Завершить для всех** (`#meeting-end`, только **создатель комнаты**) | confirm внутри `#meeting-stage` (видно в fullscreen); при записи — `pausePaint` на время диалога, затем тот же MP4, что у кнопки «Запись», и только потом `POST /projects/{id}/meetings/{mid}/end` (`join.can_end`; кнопка `hidden` у остальных; один click в шаблоне). Остальные участники с записью сохраняют свой MP4 и уходят сами: и по опросу `ended`, и если LiveKit закрыл комнату раньше опроса. Без записи страница остаётся на «Комната закрыта» и не перезаходит |
 | *(фон)* пульс присутствия | гость `POST /api/meetings/public/{token}/heartbeat`, сотрудник `…/meetings/{mid}/heartbeat` |
 
 Лобби гостя: имя (`#guest-name`), свёрнутый блок **Проверить камеру и микрофон (по желанию)** (`#guest-devices-check`, выбор `#guest-mic` / `#guest-cam`), **Войти во встречу** (`#guest-join`).
@@ -561,13 +579,15 @@ Enter в textarea — тоже отправка, Shift+Enter — новая ст
 
 **Телефон горизонтально** (`@media (max-width: 896px) and (orientation: landscape)` в `app.css`): в фокусе (экран или выбранный участник, `.has-focus`) главное окно слева во всю высоту, остальные — лентой справа по строке на участника (`--meeting-film` из `applyPhoneGrid`); в сетке с экраном строка экрана вдвое выше. Раньше в фокусе действовали правила ПК (одна колонка), и миниатюры 16:9 наезжали друг на друга.
 
-**Устойчивость комнаты (2026-09-29, `meeting_room.js`):**
-- камера: намерение человека `_camWanted` (кнопка, вход, возврат); погашенную системой камеру (телефон: наушники, звонок, фон — livekit-client 2.15 глушит трек, который не смог перезапустить) `_scheduleCamRevive` возвращает через 1,5 / 4 / 10 с — по `devicechange`, `visibilitychange`, `TrackMuted` своей камеры; выключенную человеком не трогает;
-- метка «микрофон молчит» (атрибут `mic_silent`) уходит на сервер только при смене состояния (`_micSilentSent`; раньше — каждый кадр речи, ~12 запросов/с), `unmute` трека и успешный «Перезапустить» её снимают; `MediaDevicesError` ветвится по `Track.Source` — тост/`mic_silent` только для микрофона (и `LocalAudioSilenceDetected`), ошибки камеры и экрана — отдельные тосты без жёлтого чипа;
-- перерисовка (`_renderTiles`) переставляет плитку в DOM, только если она не на своём месте: перенос живого `<video>` мигает, а `adaptiveStream` на миг считал его скрытым;
-- качество связи участника (`_quality`) забывается при его входе и выходе; после возврата циклом `_rejoinLoop` сбрасываются своё качество и `mic_silent`, камера включается по `_camWanted`, а не по последнему видимому состоянию.
+**Устойчивость комнаты (`meeting_room.js`, `meeting_layout.js`, план `docs/plans/MEETING-ROOM-STABILITY-PLAN.md`):**
+- кнопки мик/кам/экран пишут намерение (`_micWanted` / `_camWanted` / `_screenWanted`) и атрибуты участника `send_audio` / `send_video` / `send_screen`. Ошибка публикации намерение не сбрасывает. Перезаход поднимает все три. Системный mute дорожки кнопку не выключает;
+- чужой звук: одно решение `audioSubscribe` — выключенный звук отписывает микрофоны, локальная запись удерживает подписку и не вставляет `<audio>` (звук шаринга в запись не берётся). После остановки записи подписка снова следует кнопке звука;
+- `RoomEvent.Reconnecting` не начинает полный перезаход и не останавливает локальную запись. `ROOM_DELETED` / `ROOM_CLOSED` / удаление участника без локальной записи — текст «Комната закрыта» / «Вас удалили» и без цикла перезахода. Если локальная запись идёт — тот же MP4, что у «Выйти», затем уход. Полный перезаход только если сессия оборвалась: MP4 сохраняется в начале перезахода. Вторая вкладка, ссылка шапки, «Выйти» из портала и «Назад» при живой записи тоже сначала сохраняют MP4. Ошибка камеры подписывается «Камера», микрофона — «Микрофон»;
+- при слабой связи и обрыве (`_sigLevel` 0 или 1) камеру не перезапускают; на обычной связи погашенную системой камеру `_scheduleCamRevive` возвращает через 1,5 / 4 / 10 с. `devicechange` переключает микрофон и оживляет камеру только если пропало само видеоустройство. Экран остаётся одним слоем (`simulcast: false`); на слабой связи у того же пресета снижается частота кадров (`_screenFps` 2);
+- `#meeting-state` (связь, «Мои дорожки», «Слышу людей») скрыт. `#meeting-room-status` в обычном состоянии пустой; при локальной записи — «Вы ведёте локальную запись» и/или «Локальную запись ведут: …». Список «В комнате (N)» остаётся в `#meeting-people`. Чужой чип при пропавшей публикации читает `send_audio` / `send_video`. Большая плитка говорящего держится 2 с (`speakerHold`); ручной pin сильнее;
+- окно «на связи» — `ONGOING_SEEN_MINUTES` = 1 (три пульса по 20 с), то же окно у `end_abandoned_meetings`. Живой пульс полоску «Идёт созвон» не снимает. e2e: `scripts/e2e/e2e_meeting_stability.py` (`--only s1`…`s6`).
 
-**Закрытие комнаты и рекордеры:** `close_livekit_room` — по внутреннему `livekit_rtc_internal`, в своём потоке (работает и из асинхронного кода). Рекордеры (`voice_cleaner`, `screen_recorder`) заходят только в комнаты встреч со статусом `live` (`meeting_recordings.live_room_names`, база только на чтение; нет базы — пишут все, как раньше): комнату завершённой встречи мог заново создать клиент со старым токеном в момент завершения, и боты держали её открытой, записывая удалённую встречу.
+**Закрытие комнаты и рекордеры:** `close_livekit_room` — по внутреннему `livekit_rtc_internal`, в своём потоке (работает и из асинхронного кода). Рекордеры (`voice_cleaner`, `screen_recorder`) заходят только в комнаты встреч со статусом `live` и **выходят сами**, как только встреча перестала быть live (`recording_still_wanted`), не дожидаясь события SDK: иначе после `DeleteRoom` процесс оставался в комнате и держал WAV («файл занят»). Раз в 30 с портал завершает live, в которую уже входили и из которой все ушли дольше окна «на связи» (60 с, `ONGOING_SEEN_MINUTES`, `end_abandoned_meetings`); комнату, где ещё никого не было, не закрывает. Пустая комната LiveKit живёт `empty_timeout` 30 с (`livekit.yaml`), чтобы старый токен не держал её. Боты ходят на `ws://127.0.0.1:7880`, в ICE есть loopback.
 
 **Путь звука (с 2026-10-05, `scripts/qa_media_path.py`):** браузер: эхоподавление и AGC браузера → DFN3 (процессор livekit-client) → Opus/RED → LiveKit → слушатели (одна дорожка на человека); тот же захват до DFN3 уходит сырой дорожкой `primaryanalitics-raw` → рекордер `primaryanalitics-dfn` пишет WAV (96 000 Б/с). Замер стенда (Chromium, локальный LiveKit): фон в паузах у слушателя на ~52 дБ ниже сырой записи, речь −2 дБ, DFN3 добавляет ~22 мс; «Шумодав» выкл — фон как в сырой. Прежняя серверная схема (`clean-*` от бота) отставала на 0,25–0,56 с и давала эхо/задвоение (находки 80–89). Камера: simulcast 180/360/540, VP8; экран — один слой, 5 к/с.
 
@@ -619,6 +639,16 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 | Вердикт: **Подтвердить** / **Отклонить** | `POST …/agent-verdicts/{entity_id}/{action}` | admin |
 | **Настройки для агентов**: часовой пояс (`#px-s-tz`), пакет якорей кода (`#px-s-pack`), стороны участников (`#px-s-participants`, «Имя = заказчик/исполнитель»), подсказки заказчика/исполнителя (`#px-s-hint-customer`, `#px-s-hint-vendor`), права ключа по умолчанию (`#px-s-key-scope`), обмен вкл/выкл (`#px-s-enabled`), **Сохранить** | `GET` / `PUT …/agent-settings` | чтение admin, manager; сохранение admin |
 
+#### Выгрузки Jira (строка в «Материалах проекта», только admin)
+
+Сворачиваемая строка `<details id="jira-exports-box">` в конце «Материалов проекта», перед «Дополнительными файлами», тот же вид (`.bg-inline`). Рендерится только при `current_role == 'admin'`. Справа — `#jira-exports-count` («N документов · только админ»). Открытость помнит `localStorage` (`jira_exports_open`). Список обновляется вместе со списком материалов.
+
+В блоке — документы задач и сводка проекта (`jira_items.kind` `issue` и `summary`, имя файла начинается с `Jira `). Файл, который человек загрузил сам и который совпал с Jira по содержимому, остаётся в общей таблице. Счётчики «Готово / Док. / Созвоны» эти выгрузки не считают. Удаление и скачивание — те же, что у материала.
+
+| Элемент UI | API | Кто |
+|------------|-----|-----|
+| Таблица `#jira-exports-body` | `GET /projects/{id}/jira/exports` | только портальный admin (иначе 403; чужой проект — 404) |
+
 #### Дополнительные файлы (строка в «Материалах проекта», только admin)
 
 С 2026-10-15 — раскрывающаяся строка `<details id="extra-files-box">` в конце «Материалов проекта» (до этого — отдельная карточка `.extra-files-card` / `#extra-files-panel`), тот же вид, что «Дальнейшая обработка» (`.bg-inline`); рендерится только при `current_role == 'admin'`. Справа в строке — `#extra-files-count` («N посылок» после загрузки, «пока нет · только админ»), открытость помнит `localStorage` (`extra_inline_open`). Список грузится при раскрытии: посылки агентов (карта конфигурации, дипмапы) и `.cf` / `.dt`, загруженные пользователями через «Добавить материалы». Столбцы: когда принято, вид, файлы (больше одного — раскрывающийся список), размер, откуда (агент / пользователь).
@@ -653,8 +683,8 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 
 Две вкладки на одной карточке (переключение без перезагрузки; после reload — `sessionStorage`):
 
-- **Итоговое резюме созвона** — `call_summary.md`, промпт `docs/prompts/call_summary.md` (протокол, таблица «Кто / Что / Срок»).
-- **Краткое резюме созвона** — `call_brief.md`, промпт `docs/prompts/call_brief.md` (пока заготовка: «Отрази просто суть созвона»).
+- **Итоговое резюме созвона** — `call_summary.md`, промпт `docs/prompts/call_summary.md` (протокол, таблица «Кто / Что / Срок»). Для портального проекта с `settings_json.internal_project` — `docs/prompts/call_summary_internal.md` (проекты/тикеты/действия ПМ/необсуждённые/оргмоменты; в reduce — до 3 прошлых `*_call_summary.md`).
+- **Краткое резюме созвона** — `call_brief.md`, промпт `docs/prompts/call_brief.md`. Внутренний проект — `docs/prompts/call_brief_internal.md` (урезанная та же схема).
 
 Кнопка **Пересобрать выжимку** пишет **оба** файла (если brief падает — итоговый всё равно сохраняется). ТЗ/чат берут только полный протокол. Word: полная выжимка и краткое резюме — отдельные кнопки.
 
@@ -674,7 +704,7 @@ MCP (Streamable HTTP) к знаниям **только этого проекта
 | **Запомнить** / **Сохранить** | `POST /api/artifacts/{id}/speaker-enroll` | FastAPI → DB + `write_prod_view` | match JSON, `speaker_profiles`; lab: proof + имена → speakers.json/HTML, **не** `build_transcript_view`, **не** `voice_turn_audit` / GigaAM по всем репликам | ~1–5 с |
 | **Слить** (два ID) | `POST /api/artifacts/{id}/speaker-merge` | FastAPI | merge_map + lab `write_prod_view` | ~1 с |
 | **Пересчитать** (`#recalc`) | `POST /api/artifacts/{id}/speaker-recalculate` | FastAPI, **admin/manager** | Тот же API, что «Пересчитать подсказки» на match. Lab: cosine `speaker_N` ↔ база. Legacy: Sortformer JSON **этого** артефакта. У `user` кнопка скрыта, POST 403 | ~1–20 с |
-| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | задача очереди `project_task` (`call_summary_rebuild`) → воркер, **admin/manager** | имена в speakers.json → `summarize_call.py` → **LLM**. Lab: proof turns с именами, затем HTML из `write_prod_view`. Промпты `call_summary.md` **и** `call_brief.md` → `call_summary.md` + `call_brief.md`. У `user` скрыто, POST 403 | ~1–5 мин |
+| **Пересобрать выжимку** | `POST /api/artifacts/{id}/rebuild-summary` | задача очереди `project_task` (`call_summary_rebuild`) → воркер, **admin/manager** | имена в speakers.json → `summarize_call.py` → **LLM**. Lab: proof turns с именами, затем HTML из `write_prod_view`. Промпты: обычные `call_summary.md` + `call_brief.md`; при `internal_project` — `call_summary_internal.md` + `call_brief_internal.md` (+ память 3 прошлых резюме). У `user` скрыто, POST 403 | ~1–5 мин |
 | **Обновить и переиндексировать** | `POST /api/artifacts/{id}/reindex` | FastAPI, **admin/manager** | rebuild view → `*_final.txt` → **Ollama** index chunks. У `user` скрыто, POST 403 | ~30 с |
 
 После POST-кнопок — `location.reload()`.
@@ -836,8 +866,8 @@ venv\Scripts\python.exe asr\lab_voice.py --project-id 1 --artifact-id art_... --
 | `/admin/conflicts` | вид **Ждут вас** / **Важное**; у конфликта поле «Причина (обязательна)» + **В силе первое** / **В силе второе**; **Вернуть решение модели** | `GET /projects/{id}/conflicts?view=…`, `POST /conflicts/{id}/resolve`, `POST /conflicts/{id}/undo-model` (admin) |
 | `/m/{token}` | лобби + `#meeting-dock` / `#meeting-more`; шумодав DFN3 в браузере, сырая `primaryanalitics-raw` — рекордеру | `GET /m/{token}`, `POST /api/meetings/public/{token}/join` |
 | `/projects/{id}/meetings/{mid}/room` | тот же док + `#meeting-end`; тот же cleaner | `POST /projects/{id}/meetings/{mid}/join` |
-| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `primary_analitics_session`) |
-| все HTML-оболочки | **Выйти** (иконка у ника в шапке) | `POST /auth/logout` — сброс cookie + localStorage |
+| `/login` | **Войти** | `POST /auth/login` (JSON token + Set-Cookie `primary_analitics_session`). Обновление вкладки с уже живой сессией и безопасным `next` возвращает на страницу этой вкладки |
+| все HTML-оболочки | **Выйти** (иконка у ника в шапке) | `POST /auth/logout` — сброс cookie + localStorage; адрес вкладки остаётся в `next`, чтобы после входа в другой вкладке обновление открыло её страницу |
 | `/auth/logout` | *(JS `clearSession` / `#nav-logout`)* | `POST /auth/logout` — сброс cookie |
 
 API без кнопок в UI (для будущего / интеграций):  
@@ -872,7 +902,7 @@ API без кнопок в UI (для будущего / интеграций):
 
 | Выжимка | Вход | Ограничение |
 |---------|------|-------------|
-| **Созвон** (`call_summary.md` + `call_brief.md`) | Вся стенограмма | итог: map ~6000 × N + reduce **4096**; кратко: тот же map + reduce **1024** |
+| **Созвон** (`call_summary.md` + `call_brief.md`) | Вся стенограмма; внутренний проект — ещё до 3 прошлых `*_call_summary.md` в reduce | итог: map ~6000 × N + reduce **4096**; кратко: тот же map + reduce **1024**; промпты internal при `internal_project` |
 | **Документ** (`{id}_doc_summary.md`) | Нормализованный `*_clean.txt` | map ~6000 × N **последовательно** + reduce **4096**; индекс по-прежнему из полного текста |
 | **Проект** (`current_tz.md`, дефолт: `rebuild_tz_fast`) | top-36 чанков + top-36 `decision`/`task` сущностей по 7 обобщённым запросам (MMR-отбор на разнообразие) + заметки | **один** reduce-вызов, ~20-35 tokens/с генерации на используемой модели; ~30-35 с итого |
 | **Проект — полный путь** (`rebuild_tz()`, только вручную из кода, см. §5.10) | Аудио: lab `_final.txt` (нет файла → чанки); документы: `chunks`; плюс `decision`/`task` / notes / conflicts / `_call_summary.md` | map ~6000 симв. × N **последовательно** + иерархический merge (группы ~12000 оцен. токенов) + reduce; минуты, и не гарантированно сходится для больших проектов (см. §5.10) |
@@ -1020,7 +1050,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 
 | Кнопка | API | Функция | Результат |
 |--------|-----|---------|-----------|
-| **Пересобрать выжимку** | `POST …/rebuild-summary` | `rebuild_artifact_call_summary` | **Аудио:** lab имена → `summarize_call.py` → `call_summary.md` + `call_brief.md` + `write_prod_view`. **Документ:** `run_document_summary` → `{id}_doc_summary.md` из `*_clean.txt` + `{id}_report.html`; без reindex. Падение LLM не откатывает чанки |
+| **Пересобрать выжимку** | `POST …/rebuild-summary` | `rebuild_artifact_call_summary` | **Аудио:** lab имена → `summarize_call.py` → `call_summary.md` + `call_brief.md` (+ `*_internal` при `internal_project`) + `write_prod_view`. **Документ:** `run_document_summary` → `{id}_doc_summary.md` из `*_clean.txt` + `{id}_report.html`; без reindex. Падение LLM не откатывает чанки |
 | **Выжимка Word** | `GET …/download/summary.docx` | `transcript_export.build_summary_docx_bytes` | Calibri (в т.ч. кириллица), поля A4, шапка таблицы `#5B7FA6`, zebra, списки с выступом, `**`/`*`/`` ` `` |
 | **Краткое резюме созвона** | `GET …/download/brief.docx` | `transcript_export.resolve_brief_docx` | тот же рендер, заголовок «Краткое резюме созвона», файл `{имя}_краткое_резюме.docx` |
 | **Стенограмма .txt** | `GET …/download/transcript.txt` | `resolve_transcript_txt` | таймкоды + имена из speakers.json |
@@ -1091,7 +1121,7 @@ Enroll **не** требует нажимать «Подтвердить», чт
 | `GET /admin/memory/data` `?project_id` | тот же | проекты для выбора и история прогонов (`services/memory_scorecard.history`); если с последнего прогона сменились промпт или модель и у проекта включена платформа, прогон записывается сам |
 | `GET /admin/memory/live` `?project_id` | тот же | метрики и чек-лист «сейчас» без записи в историю (`memory_scorecard.compute`; модель не вызывается) |
 | `POST /admin/memory/run` `{project_id}` | тот же | пересчитать и записать строку в `data/eval/memory_scorecard.csv` |
-| `GET /projects/{id}/background` | админ и менеджер проекта (смотреть) | ход фоновой работы по проекту (`services/project_jobs.progress`) — все задачи очереди проекта: расшифровка и разбор (`process_artifact`), обновление индекса (`refresh_knowledge`), кнопки-пересборки (`project_task`), автопроверка (`auto_review`); этап не из списка показывается под своим ключом (с 2026-10-08, раньше — только `auto_review`): этапы со счётчиками, текущая задача, ошибки, оценка оставшегося времени, список готовых материалов, `can_run`, `worker_ready`; строка «Дальнейшая обработка» в «Материалах проекта» под ходом расшифровки `#pipeline-live` (`partials/background_progress.html`, `<details id="bg-card">`, `static/background.js`; с 2026-10-15 вместо отдельной карточки «Фоновая работа»): свёрнута — одна строка состояния `#bg-summary` («идёт, осталось задач: N (P%), ~M мин.» / «не удалось выполнить: N» / «ничего не выполняется»), раскрыта — ход, этапы, ошибки и кнопки; открытость помнит `localStorage` (`bg_inline_open`); значок «Идёт разбор: N» / «Ошибок: N» (`#bg-badge`) — в шапке «Материалов проекта», виден и у свёрнутого блока. Только admin и manager |
+| `GET /projects/{id}/background` | админ и менеджер проекта (смотреть) | ход текущей очереди проекта (`services/project_jobs.progress`): расшифровка и разбор (`process_artifact`), обновление индекса (`refresh_knowledge`), кнопки-пересборки (`project_task`), автопроверка (`auto_review`); этап не из списка показывается под своим ключом (с 2026-10-08). Полоска — одна непрерывная занятость (живая задача и те, что с ней соприкасаются по времени): `done` / `total` / `percent` — только успешные, ошибки процент не двигают, закрытая раньше партия не входит. Этапы со счётчиками — только эта очередь; текущая задача; ошибки за сутки (сбой расшифровки после успеха того же файла скрыт); `can_run`, `worker_ready`, список материалов. Минуты не оцениваются. Строка «Дальнейшая обработка» в «Материалах проекта» под ходом расшифровки `#pipeline-live` (`partials/background_progress.html`, `<details id="bg-card">`, `static/background.js`; с 2026-10-15 вместо отдельной карточки «Фоновая работа»): свёрнута — `#bg-summary` («{этап} — {файл} · сделано из N» / «В очереди: N» / «Не выполнено: N» / «Сейчас ничего не идёт»), раскрыта — полоска «сделано из N», оставшиеся этапы (если их больше одного), ошибки и кнопки; открытость помнит `localStorage` (`bg_inline_open`); значок «Идёт: N» / «Ошибок: N» (`#bg-badge`) — в шапке «Материалов проекта». Только admin и manager |
 | `POST /projects/{id}/background/review` `{artifact_ids}` | только admin | «Перепроверить»: требования, темы, устаревшее и дубли, конфликты, выжимка без повторного извлечения; пустой список — весь проект (`project_jobs.queue_review`) |
 | `POST /projects/{id}/background/reextract` `{artifact_ids}` | только admin | «Переизвлечь требования»: все или выбранные материалы; у выбранных общие темы проекта не стираются (`project_jobs.queue_reextract`) |
 | `POST /projects/{id}/background/retry` | только admin | вернуть упавшие за сутки задачи проекта в очередь, попытки обнуляются; расшифровку (`process_artifact`) не повторяет — это полная переобработка (`project_jobs.retry_errors`) |
@@ -1284,9 +1314,9 @@ data/projects/{project_id}/
 | `chat.py` | RAG: чанки (гибридный поиск `fuse_chunk_hits`) + `search_entities` + хвост `current_tz.md`; блок документов — дата материала, начало файла + фрагменты этого документа по словам вопроса (фрагменты поиска, уже вошедшие в блок документа, не повторяются); допконтекст — сначала «Изменения решений / Нерешённые противоречия» без обрезки, затем карточка, пункты найденных материалов (ближайшие к вопросу, `CHAT_MATERIAL_ENTITIES`), заметки, выжимки созвонов; в каждом ответе — перечень созвонов проекта по датам (новые сверху, `CHAT_MEETING_CATALOG`); созвон, названный в вопросе временем или именем («последний/предыдущий созвон», «вчера», «09.10», «встреча-192»), идёт в контекст блоком «Созвон, о котором вопрос» — выжимка + ближайшие фрагменты (`search_vectors(artifact_id=…)`), даже если поиск по смыслу его не нашёл (урок 2026-10-09); промпт `rag_chat.md`: более позднее уточнение заказчика главнее раннего документа, обе версии с датами; лента и память — `chat_messages` этого логина. С 2026-10-16 (урок пр. 28 — согласие под нажимом и выдуманная ссылка на выжимку): поиск идёт и по расширенному запросу (`chat_query.expand_query`, второй вектор сливается `_merge_vec_hits`, FTS — по расширенному тексту); возражение пользователя (`is_pushback`) ищется по самому утверждению (`claim_of`) и добавляет в промпт блок «Проверка утверждения пользователя» (`_pushback_note`); цитаты «…» ответа сверяются с материалами контекста без диалога (`chat_quotes.verify_answer_quotes`), ненайденные помечаются в тексте, отчёт — `meta_json.quote_check`, флаг `meta_json.pushback`; цитата, которой нет в контексте, ищется в полном тексте готовых материалов проекта (`_project_materials_text`), чтобы настоящая фраза из прошлого ответа не помечалась; при повторе вопроса прошлый ответ ИИ на него в ленту промпта не идёт (`user_activity.build_chat_user_memory(question=…)`, `is_repeat_question`) |
 | `chat_quotes.py` | Проверка цитат ответа чата без вызова модели: цитаты «…»/“…” от 4 слов (`extract_quotes`) ищутся в нормализованных материалах (ё→е, разряды чисел, знаки; точное вхождение, слитно без пробелов или ≥70% трёхсловных кусков; части через «…» отдельно); найденная только в полном тексте материалов (`source_texts`, читается один раз и только при промахе) — `in_source`, без пометки; цитата из вопроса или указаний не помечается (`from_user`), ненайденная получает пометку `UNVERIFIED_MARK` |
 | `chat_query.py` | Разбор вопроса чата перед поиском: `is_pushback` (возражение: «почему ты не сказал…», «ты ошибся», «разве не», «так получается»), `claim_of` (утверждение без вводных), `expand_query` — слова из групп `SYNONYM_GROUPS` (склад, статусы, оценка, сроки, аудит, обещания, конфигуратор), которых нет в вопросе |
-| `user_activity.py` | Журнал действий логина (`user_activity_log`) для аудита; чат в промпт берёт `chat_messages`, не этот журнал; прошлый ответ ИИ на повторённый вопрос (≥80% общих слов) заменяется пометкой `REPEAT_HIDDEN` |
+| `user_activity.py` | Журнал действий логина (`user_activity_log`) для аудита; чат в промпт берёт `chat_messages`, не этот журнал; прошлый ответ ИИ на повторённый вопрос (≥80% общих слов) заменяется пометкой `REPEAT_HIDDEN`; шапка ленты запрещает брать факты проекта из прошлого ответа |
 | `models/chat_message.py` | Per-user chat UI log (`project_id` + `user_id`) |
-| `models/user_activity_log.py` | Журнал аудита append-only: `login`, `profile_id`; INSERT через `log_activity`; SQLite-триггеры запрещают UPDATE/DELETE; purge проекта строки не удаляет |
+| `models/user_activity_log.py` | Журнал аудита append-only: `login`, `profile_id`; INSERT через `log_activity`; SQLite-триггеры запрещают UPDATE/DELETE; purge проекта строки не удаляет; FK на users/projects нет (миграция `ensure_user_activity_log_no_fk` при старте снимает унаследованные FK — иначе DELETE projects падал) |
 | `models/portal_setting.py` / `session_version.py` | `portal_settings.session_version` — отзыв всех JWT (`sv` в токене) |
 | `POST /admin/users/sessions/revoke-all` | Панель пользователей: разлогинить всех (bump `session_version`) |
 | `middleware/csrf.py` | CSRF: POST/PUT/PATCH/DELETE с cookie-сессией — Origin или Referer из allowlist (исключения: `/auth/login*`, public meetings, `/mcp/`, ACME, `/client-log`) |
@@ -1294,7 +1324,7 @@ data/projects/{project_id}/
 | `middleware/hosts.py` | Общий расчёт allowlist Host для CSRF и TrustedHost |
 | `chunking.py` | документы — `chunk_document`: проза абзацами с разделом, таблица — фрагментами целых строк с разделом, подписью и шапкой (широкая > 8 столбцов — записями «Столбец: значение»); стенограмма → окна подряд идущих реплик (строки `_final.txt` дословно, перекрытие 1 реплика, экран отдельно), `start_sec`/`end_sec` окна; `speaker` только у окна одного говорящего; переписка — `chunk_messages`: сообщения одного дня до 512 токенов (пауза > 30 мин режет наполовину полный фрагмент), шапка с днём, `unit_first`/`unit_last` = `M…`, при обрезке по размеру последнее сообщение повторяется; созвон: «Речь на экране» (дубль речи по отрезку кадра) в индекс не идёт, описания экрана — отдельными окнами |
 | `storage.py` | paths: artifact_root, parsed, structured |
-| `project_purge.py` | полное удаление проекта, артефакта или **созвона**: БД + файлы; `purge_meeting` снимает jobs, артефакт встречи, `meeting_participants` и `data/meetings/{room_name}/` (идущую — 409; каталог — с повторами 15/45/120 с: рекордер держит файлы после закрытия комнаты); `purge_project` закрывает комнаты идущих встреч проекта (`close_livekit_room`), каталоги записей удаляет с теми же повторами, занятый каталог проекта — предупреждение, а не 500 после записи в БД |
+| `project_purge.py` | полное удаление проекта, артефакта или **созвона**: БД + файлы; `purge_meeting` снимает jobs, артефакт встречи, `meeting_participants` и `data/meetings/{room_name}/` (идущую — 409; каталог — с повторами 15/45/120 с: рекордер держит файлы после закрытия комнаты); `purge_project` чистит реестр людей, затем посылки `exchange_bundles`/`exchange_files` (FK на ключ), потом MCP (`mcp_call_stats`/`project_mcp_tokens`), строки `user_dashboard_projects`, закрывает комнаты идущих встреч (`close_livekit_room`), строку `projects` удаляет через `_delete_project_row` (PRAGMA foreign_keys вне транзакции — журнал аудита остаётся), занятый каталог проекта — предупреждение, а не 500 |
 | `meetings.py` / `meeting_tokens.py` | статусы `created`/`live`/`ended`; heartbeat (гость и сотрудник) и stale TTL; best-effort DeleteRoom LiveKit — по внутреннему `livekit_rtc_internal` (`:7880`), не по публичному `livekit_url` (клиент livekit-api отбрасывает путь `/livekit`); успех — только `code=not_found`, голый 404 — ошибка в логе; публичный токен sha256; JWT LiveKit |
 | `meeting_recordings.py` | сырые WAV + `screen_video` mp4 + `manifest.json` (merge, чтобы cleaner и rec не затирали друг друга) + `events.jsonl`; gap-pad; `MeetingEventLog`; `has_speech` / `window_rms`; `live_room_names` — комнаты идущих встреч для рекордеров (база только на чтение) |
 | `meeting_analyze.py` | кнопка **Проанализировать**: полный `meeting.json` (epoch, frames, silent, screen); длительность = max(offset+duration) |
@@ -1313,10 +1343,14 @@ data/projects/{project_id}/
 | `project_access.py` | `user_project_ids` (создал / загрузил / чат / `project_members`); `can_access_project` / `require_project` / `require_artifact_project`: admin — все; иначе свои; чужой/неактивный → 404. `project_role` / `can_grant_access` / `require_project_staff`. `require_admin` — лаб |
 | `project_members.py` | выдача доступа: роли `manager`/`user`, без `admin`; кандидаты из `Login_up.txt`; upsert по login, revoke |
 | `status.py` | artifact status transitions |
-| `auth.py` | JWT, role passwords |
+| `auth.py` | JWT helpers (verify_password legacy) |
 | `user_identity.py` | Логин по имени; склейка дублей; Telegram ID только хранится (без него — `placeholder_telegram_id`: `pending-<логин>`) |
 | `login_allowlist.py` | Допуск: `Login_up.txt`, без учёта регистра, файл читается на каждый вход |
-| `personal_password.py` | личный пароль логина: Argon2id, правила (10–128, не логин и не пароль роли), `set_initial` / `change` / `reset`, `current_version` (кеш 5 с) для проверки сессии в `dependencies._check_personal_password` |
+| `login_roles.py` | Роли из `Login_roles.txt`; дефолт `manager`; подписи для UI |
+| `login_codes.py` | Одноразовые коды входа (хэш, TTL, лимиты) |
+| `b24_auth.py` | Код в личку Битрикс24 (`im.message.add` / `user.get`) |
+| `email_otp.py` | Код на email (SMTP); заказчик и запасной канал |
+| `personal_password.py` | личный пароль сотрудника: Argon2id, правила (10–128, не логин), `set_initial` / `change` / `reset`, `current_version` |
 | `personal_password_console.py` | список логинов и сброс личного пароля из консоли: пункт 7 меню запуска и `scripts/personal_password.py` |
 | `companies.py` | `Companies.txt` → таблица `companies` (при старте и при открытии анкеты); сторона `executor`/`customer` пользователю не показывается; убранная из файла — `active=False` |
 | `user_profile.py` | карточка: правила полей, `complete_onboarding` (всё разом + уведомление о голосе = согласие, `CONSENT_TEXT_VERSION`), `update_own`, `replace_avatar`; админ: `set_company`, `withdraw_voice_consent` (удаляет слепки), `restore_voice_consent`, `reset_profile`; `merge_profiles` при склейке дублей |
@@ -1397,7 +1431,9 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 
 | Таблица | Модель (файл) | Назначение |
 |---------|---------------|------------|
-| `users` | `user.py` | пользователь: имя, роль (`admin`/`manager`/`user`), Telegram, хеш пароля |
+| `users` | `user.py` | пользователь: имя, роль (`admin`/`manager`/`user`), Telegram, `password_hash` (заглушка `pending` — роль больше не из пароля) |
+| `login_codes` | `login_code.py` | одноразовые коды входа (B24/email): хэш, TTL, попытки, IP |
+| `b24_employees` | `login_code.py` | кэш email → id сотрудника Битрикс24 |
 | `user_profiles` | `user_profile.py` | карточка человека при учётке: ФИО, компания, должность, фото, согласие на голос (`users` — как входит, карточка — кто он) |
 | `companies` | `company.py` | справочник компаний; источник истины — `Companies.txt`, таблица — его отражение (§5.17) |
 | `projects` | `project.py` | проект и его настройки (`settings_json`, в т. ч. `memory_platform`) |
@@ -1405,11 +1441,14 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `project_mcp_tokens` | `project_mcp_token.py` | ключи проектного MCP: хеш, права (`scope`), право класть вопросы (`can_submit`), лимит, отзыв |
 | `project_tasks` | `project_task.py` | фоновая задача проекта со статусом и ошибкой (блокирует повторное «Пересобрать») |
 | `manual_tasks` | `manual_task.py` | задача, добавленная менеджером вручную (описание, ответственный, срок `deadline_at`, статус; мягкое удаление `is_active`) — карточка «Задачи», Ш4 |
-| `jira_accounts` | `jira.py` | личный токен Jira пользователя: зашифрован (ключ из `SECRET_KEY`), имя учётки Jira, время проверки, последняя ошибка, ключи проектов, которые токен видел |
-| `jira_project_links` | `jira.py` | привязка проекта портала к проекту Jira: ключ Jira уникален (один ключ — один проект портала), кто привязал, ход загрузки (`status`, `status_text`), время последней проверки, число задач в Jira (`issues_total`) |
-| `jira_items` | `jira.py` | что уже скачано из Jira: задача (`issue`) или вложение (`attachment`) → артефакт портала, сводка проекта (`summary`); отметка «обновлено» из Jira, версия вида документа (`fmt`), причина, по которой вложение не загружено |
-| `jira_grants` | `jira.py` | участие в проекте, выданное потому, что токен пользователя видит проект в Jira; по этой записи участие и снимается |
+| `jira_accounts` | `jira.py` | личный токен Jira пользователя: зашифрован ключом из `SECRET_KEY`, имя учётки, время проверки, последняя ошибка, видимые ключи проектов |
+| `jira_project_links` | `jira.py` | привязка проекта портала к проекту Jira: ключ Jira уникален, кто привязал, ход загрузки (`idle`/`queued`/`running`/`error`), сколько задач в Jira |
+| `jira_items` | `jira.py` | что уже скачано: задача (`issue`), вложение (`attachment`) или сводка (`summary`) → артефакт; отметка обновления, причина пропуска, версия вида документа |
+| `jira_grants` | `jira.py` | участие, выданное потому что токен видит проект в Jira; по этой записи участие и снимается |
 | `project_visits` | `project_visit.py` | заход человека в проект: `seen_at`, отсчёт «нового» `prev_seen_at`, `dismissed_at` («Скрыть»); одна строка на человека и проект — полоска «Что нового», Ш5 |
+| `user_dashboard_projects` | `user_dashboard.py` | личная доска на стартовой: `user_id`, `project_id`, `sort_order`; одна строка на человека и проект. Читает и пишет `GET`/`PUT /me/dashboard`. Удаление проекта снимает строки в `purge_project` |
+| `user_ui_settings` | `user_ui_setting.py` | вид стартовой, ширина колонки и высота задач: `user_id`, `home_layout` (`list` или `dashboard`), `list_width` (пиксели левой колонки, пусто — из вёрстки), `tasks_height` (пиксели панели «Задачи», пусто — из вёрстки). Читает и пишет `GET`/`PUT /me/ui`. Нет строки — список. Сохранение ширины или высоты не включает дашборд |
+| `user_board_dismissals` | `user_board.py` | снятая с доски задача: `user_id`, `project_id`, `kind` (`speakers` или `meeting`), `ref` (id материала или встречи). Одна строка на человека и задачу. `GET /me/board` её не показывает, пока задача ещё открыта. Удаление проекта, материала или созвона снимает строки |
 | `artifacts` | `artifact.py` | загруженный файл проекта и статус обработки; дата записи (`recorded_at`, источник, точность), движки ASR, ссылка на отчёт |
 | `jobs` | `job.py` | очередь обработки для единственного GPU-воркера: вид, фаза, попытки, ошибка |
 | `asr_runs` | `entity.py` | прогон распознавания по артефакту: движок, статус, длительность, ошибка; пишет `pipeline_audio._record_asr_runs` |
@@ -1514,7 +1553,7 @@ SQLite `data/app.db` (личные пароли — отдельная `data/cre
 | `transcript_view.py` | HTML renderer + JS (recalc, summary, reindex); grouped words by segment (`wgrp`) с кнопкой `▣` (`screen-dot`) и бейджем реплики; модалка кадра (`#screen-modal-wrap`, `renderScreenModal`) со скриншотом `<img class="sm-img">` и сворачиваемым `<details class="sm-fold">` для текста; `fmtScreenText()` markdown→HTML |
 | `build_speaker_match_view.py` | HTML страница match |
 | `speaker_registry.py` | enroll/merge в UI |
-| `summarize_call.py` | Map/reduce: `call_summary.md` (протокол) + `call_brief.md` (кратко) из `docker_gigaam_speakers.json`. Lab: HTML через `write_prod_view` |
+| `summarize_call.py` | Map/reduce: `call_summary.md` + `call_brief.md` из `docker_gigaam_speakers.json`; при `PRIMARY_ANALITICS_INTERNAL_PROJECT` — `call_summary_internal.md` / `call_brief_internal.md` + память прошлых резюме; экран Jira → только ссылка/ключ (+ название/статус), без OCR комментариев. Lab: HTML через `write_prod_view` |
 
 ### 8.5. Лаборатория (`asr/lab/`) — боевой конвейер
 
@@ -1581,8 +1620,10 @@ run_pipeline
 | Файл | Используется в |
 |------|----------------|
 | `merge_transcript.md` | merge_ensemble.py |
-| `call_summary.md` | summarize_call.py (итоговое резюме) |
-| `call_brief.md` | summarize_call.py (краткое резюме) |
+| `call_summary.md` | summarize_call.py (итоговое резюме, проекты с заказчиком) |
+| `call_brief.md` | summarize_call.py (краткое резюме, проекты с заказчиком) |
+| `call_summary_internal.md` | summarize_call.py (итоговое резюме внутреннего проекта / дейли) |
+| `call_brief_internal.md` | summarize_call.py (краткое резюме внутреннего проекта) |
 | `doc_summary.md` | summarize_document.py (протокол документа) |
 | `extract_entities_v4.md` | entities.py (извлечение решений и задач, `PROMPT_VERSION=extract_entities-v4`) |
 | `normalize_document.md` | normalize.py (нормализация документов) |
@@ -1617,7 +1658,10 @@ run_pipeline
 
 | Скрипт | Назначение |
 |--------|------------|
-| `qa_all.py` | Единая команда QA: pytest + смоук + аудит целостности + отчёт здоровья (`--per-file`, `--evals`) |
+| `qa_all.py` | Единая команда QA: pytest + смоук + аудит целостности + отчёт здоровья (`--per-file`, `--evals`, `--acceptance` → `acceptance_all.py`) |
+| `acceptance_all.py` | Полный acceptance на новой машине: e2e материалов (GPU) + smoke/qa встреч + mobile + pytest + health + evals → `data/eval/acceptance_*.json` |
+| `portal_smoke.py` | **Основной функциональный смоук портала** (после переноса / крупных правок): стенд (venv/BOM, модели, GigaAM mount, LLM), вход mint + «как человек», create/MCP/delete проекта, документы всех веток, wav+mp4 ASR/диаризация (актуальный способ; при падении — причина + запасной), спикеры→knowledge, search/TZ/chat, граф/задачи/люди/заметка/download/background, встреча join→end→analyze. Без полного UI. Лог + `data/eval/portal_smoke_*.json`. PyCharm: корень + `venv\Scripts\python.exe`. Флаги `--stand-only`, `--keep`. UI комнаты — отдельно `smoke/run_all.py` |
+| `e2e/` | Живой e2e песочницы: preflight, документы всех типов, аудио ASR/диаризация, speakers-confirm, search/TZ/chat (`run_materials.py`); вызывается из `portal_smoke.py` и `acceptance_all.py` |
 | `health_report.py` | Отчёт здоровья по логам/БД с красными признаками |
 | `verify_backup.py` | Проверка бэкапа БД: integrity_check и восстановление во временную папку |
 | `audit_integrity.py` | Аудит целостности (только чтение): «сироты» в БД (23 проверки), векторы чанков (`rowid`), папки проектов и записи комнат без записи в БД, индекс поиска, не совпадающий с нарезкой текущего текста материала (стенограмму переписали после индексации); `--requeue-stale` — такие материалы задачей `refresh_knowledge` в очередь |
@@ -1629,7 +1673,7 @@ run_pipeline
 | `llm_model.py` | Локальная модель по профилю: `status` / `load` / `unload` / `jit-off` (те же функции, что у портала, §3.2) |
 | `mcp_audit.py` | Аудит проектного MCP на живых данных: размер каждого ответа, полнота текста материалов по курсору против файла на диске, память решений, права в инструкции; `--save` → `data/eval/mcp_audit_*.md`, код 1 — провалы (MCP-KB-PLAN) |
 | `bench_llm_lanes.py` | Замер этапа 0 LLM-LANES-PLAN: VRAM и скорость модели в два потока при разных окнах → `data/eval/llm_lanes_bench_*.md` |
-| `smoke/run_all.py` | Смоук на живом сервере (роли, presence, песочничный поток, комната); пароли из `SMOKE_*_PW` |
+| `smoke/run_all.py` | UI/комнатный смоук на живом сервере (роли, presence, плитки, гость, формы); не заменяет `portal_smoke.py`. Пароли/OTP из `SMOKE_*` |
 | `index_project_map.py` | Векторный индекс карты → `data/project_map.db` |
 | `search_project_map.py` | Семантический поиск по карте |
 | `rerun_cursor_merge.py` | Merge+view без ASR (Cursor tuning) |
@@ -1652,6 +1696,7 @@ run_pipeline
 | `scripts/start.ps1` | Запуск API+воркер: `-Llm cursor|gemma` или из `.env` |
 | `scripts/start-cursor.ps1` / `start-gemma.ps1` | Быстрый старт с выбранным LLM |
 | `scripts/stop.ps1` | Остановить сервер и снять lock воркера |
+| `scripts/rename_login.py` | Смена логина в `Login_up.txt` / `Panel_users.txt` / `users` / `credentials.db` (`OLD NEW`) |
 | `run_all.ps1` / `run_api.ps1` / `run_worker.ps1` | Запуск служб |
 | `smoke_cycle.py` | Smoke test |
 | `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
@@ -1681,7 +1726,7 @@ run_pipeline
 | `qa_flows.py` | интерактивные сценарии по порталу в браузере |
 | `qa_navbar.py` | проверка шапки на разных экранах |
 | `qa_room.py` | комната созвона в Chromium с фейковыми устройствами, без паролей (песочница `SMOKE_PROJECT_ID`); проверки индикатора связи изолированы от настоящих оценок LiveKit |
-| `qa_room_ui.py` | комната: раскладка телефона при повороте (с показом экрана и без), пульт (подсказки, переключатели, окна, Esc) на ПК и телефоне, камера после системного выключения, поток `mic_silent`, качество связи после переподключения |
+| `qa_room_ui.py` | комната: раскладка телефона при повороте (с показом экрана и без), пульт (подсказки, переключатели, окна, Esc) на ПК и телефоне; значки на плитках (палочки связи слева сверху, чипы мик/кам, кнопка ↔ чип, статус после камеры); камера после системного выключения, поток `mic_silent`, качество связи после переподключения |
 | `qa_media_path.py` | путь звука и видео: у гостя DFN3 на микрофоне и сырая `primaryanalitics-raw`; что на сервере (микрофон, сырая, слои камеры, рекордер ничего не публикует), растёт ли WAV; у слушателя — одна дорожка на человека, сырую не качает, срез шума в паузах против записи рекордера, громкость речи, потери/джиттер, кадры камеры; «Шумодав» туда-обратно без тишины и двойного звука; выпадение рекордера не трогает звук, запись продолжается; экран одним слоем |
 | `qa_meeting_lifecycle.py` | жизненный цикл встречи на живом сервере: создание, вход до запуска, удаление без запуска, запуск, запись, повторный вход, пульс, отзыв и новая ссылка, запрет удалять идущую, завершение (комната закрыта, дорожки закрыты, не воскресает), удаление записанной встречи и проекта с идущей встречей; запись не возвращается на диск |
 | `qa_analysis.py`, `qa_publish_wav.py` | сквозная проверка «созвон → запись → анализ» на синтезированной русской речи |
@@ -1777,9 +1822,14 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Группа | Переменная | По умолчанию | Зачем |
 |--------|------------|--------------|-------|
-| Вход | `ADMIN_PASSWORD_HASH`, `MANAGER_PASSWORD_HASH`, `USER_PASSWORD_HASH` | пусто | хеши паролей ролей — первый шаг входа; следом личный пароль |
+| Вход | `LOGIN_ROLES_PATH` | `Login_roles.txt` | роли логинов (`login \| role[,…]`); нет строки → manager |
+| Вход | `B24_AUTH`, `B24_WEBHOOK_CHAT`, `B24_WEBHOOK_USER`, `B24_AUTH_DEV` | off | код в Битрикс24; DEV — код в лог |
+| Вход | `EMAIL_OTP`, `EMAIL_OTP_DEV` | off | код на email (заказчик + запасной канал) |
+| Вход | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SMTP_STARTTLS`, `SMTP_SSL` | пусто / 587 / starttls | SMTP для email-кода |
+| Вход | `LOGIN_CODE_TTL_SEC`, `LOGIN_CODE_ATTEMPTS`, `LOGIN_CODE_RATE_LOGIN_PER_HOUR`, `LOGIN_CODE_RATE_IP_PER_HOUR` | 600 / 3 / 3 / 10 | TTL и лимиты одноразовых кодов |
 | Вход | `PERSONAL_PASSWORD_MIN_LEN` | `10` | минимальная длина личного пароля |
-| Вход | `JWT_EXPIRE_MINUTES` | `480` (8 часов) | срок жизни токена сессии |
+| Вход | `ADMIN_PASSWORD_HASH`, `MANAGER_PASSWORD_HASH`, `USER_PASSWORD_HASH` | пусто | устарели: пароли ролей больше не используются для входа |
+| Вход | `JWT_EXPIRE_MINUTES` | `21600` (15 дней) | срок жизни токена сессии |
 | Вход | `LOGIN_ALLOWLIST_PATH` | `Login_up.txt` | кому разрешён вход |
 | Вход | `PANEL_USERS_PATH` | `Panel_users.txt` | чьи логины открывают панель `/admin/users`; нет файла — доступа нет ни у кого |
 | Сеть | `WEB_HOST`, `WEB_PORT` | `127.0.0.1`, `1777` | bind портала (только loopback) |
@@ -1819,22 +1869,25 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Комнаты | `LIVEKIT_HTTP_INTERNAL` | `http://127.0.0.1:7880` | внутренний адрес LiveKit для рекордеров голоса и экрана (`tools/livekit/voice_cleaner.py`, `screen_recorder.py`) |
 | Комнаты | `PRIMARY_ANALITICS_TLS_ISSUE_TIMEOUT_SEC` | `120` | сколько ждать выпуска сертификата при старте |
 | Уведомления | `TELEGRAM_BOT_TOKEN` | пусто | токен бота (уведомления, заглушка) |
-| Jira | `JIRA_BASE_URL`, `JIRA_API_TOKEN` | пусто | адрес Jira и ключ для чтения задач (`services/jira_client.py`, `scripts/jira_pull.py`); пусто — Jira не подключена |
-| Jira | `JIRA_EMAIL` | пусто | почта учётной записи облачной Jira; задана — облако (Basic), пусто — свой сервер (Bearer) |
-| Jira | `JIRA_PROJECT_KEYS` | пусто | ключи проектов Jira через запятую для `scripts/jira_pull.py --all` |
-| Jira | `JIRA_VERIFY_TLS` | `true` | `false` — не проверять сертификат внутреннего сервера Jira |
-| Jira | `JIRA_SYNC_MINUTES` | `30` | как часто портал проверяет обновления в Jira и перепроверяет доступ по токенам; `0` — только по кнопке |
-| Jira | `JIRA_IMPORT_MAX_ISSUES` | `0` | не больше стольких задач на проект Jira, свежие первыми; `0` — все. Ограничение не молчит: видно в ходе загрузки, сводке проекта и сверке |
-| Jira | `JIRA_IMPORT_MEDIA` | `true` | загружать аудио и видео из вложений Jira (уйдут в расшифровку); `false` — пропускать с записью причины |
+| Jira | `JIRA_BASE_URL`, `JIRA_API_TOKEN` | пусто | адрес Jira и ключ для `scripts/jira_pull.py` и MCP `tools/jira_mcp.py`; пустой адрес — карточки Jira нет |
+| Jira | `JIRA_EMAIL` | пусто | почта облачной Jira; задана — облако (Basic), пусто — свой сервер (Bearer) |
+| Jira | `JIRA_PROJECT_KEYS` | пусто | ключи проектов через запятую для `scripts/jira_pull.py --all` |
+| Jira | `JIRA_VERIFY_TLS` | `true` | `false` — не проверять сертификат внутреннего сервера |
+| Jira | `JIRA_SYNC_MINUTES` | `30` | как часто проверять обновления и доступ; `0` — только по кнопке |
+| Jira | `JIRA_IMPORT_MAX_ISSUES` | `0` | не больше стольких задач на проект, свежие первыми; `0` — все |
+| Jira | `JIRA_IMPORT_MEDIA` | `true` | загружать аудио и видео из вложений; `false` — пропускать с причиной |
 | Инструменты | `FFMPEG_DIR`, `FFMPEG_BIN` (и `FFPROBE_BIN`) | не заданы | где искать `ffmpeg` / `ffprobe` вместо поиска по `PATH` |
 | Инструменты | `TESSERACT_CMD` / `TESSERACT_BIN`, `TESSDATA_DIR`, `TESSDATA_PREFIX` | не заданы | OCR: исполняемый файл Tesseract и каталог языков; `TESSDATA_PREFIX` код выставляет сам |
 | Инструменты | `PROJECT_INDEX_DB` | `data/project_map.db` | файл индекса кода проекта (`services/project_index/config.py`) |
 | Инструменты | `LIGHTRAG_URL`, `LIGHTRAG_API_KEY` | `http://127.0.0.1:9621`, пусто | граф знаний LightRAG для `scripts/lightrag_index.py` |
 | Отладка и тесты | `PRIMARY_ANALITICS_STRICT_DB_HOLD` | не задана | `1` — вызов модели при открытой транзакции БД падает исключением вместо предупреждения в журнале |
 | Отладка и тесты | `PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK` | не задана | `1` — не проверять LM Studio при старте (тесты не должны будить модель в GPU) |
+| Отладка и тесты | `PRIMARY_ANALITICS_LMS_EXE` | не задана | путь к CLI `lms`, если установка LM Studio не в `~/.lmstudio/bin` |
 | Отладка и тесты | `PRIMARY_ANALITICS_DISABLE_LLM_KEEPER` | не задана | `1` — хранитель модели не вызывает `lms` (тесты) |
 | Отладка и тесты | `PRIMARY_ANALITICS_STRICT_LLM_LANE` | не задана | `1` — фоновый вызов модели из процесса API падает исключением (тесты), иначе предупреждение `llm.lane.violation` |
 | Отладка и тесты | `PRIMARY_ANALITICS_PROCESS_ROLE` | `worker` | роль процесса для полос модели: `api` ставит `main._serve`, воркеру — `worker` |
+| Смоук / e2e | `E2E_ALLOW_MINT` | не задана | `1` — `scripts/e2e/mint_smoke_token.py` и `portal_smoke.py` выпускают JWT без OTP (только локальный стенд) |
+| Смоук / e2e | `SMOKE_BASE`, `SMOKE_PROJECT_ID`, `SMOKE_LOGIN`, `SMOKE_ROLE`, `SMOKE_BEARER_TOKEN`, `SMOKE_PERSONAL_PW`, `SMOKE_OTP_CODE`, `SMOKE_TG` | `https://127.0.0.1:777`, `29`, … | адрес и песочница для `portal_smoke.py` / `scripts/smoke/*`; секреты только в окружении сессии |
 
 ---
 
@@ -1873,7 +1926,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 7. **Граф зависимостей** (§16): после правок кода — `venv\Scripts\python.exe scripts\export_project_graph.py` (пересобирает `data/project_map_graph.json`, `docs/project-map/graph-modules.json` и атлас `DEPENDENCIES.md`).
 8. **Инвентарь стенда** (§17): появилось новое окружение, инструмент, каталог данных или модель — допишите `docs/project-map/stand.yaml` и выполните `venv\Scripts\python.exe scripts\check_stand_inventory.py --docs` (тест `app/app/tests/test_stand_inventory.py` следит, чтобы карта не отставала от диска).
 9. **Принуждение.** Карту держат git-хуки: `pre-commit` (`scripts/check_map_staged.py`) сверяет карту с индексом git — проверяются те же вещи, что в `check_map_drift.py` и `test_map_coverage.py`, — а `commit-msg` (`scripts/check_map_commit_msg.py`) при правке роутеров, моделей, `config.py`, шаблонов, JS/CSS и `.env.example` требует карту в коммите или строку `Карта: не требуется — причина`. Хуки ставит `scripts/install_hooks.ps1` (его зовут `INSTALL.bat` и `restart.ps1`); состояние — `scripts/index_doctor.py`. Тем же `pre-commit` (блок `PrimaryAnalitics-PRIVACY`) `scripts/scan_personal_data.py --staged` не пускает в коммит имена людей и названия компаний из базы портала, а блок `PrimaryAnalitics-DATA` (`scripts/check_no_data_files.py --staged`) — БД, `data/`, личные списки, документы, медиа и веса моделей. Обход (`--no-verify`) запрещён, `AGENTS.md`.
-10. Агенты: правило `.cursor/rules/07-project-map.mdc`.
+10. Агенты: правила `.cursor/rules/07-project-map.mdc`, `.cursor/rules/11-change-workflow.mdc` (причина не заплатка; перед правкой: карта → затронутые блоки → регресс/e2e → код; карта актуальна после любой работы).
 
 *Актуальность карты: дата последней проверки инвентаря стенда — в §17, история правок — `git log docs/PROJECT-MAP.md`; журнал прежних обновлений — в «Архиве разработки».*
 
@@ -1932,6 +1985,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `exchange_file.py` | Модели ExchangeBundle и ExchangeFile — посылки файлов от внешнего агента (карты конфигурации, дипмапы сущностей). |
 | `jira.py` | Модели подключения Jira (docs/plans/JIRA-INTEGRATION-PLAN.md, этап 2). |
 | `job.py` | Модель Job — задача очереди обработки (таблица jobs). |
+| `login_code.py` | Одноразовые коды входа (Битрикс24 / email). |
 | `manual_task.py` | Модель ManualTask — задача проекта, которую менеджер добавил вручную (таблица manual_tasks, PORTAL-ACCURACY-MANAGER-PLAN Ш4). |
 | `meeting.py` | Модели встреч: Meeting и MeetingParticipant (присутствие участников). |
 | `person.py` | Реестр людей проекта (docs/plans/PLATFORM-FOUNDATION-PLAN.md, ПФ1). |
@@ -1945,7 +1999,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `speech_act.py` | Речевые акты реплик (docs/plans/DECISION-MEMORY-PLAN.md, Э2): что делает каждая реплика переписки или созвона в обсуждении решений. |
 | `user.py` | Модель User — пользователь (имя, роль, Telegram). |
 | `user_activity_log.py` | Модель UserActivityLog — журнал действий пользователей. |
+| `user_board.py` | Снятые с личной доски задачи (таблица user_board_dismissals): человек убрал строку, работа ещё не сделана. |
+| `user_dashboard.py` | Проекты на личной доске пользователя (таблица user_dashboard_projects). |
 | `user_profile.py` | Модель UserProfile — карточка человека (1:1 с users): ФИО, компания, должность, фото, согласие на голос. |
+| `user_ui_setting.py` | Настройка интерфейса пользователя (таблица user_ui_settings): стартовая страница, ширина колонки и высота задач. |
 
 **`app/app/routers/`**
 
@@ -1956,13 +2013,13 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `admin_map_graph.py` | Страница «Граф зависимостей» (/admin/map/graph): все сущности проекта и все связи между ними. Только admin. |
 | `admin_memory.py` | Табло памяти решений /admin/memory: метрики качества, чек-лист приёмки платформы, история прогонов (ПФ10). |
 | `admin_users.py` | Панель пользователей для владельца: /admin/users — кто зарегистрирован и что делал (по всем проектам). |
-| `auth.py` | Вход и выход: `/auth/login` (роль определяется паролем), `/auth/logout`. |
+| `auth.py` | Вход и выход. |
 | `companies_admin.py` | Список компаний в портале (PLATFORM-FOUNDATION-PLAN, ПФ4): просмотр — админ и менеджер, правка — админ. |
-| `jira.py` | Jira на главной странице: подключение личным токеном, список проектов Jira, загрузка выбранных, обновление и привязка. |
+| `jira.py` | Jira: подключение личным токеном из настроек, список проектов Jira, загрузка выбранных, обновление и привязка. |
 | `knowledge.py` | Знания проекта: поиск по смыслу, граф, сущности, заметки и связи, конфликты, ТЗ и его версии, чат, дедлайны. |
 | `meetings.py` | Встречи проекта и гостевой вход: создание, старт, завершение, отзыв ссылки, вход и выход гостя, присутствие. |
 | `pages.py` | HTML-страницы портала и отчёты: вход, проекты, встречи, отчёты артефактов, отдача аудио и скачивание. |
-| `people.py` | Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`). |
+| `people.py` | Карточки людей: фото (`/people/{id}/avatar`), своя карточка (`/me/profile`, `/me/avatar`), личная доска (`/me/dashboard`), настройки (`GET / |
 | `project_background.py` | Фоновая работа по проекту: ход, перепроверка, переизвлечение, повтор ошибок, остановка (ПФ9 PLATFORM-FOUNDATION-PLAN). |
 | `project_mcp.py` | Ключи проектного MCP, сам MCP-эндпоинт и обмен с внешним агентом: настройки, вердикты, ящик вопросов, журнал, посылки файлов. |
 | `project_members.py` | Выдача доступа к проекту: список участников, добавление с ролью manager/user, удаление (/projects/{id}/members). |
@@ -1993,6 +2050,8 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `auth.py` | Хеширование и проверка паролей. |
 | `auto_review.py` | Автопроверка локальной моделью: режим (off / shadow / live), запись вердикта модели, отмена человеком, контрольная выборка. |
 | `avatars.py` | Фото пользователя: проверка, выпрямление, удаление метаданных, квадрат 512 и 96 px WebP в `data/people/<user_id>/`. |
+| `b24_auth.py` | Вход через код в личку Битрикс24 (порт логики iv-cowork). |
+| `board_tasks.py` | Задачи личной доски: неназванные голоса у загрузившего и неотправлённый анализ у создателя комнаты. |
 | `build_info.py` | Признак «код на диске новее запущенного сервера» (пункт плана 1.3). |
 | `chat.py` | Чат с ИИ по материалам проекта: история и указания пользователя, уточняющие вопросы, поиск фрагментов и сущностей, сборка контекста, ответ L |
 | `chat_export.py` | Выгрузка переписки Telegram Desktop (``messages.html``) → сообщения с номером, автором, временем и ответом |
@@ -2006,6 +2065,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `contract.py` | Контракт обмена «база знаний ↔ агент анализа конфигурации» (v1.0). |
 | `contract_quality.py` | Точность разбора требований по решениям людей и выборочная проверка (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш1). |
 | `contract_text.py` | Разбор текста для контракта обмена с агентом анализа: сообщения переписки, дословные цитаты, оценки часов, якоря кода. |
+| `dashboard.py` | Личная доска проектов на стартовой странице: порядок карточек справа у каждого пользователя. |
 | `decision_log.py` | Журнал событий и состояние предмета на дату (docs/plans/DECISION-MEMORY-PLAN.md, Э4). Чистый код, модель не вызывается. |
 | `decision_memory_view.py` | Память решений для чтения: список предметов, предмет с лентой и журналом, состояние на дату. |
 | `doc_anchors.py` | Привязка уже извлечённых пунктов документов к абзацам ``P<n>`` без модели (docs/plans/DECISION-MEMORY-PLAN.md, Э1). |
@@ -2014,6 +2074,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `docker_runtime.py` | Автозапуск Docker Desktop и ASR-контейнеров перед обработкой аудио. |
 | `docx_extract.py` | DOCX → markdown в порядке документа: заголовки (#), абзацы, списки, таблицы на своих местах, надписи, колонтитулы. |
 | `edge_runtime.py` | HTTPS (Caddy) and LiveKit room — поднимает main вместе с порталом. |
+| `email_otp.py` | Код входа на email: роль user и запасной канал для сотрудников. |
 | `entities.py` | Извлечение сущностей (задачи, упоминания, участники, решения, факты) из нормализованного текста через LLM: разбиение, промпт, разбор JSON и  |
 | `exchange_files.py` | Посылки файлов от внешнего агента: манифест, приём частями с докачкой и проверкой sha256, выдача частями. |
 | `exchange_unpack.py` | Раскладка принятой посылки файлов в рабочую копию проекта: распаковка gzip и zip с проверкой, без исполнения содержимого. |
@@ -2032,7 +2093,10 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `llm.py` | Единый адаптер LLM (LM Studio или Cursor API): вызовы без reasoning (`*_no_think`), разбор JSON, самопроверка обхода reasoning при старте. |
 | `llm_keeper.py` | Хранитель локальной модели: загрузка строго по профилю `tools/lmstudio/qwen-profile.json`, сверка после загрузки, |
 | `llm_lanes.py` | Две полосы локальной модели (план docs/plans/LLM-LANES-PLAN.md). |
+| `local_record_remux.py` | Remux локальной записи созвона (WebM/MP4 от MediaRecorder) в seekable MP4 через ffmpeg. |
 | `login_allowlist.py` | Допуск на вход: только логины из Login_up.txt, без учёта регистра. |
+| `login_codes.py` | Выдача и проверка одноразовых кодов входа (B24 / email). |
+| `login_roles.py` | Роли логина из Login_roles.txt: админ правит файл, портал читает на каждый вход. |
 | `mcp_journal.py` | Журнал чтения проектного MCP (docs/plans/MCP-KB-PLAN.md, Э4): кто, чем и сколько читал — без содержимого ответов. |
 | `mcp_page.py` | Порции ответов проектного MCP (docs/plans/MCP-KB-PLAN.md, В1): бюджет байт на вызов, нарезка текста и списков по курсору. |
 | `media_cleanup.py` | Чистка исходников: удаление видео после проверки извлечённого WAV и сверка пути исходника артефакта. |
@@ -2117,6 +2181,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `transcript_turns.py` | Реплики созвона из канона ``_final.txt``: кто, с какой по какую секунду, что сказал. |
 | `tz.py` | Техническое задание проекта: пересборка `current_tz.md` из материалов (быстрый путь top-K и полный map/reduce), версии, оценка объёма, челов |
 | `tz_sections.py` | Итоговая выжимка по разделам из памяти решений и задач (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Д2). |
+| `ui_settings.py` | Настройки интерфейса пользователя: стартовая страница, ширина колонки и высота задач. |
 | `upload.py` | Приём файлов: определение типа, приоритет, длительность через ffprobe, сохранение потока, хеш, поиск дубликатов и создание записи артефакта. |
 | `user_activity.py` | Журнал действий пользователя (аудит). |
 | `user_identity.py` | Учётка по имени (логину). Telegram ID только хранится и обновляется. |
@@ -2146,11 +2211,12 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `admin_map_graph.js` | Страница «Граф зависимостей» (/admin/map/graph): Cytoscape-схема узлов и связей проекта. |
 | `app.css` | Общие стили портала Primary Analytics: шапка, адаптив под телефон и планшет, таблицы, кнопки |
 | `app.js` | Общий JS портала (объект PrimaryAnalitics): сессия и навигация, бейдж LLM, API-запросы, блокировка кнопок, склонения. |
-| `background.js` | Дальнейшая обработка проекта (ПФ9, бывшая карточка «Фоновая работа»): ход разбора, перепроверка, переизвлечение, повтор ошибок. |
+| `background.js` | Дальнейшая обработка проекта: строка хода текущей очереди, ошибки, перепроверка и переизвлечение. |
 | `design.css` | Единая дизайн-система Primary Analytics (v2, 2026-09-19). |
 | `errors_ru.js` | Единая карта «английский detail API → русский текст» (пункт плана 3.14). |
 | `meeting_layout.js` | Раскладка плиток встречи (PrimaryAnaliticsLayout): порядок экранов и камер, флаги микрофона/камеры, план звука. |
 | `meeting_layout.selfcheck.js` | Самопроверка meeting_layout.js в браузере (console.assert), без тестового фреймворка. |
+| `meeting_local_record.js` | Локальная запись комнаты на ПК сотрудника: композит плиток + микс звука → WebM/MP4. |
 | `meeting_room.js` | Клиент встречи LiveKit: вход, микрофон/камера/экран, смена устройств на ходу, плитки, список участников. |
 | `memory.js` | Память решений проекта: список предметов, история решения, состояние на дату, поправка итога человеком. |
 | `people.js` | Люди и стороны проекта (PLATFORM-FOUNDATION-PLAN, ПФ3): реестр людей, «Кто это?», стороны компаний. |
@@ -2180,7 +2246,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `conflicts.html` | Очередь конфликтов фактов (/admin/conflicts, только admin): выбрать верное утверждение с причиной |
 | `error.html` | Страница ошибки HTML (403/404/500) с понятным текстом на русском |
 | `graph.html` | Граф знаний проекта в Cytoscape (/projects/{id}/graph) |
-| `index.html` | Список проектов (/): создание, описание, переименование и удаление проекта, кнопка «Исправлено» со списком изменений |
+| `index.html` | Стартовая (/). Вопрос экрана: с чем я сейчас работаю и где остальные проекты. Это доска проектов, не экран метрик: чисел и графиков нет — си |
 | `login.html` | Страница входа: логин из Login_up.txt, Telegram ID, пароль роли; шаг 2 — личный пароль (создать или ввести); шаг 3 — карточка (ФИО, компания |
 | `meeting_lab.html` | Лаборатория созвона (admin): этапы обработки каждой дорожки встречи; пока идёт прогон, страница обновляется сама |
 | `meeting_public.html` | Гостевая страница встречи /m/{token}: лобби, проверка камеры и микрофона, комната без входа в портал |
@@ -2193,7 +2259,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Файл | Назначение |
 |---|---|
 | `agents_hub.html` | Агенты и MCP: один сворачиваемый блок с вкладками — удалённый доступ по ключу, обмен с агентами, настройки для агентов. Переключение и запом |
-| `background_progress.html` | Дальнейшая обработка проекта (бывшая карточка «Фоновая работа», ПФ9 PLATFORM-FOUNDATION-PLAN) — внутри «Материалов проекта», под ходом расши |
+| `background_progress.html` | Дальнейшая обработка проекта — строка в «Материалах проекта» под ходом расшифровки. Свёрнута: что идёт сейчас. Раскрыта: полоска этой очеред |
 | `project_hub.html` | О проекте: один сворачиваемый блок с вкладками — подтверждение требований, вопросы к заказчику, карточка проекта, люди и стороны, память реш |
 
 **`app/app/workers/`**
@@ -2277,6 +2343,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 
 | Файл | Назначение |
 |---|---|
+| `acceptance_all.py` | Полный acceptance на новой машине: материалы (GPU) + smoke/qa + pytest + health + evals. |
 | `align_people_sides.py` | Привести людей проектов к правилу «сторона — от компании в проекте» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ2, решение Р1). |
 | `audit_integrity.py` | Аудит целостности данных (пункт плана 4.9): осиротевшие строки и файлы, устаревший индекс поиска. Только чтение. |
 | `auto_review_backlog.py` | Проверить моделью всё накопленное в проекте (этап 5 docs/plans/AUTO-REVIEW-PLAN.md) — ставит фоновые задачи в очередь. |
@@ -2341,6 +2408,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `people_flow_report.py` | Отчёт расхождений «компания → сторона → человек → учётка → голос» (docs/plans/PEOPLE-FLOW-PLAN.md, ЛГ0). |
 | `people_voice.py` | Согласие внешнего человека на голос: отзыв делается только здесь (PLATFORM-FOUNDATION-PLAN, Д4/Д5). |
 | `personal_password.py` | Личные пароли из командной строки — на случай, когда портал запущен службой, а не из PyCharm. |
+| `portal_smoke.py` | Полный функциональный смоук портала (без полного UI). |
 | `projectmap.py` | Запуск инструмента projectmap из репозитория: `venv\Scripts\python.exe scripts\projectmap.py check`. |
 | `qa_all.py` | Единая команда QA (пункт плана 5.5): одна команда — одна картина «стабильно ли продукт». |
 | `qa_analysis.py` | Сквозная проверка «созвон → запись → анализ» без людей, на настоящей русской речи. |
@@ -2363,6 +2431,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `refresh_portal_knowledge.py` | Пересобрать выжимки созвонов, индекс, сущности и ТЗ по проекту(ам). |
 | `reindex_messages.py` | Переиндексация переписок по сообщениям (docs/plans/PORTAL-ACCURACY-MANAGER-PLAN.md, Ш2). |
 | `reindex_screen_calls.py` | Переиндексация созвонов с показом экрана без дублей «Речь на экране» (2026-10-15). |
+| `rename_login.py` | Одноразовая смена логина в app.db / credentials.db / файлах допуска. |
 | `reprocess_documents.py` | Переобработка загруженных документов новым извлечением таблиц (docs/plans/DOCUMENT-TABLES-PLAN.md, шаг 8). |
 | `rerun_cursor_merge.py` | Пересклейка merge + view для артефакта (Cursor, без ASR и без Gemma). |
 | `rerun_transcript_integrity.py` | Пересчёт global integrity + plain без повторного LLM-merge. |
@@ -2407,6 +2476,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | `smoke_flow.py` | Песочница: загрузка документа -> встреча -> гость и сотрудник входят (API). |
 | `smoke_forms.py` | Формы (пункт 3.18): вход по Enter; название проекта из пробелов отклоняется по-русски и ничего не создаёт. |
 | `smoke_guest_lobby.py` | Гостевой вход (пункты 3.3/3.12): кнопка «Войти во встречу» видна без прокрутки на типовых размерах. |
+| `smoke_meeting_record.py` | Смоук обёртка: делегирует scripts/e2e/e2e_meeting_record.py. |
 | `smoke_perm.py` | Роли на одной учётке не перебивают друг друга (пункт 1.2). |
 | `smoke_presence.py` | Presence симметричен (пункт 1.1): у сотрудника есть heartbeat и leave. |
 | `smoke_room.py` | Комната: два участника, завершение встречи замечается, кнопка смены камеры (браузер). |
@@ -2540,7 +2610,7 @@ MCP-сервер `primaryanalitics-index` (инструменты `graph_neighbo
 
 <!-- generated:begin stand -->
 
-_Проверено 2026-11-11 21:13: сущностей 132, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
+_Проверено 2026-11-20 17:45: сущностей 149, не описано 0, пропало 0. Список — `docs/project-map/stand.yaml`, проверка — `scripts/check_stand_inventory.py`._
 
 ### 17.1. Корень проекта
 
@@ -2549,23 +2619,25 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `.env` | секреты | боевые пароли ролей и ключи (не в git) | нет |
 | `.env.example` | шаблон | образец .env со всеми переменными | да |
 | `.gitignore` | git | что не попадает в репозиторий | да |
-| `.kiloignore` | чужой инструмент | исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел) | нет |
-| `.kilo` | чужой инструмент | рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится) | нет |
-| `.mcp.json` | MCP | локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py), projectmap (tools/projectmap: search, symbol, file, callers, callees, neighbors, impact, stats, coverage) и primaryanalitics-jira (tools/jira_mcp.py) | да |
+| `.kiloignore` | чужой инструмент | исключения и контекст для стороннего сканера kilo (не часть проекта, контекст устарел) _(может отсутствовать)_ | — |
+| `.kilo` | чужой инструмент | рабочая папка стороннего инструмента kilo (не часть проекта, в git не хранится) _(может отсутствовать)_ | — |
+| `.mcp.json` | MCP | локальные MCP-серверы: primaryanalitics-index (tools/projindex_mcp.py), projectmap и primaryanalitics-jira (tools/jira_mcp.py, только чтение) | да |
 | `.claude` | агент | конфиг Claude Code: launch.json, worktrees | да |
 | `.projectmap` | конфиг | конфиг инструмента projectmap для этого проекта: граф, осознанные исключения с причинами, цели охвата по слоям карты | да |
 | `.cursor` | агент | правила агента (10 .mdc) и скилы (в т. ч. ui-ux-pro-max) | да |
-| `AGENTS.md` | инструкции | правила работы агента: индекс, коммиты, «Исправлено» | да |
+| `AGENTS.md` | инструкции | правила работы агента: индекс, порядок правки (карта→тесты→код), коммиты, «Исправлено» | да |
 | `AUDIT_REPORT.md` | отчёт | внешний аудит 2026-08: находки с первопричинами (исторический документ) | да |
 | `Companies.example.txt` | шаблон | образец справочника компаний | да |
 | `Companies.txt` | данные | справочник компаний и сторон проектов (не в git) | нет |
 | `INSTALL.bat` | установка | установка проекта на новом ПК одной командой | да |
-| `INSTALL.md` | инструкция | пошаговая установка и перенос проекта | да |
+| `INSTALL.md` | инструкция | установка и перенос: что скачать вручную, версии моделей/pip, чеклист после смены диска, смоук/acceptance | да |
 | `Login_up.example.txt` | шаблон | образец списка допущенных логинов | да |
 | `Login_up.txt` | данные | кто имеет право входить в портал (не в git) | нет |
+| `Login_roles.example.txt` | шаблон | образец ролей логинов (admin/manager/user) | да |
+| `Login_roles.txt` | данные | роли учёток при входе (не в git) | нет |
 | `Panel_users.example.txt` | шаблон | образец списка логинов с доступом к панели /admin/users | да |
 | `Panel_users.txt` | данные | логины с доступом к панели /admin/users, по строке на логин (не в git) _(может отсутствовать)_ | нет |
-| `logo_drafts` | черновик | наброски логотипа: SVG-варианты и скрипты их генерации (не в git) _(может отсутствовать)_ | нет |
+| `logo_drafts` | черновик | наброски логотипа: SVG-варианты и скрипты их генерации (не в git) _(может отсутствовать)_ | — |
 | `opencode.json` | агент | конфиг агента opencode: модель LM Studio qwen3.8-27b | да |
 | `pytest.ini` | тесты | настройки pytest (маркеры gpu/slow, пути тестов) | да |
 | `README.md` | документ | обзор проекта для человека | да |
@@ -2576,9 +2648,9 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `docs` | документы | план, карта, решения, этапы, промпты, планы, эталоны | да |
 | `experiments` | эксперименты | опыты вне рабочего контура: TTS (f5tts, fishspeech), видео (promo_video, procedural-film), диаризация (nemo-diar, diar-presets), Audio, for_anar | да |
 | `Nemotron-3-Diarization` | модель | веса Nemotron 3 Diarization (.nemo) — канон диаризации; не в git _(может отсутствовать)_ | нет |
-| `private` | личное | заметки вне git: 1C-ARCHITECT-PLAN.md, handoff/BRIEF-1C-DATASET-AGENT.md (локальный .git/info/exclude) | нет |
+| `private` | личное | заметки вне git: 1C-ARCHITECT-PLAN.md, handoff/BRIEF-1C-DATASET-AGENT.md (локальный .git/info/exclude) _(может отсутствовать)_ | — |
 | `scripts` | код | служебные скрипты: запуск, QA, индекс, eval, утилиты (§10) | да |
-| `tests` | пусто | остаток: только __pycache__; рабочие тесты — app/app/tests и asr/tests | нет (не в git) |
+| `tests` | пусто | остаток: только __pycache__; рабочие тесты — app/app/tests и asr/tests _(может отсутствовать)_ | — |
 | `tools` | инструменты | портативные бинарники и внешние сервисы (см. ниже) | да |
 | `vendor` | вендор | GigaAMGUI — клон для сборки контейнера GigaAM; не в git _(может отсутствовать)_ | нет |
 | `venv` | окружение | Python 3.10.9 портала и всех служебных скриптов _(может отсутствовать)_ | нет |
@@ -2592,22 +2664,28 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `docs/eval` | эталоны | золотые наборы для замеров: конфликты, вопросы, факты ТЗ | да |
 | `docs/plans` | планы | 20 планов развития: индекс, встречи, требования, память решений | да |
 | `docs/project-map` | карта | манифест, инвентарь стенда, атлас зависимостей, свод по модулям | да |
-| `docs/prompts` | промпты | 25 промптов LLM: выжимки, сущности, ТЗ, чат, vision | да |
+| `docs/prompts` | промпты | 27 промптов LLM: выжимки (в т.ч. internal), сущности, ТЗ, чат, vision | да |
 | `docs/source` | материалы | исходные материалы (в git только README) | да |
 | `docs/stages` | этапы | STAGE-00…10 с критериями готовности | да |
 | `docs/AGENT1C-BRIDGE.md` | документ | адреса и порты связи с агентом 1С | да |
 | `docs/AUDIT-REPAIR-LOG.md` | журнал | журнал исправлений по аудиту | да |
+| `docs/BACKGROUND-PROGRESS-WORK-REPORT.md` | отчёт | ход дальнейшей обработки: полоска только текущей очереди, без вчерашних задач и без ошибок | да |
+| `docs/BROWSER-BUTTONS-WORK-REPORT.md` | отчёт | плашка браузера гасит показ экрана на пульте; микрофон и камера после значка браузера включаются снова | да |
+| `docs/CHAT-ACCURACY-WORK-REPORT.md` | отчёт | точность ответов чата по созвону: оглавление без готового итога, кадр рядом с репликой той же минуты, прогон вопросов | нет (не в git) |
 | `docs/CHANGELOG-DEV.md` | журнал | журнал разработки из git (генерируется) | да |
 | `docs/DECISIONS.md` | решения | что нельзя менять без пользователя | да |
 | `docs/FINDINGS-2026-09.md` | находки | открытые и закрытые находки сентября | да |
 | `docs/HOWTO-MANAGER.md` | инструкция | как работать менеджеру проекта | да |
-| `docs/JIRA-INTEGRATION-WORK-REPORT.md` | отчёт | подключение Jira: что сделано, что найдено при проверке, что осталось | да |
+| `docs/JIRA-INTEGRATION-WORK-REPORT.md` | отчёт | подключение Jira: что сделано, что найдено при проверке, что осталось | нет (не в git) |
+| `docs/JIRA-COMPLETENESS-WORK-REPORT.md` | отчёт | проверка полноты забора из Jira 2026-11-19: сводка с ролями и номерами, повторное скачивание пропавшего файла | нет (не в git) |
+| `docs/LOCAL-RECORD-WORK-REPORT.md` | отчёт | локальная запись созвона: MP4 при живой странице, WebM при обрыве, плашка «не закрывайте» | да |
 | `docs/OPERATIONS.md` | инструкция | эксплуатация: запуск, бэкапы, индекс, разбор сбоев | да |
 | `docs/PLAN-AGENT-EXCHANGE-V2.md` | план | фазы обмена с внешним агентом | да |
 | `docs/PLAN-REVIEW.md` | ревизия | результаты ревизии плана | да |
 | `docs/PLAN.md` | план | единый пошаговый план проекта | да |
 | `docs/PROJECT-MAP.md` | карта | карта проекта: архитектура, API, модули, инварианты | да |
 | `docs/PYCHARM-CUDA-ENCODER.md` | документ | настройка CUDA-кодировщика в PyCharm | да |
+| `docs/RECOVERY-REPORT-2026-11-07.md` | отчёт | восстановление портала после переноса на D: проекты, документы, созвоны, базы знаний | нет (не в git) |
 | `docs/TESTING.md` | тесты | стратегия и команды тестирования | да |
 | `docs/UI-COPY.md` | реестр | реестр текстов интерфейса (генерируется) | да |
 
@@ -2616,6 +2694,8 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | Путь | Вид | Назначение | В git |
 |---|---|---|---|
 | `tools/android` | эмулятор | Android SDK, JDK, AVD pixel7, platform-tools — мобильные проверки комнаты; не в git _(может отсутствовать)_ | нет (не в git) |
+| `tools/Python310` | окружение | портативный CPython 3.10 для INSTALL на машине без системного Python; не в git _(может отсутствовать)_ | нет |
+| `tools/python-3.10.11-amd64.exe` | установщик | офлайн-инсталлятор Python 3.10.11; не в git _(может отсутствовать)_ | нет |
 | `tools/caddy` | сервис | caddy.exe, Caddyfile, apache-acme.conf — HTTPS :777 и выпуск сертификата; бинарник не в git _(может отсутствовать)_ | да |
 | `tools/ffmpeg` | бинарник | портативный FFmpeg (если нет в PATH); не в git _(может отсутствовать)_ | нет |
 | `tools/libreoffice` | бинарник | LibreOffice headless: .doc/.xls/.ppt/.odt в конвейере документов; не в git _(может отсутствовать)_ | нет |
@@ -2625,7 +2705,7 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `tools/projectmap` | инструмент | переносимый инструмент карты проекта projectmap: ядро, адаптеры, CLI, тесты (план docs/plans/PROJECTMAP-PLAN.md) | да |
 | `tools/tesseract` | бинарник | OCR rus+eng и tessdata; бинарник не в git, языковые данные в git _(может отсутствовать)_ | да |
 | `tools/projindex_mcp.py` | MCP | MCP-сервер индекса карты (stdio): поиск по коду и графу | да |
-| `tools/jira_mcp.py` | MCP | MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи Jira для агента разработки; ключ из .env | да |
+| `tools/jira_mcp.py` | MCP | MCP-сервер Jira (stdio), только чтение: проекты, статусы и задачи для агента разработки; ключ из .env | да |
 | `tools/_monitor_snapshot.py` | утилита | снимок состояния для мониторинга | да |
 
 ### 17.4. Окружения (`venvs/`)
@@ -2671,7 +2751,7 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | Путь | Вид | Назначение | В git |
 |---|---|---|---|
 | `asr/docker` | образы | Dockerfile контейнеров ASR: tone.Dockerfile, tone_rest.py | да |
-| `asr/experiments` | пусто | остатки экспериментов ASR (только __pycache__) | нет (не в git) |
+| `asr/experiments` | пусто | остатки экспериментов ASR (только __pycache__) _(может отсутствовать)_ | — |
 | `asr/gigaam-keys` | ключи | ключи доступа к GigaAM-контейнеру; не в git | нет |
 | `asr/gigaam-logs` | логи | логи прогонов GigaAM; не в git | нет |
 | `asr/gigaam-patches` | патчи | патчи образа GigaAM (vad.py) | да |
@@ -2679,7 +2759,7 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `asr/gigaam-uploads` | обмен | аудио для GigaAM-контейнера; не в git | нет |
 | `asr/lab` | контур | боевой лабораторный конвейер: стадии 01–07, диаризация, proof, voice (§8.5) | да |
 | `asr/models` | модели | локальные модели: faster-whisper-large-v3, gigaam-v3-e2e-rnnt, t-one, whisper-sherpa; не в git _(может отсутствовать)_ | нет |
-| `asr/out` | вывод | dev-вывод ASR (в прод-контуре не читается); не в git | нет |
+| `asr/out` | вывод | dev-вывод ASR (в прод-контуре не читается); не в git _(может отсутствовать)_ | — |
 | `asr/tests` | тесты | unit-тесты модулей ASR | да |
 | `asr/whisper-cache` | кэш | HF-кэш faster-whisper; не в git _(может отсутствовать)_ | да |
 | `asr/work` | обмен | bridge для Docker-контейнеров ASR (общий mount); не в git | нет |
@@ -2703,9 +2783,15 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 
 | Путь | Вид | Назначение | В git |
 |---|---|---|---|
+| `.cursor/rules/11-change-workflow.mdc` | правило | причина не заплатка; карта→тесты→код; карта актуальна после любой работы | нет (не в git) |
 | `scripts/PrimaryAnalitics-1-Остановить.bat` | лаунчер | двойной щелчок: остановить портал и воркер | да |
 | `scripts/PrimaryAnalitics-2-Запуск-Cursor.bat` | лаунчер | двойной щелчок: запуск с LLM в облаке (Cursor API) | да |
 | `scripts/PrimaryAnalitics-3-Запуск-LM-Studio.bat` | лаунчер | двойной щелчок: запуск с локальной моделью (LM Studio) | да |
+| `scripts/SKKKK-1-Остановить.bat` | лаунчер | устаревший ярлык (историческое имя SKKKK) → PrimaryAnalitics-1 | да |
+| `scripts/SKKKK-2-Запуск-Cursor.bat` | лаунчер | устаревший ярлык → PrimaryAnalitics-2 | да |
+| `scripts/SKKKK-3-Запуск-LM-Studio.bat` | лаунчер | устаревший ярлык → PrimaryAnalitics-3 | да |
+| `scripts/portal_smoke.py` | смоук | основной функциональный смоук портала после переноса (без полного UI); §10 карты, docs/TESTING.md | нет (не в git) |
+| `scripts/e2e` | код | сквозные e2e материалы/knowledge и mint JWT для acceptance / portal_smoke (§10) | да |
 | `scripts/index_config.yaml` | конфиг | что индексировать: файлы, исключения, версия схемы, маскирование секретов | да |
 | `scripts/index_glossary.yaml` | конфиг | словарь синонимов для поиска по карте | да |
 | `scripts/voice_review.html` | шаблон | страница разбора голосов на слух: копируется voice_review.py build в data/people/voice_review/ | да |
@@ -2722,8 +2808,10 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 |---|---|
 | `docs/prompts/assign_topics.md` | Промпт: раскладка пунктов проекта по темам |
 | `docs/prompts/call_brief.md` | Промпт: сжатое резюме созвона по стенограмме |
+| `docs/prompts/call_brief_internal.md` | Промпт: краткое резюме внутреннего созвона команды |
 | `docs/prompts/call_outline.md` | Промпт: оглавление созвона (контекст для извлечения требований) |
 | `docs/prompts/call_summary.md` | Промпт: протокол встречи по стенограмме |
+| `docs/prompts/call_summary_internal.md` | Промпт: резюме внутреннего созвона команды (дейли / ретро / разбор) |
 | `docs/prompts/doc_summary.md` | Промпт: протокол по документу |
 | `docs/prompts/document_passport.md` | Промпт: паспорт документа (документы в памяти решений) |
 | `docs/prompts/extract_entities.md` | Промпт: извлечение сущностей |
@@ -2770,6 +2858,7 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `docs/plans/meeting-native-diar.md` | Native-дорожки созвона: кто говорит и нужна ли диаризация |
 | `docs/plans/MEETING-PLAN.md` | PrimaryAnalitics — Созвон: единый план до production-ready (комната → запись → расшифровка → знания) |
 | `docs/plans/meeting-room-plan.md` | PrimaryAnalitics: страница созвона — план доработки по тестовому созвону 12 |
+| `docs/plans/MEETING-ROOM-STABILITY-PLAN.md` | Комната созвона: план стабилизации |
 | `docs/plans/MEETING-SCREEN-PLAN.md` | PrimaryAnalitics — Запись экрана: полный план (C1–C4) |
 | `docs/plans/NEMOTRON-DIARIZATION-PLAN.md` | Диаризация на Nemotron 3 (8 спикеров) вместо Sortformer 4spk — план |
 | `docs/plans/PEOPLE-FLOW-PLAN.md` | PrimaryAnalitics — Люди, компании, учётки и голоса: сквозной путь |
@@ -2783,6 +2872,7 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | `docs/plans/PROJECTMAP-VIEWER-TRIAL.md` | Просмотрщик projectmap: пробная сборка G6 и Cytoscape |
 | `docs/plans/REQUIREMENTS-PLAN.md` | PrimaryAnalitics — Требования: понятные, с источником «кто и когда», актуальные |
 | `docs/plans/SCREEN-FRAMES-FIX-PLAN.md` | PrimaryAnalitics — Кадры экрана: время, момент, дубли, база знаний |
+| `docs/plans/SKKKK-FINAL-TRANSCRIPT-REPAIR-PLAN-v3.md` | SKKKK — План полного закрытия дыр в конвейере созвона |
 | `docs/plans/SOURCE-ANCHORS-PLAN.md` | PrimaryAnalitics — Якоря источников: даты сообщений переписки и переход к месту в стенограмме |
 | `docs/plans/TRANSCRIPT-PROVENANCE-PLAN.md` | PrimaryAnalitics — «Кто и когда»: стенограмма → база → чат (план внедрения) |
 | `docs/plans/USER-PROFILE-PLAN.md` | Карточка пользователя — план реализации |
@@ -2819,6 +2909,8 @@ _Проверено 2026-11-11 21:13: сущностей 132, не описан�
 | FFmpeg / Tesseract / LibreOffice | внешнее | звук (16 кГц моно), OCR rus+eng, конвертация старых офисных форматов; портативные копии в tools/ |
 | Браузеры Playwright | проверки | не скачаны (нет %LOCALAPPDATA%\ms-playwright); живые проверки идут с --channel chrome в системном Chrome, либо playwright install chromium|webkit |
 | Эмулятор Android | проверки | виртуальный Pixel 7 (Android 14) в tools/android, ускорение WHPX |
+
+_Нет на диске (необязательные, машинно-зависимые): `.kilo`, `.kiloignore`, `asr/experiments`, `asr/out`, `logo_drafts`, `private`, `tests`._
 
 <!-- generated:end stand -->
 ---

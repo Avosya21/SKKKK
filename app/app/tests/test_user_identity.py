@@ -18,11 +18,9 @@ def test_same_name_different_telegram_reuses_user(client, db_engine, admin_token
     first_count = db.scalar(select(func.count()).select_from(User).where(func.lower(User.name) == "admin"))
     db.close()
 
-    r = client.post(
-        "/auth/login",
-        json={"name": "Admin", "telegram_id": "tg-admin-other", "password": "admin-pass"},
-    )
-    assert r.status_code == 200, r.text
+    from app.app.tests.auth_helpers import login_via_code
+
+    login_via_code(client, name="Admin", telegram_id="tg-admin-other")
 
     db2 = SessionLocal()
     again = db2.scalar(select(User).where(func.lower(User.name) == "admin"))
@@ -115,9 +113,10 @@ def test_failed_login_does_not_merge_duplicates(client, db_engine):
     db.close()
     assert before == 2
 
+    # Отказ до создания/склейки: логин не из allowlist.
     r = client.post(
         "/auth/login",
-        json={"name": "dup_login_keep", "telegram_id": "dup-keep-new", "password": "wrong-pass"},
+        json={"name": "not-on-list-dup", "telegram_id": "dup-keep-new"},
     )
     assert r.status_code == 401
 

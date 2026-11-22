@@ -10,23 +10,8 @@ before = len(c.get("/projects").json())
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True, args=CHROME_ARGS)
     pg = b.new_context(ignore_https_errors=True, viewport={"width": 1280, "height": 800}).new_page()
-    pg.goto(BASE + "/login")
-    pg.fill("#login-name", LOGIN)
-    tg = pg.locator("#login-telegram")
-    if tg.count() and tg.is_visible() and tg.is_enabled():
-        tg.fill(TG)
-    pg.fill("#login-password", password("admin"))
-    pg.locator("#login-password").press("Enter")
-    # Личный пароль, если сервер его требует (как в browser_login).
-    pg.wait_for_function(
-        "location.pathname !== '/login' || !document.getElementById('step-form').classList.contains('d-none')"
-        " || !document.getElementById('profile-form').classList.contains('d-none')",
-        timeout=15000,
-    )
-    if pg.evaluate("location.pathname") == "/login" and not pg.locator("#step-form").is_hidden():
-        pg.fill("#step-personal", personal_password())
-        pg.locator("#step-submit").click()
-    check(bool(wait_until(lambda: pg.evaluate("location.pathname") != "/login", 10)), "вход отправляется по Enter")
+    browser_login(pg, "admin")
+    check(pg.evaluate("location.pathname") != "/login", "вход через форму смоука")
     pg.goto(BASE + "/")
     pg.wait_for_selector("#btn-new-project, #new-project-btn, [id*='new-project']", timeout=10000)
     pg.evaluate("document.querySelector('#btn-new-project, #new-project-btn, [id*=new-project]').click()")

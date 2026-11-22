@@ -402,12 +402,10 @@ def test_mcp_server_protocol_and_read_only_tools(built_index):
 
 
 def test_admin_map_page_is_admin_only_and_masks_nothing_sensitive(client, built_index):
-    def login(pw, name, tg):
-        r = client.post("/auth/login", json={"name": name, "telegram_id": tg, "password": pw})
-        return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    from app.app.tests.auth_helpers import access_token
 
-    admin = login(ADMIN_PASS, "Admin", "tg-a")
-    manager = login(MANAGER_PASS, "Manager", "tg-m")
+    admin = {"Authorization": f"Bearer {access_token(client, name='Admin', telegram_id='tg-a')}"}
+    manager = {"Authorization": f"Bearer {access_token(client, name='Manager', telegram_id='tg-m')}"}
     assert client.get("/admin/map/search?q=get_db&mode=symbol", headers=manager).status_code == 403
     assert client.get("/admin/map/search?q=get_db&mode=symbol").status_code in {401, 403}
     ok = client.get("/admin/map/search?q=get_db&mode=symbol", headers=admin)

@@ -36,8 +36,8 @@ GUEST_ID_RE = re.compile(r"[A-Za-z0-9-]+")
 GUEST_IDENTITY_HASH_LEN = 32
 GUEST_ID_INVALID = "guest_id invalid"
 DISPLAY_NAME_MAX = 128
-# Участник «на связи», если не вышел и подавал признаки жизни (вход, heartbeat) за это время.
-ONGOING_SEEN_MINUTES = 10
+# Участник «на связи», если не вышел и подал признаки жизни за три пропущенных пульса (пульс каждые 20 с).
+ONGOING_SEEN_MINUTES = 1
 
 
 def require_meeting_staff(db: Session, user: User, project_id: int) -> Project:
@@ -129,9 +129,51 @@ def start_meeting(db: Session, meeting: Meeting) -> Meeting:
     return meeting
 
 
-def end_meeting(db: Session, meeting: Meeting) -> Meeting:
+def end_abandoned_meetings(db: Session) -> list[int]:
+    """Завершить live-встречи, из которых все уже ушли.
+
+    Триггер: в комнату хотя бы раз входили. Пока участников не было — встречу не закрываем
+    (её только открыли и ждут людей). Свежую (моложе окна «на связи») тоже не трогаем.
+    Если кто-то входил и давно никто не на связи, статус live держал рекордер в LiveKit
+    и WAV оставались открытыми.
+    """
+    cutoff = _now() - timedelta(minutes=ONGOING_SEEN_MINUTES)
+    ended: list[int] = []
+    for meeting in db.scalars(select(Meeting).where(Meeting.status == STATUS_LIVE)).all():
+        started = meeting.started_at or meeting.created_at
+        if started is not None and started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if started is not None and started > cutoff:
+            continue
+        ever_joined = db.scalar(
+            select(MeetingParticipant.id).where(MeetingParticipant.meeting_id == meeting.id).limit(1)
+        )
+        if ever_joined is None:
+            continue
+        people = list(
+            db.scalars(
+                select(MeetingParticipant).where(
+                    MeetingParticipant.meeting_id == meeting.id,
+                    MeetingParticipant.left_at.is_(None),
+                    func.coalesce(MeetingParticipant.last_seen_at, MeetingParticipant.joined_at) >= cutoff,
+                )
+            ).all()
+        )
+        if people:
+            continue
+        end_meeting(db, meeting)
+        ended.append(meeting.id)
+    return ended
+
+
+def end_meeting(db: Session, meeting: Meeting, *, actor: User | None = None) -> Meeting:
     if meeting.status == STATUS_CREATED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Meeting has not started")
+    if actor is not None and actor.id != meeting.created_by:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only meeting creator can end for all",
+        )
     if meeting.status == STATUS_ENDED:
         return meeting
     meeting.status = STATUS_ENDED
@@ -251,6 +293,7 @@ def member_payload(
     *,
     public_token: str | None,
     db: Session | None = None,
+    actor: User | None = None,
 ) -> dict:
     from app.app.services.meeting_analyze import analyze_state
 
@@ -259,6 +302,8 @@ def member_payload(
         "project_id": meeting.project_id,
         "status": meeting.status,
         "room_name": meeting.room_name,
+        "created_by": meeting.created_by,
+        "can_end": bool(actor is not None and actor.id == meeting.created_by),
         "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
         "started_at": meeting.started_at.isoformat() if meeting.started_at else None,
         "ended_at": meeting.ended_at.isoformat() if meeting.ended_at else None,
@@ -271,11 +316,20 @@ def member_payload(
     return payload
 
 
-def _join_payload(settings: Settings, meeting: Meeting, identity: str, display_name: str) -> dict:
+def _join_payload(
+    settings: Settings,
+    meeting: Meeting,
+    identity: str,
+    display_name: str,
+    *,
+    can_end: bool = False,
+) -> dict:
     return {
         "identity": identity,
         "display_name": display_name,
         "room_name": meeting.room_name,
+        "can_end": bool(can_end),
+        "created_by": meeting.created_by,
         "livekit": livekit_join(settings, meeting.room_name, identity, display_name, can_publish=True),
     }
 
@@ -307,7 +361,14 @@ def join_member(db: Session, settings: Settings, meeting: Meeting, user: User) -
             participant_type=PARTICIPANT_MEMBER,
         ))
     db.commit()
-    return _join_payload(settings, meeting, identity, name)
+    # «Завершить для всех» — только создатель комнаты (не любой manager в пульте).
+    return _join_payload(
+        settings,
+        meeting,
+        identity,
+        name,
+        can_end=(user.id == meeting.created_by),
+    )
 
 
 def parse_guest_id(raw: str | None) -> str | None:
