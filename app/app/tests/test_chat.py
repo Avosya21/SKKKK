@@ -1125,11 +1125,17 @@ def test_chat_last_meeting_in_context_when_search_misses(client, db_engine, admi
 
 
 def test_chat_window_estimate_and_overflow_detection():
+    from app.app.config import Settings
     from app.app.services import chat, llm_keeper
+    from app.app.services.llm_lanes import CHARS_PER_TOKEN, estimate_tokens
 
-    window = llm_keeper.load_profile().context_length
-    assert chat._fits_model_window("система", "короткий вопрос")
-    assert not chat._fits_model_window("", "я" * int(window * chat.CHAT_CHARS_PER_TOKEN))
+    settings = Settings(lmstudio_chat_token_budget=8000)
+    limit = chat._chat_prompt_token_limit(settings, max_tokens=2048)
+    assert 0 < limit <= llm_keeper.load_profile().context_length  # бюджет не превышает окно модели
+    # Короткий промпт влезает в окно заранее; длиннее лимита — нет (проверка до обрезки).
+    assert estimate_tokens("система", "короткий вопрос") <= limit
+    huge = "я" * int((limit + 512) * CHARS_PER_TOKEN)
+    assert estimate_tokens("", huge) > limit
     assert chat._is_context_overflow(RuntimeError('{"error":"Context size has been exceeded."}'))
     assert chat._is_context_overflow(RuntimeError("tokens to keep ... greater than the context length (n_keep: 34724>= n_ctx: 32768)"))
     assert not chat._is_context_overflow(RuntimeError("connection refused"))
