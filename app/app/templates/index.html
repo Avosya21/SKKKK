@@ -1,5 +1,9 @@
 {% extends "base.html" %}
-{# Список проектов (/): создание, описание, переименование и удаление проекта, кнопка «Исправлено» со списком изменений #}
+{# Стартовая (/). Вопрос экрана: с чем я сейчас работаю и где остальные проекты.
+   Это доска проектов, не экран метрик: чисел и графиков нет — система портала важнее акцента скила.
+   Рельс списка остаётся узким, доска занимает остальную ширину. Перенос только за ручку.
+   «Список» в настройках — прежняя одна колонка, без доски. #}
+{% block body_class %}{% if home_layout == 'dashboard' %}projects-dashboard{% endif %}{% endblock %}
 {% block nav_changelog %}
 <button type="button" class="btn btn-sm btn-outline-light nav-changelog" data-bs-toggle="modal" data-bs-target="#changelogModal">Исправлено</button>
 {% endblock %}
@@ -10,29 +14,46 @@
   <button class="btn btn-success" id="btn-new-project">Новый проект</button>
   {% endif %}
 </div>
-<div class="card mb-3 d-none" id="jira-card">
-  <div class="card-body py-2">
-    <div id="jira-disconnected" class="d-none">
-      <form class="d-flex gap-2 align-items-center flex-wrap" id="jira-connect-form" autocomplete="off">
-        <span class="fw-semibold">Jira</span>
-        <input type="password" class="form-control form-control-sm" id="jira-token" name="jira-token" placeholder="Ваш личный токен Jira" maxlength="4000" required autocomplete="off" aria-label="Личный токен Jira" style="max-width: 22rem;">
-        <button type="submit" class="btn btn-sm btn-primary primaryanalitics-action-btn" id="jira-connect-btn" data-idle-label="Подключить Jira">Подключить Jira</button>
-        <span class="text-muted small">Токен создаётся в Jira: профиль → «Персональные токены доступа». Хранится зашифрованным, виден только вам.</span>
-      </form>
+<div class="text-muted small mb-2 d-none" id="jira-progress" aria-live="polite"></div>
+<div class="alert alert-danger d-none mt-2" id="projects-board-error" role="alert"></div>
+<div id="projects-classic" class="list-group{% if home_layout == 'dashboard' %} d-none{% endif %}"></div>
+<div class="projects-board{% if home_layout != 'dashboard' %} d-none{% endif %}" id="projects-board"{% if list_width or tasks_height %} style="{% if list_width %}--board-list-width: {{ list_width }}px{% endif %}{% if list_width and tasks_height %}; {% endif %}{% if tasks_height %}--board-tasks-height: {{ tasks_height }}px{% endif %}"{% endif %}>
+  <section class="projects-board-col projects-board-col-list" aria-labelledby="projects-list-title">
+    <div class="projects-board-head">
+      <h2 class="h6 mb-0" id="projects-list-title">Все проекты</h2>
     </div>
-    <div id="jira-connected" class="d-none">
-      <div class="d-flex gap-2 align-items-center flex-wrap">
-        <span class="fw-semibold">Jira</span>
-        <span class="small" id="jira-connected-name"></span>
-        <button type="button" class="btn btn-sm btn-outline-primary d-none" id="jira-pick-btn">Проекты из Jira</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="jira-disconnect-btn">Отключить</button>
-      </div>
+    <div id="projects-list" class="projects-board-list list-group list-group-flush" data-drop-zone="list">
+      <div class="projects-board-skeleton" aria-hidden="true"></div>
+      <div class="projects-board-skeleton" aria-hidden="true"></div>
+      <div class="projects-board-skeleton" aria-hidden="true"></div>
     </div>
-    <div class="alert alert-danger d-none mt-2 mb-0 py-1 small" id="jira-error" role="alert"></div>
-    <div class="text-muted small mt-1 d-none" id="jira-progress" aria-live="polite"></div>
-  </div>
+  </section>
+  <div class="projects-board-split" id="projects-board-split" role="separator" aria-orientation="vertical" aria-label="Ширина списка проектов" aria-valuemin="272" aria-valuemax="640" tabindex="0"></div>
+  <section class="projects-board-col projects-board-col-board" aria-labelledby="projects-board-title">
+    <div class="projects-board-head">
+      <h2 class="h6 mb-0" id="projects-board-title">Доска</h2>
+    </div>
+    <div id="projects-board-list" class="projects-board-list list-group list-group-flush" data-drop-zone="board">
+      <div class="projects-board-skeleton" aria-hidden="true"></div>
+      <div class="projects-board-skeleton" aria-hidden="true"></div>
+    </div>
+    <div class="board-tasks-split" id="board-tasks-split" role="separator" aria-orientation="horizontal" aria-label="Высота задач" aria-valuemin="140" aria-valuemax="640" tabindex="0"></div>
+    <div class="board-tasks" id="board-tasks">
+      <section aria-labelledby="board-open-title">
+        <h3 class="board-tasks-title" id="board-open-title">Задачи</h3>
+        <div id="board-open" class="board-tasks-list">
+          <p class="board-tasks-empty">Задачи загружаются…</p>
+        </div>
+      </section>
+      <section aria-labelledby="board-done-title">
+        <h3 class="board-tasks-title" id="board-done-title">Сделано</h3>
+        <div id="board-done" class="board-tasks-list">
+          <p class="board-tasks-empty">Задачи загружаются…</p>
+        </div>
+      </section>
+    </div>
+  </section>
 </div>
-<div id="projects-list" class="list-group"></div>
 <div class="modal fade" id="changelogModal" tabindex="-1" aria-labelledby="changelog-title" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
@@ -155,6 +176,8 @@
 <script>
 if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 const currentRole = {{ current_role|tojson }};
+let homeLayout = {{ home_layout|default('list')|tojson }};
+if (homeLayout !== 'dashboard') homeLayout = 'list';
 const newProjectBtn = document.getElementById('btn-new-project');
 const modalEl = document.getElementById('newProjectModal');
 const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
@@ -185,68 +208,101 @@ function chevronSvg() {
   );
 }
 
-async function loadProjects() {
-  const r = await PrimaryAnalitics.api('/projects');
-  if (!r.ok) return;
-  const list = document.getElementById('projects-list');
-  list.innerHTML = '';
-  const rows = await r.json();
-  if (!Array.isArray(rows) || !rows.length) {
-    list.innerHTML = '<div class="empty-state">' +
-      '<div class="empty-state-icon" aria-hidden="true">⌁</div>' +
-      '<h2 class="h5 mb-2">' + (currentRole === 'user' ? 'Проектов пока нет' : 'Начните с первого проекта') + '</h2>' +
-      '<p class="text-muted mb-0">' + (currentRole === 'user' ? 'Здесь появятся проекты, к которым вас добавят.' : 'Загрузите материалы встреч и получите единую выжимку команды.') + '</p>' +
-      '</div>';
-    return;
+function gripSvg() {
+  return (
+    '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">' +
+    '<circle cx="6" cy="4" r="1.15" fill="currentColor"/>' +
+    '<circle cx="10" cy="4" r="1.15" fill="currentColor"/>' +
+    '<circle cx="6" cy="8" r="1.15" fill="currentColor"/>' +
+    '<circle cx="10" cy="8" r="1.15" fill="currentColor"/>' +
+    '<circle cx="6" cy="12" r="1.15" fill="currentColor"/>' +
+    '<circle cx="10" cy="12" r="1.15" fill="currentColor"/>' +
+    '</svg>'
+  );
+}
+
+let projects = [];
+let dashboardIds = [];
+let savedDashboardIds = [];
+let dashboardWrite = Promise.resolve();
+let focusAfterRender = null;
+
+function idsKey(ids) {
+  return ids.join(',');
+}
+
+function setBoardError(text) {
+  const el = document.getElementById('projects-board-error');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('d-none', !text);
+}
+
+function applyHomeChrome() {
+  const dash = homeLayout === 'dashboard';
+  document.body.classList.toggle('projects-dashboard', dash);
+  document.getElementById('projects-board')?.classList.toggle('d-none', !dash);
+  document.getElementById('projects-classic')?.classList.toggle('d-none', dash);
+}
+
+function fillTitle(title, p) {
+  title.className = 'project-list-title text-decoration-none fw-semibold';
+  title.href = `/projects/${p.id}`;
+  title.textContent = p.name;
+  if (p.jira_key) {
+    const jiraBadge = document.createElement('span');
+    jiraBadge.className = 'badge text-bg-info ms-2 fw-normal';
+    jiraBadge.textContent = 'Jira';
+    jiraBadge.title = 'Материалы проекта загружаются из Jira: ' + p.jira_key;
+    title.appendChild(jiraBadge);
   }
+}
+
+function creatorLine(p) {
+  if (!p.creator_name) return null;
+  const creator = document.createElement('span');
+  creator.className = 'project-list-creator text-muted small';
+  creator.textContent = p.creator_name;
+  creator.title = 'Кто завёл проект';
+  return creator;
+}
+
+function projectCard(p, layout) {
+  const classic = layout === 'classic';
   const allowDelete = canDeleteProjects();
-  for (const p of rows) {
-    const item = document.createElement('div');
-    item.className = 'list-group-item project-list-item';
+  const desc = (p.description || '').trim();
+  const item = document.createElement('div');
+  item.className = 'list-group-item project-list-item';
+  item.dataset.projectId = String(p.id);
 
-    const desc = (p.description || '').trim();
-    const title = document.createElement('a');
-    title.className = 'project-list-title text-decoration-none fw-semibold';
-    title.href = `/projects/${p.id}`;
-    title.textContent = p.name;
-    if (p.jira_key) {  // проект привязан к Jira: пометка рядом с названием
-      const jiraBadge = document.createElement('span');
-      jiraBadge.className = 'badge text-bg-info ms-2 fw-normal';
-      jiraBadge.textContent = 'Jira';
-      jiraBadge.title = 'Материалы проекта загружаются из Jira: ' + p.jira_key;
-      title.appendChild(jiraBadge);
-    }
+  const header = document.createElement('div');
+  header.className = 'project-list-header';
+  const title = document.createElement('a');
+  fillTitle(title, p);
+  const creator = creatorLine(p);
+  if (classic) {
+    header.appendChild(title);
+    if (creator) header.appendChild(creator);
+  } else {
+    const grip = document.createElement('button');
+    grip.type = 'button';
+    grip.className = 'project-card-grip';
+    grip.title = 'Перетащите';
+    grip.setAttribute('aria-label', `Перетащить «${p.name}»`);
+    grip.innerHTML = gripSvg();
+    header.appendChild(grip);
+    const main = document.createElement('div');
+    main.className = 'project-card-main';
+    header.appendChild(main);
+    main.appendChild(title);
+    if (creator) main.appendChild(creator);
+  }
 
-
-    // Кто завёл проект — поле приходит только админу
-    let creator = null;
-    if (p.creator_name) {
-      creator = document.createElement('span');
-      creator.className = 'project-list-creator text-muted small';
-      creator.textContent = p.creator_name;
-      creator.title = 'Кто завёл проект';
-    }
-
-    const showPanel = Boolean(desc) || allowDelete;
-    if (!showPanel) {
-      if (creator) {
-        const row = document.createElement('div');
-        row.className = 'project-list-header';
-        row.appendChild(title);
-        row.appendChild(creator);
-        item.appendChild(row);
-      } else {
-        item.appendChild(title);
-      }
-      list.appendChild(item);
-      continue;
-    }
-
-    const collapseId = `project-desc-${p.id}`;
-    const header = document.createElement('div');
-    header.className = 'project-list-header';
-
-    const toggle = document.createElement('button');
+  const showPanel = Boolean(desc) || allowDelete;
+  let toggle = null;
+  if (showPanel) {
+    const collapseId = `project-desc-${classic ? 'classic' : 'board'}-${p.id}`;
+    toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'project-desc-chevron';
     toggle.setAttribute('data-bs-toggle', 'collapse');
@@ -255,24 +311,17 @@ async function loadProjects() {
     toggle.setAttribute('aria-controls', collapseId);
     toggle.setAttribute('aria-label', desc ? 'Показать описание' : 'Показать действия проекта');
     toggle.innerHTML = chevronSvg();
-
-    header.appendChild(title);
-    if (creator) header.appendChild(creator);
     header.appendChild(toggle);
-    item.appendChild(header);
 
     const panel = document.createElement('div');
     panel.id = collapseId;
     panel.className = 'collapse mt-2';
-
     const body = document.createElement('div');
     body.className = 'project-desc-panel';
-
     const descText = document.createElement('p');
     descText.className = 'text-muted small mb-0 project-desc-text';
     descText.textContent = desc || 'Описание не задано';
     body.appendChild(descText);
-
     if (allowDelete) {
       const actions = document.createElement('div');
       actions.className = 'project-desc-actions';
@@ -299,7 +348,6 @@ async function loadProjects() {
       actions.appendChild(delBtn);
       body.appendChild(actions);
     }
-
     panel.appendChild(body);
     panel.addEventListener('show.bs.collapse', () => {
       toggle.setAttribute('aria-expanded', 'true');
@@ -309,11 +357,513 @@ async function loadProjects() {
       toggle.setAttribute('aria-expanded', 'false');
       toggle.setAttribute('aria-label', desc ? 'Показать описание' : 'Показать действия проекта');
     });
-
+    item.appendChild(header);
     item.appendChild(panel);
-    list.appendChild(item);
+  } else {
+    item.appendChild(header);
+  }
+  return item;
+}
+
+function fillZone(el, rows, emptyNode) {
+  el.replaceChildren();
+  if (!rows.length) {
+    el.appendChild(emptyNode);
+    return;
+  }
+  for (const p of rows) el.appendChild(p);
+}
+
+function emptyNote(title, text) {
+  const box = document.createElement('div');
+  box.className = 'projects-board-empty';
+  const head = document.createElement('p');
+  head.className = text ? 'fw-semibold text-body mb-1' : 'mb-0';
+  head.textContent = title;
+  box.appendChild(head);
+  if (text) {
+    const note = document.createElement('p');
+    note.className = 'mb-0';
+    note.textContent = text;
+    box.appendChild(note);
+  }
+  return box;
+}
+
+function classicEmpty() {
+  const box = document.createElement('div');
+  box.className = 'empty-state';
+  const head = document.createElement('h2');
+  head.className = 'h5';
+  head.textContent = currentRole === 'user' ? 'Проектов пока нет' : 'Начните с первого проекта';
+  box.appendChild(head);
+  const note = document.createElement('p');
+  note.className = 'text-muted mb-0';
+  note.textContent = currentRole === 'user'
+    ? 'Здесь появятся проекты, к которым вас добавят.'
+    : 'Загрузите материалы встреч и получите единую выжимку команды.';
+  box.appendChild(note);
+  return box;
+}
+
+function renderProjects() {
+  applyHomeChrome();
+  const classic = document.getElementById('projects-classic');
+  if (classic) {
+    classic.replaceChildren();
+    if (!projects.length) classic.appendChild(classicEmpty());
+    else for (const p of projects) classic.appendChild(projectCard(p, 'classic'));
+  }
+  const list = document.getElementById('projects-list');
+  const board = document.getElementById('projects-board-list');
+  if (!list || !board) return;
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const onBoard = new Set(dashboardIds);
+  const left = projects.filter((p) => !onBoard.has(p.id));
+  const right = dashboardIds.map((id) => byId.get(id)).filter(Boolean);
+  const leftEmpty = projects.length
+    ? emptyNote('Все проекты на доске.')
+    : emptyNote(
+      currentRole === 'user' ? 'Проектов пока нет' : 'Начните с первого проекта',
+      currentRole === 'user'
+        ? 'Здесь появятся проекты, к которым вас добавят.'
+        : 'Загрузите материалы встреч и получите единую выжимку команды.',
+    );
+  fillZone(list, left.map((p) => projectCard(p, 'board')), leftEmpty);
+  fillZone(
+    board,
+    right.map((p) => projectCard(p, 'board')),
+    emptyNote('Перетащите сюда проект, с которым работаете.'),
+  );
+  const focus = focusAfterRender;
+  focusAfterRender = null;
+  if (focus) document.querySelector(focus)?.focus();
+}
+
+function commitDashboard(nextIds, focusSelector) {
+  if (idsKey(nextIds) === idsKey(dashboardIds)) {
+    if (focusSelector) document.querySelector(focusSelector)?.focus();
+    return;
+  }
+  const payload = nextIds.slice();
+  dashboardIds = payload.slice();
+  focusAfterRender = focusSelector || null;
+  renderProjects();
+  setBoardError('');
+  dashboardWrite = dashboardWrite.then(() => writeDashboard(payload)).catch(() => {});
+}
+
+async function writeDashboard(payload) {
+  if (idsKey(payload) !== idsKey(dashboardIds)) return;
+  try {
+    const response = await PrimaryAnalitics.api('/me/dashboard', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ project_ids: payload }),
+    });
+    if (idsKey(payload) !== idsKey(dashboardIds)) return;
+    if (!response.ok) {
+      dashboardIds = savedDashboardIds.slice();
+      renderProjects();
+      setBoardError(response.status === 400
+        ? 'На доску можно поставить только свой проект.'
+        : 'Не удалось сохранить доску.');
+      return;
+    }
+    const body = await response.json();
+    const saved = Array.isArray(body.project_ids) ? body.project_ids : payload;
+    const unchanged = idsKey(saved) === idsKey(dashboardIds);
+    savedDashboardIds = saved.slice();
+    if (!unchanged) {
+      dashboardIds = saved.slice();
+      renderProjects();
+    }
+  } catch (_) {
+    if (idsKey(payload) !== idsKey(dashboardIds)) return;
+    dashboardIds = savedDashboardIds.slice();
+    renderProjects();
+    setBoardError('Нет связи с сервером. Проверьте интернет и повторите.');
   }
 }
+
+function placeOnBoard(id, index) {
+  const next = dashboardIds.filter((item) => item !== id);
+  const at = Math.max(0, Math.min(index, next.length));
+  next.splice(at, 0, id);
+  commitDashboard(next);
+}
+
+function moveToList(id) {
+  commitDashboard(dashboardIds.filter((item) => item !== id));
+}
+
+function clearDropMarks() {
+  document.querySelectorAll('.is-drop-target, .is-drop-before').forEach((el) => {
+    el.classList.remove('is-drop-target', 'is-drop-before');
+  });
+}
+
+function zoneAt(x, y, card) {
+  const previous = card.style.pointerEvents;
+  card.style.pointerEvents = 'none';
+  const hit = document.elementFromPoint(x, y);
+  card.style.pointerEvents = previous;
+  return hit ? hit.closest('[data-drop-zone]') : null;
+}
+
+function dropIndex(zone, clientY, movingId) {
+  const cards = [...zone.querySelectorAll('.project-list-item')]
+    .filter((el) => Number(el.dataset.projectId) !== movingId);
+  for (let i = 0; i < cards.length; i += 1) {
+    const rect = cards[i].getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return i;
+  }
+  return cards.length;
+}
+
+function markDrop(zone, clientY, movingId) {
+  clearDropMarks();
+  if (!zone) return;
+  zone.classList.add('is-drop-target');
+  if (zone.dataset.dropZone !== 'board') return;
+  const cards = [...zone.querySelectorAll('.project-list-item')]
+    .filter((el) => Number(el.dataset.projectId) !== movingId);
+  const index = dropIndex(zone, clientY, movingId);
+  if (cards[index]) cards[index].classList.add('is-drop-before');
+}
+
+async function loadProjects() {
+  const r = await PrimaryAnalitics.api('/projects');
+  if (!r.ok) return;
+  const rows = await r.json();
+  projects = Array.isArray(rows) ? rows : [];
+  const board = await PrimaryAnalitics.api('/me/dashboard');
+  if (board.ok) {
+    const body = await board.json();
+    dashboardIds = Array.isArray(body.project_ids) ? body.project_ids : [];
+    savedDashboardIds = dashboardIds.slice();
+    setBoardError('');
+  } else {
+    dashboardIds = [];
+    savedDashboardIds = [];
+    setBoardError('Не удалось открыть доску.');
+  }
+  renderProjects();
+  loadBoardTasks();
+}
+
+const TRASH_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6 2.5h4l.4 1H13v1.2H3V3.5h2.6L6 2.5zM4.2 6h7.6l-.6 7.2a1 1 0 0 1-1 .8H5.8a1 1 0 0 1-1-.8L4.2 6z"/></svg>';
+
+function formatFinished(iso) {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(when.getDate())}.${pad(when.getMonth() + 1)}.${when.getFullYear()} ${pad(when.getHours())}:${pad(when.getMinutes())}`;
+}
+
+function boardTaskRow(item, canDismiss) {
+  const row = document.createElement('div');
+  row.className = 'board-task';
+  const link = document.createElement('a');
+  link.className = 'board-task-link';
+  link.href = item.href;
+  const title = document.createElement('span');
+  title.className = 'board-task-title';
+  title.textContent = item.title || '';
+  link.appendChild(title);
+  if (item.hint) {
+    const hint = document.createElement('span');
+    hint.className = 'board-task-hint';
+    hint.textContent = item.hint;
+    link.appendChild(hint);
+  }
+  if (!canDismiss && item.at) {
+    const finished = document.createElement('span');
+    finished.className = 'board-task-time';
+    finished.title = 'Обработка закончилась';
+    finished.textContent = formatFinished(item.at);
+    link.appendChild(finished);
+  }
+  const project = document.createElement('a');
+  project.className = 'board-task-project';
+  project.href = `/projects/${item.project_id}`;
+  project.textContent = item.project_name || '';
+  row.append(link, project);
+  if (canDismiss) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'board-task-dismiss';
+    button.dataset.kind = item.kind;
+    button.dataset.ref = item.ref;
+    button.setAttribute('aria-label', `Снять задачу «${item.title || ''}»`);
+    button.innerHTML = TRASH_SVG;
+    row.appendChild(button);
+  }
+  return row;
+}
+
+function fillBoardList(el, items, canDismiss, emptyText) {
+  el.replaceChildren();
+  if (!items.length) {
+    const note = document.createElement('p');
+    note.className = 'board-tasks-empty';
+    note.textContent = emptyText;
+    el.appendChild(note);
+    return;
+  }
+  for (const item of items) el.appendChild(boardTaskRow(item, canDismiss));
+}
+
+async function loadBoardTasks() {
+  const openEl = document.getElementById('board-open');
+  const doneEl = document.getElementById('board-done');
+  if (!openEl || !doneEl) return;
+  const r = await PrimaryAnalitics.api('/me/board');
+  if (!r.ok) {
+    fillBoardList(openEl, [], false, 'Не удалось загрузить задачи.');
+    fillBoardList(doneEl, [], false, '');
+    return;
+  }
+  const body = await r.json();
+  fillBoardList(openEl, Array.isArray(body.open) ? body.open : [], true, 'Нет задач');
+  fillBoardList(doneEl, Array.isArray(body.done) ? body.done : [], false, 'Пока нет выполненных обработок');
+}
+
+document.getElementById('board-tasks')?.addEventListener('click', async (event) => {
+  const button = event.target.closest('.board-task-dismiss');
+  if (!button) return;
+  event.preventDefault();
+  button.disabled = true;
+  const r = await PrimaryAnalitics.api('/me/board/dismiss', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({kind: button.dataset.kind, ref: button.dataset.ref}),
+  });
+  if (!r.ok) {
+    button.disabled = false;
+    return;
+  }
+  loadBoardTasks();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') loadBoardTasks();
+});
+
+const projectsBoard = document.getElementById('projects-board');
+const boardSplit = document.getElementById('projects-board-split');
+const LIST_WIDTH_MIN = 272;
+const LIST_WIDTH_MAX = 640;
+let savedListWidth = {{ list_width|tojson }};
+if (typeof savedListWidth !== 'number') savedListWidth = null;
+let savedTasksHeight = {{ tasks_height|tojson }};
+if (typeof savedTasksHeight !== 'number') savedTasksHeight = null;
+
+function clampListWidth(px) {
+  const room = projectsBoard.getBoundingClientRect().width - 320;
+  const max = Math.max(LIST_WIDTH_MIN, Math.min(LIST_WIDTH_MAX, room));
+  return Math.round(Math.min(max, Math.max(LIST_WIDTH_MIN, px)));
+}
+
+function paintListWidth(px) {
+  projectsBoard.style.setProperty('--board-list-width', px + 'px');
+  boardSplit?.setAttribute('aria-valuenow', String(px));
+}
+
+async function saveListWidth(px) {
+  const previous = savedListWidth;
+  savedListWidth = px;
+  const response = await PrimaryAnalitics.api('/me/ui', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({list_width: px}),
+  });
+  if (!response.ok) {
+    savedListWidth = previous;
+    if (previous) paintListWidth(previous);
+    else projectsBoard.style.removeProperty('--board-list-width');
+    setBoardError('Не удалось сохранить ширину колонки.');
+    return;
+  }
+  setBoardError('');
+}
+
+if (boardSplit) {
+  boardSplit.addEventListener('pointerdown', (event) => {
+    if (event.button > 0) return;
+    event.preventDefault();
+    const listCol = projectsBoard.querySelector('.projects-board-col-list');
+    const startX = event.clientX;
+    const startW = listCol.getBoundingClientRect().width;
+    boardSplit.classList.add('is-dragging');
+    boardSplit.setPointerCapture(event.pointerId);
+    function move(e) {
+      paintListWidth(clampListWidth(startW + e.clientX - startX));
+    }
+    function finish(e) {
+      boardSplit.removeEventListener('pointermove', move);
+      boardSplit.removeEventListener('pointerup', finish);
+      boardSplit.classList.remove('is-dragging');
+      const px = clampListWidth(startW + e.clientX - startX);
+      paintListWidth(px);
+      saveListWidth(px);
+    }
+    boardSplit.addEventListener('pointermove', move);
+    boardSplit.addEventListener('pointerup', finish);
+  });
+  boardSplit.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const listCol = projectsBoard.querySelector('.projects-board-col-list');
+    const delta = event.key === 'ArrowRight' ? 24 : -24;
+    const px = clampListWidth(listCol.getBoundingClientRect().width + delta);
+    paintListWidth(px);
+    boardSplit.dataset.pendingWidth = String(px);
+  });
+  boardSplit.addEventListener('keyup', () => {
+    const raw = boardSplit.dataset.pendingWidth;
+    if (!raw) return;
+    delete boardSplit.dataset.pendingWidth;
+    saveListWidth(Number(raw));
+  });
+}
+
+const tasksSplit = document.getElementById('board-tasks-split');
+const tasksPanel = document.getElementById('board-tasks');
+const TASKS_HEIGHT_MIN = 140;
+const TASKS_HEIGHT_MAX = 640;
+
+function clampTasksHeight(px) {
+  const col = projectsBoard.querySelector('.projects-board-col-board');
+  const head = col.querySelector('.projects-board-head');
+  const chrome = head.getBoundingClientRect().height + tasksSplit.getBoundingClientRect().height + 192;
+  const room = col.getBoundingClientRect().height - chrome;
+  const max = Math.max(TASKS_HEIGHT_MIN, Math.min(TASKS_HEIGHT_MAX, room));
+  return Math.round(Math.min(max, Math.max(TASKS_HEIGHT_MIN, px)));
+}
+
+function paintTasksHeight(px) {
+  projectsBoard.style.setProperty('--board-tasks-height', px + 'px');
+  tasksSplit?.setAttribute('aria-valuenow', String(px));
+}
+
+async function saveTasksHeight(px) {
+  const previous = savedTasksHeight;
+  savedTasksHeight = px;
+  const response = await PrimaryAnalitics.api('/me/ui', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tasks_height: px}),
+  });
+  if (!response.ok) {
+    savedTasksHeight = previous;
+    if (previous) paintTasksHeight(previous);
+    else projectsBoard.style.removeProperty('--board-tasks-height');
+    setBoardError('Не удалось сохранить высоту задач.');
+    return;
+  }
+  setBoardError('');
+}
+
+if (savedTasksHeight) paintTasksHeight(savedTasksHeight);
+
+if (tasksSplit && tasksPanel) {
+  tasksSplit.addEventListener('pointerdown', (event) => {
+    if (event.button > 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startH = tasksPanel.getBoundingClientRect().height;
+    tasksSplit.classList.add('is-dragging');
+    tasksSplit.setPointerCapture(event.pointerId);
+    function move(e) {
+      paintTasksHeight(clampTasksHeight(startH + startY - e.clientY));
+    }
+    function finish(e) {
+      tasksSplit.removeEventListener('pointermove', move);
+      tasksSplit.removeEventListener('pointerup', finish);
+      tasksSplit.classList.remove('is-dragging');
+      const px = clampTasksHeight(startH + startY - e.clientY);
+      paintTasksHeight(px);
+      saveTasksHeight(px);
+    }
+    tasksSplit.addEventListener('pointermove', move);
+    tasksSplit.addEventListener('pointerup', finish);
+  });
+  tasksSplit.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    const delta = event.key === 'ArrowUp' ? 24 : -24;
+    const px = clampTasksHeight(tasksPanel.getBoundingClientRect().height + delta);
+    paintTasksHeight(px);
+    tasksSplit.dataset.pendingHeight = String(px);
+  });
+  tasksSplit.addEventListener('keyup', () => {
+    const raw = tasksSplit.dataset.pendingHeight;
+    if (!raw) return;
+    delete tasksSplit.dataset.pendingHeight;
+    saveTasksHeight(Number(raw));
+  });
+}
+
+function cardGhost(card, event) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  const rect = card.getBoundingClientRect();
+  const ghost = card.cloneNode(true);
+  ghost.classList.add('project-card-ghost');
+  ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+  ghost.setAttribute('aria-hidden', 'true');
+  const grabX = event.clientX - rect.left;
+  const grabY = event.clientY - rect.top;
+  ghost.style.width = `${rect.width}px`;
+  document.body.appendChild(ghost);
+  const place = (x, y) => {
+    ghost.style.transform = `translate(${Math.round(x - grabX)}px, ${Math.round(y - grabY)}px)`;
+  };
+  place(event.clientX, event.clientY);
+  return { place, drop() { ghost.remove(); } };
+}
+
+projectsBoard.addEventListener('pointerdown', (event) => {
+  const grip = event.target.closest('.project-card-grip');
+  if (!grip || !projectsBoard.contains(grip) || event.button > 0) return;
+  event.preventDefault();
+  const card = grip.closest('.project-list-item');
+  const movingId = Number(card.dataset.projectId);
+  const state = { x: event.clientX, y: event.clientY, active: false, ghost: null };
+  grip.setPointerCapture(event.pointerId);
+  function finish(e) {
+    grip.removeEventListener('pointermove', move);
+    grip.removeEventListener('pointerup', finish);
+    grip.removeEventListener('pointercancel', finish);
+    clearDropMarks();
+    card.classList.remove('is-dragging');
+    card.removeAttribute('aria-grabbed');
+    if (state.ghost) state.ghost.drop();
+    if (!state.active || e.type === 'pointercancel') return;
+    const zone = zoneAt(e.clientX, e.clientY, card);
+    if (!zone) return;
+    if (zone.dataset.dropZone === 'list') {
+      moveToList(movingId);
+      return;
+    }
+    placeOnBoard(movingId, dropIndex(zone, e.clientY, movingId));
+  }
+  function move(e) {
+    if (e.pointerId !== event.pointerId) return;
+    if (!state.active && Math.hypot(e.clientX - state.x, e.clientY - state.y) < 6) return;
+    if (!state.active) {
+      state.active = true;
+      card.classList.add('is-dragging');
+      card.setAttribute('aria-grabbed', 'true');
+      state.ghost = cardGhost(card, event);
+    }
+    if (state.ghost) state.ghost.place(e.clientX, e.clientY);
+    markDrop(zoneAt(e.clientX, e.clientY, card), e.clientY, movingId);
+  }
+  grip.addEventListener('pointermove', move);
+  grip.addEventListener('pointerup', finish);
+  grip.addEventListener('pointercancel', finish);
+});
 
 deleteAck.addEventListener('change', syncDeleteConfirmEnabled);
 
@@ -487,10 +1037,14 @@ document.getElementById('new-project-form').onsubmit = async (e) => {
     await loadProjects();
   }, { busyText: 'Создаю…' });
 };
+window.addEventListener('primary-analitics-home', (event) => {
+  const next = event.detail && event.detail.home;
+  if (next !== 'list' && next !== 'dashboard') return;
+  homeLayout = next;
+  renderProjects();
+});
 loadProjects();
-// --- Jira: подключение личным токеном, выбор проектов, ход загрузки (routers/jira.py) ---
-const jiraCard = document.getElementById('jira-card');
-const jiraError = document.getElementById('jira-error');
+// --- Jira: выбор проектов и ход загрузки. Подключение токеном — в окне «Настройки» (app.js). ---
 const jiraProgress = document.getElementById('jira-progress');
 const jiraModalEl = document.getElementById('jiraProjectsModal');
 const jiraModal = jiraModalEl ? new bootstrap.Modal(jiraModalEl) : null;
@@ -509,46 +1063,25 @@ async function jiraDetail(r) {
   try { return PrimaryAnaliticsErrors.text((await r.json()).detail, r.status); } catch (_) { return 'Ошибка ' + r.status; }
 }
 
-async function loadJiraStatus() {
-  const r = await PrimaryAnalitics.api('/jira/status');
-  if (!r.ok) return;
-  jiraState = await r.json();
-  jiraCard.classList.toggle('d-none', !jiraState.available);
-  if (!jiraState.available) return;
-  document.getElementById('jira-disconnected').classList.toggle('d-none', jiraState.connected);
-  document.getElementById('jira-connected').classList.toggle('d-none', !jiraState.connected);
-  document.getElementById('jira-connected-name').textContent = jiraState.connected ? 'подключена: ' + (jiraState.name || 'токен принят') : '';
-  document.getElementById('jira-pick-btn').classList.toggle('d-none', !(jiraState.connected && jiraState.can_import));
-  jiraShowError(jiraError, jiraState.connected && jiraState.error ? 'Jira: ' + jiraState.error : '');
+function openJiraFromSettings() {
+  const ui = document.getElementById('uiModal');
+  const open = ui && ui.classList.contains('show') ? bootstrap.Modal.getInstance(ui) : null;
+  if (!open) {
+    openJiraProjects();
+    return;
+  }
+  ui.addEventListener('hidden.bs.modal', () => openJiraProjects(), { once: true });
+  open.hide();
 }
 
-document.getElementById('jira-connect-form').onsubmit = async (e) => {
-  e.preventDefault();
-  const input = document.getElementById('jira-token');
-  const btn = document.getElementById('jira-connect-btn');
-  jiraShowError(jiraError, '');
-  PrimaryAnalitics.setButtonBusy(btn, true, { label: 'Проверяю…' });
-  try {
-    const r = await PrimaryAnalitics.api('/jira/connect', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ token: input.value.trim() }),
-    });
-    if (!r.ok) { jiraShowError(jiraError, await jiraDetail(r)); return; }
-    input.value = '';
-    await loadJiraStatus();
-    await loadProjects();
-    if (jiraState && jiraState.can_import) openJiraProjects();
-  } finally {
-    PrimaryAnalitics.setButtonBusy(btn, false);
-  }
-};
-
-document.getElementById('jira-disconnect-btn').onclick = async () => {
-  if (!window.confirm('Отключить Jira? Токен будет удалён. Проекты, доступ к которым выдан по Jira, пропадут из вашего списка; загруженные материалы останутся.')) return;
-  const r = await PrimaryAnalitics.api('/jira/connect', { method: 'DELETE' });
-  if (!r.ok) { jiraShowError(jiraError, await jiraDetail(r)); return; }
-  await loadJiraStatus();
-  await loadProjects();
-};
+function applyJiraState(data) {
+  if (!data) return;
+  jiraState = data;
+  if (data.reloadProjects) loadProjects();
+  if (data.justConnected && data.can_import) openJiraFromSettings();
+}
+window.addEventListener('primary-analitics-jira', (event) => applyJiraState(event.detail));
+applyJiraState(window.PrimaryAnaliticsJira && window.PrimaryAnaliticsJira.state);
 
 function jiraSelectedPicks() {
   return Array.from(jiraListEl.querySelectorAll('input[type=checkbox]:checked')).map((box) => {
@@ -643,7 +1176,7 @@ async function openJiraProjects() {
   renderJiraProjects((await jr.json()).projects || []);
 }
 
-document.getElementById('jira-pick-btn').onclick = openJiraProjects;
+document.getElementById('jira-pick-btn').onclick = openJiraFromSettings;
 
 // Объём до загрузки: при отметке проекта показываем, сколько в нём задач
 async function jiraShowCount(key, target) {
@@ -705,7 +1238,6 @@ function watchJiraProgress(projectIds) {
   jiraPollTimer = setInterval(tick, 5000);
 }
 
-loadJiraStatus();
 // Страницу открыли во время загрузки из Jira — показать её ход
 PrimaryAnalitics.api('/projects').then(async (r) => {
   if (!r.ok) return;

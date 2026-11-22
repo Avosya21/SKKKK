@@ -907,7 +907,7 @@ nodes:
   - id: ui_index_page
     kind: ui_page
     path: "app/app/templates/index.html"
-    title: "Projects list and create project modal"
+    title: "Стартовая: список одной колонкой или доска справа; вид выбирается в настройках интерфейса"
     tags: [ui, projects]
 
   - id: ui_transcript_report
@@ -2776,7 +2776,7 @@ nodes:
   - id: router_people
     kind: router
     path: app/app/routers/people.py
-    title: "Карточки людей: фото (`/people/{id}/avatar`) и своя карточка (`/me/profile`, `/me/avatar`)."
+    title: "Карточки людей: фото, своя карточка, личная доска, настройки интерфейса и задачи доски GET /me/board."
     tags: [auto]
     auto: true
 
@@ -4019,6 +4019,54 @@ nodes:
     tags: [auto]
     auto: true
 
+  - id: model_user_dashboard
+    kind: model
+    path: app/app/models/user_dashboard.py
+    title: "Проекты на личной доске пользователя (таблица user_dashboard_projects)."
+    tags: [db, projects]
+
+  - id: svc_dashboard
+    kind: service
+    path: app/app/services/dashboard.py
+    title: "Личная доска проектов на стартовой странице: порядок карточек справа у каждого пользователя."
+    tags: [service, projects]
+
+  - id: model_user_ui_setting
+    kind: model
+    path: app/app/models/user_ui_setting.py
+    title: "Настройка интерфейса пользователя (таблица user_ui_settings): стартовая страница, ширина колонки и высота задач."
+    tags: [db, ui]
+
+  - id: svc_ui_settings
+    kind: service
+    path: app/app/services/ui_settings.py
+    title: "Настройки интерфейса пользователя: стартовая страница, ширина колонки и высота задач."
+    tags: [service, ui]
+
+  - id: model_user_board
+    kind: model
+    path: app/app/models/user_board.py
+    title: "Снятые с личной доски задачи (таблица user_board_dismissals)."
+    tags: [db, projects]
+
+  - id: svc_board_tasks
+    kind: service
+    path: app/app/services/board_tasks.py
+    title: "Задачи личной доски: неназванные голоса у загрузившего и неотправлённый анализ у создателя комнаты."
+    tags: [service, projects]
+
+  - id: ui_board_tasks
+    kind: ui_action
+    path: app/app/templates/index.html
+    title: "Доска: открытые задачи и последние 15 обработок"
+    tags: [ui, projects]
+
+  - id: ui_nav_interface
+    kind: ui_action
+    path: app/app/templates/base.html
+    title: "Настройки: главная страница список или дашборд, подключение Jira"
+    tags: [ui]
+
 edges:
   - {from: router_pages, to: svc_artifact_lab, relation: ensure_lab_report}
   - {from: router_upload, to: svc_artifact_lab, relation: count_lab_runs}
@@ -4160,6 +4208,21 @@ edges:
   - {from: router_projects, to: svc_project_purge, relation: delete_project}
   - {from: router_upload, to: svc_project_purge, relation: delete_artifact}
   - {from: ui_index_page, to: ui_btn_delete_project, relation: contains}
+  - {from: ui_index_page, to: router_people, relation: dashboard}
+  - {from: ui_nav_interface, to: router_people, relation: home_layout}
+  - {from: router_people, to: svc_dashboard, relation: read_replace}
+  - {from: svc_dashboard, to: model_user_dashboard, relation: reads_writes}
+  - {from: svc_project_purge, to: model_user_dashboard, relation: deletes_rows}
+  - {from: router_people, to: svc_ui_settings, relation: read_replace}
+  - {from: svc_ui_settings, to: model_user_ui_setting, relation: reads_writes}
+  - {from: ui_index_page, to: svc_ui_settings, relation: home_layout}
+  - {from: ui_board_tasks, to: router_people, relation: tasks}
+  - {from: router_people, to: svc_board_tasks, relation: read_dismiss}
+  - {from: svc_board_tasks, to: model_user_board, relation: reads_writes}
+  - {from: svc_board_tasks, to: svc_dashboard, relation: visible_projects}
+  - {from: svc_board_tasks, to: svc_speaker_profiles, relation: unnamed_voices}
+  - {from: svc_board_tasks, to: svc_meeting_analyze, relation: not_sent}
+  - {from: svc_project_purge, to: model_user_board, relation: deletes_rows}
   - {from: ui_btn_delete_project, to: router_projects, relation: calls}
   - {from: ui_project_page, to: ui_btn_delete_artifact, relation: contains}
   - {from: ui_btn_delete_artifact, to: router_upload, relation: calls}

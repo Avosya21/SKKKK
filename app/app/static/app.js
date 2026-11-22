@@ -569,20 +569,22 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
   PrimaryAnalitics.logout();
 });
 
-// Меню пользователя в шапке: «Моя карточка» и «Личный пароль» (если личные пароли включены).
+// Меню пользователя в шапке: «Моя карточка», «Личный пароль» (если личные пароли включены), «Настройки».
 (function () {
   const $ = (id) => document.getElementById(id);
   const passBtn = $('nav-password');
   const profileBtn = $('nav-profile');
+  const uiBtn = $('nav-ui');
   const passForm = $('password-form');
   const meForm = $('me-form');
-  if (!passBtn || !passForm || !localStorage.getItem('primary_analitics_role') || location.pathname === '/login') return;
+  if (!passBtn || !passForm || !uiBtn || !localStorage.getItem('primary_analitics_role') || location.pathname === '/login') return;
   let state = null;
   let me = null;
   let newPhoto = null;
+  let uiHome = 'list';
 
   function syncMenu() {
-    const any = !passBtn.classList.contains('d-none') || !profileBtn.classList.contains('d-none');
+    const any = !passBtn.classList.contains('d-none') || !profileBtn.classList.contains('d-none') || !uiBtn.classList.contains('d-none');
     // Пустое меню не раскрываем.
     if (any) $('nav-me').setAttribute('data-bs-toggle', 'dropdown');
     else $('nav-me').removeAttribute('data-bs-toggle');
@@ -729,6 +731,99 @@ document.getElementById('nav-logout')?.addEventListener('click', () => {
       bootstrap.Modal.getOrCreateInstance($('profileModal')).hide();
     }, { busyText: 'Сохраняю…' });
   });
+
+  function markHome(home) {
+    uiHome = home === 'dashboard' ? 'dashboard' : 'list';
+    $('ui-home-list').checked = uiHome === 'list';
+    $('ui-home-dashboard').checked = uiHome === 'dashboard';
+  }
+
+  uiBtn.addEventListener('click', async () => {
+    showError('ui-error', '');
+    const r = await PrimaryAnalitics.api('/me/ui');
+    if (r.ok) markHome((await r.json()).home);
+    else markHome(uiHome);
+    bootstrap.Modal.getOrCreateInstance($('uiModal')).show();
+  });
+
+  async function saveHome(home) {
+    if (home === uiHome) return;
+    const previous = uiHome;
+    markHome(home);
+    const r = await PrimaryAnalitics.api('/me/ui', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ home }),
+    });
+    if (!r.ok) {
+      markHome(previous);
+      showError('ui-error', 'Не удалось сохранить настройку.');
+      return;
+    }
+    showError('ui-error', '');
+    window.dispatchEvent(new CustomEvent('primary-analitics-home', { detail: { home } }));
+  }
+  $('ui-home-list').addEventListener('change', () => { if ($('ui-home-list').checked) saveHome('list'); });
+  $('ui-home-dashboard').addEventListener('change', () => { if ($('ui-home-dashboard').checked) saveHome('dashboard'); });
+
+  // Jira: личный токен в том же окне. Блок скрыт, пока на сервере не задан адрес Jira.
+  const jiraBox = $('jira-settings');
+  const jiraForm = $('jira-connect-form');
+  if (jiraBox && jiraForm) {
+    async function loadJiraStatus(extra) {
+      const r = await PrimaryAnalitics.api('/jira/status');
+      if (!r.ok) return null;
+      const data = await r.json();
+      jiraBox.classList.toggle('d-none', !data.available);
+      if (!data.available) return data;
+      $('jira-disconnected').classList.toggle('d-none', !!data.connected);
+      $('jira-connected').classList.toggle('d-none', !data.connected);
+      $('jira-connected-name').textContent = data.connected ? 'подключена: ' + (data.name || 'токен принят') : '';
+      $('jira-pick-btn').classList.toggle('d-none', !(data.connected && data.can_import && location.pathname === '/'));
+      showError('jira-error', data.connected && data.error ? 'Jira: ' + data.error : '');
+      const detail = Object.assign({}, data, extra || {});
+      window.PrimaryAnaliticsJira = { state: detail };
+      window.dispatchEvent(new CustomEvent('primary-analitics-jira', { detail }));
+      return data;
+    }
+
+    jiraForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = $('jira-token');
+      const btn = $('jira-connect-btn');
+      showError('jira-error', '');
+      PrimaryAnalitics.setButtonBusy(btn, true, { label: 'Проверяю…' });
+      try {
+        const r = await PrimaryAnalitics.api('/jira/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: input.value.trim() }),
+        });
+        if (!r.ok) {
+          const payload = await readJson(r);
+          showError('jira-error', apiError(payload, r.status));
+          return;
+        }
+        input.value = '';
+        await loadJiraStatus({ reloadProjects: true, justConnected: true });
+      } finally {
+        PrimaryAnalitics.setButtonBusy(btn, false);
+      }
+    });
+
+    $('jira-disconnect-btn').addEventListener('click', async () => {
+      if (!window.confirm('Отключить Jira? Токен будет удалён. Проекты, доступ к которым выдан по Jira, пропадут из вашего списка; загруженные материалы останутся.')) return;
+      const r = await PrimaryAnalitics.api('/jira/connect', { method: 'DELETE' });
+      if (!r.ok) {
+        const payload = await readJson(r);
+        showError('jira-error', apiError(payload, r.status));
+        return;
+      }
+      await loadJiraStatus({ reloadProjects: true });
+    });
+
+    loadJiraStatus();
+  }
 })();
 
 

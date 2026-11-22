@@ -429,6 +429,30 @@ def test_projects_page_asks_delete_confirmation(client, manager_token):
     assert 'id="deleteProjectModal"' in html
     assert "Подтверждаю полное удаление проекта" in html
     assert "Подтверждение удаления" in html
+    assert 'id="projects-board"' in html
+    assert 'id="board-tasks"' in html
+    assert 'id="projects-board-split"' in html
+    assert 'id="board-tasks-split"' in html
+    assert 'project-card-ghost' in html
+    assert ">Задачи<" in html
+    assert ">Сделано<" in html
+    assert 'id="projects-list"' in html
+    assert 'id="projects-board-list"' in html
+    assert "Все проекты" in html
+    assert "Доска" in html
+    assert ">Настройки<" in html
+    assert "Настройки интерфейса" not in html
+    assert 'id="jira-card"' not in html
+    assert 'id="jira-settings"' in html
+    assert 'id="jira-token"' in html
+    assert 'id="nav-ui"' in html
+    assert 'id="ui-home-list"' in html
+    assert 'id="ui-home-dashboard"' in html
+    assert 'id="projects-classic"' in html
+    assert 'class="bg-light projects-dashboard"' not in html
+    assert 'class="projects-board d-none" id="projects-board"' in html
+    assert "data-dashboard-move" not in html
+    assert "/me/dashboard" in html
 
 
 def test_list_projects_returns_description(client, manager_token):
@@ -474,6 +498,136 @@ def test_rename_project(client, admin_token, manager_token, user_token):
     assert ra.status_code == 200 and ra.json()["name"] == "От админа"
     page = client.get("/", headers=h).text
     assert 'id="renameProjectModal"' in page
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_dashboard_requires_login(client):
+    assert client.get("/me/dashboard").status_code == 401
+    assert client.put("/me/dashboard", json={"project_ids": []}).status_code == 401
+    assert client.get("/me/ui").status_code == 401
+    assert client.put("/me/ui", json={"home": "list"}).status_code == 401
+    assert client.get("/me/board").status_code == 401
+    assert client.post("/me/board/dismiss", json={"kind": "speakers", "ref": "x"}).status_code == 401
+
+
+def test_home_layout_is_personal_and_switches_the_page(client, admin_token, manager_token):
+    h = _auth(manager_token)
+    assert client.get("/me/ui", headers=h).json() == {"home": "list", "list_width": None, "tasks_height": None}
+    listed = client.get("/", headers=h).text
+    assert 'class="bg-light projects-dashboard"' not in listed
+    assert 'class="projects-board d-none" id="projects-board"' in listed
+    assert 'id="projects-classic" class="list-group"' in listed
+    saved = client.put("/me/ui", json={"home": "dashboard"}, headers=h)
+    assert saved.status_code == 200 and saved.json() == {"home": "dashboard", "list_width": None, "tasks_height": None}
+    assert 'class="bg-light projects-dashboard"' in client.get("/", headers=h).text
+    assert client.get("/me/ui", headers=_auth(admin_token)).json() == {"home": "list", "list_width": None, "tasks_height": None}
+    assert client.put("/me/ui", json={"home": "grid"}, headers=h).status_code == 422
+    assert client.get("/me/ui", headers=h).json() == {"home": "dashboard", "list_width": None, "tasks_height": None}
+    assert client.put("/me/ui", json={"home": "list"}, headers=h).status_code == 200
+
+
+def test_list_width_is_personal_and_keeps_the_home_choice(client, admin_token, manager_token):
+    h = _auth(manager_token)
+    saved = client.put("/me/ui", json={"list_width": 420}, headers=h)
+    assert saved.status_code == 200
+    assert saved.json() == {"home": "list", "list_width": 420, "tasks_height": None}
+    page = client.get("/", headers=h).text
+    assert 'class="bg-light projects-dashboard"' not in page
+    assert 'style="--board-list-width: 420px"' in page
+    assert client.put("/me/ui", json={"home": "dashboard"}, headers=h).json()["list_width"] == 420
+    assert client.put("/me/ui", json={"home": "list"}, headers=h).json()["list_width"] == 420
+    assert client.put("/me/ui", json={"list_width": 100}, headers=h).status_code == 422
+    assert client.get("/me/ui", headers=h).json()["list_width"] == 420
+    assert client.get("/me/ui", headers=_auth(admin_token)).json()["list_width"] is None
+
+
+def test_tasks_height_is_personal_and_keeps_other_settings(client, admin_token, manager_token):
+    h = _auth(manager_token)
+    saved = client.put("/me/ui", json={"tasks_height": 320}, headers=h)
+    assert saved.status_code == 200
+    assert saved.json() == {"home": "list", "list_width": None, "tasks_height": 320}
+    page = client.get("/", headers=h).text
+    assert 'style="--board-tasks-height: 320px"' in page
+    assert client.put("/me/ui", json={"list_width": 420}, headers=h).json()["tasks_height"] == 320
+    assert client.put("/me/ui", json={"home": "dashboard"}, headers=h).json()["tasks_height"] == 320
+    assert client.put("/me/ui", json={"tasks_height": 80}, headers=h).status_code == 422
+    assert client.get("/me/ui", headers=h).json()["tasks_height"] == 320
+    assert client.get("/me/ui", headers=_auth(admin_token)).json()["tasks_height"] is None
+
+
+def test_dashboard_is_personal_and_keeps_order(client, admin_token, manager_token, user_token, member_card):
+    h = _auth(manager_token)
+    first = client.post("/projects", json={"name": "Доска-1"}, headers=h).json()["id"]
+    second = client.post("/projects", json={"name": "Доска-2"}, headers=h).json()["id"]
+    third = client.post("/projects", json={"name": "Доска-3"}, headers=h).json()["id"]
+    assert client.get("/me/dashboard", headers=h).json() == {"project_ids": []}
+
+    saved = client.put("/me/dashboard", json={"project_ids": [third, first]}, headers=h)
+    assert saved.status_code == 200
+    assert saved.json()["project_ids"] == [third, first]
+    assert client.get("/me/dashboard", headers=h).json()["project_ids"] == [third, first]
+
+    assert client.get("/me/dashboard", headers=_auth(admin_token)).json()["project_ids"] == []
+    admin_saved = client.put("/me/dashboard", json={"project_ids": [second]}, headers=_auth(admin_token))
+    assert admin_saved.status_code == 200
+    assert client.get("/me/dashboard", headers=h).json()["project_ids"] == [third, first]
+
+    denied = client.put("/me/dashboard", json={"project_ids": [first]}, headers=_auth(user_token))
+    assert denied.status_code == 400
+    from app.app.db import SessionLocal
+    from app.app.models.user import User
+
+    db = SessionLocal()
+    try:
+        uid = db.query(User).filter(User.telegram_id == "tg-user").one().id
+    finally:
+        db.close()
+    granted = client.post(
+        f"/projects/{first}/members",
+        json={"user_id": uid, "role": "user", **member_card},
+        headers=h,
+    )
+    assert granted.status_code == 200
+    assert client.put("/me/dashboard", json={"project_ids": [first]}, headers=_auth(user_token)).status_code == 200
+    assert client.put("/me/dashboard", json={"project_ids": [second]}, headers=_auth(user_token)).status_code == 400
+    assert client.put("/me/dashboard", json={"project_ids": [first, first]}, headers=h).status_code == 400
+    assert client.get("/me/dashboard", headers=h).json()["project_ids"] == [third, first]
+
+    cleared = client.put("/me/dashboard", json={"project_ids": []}, headers=h)
+    assert cleared.status_code == 200 and cleared.json()["project_ids"] == []
+
+
+def test_dashboard_drops_deleted_and_inactive_project(client, manager_token):
+    from app.app.db import SessionLocal
+    from app.app.models.project import Project
+    from app.app.models.user_dashboard import UserDashboardProject
+
+    h = _auth(manager_token)
+    pid = client.post("/projects", json={"name": "На доске"}, headers=h).json()["id"]
+    other = client.post("/projects", json={"name": "Рядом"}, headers=h).json()["id"]
+    assert client.put("/me/dashboard", json={"project_ids": [pid, other]}, headers=h).status_code == 200
+
+    db = SessionLocal()
+    try:
+        row = db.get(Project, other)
+        row.is_active = False
+        db.commit()
+    finally:
+        db.close()
+    assert client.get("/me/dashboard", headers=h).json()["project_ids"] == [pid]
+    assert client.put("/me/dashboard", json={"project_ids": [other]}, headers=h).status_code == 400
+
+    assert client.delete(f"/projects/{pid}", headers=h).status_code == 204
+    assert client.get("/me/dashboard", headers=h).json()["project_ids"] == []
+    db = SessionLocal()
+    try:
+        left = db.query(UserDashboardProject).filter(UserDashboardProject.project_id == pid).count()
+    finally:
+        db.close()
+    assert left == 0
 
 
 def test_list_projects_creator_only_for_admin(client, admin_token, manager_token):

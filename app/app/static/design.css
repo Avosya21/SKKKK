@@ -37,6 +37,9 @@
   --ds-shadow: 0 1px 2px rgba(9, 9, 11, .04);
   --ds-ring: 0 0 0 2px #fff, 0 0 0 4px rgba(24, 24, 27, .35);
   --ds-font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  /* движение: короткое, только там, где оно подтверждает действие */
+  --ds-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ds-dur-press: 80ms;
   /* тёмная тема (комната) */
   --ds-dark-bg: #09090b;
   --ds-dark-surface: #18181b;
@@ -229,8 +232,9 @@ body.nav-in-project .navbar-brand-logo { gap: 0; }
   --bs-btn-border-radius: var(--ds-r-sm);
   font-weight: 500;
   letter-spacing: -0.005em;
-  transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease;
+  transition: background-color .12s var(--ds-ease-out), border-color .12s var(--ds-ease-out), box-shadow .12s var(--ds-ease-out), transform var(--ds-dur-press) var(--ds-ease-out);
 }
+.btn:active:not(:disabled) { transform: scale(0.97); }
 .btn:focus-visible { box-shadow: var(--ds-ring); }
 .btn-primary {
   --bs-btn-bg: var(--ds-accent);
@@ -383,7 +387,10 @@ main > .row.justify-content-center { margin-top: clamp(0px, 5vh, 3rem); }
 .chat-card #chat-log { background: transparent; border: 0; border-radius: 0; }
 .toast.text-bg-success { background: var(--ds-ok) !important; color: #fff !important; border-radius: var(--ds-r-md); }
 /* уважение к настройке «меньше движения» */
-@media (prefers-reduced-motion: reduce) { .btn, .meeting-dock-btn { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .btn, .meeting-dock-btn { transition: none; }
+  .btn:active, .meeting-dock-btn:active { transform: none; }
+}
 
 
 /* ---------- узкие экраны: структурные карточки (файлы, встречи, сроки) ----------
@@ -534,4 +541,265 @@ pre#mcp-config, .card-body pre {
   min-height: 2rem;
   padding: .2rem .65rem;
   font-size: .8125rem;
+}
+
+/* Стартовая: список слева, личная доска справа.
+   Ширину .container не снимать: шапка живёт в своей колонке, и на списке
+   заголовок с ней совпадает. max-width: none уводил доску на весь экран,
+   и шапка рядом выглядела узкой полоской. */
+body.projects-dashboard { overflow: hidden; }
+body.projects-dashboard main.container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 56px - 1.5rem);
+  min-height: 0;
+  padding-bottom: 1rem;
+}
+.projects-board {
+  display: grid;
+  grid-template-columns: var(--board-list-width, minmax(17rem, 24rem)) 1rem minmax(0, 1fr);
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+.projects-board-split {
+  cursor: col-resize;
+  touch-action: none;
+  position: relative;
+}
+.projects-board-split::before {
+  content: "";
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--ds-line);
+}
+.projects-board-split:hover::before,
+.projects-board-split:focus-visible::before,
+.projects-board-split.is-dragging::before {
+  background: var(--ds-accent);
+  width: 3px;
+}
+.board-tasks-split {
+  cursor: row-resize;
+  touch-action: none;
+  position: relative;
+  flex: 0 0 0.75rem;
+  background: var(--ds-surface);
+}
+.board-tasks-split::before {
+  content: "";
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--ds-line);
+}
+.board-tasks-split:hover::before,
+.board-tasks-split:focus-visible::before,
+.board-tasks-split.is-dragging::before {
+  background: var(--ds-accent);
+  height: 3px;
+}
+.projects-board-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-lg);
+  box-shadow: var(--ds-shadow);
+  overflow: hidden;
+}
+.projects-board-col-board { background: var(--ds-surface-2); }
+.projects-board-col-board .projects-board-list {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+}
+.projects-board-head {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-surface);
+}
+.projects-board-list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  min-height: 12rem;
+  /* Отступ держит рамку карточки внутри колонки: у overflow:hidden края срезаются. */
+  padding: 0.85rem;
+  background: transparent;
+}
+.projects-board-list.is-drop-target {
+  box-shadow: inset 0 0 0 1px var(--ds-accent);
+  background: var(--ds-accent-soft);
+}
+/* list-group-flush обнуляет низ последней строки и бока. Здесь карточка со своей рамкой. */
+.projects-board-list.list-group-flush > .list-group-item.project-list-item {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-sm);
+  margin-bottom: 0.5rem;
+  background: var(--ds-surface);
+}
+.projects-board-list .project-list-item:last-child { margin-bottom: 0; }
+.projects-board-list .project-list-item.is-drop-before { box-shadow: inset 0 2px 0 var(--ds-accent); }
+.projects-board-list .project-list-item.is-dragging { opacity: 0.45; }
+.project-card-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  margin: 0;
+  pointer-events: none;
+  background: var(--ds-surface);
+  box-shadow: 0 12px 28px rgba(16, 24, 40, .16);
+}
+.projects-board .project-list-header { justify-content: flex-start; align-items: center; }
+.project-card-main { flex: 1 1 auto; min-width: 0; }
+.projects-board .project-list-title {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.projects-board .project-list-creator {
+  display: block;
+  max-width: 100%;
+}
+/* Узкая колонка: кнопки не делят строку с текстом, иначе описание схлопывается в столбик букв. */
+.projects-board-col-list .project-desc-panel {
+  flex-direction: column;
+  align-items: stretch;
+}
+.projects-board-col-list .project-desc-text {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.projects-board-col-list .project-desc-actions {
+  align-self: flex-start;
+}
+.project-card-grip {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ds-muted);
+  cursor: grab;
+  touch-action: none;
+}
+.project-card-grip:hover { background: var(--ds-surface-2); color: var(--ds-text); }
+.project-card-grip:active { cursor: grabbing; }
+.projects-board-empty {
+  margin: auto;
+  max-width: 18rem;
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+  color: var(--ds-muted);
+  font-size: 0.875rem;
+}
+.projects-board-skeleton {
+  height: 2.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+}
+.board-tasks {
+  flex: 0 0 auto;
+  height: var(--board-tasks-height, 14rem);
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0.85rem 1rem 1rem;
+  background: var(--ds-surface);
+}
+.board-tasks-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.board-tasks-empty {
+  margin: 0.15rem 0 0;
+  color: var(--ds-muted);
+  font-size: 0.875rem;
+}
+.board-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 2rem;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--ds-line);
+}
+.board-tasks-list .board-task:last-child { border-bottom: 0; }
+.board-task-link {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--ds-text);
+  text-decoration: none;
+}
+.board-task-link:hover .board-task-title { text-decoration: underline; }
+.board-task-title { font-weight: 600; }
+.board-task-hint,
+.board-task-time,
+.board-task-project {
+  color: var(--ds-muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.board-task-project { text-decoration: none; }
+.board-task-project:hover { text-decoration: underline; }
+.board-task-dismiss {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--ds-line);
+  border-radius: 6px;
+  background: var(--ds-surface);
+  color: var(--ds-muted);
+}
+.board-task-dismiss:hover { color: var(--ds-text); }
+.board-task-dismiss svg { width: 1rem; height: 1rem; }
+@media (max-width: 991.98px) {
+  body.projects-dashboard { overflow: auto; }
+  body.projects-dashboard main.container { display: block; height: auto; }
+  .projects-board {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .projects-board-split { display: none; }
+  .projects-board-col-list { order: 2; }
+  .projects-board-col-board { order: 1; }
+  .projects-board-list { max-height: 50vh; }
+  .projects-board-col-board .projects-board-list { max-height: 50vh; }
+  .board-tasks { overflow: auto; }
+}
+@media (min-width: 112.5rem) {
+  .projects-board {
+    grid-template-columns: var(--board-list-width, minmax(20rem, 28rem)) 1rem minmax(0, 1fr);
+  }
 }

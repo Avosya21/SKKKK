@@ -34,7 +34,10 @@ from app.app.models.portal_setting import PortalSetting
 from app.app.models.login_code import B24Employee, LoginCode
 from app.app.models.user import User
 from app.app.models.user_activity_log import UserActivityLog
+from app.app.models.user_board import UserBoardDismissal
+from app.app.models.user_dashboard import UserDashboardProject
 from app.app.models.user_profile import UserProfile
+from app.app.models.user_ui_setting import UserUiSetting
 
 __all__ = [
     "JiraAccount",
@@ -54,7 +57,10 @@ __all__ = [
     "ChatMessage",
     "User",
     "UserActivityLog",
+    "UserBoardDismissal",
+    "UserDashboardProject",
     "UserProfile",
+    "UserUiSetting",
     "PortalSetting",
     "Company",
     "ProjectTask",

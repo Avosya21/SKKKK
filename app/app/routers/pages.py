@@ -24,6 +24,7 @@ from app.app.services.meetings import (
     ongoing_payload,
     require_meeting_staff,
 )
+from app.app.services.ui_settings import read_ui_settings
 from app.app.services.project_access import (
     can_grant_access,
     staff_ui_role,
@@ -257,12 +258,21 @@ def load_changelog() -> list[dict[str, str]]:
 @router.get("/", response_class=HTMLResponse)
 def index_page(
     request: Request,
+    db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_html_user)],
 ):
+    home_layout, list_width, tasks_height = read_ui_settings(db, user)
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"title": "Проекты", "current_role": user.role, "changelog": load_changelog()},
+        {
+            "title": "Проекты",
+            "current_role": user.role,
+            "changelog": load_changelog(),
+            "home_layout": home_layout,
+            "list_width": list_width,
+            "tasks_height": tasks_height,
+        },
     )
 
 

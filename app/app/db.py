@@ -193,6 +193,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("artifacts", "recorded_at_precision", "VARCHAR(8)"),
     ("user_activity_log", "login", "VARCHAR(128)"),
     ("user_activity_log", "profile_id", "INTEGER"),
+    ("user_ui_settings", "list_width", "INTEGER"),
+    ("user_ui_settings", "tasks_height", "INTEGER"),
 ]
 
 _AUDIT_APPEND_ONLY_SQL = (

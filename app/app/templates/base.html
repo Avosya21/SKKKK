@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ title }} — Primary Analytics</title>
   <link href="/static/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/app.css?v=21" rel="stylesheet">
-  <link href="/static/design.css?v=14" rel="stylesheet">
+  <link href="/static/app.css?v=22" rel="stylesheet">
+  <link href="/static/design.css?v=25" rel="stylesheet">
   <link rel="icon" href="/static/brand/favicon.ico?v=2" sizes="any">
   <link rel="icon" href="/static/brand/favicon.svg?v=2" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png?v=2">
@@ -26,7 +26,7 @@
       {% block nav_changelog %}{% endblock %}
       <span class="badge rounded-pill text-bg-secondary d-none" id="nav-llm" title="LLM-провайдер"></span>
       <div class="nav-session d-none align-items-center gap-1" id="nav-session">
-        {# Меню пользователя: фото и имя из карточки; «Моя карточка», «Личный пароль». «Выйти» — отдельной кнопкой. #}
+        {# Меню пользователя: фото и имя из карточки; «Моя карточка», «Личный пароль», «Настройки». «Выйти» — отдельной кнопкой. #}
         <div class="dropdown nav-me">
           <button type="button" class="btn nav-logout nav-me-btn" id="nav-me" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Меню пользователя" title="Меню пользователя">
             <img id="nav-avatar" class="nav-avatar d-none" alt="" width="24" height="24">
@@ -35,6 +35,7 @@
           <ul class="dropdown-menu dropdown-menu-end">
             <li><button type="button" class="dropdown-item d-none" id="nav-profile">Моя карточка</button></li>
             <li><button type="button" class="dropdown-item d-none" id="nav-password">Личный пароль</button></li>
+            <li><button type="button" class="dropdown-item" id="nav-ui">Настройки</button></li>
           </ul>
         </div>
         <button type="button" class="btn nav-logout" id="nav-logout" aria-label="Выйти" title="Выйти">
@@ -128,8 +129,50 @@
     </form>
   </div>
 </div>
+<div class="modal fade" id="uiModal" tabindex="-1" aria-labelledby="ui-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="ui-title">Настройки</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <fieldset>
+          <legend class="form-label mb-2">Главная страница</legend>
+          <div class="btn-group" role="radiogroup" aria-label="Главная страница">
+            <input type="radio" class="btn-check" name="ui-home" id="ui-home-list" value="list" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="ui-home-list">Список</label>
+            <input type="radio" class="btn-check" name="ui-home" id="ui-home-dashboard" value="dashboard" autocomplete="off">
+            <label class="btn btn-outline-secondary" for="ui-home-dashboard">Дашборд</label>
+          </div>
+          <div class="form-text mt-2">Список — проекты одной колонкой. Дашборд — список слева и доска справа.</div>
+        </fieldset>
+        <div id="jira-settings" class="d-none border-top mt-3 pt-3">
+          <div class="form-label mb-2">Jira</div>
+          <div id="jira-disconnected" class="d-none">
+            <form id="jira-connect-form" autocomplete="off">
+              <label class="form-label" for="jira-token">Личный токен</label>
+              <input type="password" class="form-control" id="jira-token" name="jira-token" placeholder="Ваш личный токен Jira" maxlength="4000" required autocomplete="off">
+              <div class="form-text mb-2">Токен создаётся в Jira: профиль → «Персональные токены доступа». Хранится зашифрованным, виден только вам.</div>
+              <button type="submit" class="btn btn-primary primaryanalitics-action-btn" id="jira-connect-btn" data-idle-label="Подключить Jira">Подключить Jira</button>
+            </form>
+          </div>
+          <div id="jira-connected" class="d-none">
+            <div class="small mb-2" id="jira-connected-name"></div>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-outline-primary d-none" id="jira-pick-btn">Проекты из Jira</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="jira-disconnect-btn">Отключить</button>
+            </div>
+          </div>
+          <div class="alert alert-danger d-none mt-2 mb-0" id="jira-error" role="alert"></div>
+        </div>
+        <div class="alert alert-danger d-none mt-3 mb-0" id="ui-error" role="alert"></div>
+      </div>
+    </div>
+  </div>
+</div>
 <script src="/static/errors_ru.js?v=1"></script>
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=9"></script>
 <script src="/static/meeting_local_record.js?v=a12"></script>
 <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
 {% block scripts %}{% endblock %}

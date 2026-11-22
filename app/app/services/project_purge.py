@@ -31,6 +31,8 @@ from app.app.models.project_member import ProjectMember
 from app.app.models.project_mcp_token import McpCallStat, ProjectMcpToken
 from app.app.models.project_task import ProjectTask
 from app.app.models.project_visit import ProjectVisit
+from app.app.models.user_board import KIND_MEETING, KIND_SPEAKERS, UserBoardDismissal
+from app.app.models.user_dashboard import UserDashboardProject
 from app.app.models.speaker_profile import ArtifactSpeakerLink, SpeakerProfile
 from app.app.models.speech_act import SpeechAct
 from app.app.services.graph import delete_entities_with_deps
@@ -202,6 +204,12 @@ def purge_artifact(db: Session, settings: Settings, artifact: Artifact) -> None:
         transcription_file_path=artifact.transcription_file_path,
     )
     db.execute(delete(UnknownActor).where(UnknownActor.artifact_id == pk))  # очередь «Кто это?» этого материала
+    db.execute(
+        delete(UserBoardDismissal).where(
+            UserBoardDismissal.kind == KIND_SPEAKERS,
+            UserBoardDismissal.ref == aid,
+        )
+    )
     db.delete(artifact)
     db.commit()
     remove_artifact_files(settings, files)
@@ -269,6 +277,8 @@ def purge_project(db: Session, settings: Settings, project: Project) -> None:
     db.execute(delete(ProjectTask).where(ProjectTask.project_id == pid))
     db.execute(delete(ManualTask).where(ManualTask.project_id == pid))  # ручные задачи (Ш4)
     db.execute(delete(ProjectVisit).where(ProjectVisit.project_id == pid))  # заходы для «Что нового» (Ш5)
+    db.execute(delete(UserDashboardProject).where(UserDashboardProject.project_id == pid))  # личные доски
+    db.execute(delete(UserBoardDismissal).where(UserBoardDismissal.project_id == pid))  # снятые задачи доски
     db.execute(delete(ArtifactSpeakerLink).where(ArtifactSpeakerLink.project_id == pid))
     _purge_registry(db, pid)
     db.execute(delete(SpeakerProfile).where(SpeakerProfile.project_id == pid))
@@ -334,6 +344,12 @@ def purge_meeting(db: Session, settings: Settings, meeting: Meeting) -> None:
         return
     _delete_jobs(db, job_ids, pks)
     db.execute(delete(MeetingParticipant).where(MeetingParticipant.meeting_id == mid))
+    db.execute(
+        delete(UserBoardDismissal).where(
+            UserBoardDismissal.kind == KIND_MEETING,
+            UserBoardDismissal.ref == str(mid),
+        )
+    )
     db.delete(row)
     db.commit()
     _remove_meeting_room(settings, room)
