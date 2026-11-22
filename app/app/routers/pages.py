@@ -308,10 +308,12 @@ def project_page(
         live_meetings = [ongoing_payload(m, people) for m, people in ongoing_meetings(db, project_id)]
     # «Что нового с прошлого захода» (PORTAL-ACCURACY-MANAGER-PLAN Ш5): рисуется сервером, как полоска созвона, — без прыжка страницы
     from app.app.config import get_settings
+    from app.app.services.jira_import import jira_link_spec
     from app.app.services.project_digest import digest_for_page
 
+    settings = get_settings()
     try:
-        digest = digest_for_page(db, get_settings(), project, user, role)
+        digest = digest_for_page(db, settings, project, user, role)
     except Exception:  # полоска не должна ломать страницу проекта
         logging.getLogger("primaryanalitics.pages").exception("project digest failed project=%s", project_id)
         digest = {"lines": []}
@@ -327,6 +329,7 @@ def project_page(
             "project_name": project.name,
             "current_role": role,
             "can_grant_access": can_grant_access(db, user, project),
+            "jira_links": jira_link_spec(db, settings, project_id),
         },
     )
 
@@ -369,10 +372,17 @@ def chat_page(
     user: Annotated[User, Depends(require_html_user)],
 ):
     project = require_project(db, user, project_id)
+    from app.app.services.jira_import import jira_link_spec
+
     return templates.TemplateResponse(
         request,
         "chat.html",
-        {"title": f"Чат {project_id}", "project_id": project_id, "current_role": _page_role(db, user, project)},
+        {
+            "title": f"Чат {project_id}",
+            "project_id": project_id,
+            "current_role": _page_role(db, user, project),
+            "jira_links": jira_link_spec(db, get_settings(), project_id),
+        },
     )
 
 

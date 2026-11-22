@@ -524,3 +524,38 @@ def test_render_helpers():
     raw["changelog_complete"] = False
     raw["changelog"] = {"total": 5, "histories": [{"created": "2026-10-05T10:00:00.000+0300", "author": {"name": "a"}, "items": []}]}
     assert "(Jira отдала 1 записей из 5" in jr.issue_document(raw, "https://jira.example")
+
+
+def _page_links(client, token, project_id, page=""):
+    import json
+    import re
+
+    html = client.get(f"/projects/{project_id}{page}", headers=_h(token)).text
+    found = re.search(r"const jiraLinks = (\{.*?\});", html)
+    assert found, html[html.find("jiraLinks") - 80:html.find("jiraLinks") + 200]
+    return json.loads(found.group(1))
+
+
+def test_page_lists_only_loaded_issue_keys(client, jira, manager_token, admin_token):
+    """Резюме и ассистент получают ключи загруженных задач и адрес Jira. Подзадача в тексте, битый ключ и снятая привязка ссылкой не становятся."""
+    from app.app.db import SessionLocal
+    from app.app.models.jira import JiraItem
+
+    project_id = _import(client, manager_token)
+    spec = _page_links(client, manager_token, project_id)
+    assert spec == {"base": "https://jira.example", "keys": ["ABC-1", "ABC-2"]}
+    assert "ABC-11" not in spec["keys"] and "ABC-100" not in spec["keys"]
+    assert _page_links(client, manager_token, project_id, "/chat") == spec
+    plain = client.post("/projects", json={"name": "Без Jira"}, headers=_h(manager_token)).json()["id"]
+    assert _page_links(client, manager_token, plain) == {"base": "", "keys": []}
+    with SessionLocal() as db:
+        unloaded = db.scalar(select(JiraItem).where(JiraItem.issue_key == "ABC-2", JiraItem.kind == "issue"))
+        unloaded.artifact_id = None
+        broken = db.scalar(select(JiraItem).where(JiraItem.issue_key == "ABC-1", JiraItem.kind == "issue"))
+        broken.issue_key = 'ABC-1"><script>'
+        db.commit()
+    assert _page_links(client, manager_token, project_id) == {"base": "", "keys": []}
+    fresh = _import(client, manager_token, key="XYZ")
+    assert _page_links(client, manager_token, fresh)["keys"] == ["XYZ-1"]
+    assert client.delete(f"/projects/{fresh}/jira/link/XYZ", headers=_h(admin_token)).status_code == 204
+    assert _page_links(client, manager_token, fresh) == {"base": "", "keys": []}

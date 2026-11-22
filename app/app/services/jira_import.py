@@ -195,6 +195,50 @@ def jira_keys_by_project(db: Session, project_ids: set[int] | None = None) -> di
     return {pid: ", ".join(keys) for pid, keys in out.items()}
 
 
+# Ключ задачи: буква или цифра, затем буквы, цифры и подчёркивания, дефис и номер. С цифры тоже бывает (1C_DEMO-2).
+_ISSUE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_]{1,40}-\d{1,7}$")
+
+
+def browse_base(settings: Settings) -> str:
+    """Адрес Jira для ссылки на задачу. Пусто, если адрес не задан или в нём нельзя собрать безопасный URL."""
+    raw = (settings.jira_base_url or "").strip().rstrip("/")
+    if not raw.lower().startswith(("http://", "https://")):
+        return ""
+    if any(ch in raw for ch in " \t\r\n\"'<>\\"):
+        return ""
+    return raw
+
+
+def loaded_issue_keys(db: Session, project_id: int) -> list[str]:
+    """Ключи задач, которые загружены в этот проект (документ задачи есть). После снятия привязки список пуст."""
+    if not links_of_project(db, project_id):
+        return []
+    rows = db.scalars(
+        select(JiraItem.issue_key)
+        .join(JiraProjectLink, JiraProjectLink.id == JiraItem.link_id)
+        .where(
+            JiraProjectLink.project_id == project_id,
+            JiraItem.kind == "issue",
+            JiraItem.artifact_id.is_not(None),
+        )
+    ).all()
+    found: dict[str, str] = {}
+    for key in rows:
+        text = (key or "").strip()
+        if _ISSUE_KEY.fullmatch(text):
+            found.setdefault(text.upper(), text)
+    return [found[name] for name in sorted(found)]
+
+
+def jira_link_spec(db: Session, settings: Settings, project_id: int) -> dict[str, Any]:
+    """Что страница может превратить в ссылку: адрес Jira и ключи загруженных задач. Иначе пусто."""
+    base = browse_base(settings)
+    keys = loaded_issue_keys(db, project_id) if base else []
+    if not base or not keys:
+        return {"base": "", "keys": []}
+    return {"base": base, "keys": keys}
+
+
 def link_out(db: Session, link: JiraProjectLink) -> dict[str, Any]:
     project = db.get(Project, link.project_id)
     items = db.scalars(select(JiraItem).where(JiraItem.link_id == link.id)).all()

@@ -445,6 +445,24 @@ h1, .h1 { font-size: 1.6rem; letter-spacing: -0.03em; }
 .summary-table th { background: transparent; }
 /* ссылки в текстах и таблицах: тёмные с подчёркиванием, чтобы читались как ссылки без цвета */
 .table a:not(.btn), .list-group a:not(.btn) { color: var(--ds-text); text-decoration: underline; text-decoration-color: var(--ds-line-strong); text-underline-offset: 3px; }
+/* ключ задачи Jira в резюме и в ответе: синий и обычное начертание, даже внутри жирного, заголовка и таблицы */
+a.jira-issue-link,
+.table a.jira-issue-link:not(.btn),
+#tz-content a.jira-issue-link,
+#chat-log a.jira-issue-link {
+  color: var(--ds-link);
+  font-weight: 400;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ds-link) 45%, transparent);
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+a.jira-issue-link:hover,
+.table a.jira-issue-link:not(.btn):hover,
+#tz-content a.jira-issue-link:hover,
+#chat-log a.jira-issue-link:hover {
+  color: var(--ds-link);
+}
 .table a:not(.btn):hover, .list-group a:not(.btn):hover { text-decoration-color: currentColor; }
 a.file-name, .file-name a { color: var(--ds-text); }
 

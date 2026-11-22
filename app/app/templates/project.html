@@ -1158,6 +1158,7 @@
 <script>
 if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 const projectId = {{ project_id }};
+const jiraLinks = {{ jira_links | tojson }};
 // Список материалов приходит с сервера позже первой отрисовки: резервируем ему прежнюю высоту (запоминается по проекту), иначе всё ниже «уезжает»
 (function reserveArtifactsHeight() {
   try {
@@ -1457,7 +1458,7 @@ function inlineMarkdown(text) {
   let safe = escapeHtml(PrimaryAnalitics.cleanSummaryOutput(text || ''));
   safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
-  return safe;
+  return PrimaryAnalitics.linkifyJiraKeys(safe, jiraLinks);
 }
 
 function renderMarkdown(text) {

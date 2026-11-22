@@ -37,6 +37,7 @@
 if (!PrimaryAnalitics.requireAuth()) throw new Error('auth');
 
 const projectId = {{ project_id }};
+const jiraLinks = {{ jira_links | tojson }};
 const chatLog = document.getElementById('chat-log');
 const sendBtn = document.getElementById('chat-send');
 const chatStatus = document.getElementById('chat-status');
@@ -56,7 +57,7 @@ function renderMarkdown(text) {
   safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   safe = safe.replace(/`(.+?)`/g, '<code>$1</code>');
   safe = safe.replace(/\n/g, '<br>');
-  return safe;
+  return PrimaryAnalitics.linkifyJiraKeys(safe, jiraLinks);
 }
 
 // Источники свёрнуты в «Источники (N)»; у фрагмента созвона — ссылка на момент в стенограмме

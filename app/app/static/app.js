@@ -550,6 +550,55 @@ const PrimaryAnalitics = {
   cleanSummaryOutput(text) {
     return this.sanitizeSummaryMarkdown(this.plainifyLlmMarkup(text));
   },
+
+  /** Ключ загруженной задачи в уже экранированном HTML — ссылка на карточку Jira.
+   *  spec: {base, keys}. Чужой ключ, ключ внутри кода и ключ внутри адреса не трогаем. */
+  linkifyJiraKeys(html, spec) {
+    const source = html == null ? '' : String(html);
+    const base = String((spec && spec.base) || '').trim().replace(/\/+$/, '');
+    const keys = spec && spec.keys;
+    if (!base || !/^https?:\/\//i.test(base) || !Array.isArray(keys) || !keys.length) return source;
+    const keyOk = new RegExp("^[A-Za-z0-9][A-Za-z0-9_]{1,40}-\\d{1,7}$");
+    const known = new Map();
+    for (const key of keys) {
+      if (typeof key === 'string' && keyOk.test(key)) known.set(key.toUpperCase(), key);
+    }
+    if (!known.size) return source;
+    const esc = (value) => String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+    let inAnchor = 0;
+    let inCode = 0;
+    return source.split(/(<[^>]+>)/).map((part) => {
+      const open = /^<\s*(a|code)(\s|>)/i.exec(part);
+      const close = /^<\s*\/\s*(a|code)\s*>/i.exec(part);
+      if (open) {
+        if (open[1].toLowerCase() === 'a') inAnchor += 1;
+        else inCode += 1;
+        return part;
+      }
+      if (close) {
+        if (close[1].toLowerCase() === 'a') inAnchor = Math.max(0, inAnchor - 1);
+        else inCode = Math.max(0, inCode - 1);
+        return part;
+      }
+      if (part.startsWith('<') || inAnchor || inCode) return part;
+      const re = new RegExp("(^|[^A-Za-z0-9_])([A-Za-z0-9][A-Za-z0-9_]{1,40}-\\d{1,7})(?![A-Za-z0-9_])", "g");
+      return part.replace(re, (full, prefix, raw) => {
+        if (prefix === '/') return full;
+        const canon = known.get(raw.toUpperCase());
+        if (!canon) return full;
+        const href = base + '/browse/' + encodeURIComponent(canon);
+        const label = 'Открыть ' + canon + ' в Jira';
+        return prefix
+          + '<a class="jira-issue-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" title="'
+          + esc(label) + '" aria-label="' + esc(label) + '">' + raw + '</a>';
+      });
+    }).join('');
+  },
 };
 PrimaryAnalitics.updateNav();
 PrimaryAnalitics.updateLlmBadge();
