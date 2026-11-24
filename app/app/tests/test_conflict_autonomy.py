@@ -365,9 +365,58 @@ def test_conflict_lines_filter_and_dismissed(client, admin_token, tmp_data):
         db.commit()
         resolved, open_ = conflict_lines(db, project.id, artifact_ids={b.id})
         assert resolved == [] and len(open_) == 1 and "адресное хранение" in open_[0]
+        assert "назови обе версии" not in open_[0] and open_[0].startswith("- Не решено:")
+        human = conflict_lines(db, project.id, artifact_ids={b.id}, audience="human")[1]
+        assert len(human) == 1 and "↔" in human[0] and "[decision]" not in human[0]
         resolved, open_ = conflict_lines(db, project.id)
         assert len(open_) == 1  # «не конфликт» не выводится
         assert conflict_lines(db, project.id, artifact_ids=set(), entity_ids=set()) == ([], [])
+    finally:
+        db.close()
+
+
+def test_conflict_lines_skips_jira_metadata_facts(client, admin_token, tmp_data):
+    """Служебные fact из Jira (updated_at) не должны попадать в строки противоречий для резюме."""
+    from app.app.models.entity import Entity
+    from app.app.services.conflict_context import conflict_lines, is_noise_fact_key
+
+    assert is_noise_fact_key("updated_at") and is_noise_fact_key("last_update_time")
+    settings = get_settings()
+    db = db_mod.SessionLocal()
+    try:
+        project, user = _project(db, "JiraNoise")
+        a = _call(db, settings, project, user, "art_jn_a", "Jira ABC-1 — задача.md", "текст")
+        b = _call(db, settings, project, user, "art_jn_b", "Jira ABC-2 — задача.md", "текст")
+        fa = Entity(
+            artifact_id=a.id,
+            entity_type="fact",
+            value_json=json.dumps({"key": "updated_at", "value": "2026-11-24T00:27:00+03:00"}, ensure_ascii=False),
+            is_active=True,
+        )
+        fb = Entity(
+            artifact_id=b.id,
+            entity_type="fact",
+            value_json=json.dumps({"key": "last_update_time", "value": "2026-06-10T19:54:00+03:00"}, ensure_ascii=False),
+            is_active=True,
+        )
+        db.add_all([fa, fb])
+        db.flush()
+        _link(db, project, fa, fb)
+        real = _link(
+            db,
+            project,
+            _decision(db, a, "Обмен раз в час", 1.0),
+            _decision(db, b, "Обмен раз в сутки", 1.0),
+        )
+        db.commit()
+        resolved, open_ = conflict_lines(db, project.id)
+        assert resolved == [] and len(open_) == 1
+        assert "updated_at" not in open_[0] and "Обмен раз в час" in open_[0]
+        human = conflict_lines(
+            db, project.id, audience="human", material_types=frozenset({"decision", "task"})
+        )[1]
+        assert len(human) == 1 and "Обмен" in human[0] and "назови" not in human[0]
+        assert real.id  # связь создана
     finally:
         db.close()
 

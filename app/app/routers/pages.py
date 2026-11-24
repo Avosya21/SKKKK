@@ -297,7 +297,7 @@ def project_page(
 
     hidden = set(shelf_kinds(db, project_id))
     names = db.execute(select(Artifact.id, Artifact.original_filename).where(Artifact.project_id == project_id)).all()
-    # высота списка — только то, что видно в таблице: без служебных json обмена и без выгрузок задач Jira
+    # высота списка — только то, что видно в таблице: без служебных json обмена и без всего, что скачано из Jira
     artifact_count = sum(
         1 for artifact_id, name in names
         if artifact_id not in hidden and not re.match(r"^analysis_(reply|request|question)_\d+\.json$", name or "", re.IGNORECASE)

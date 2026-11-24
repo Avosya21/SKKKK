@@ -1825,7 +1825,12 @@ def persist_entities(
     for q in payload.open_questions:
         if q.text.strip():
             draft("open_question", q.model_dump())
+    from app.app.services.conflict_context import is_noise_fact_key
+
     for k, v in payload.facts.items():
+        # Служебные метки времени/счётчики Jira и носителя — не содержание проекта (шум в резюме).
+        if is_noise_fact_key(str(k)):
+            continue
         draft("fact", {"key": k, "value": v})
     for m in payload.mentions:
         draft("mention", m.model_dump())

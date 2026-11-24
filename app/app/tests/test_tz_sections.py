@@ -111,6 +111,109 @@ def test_tasks_section_limit_and_overdue_first(client, manager_token, monkeypatc
     assert len(lines) == ts.TASKS_IN_SUMMARY and out.rstrip().endswith("в блоке «Задачи» на странице проекта.")
 
 
+def test_questions_section_skips_jira_fact_noise_and_keeps_decision(client, manager_token):
+    """В резюме не должно быть «Не решено, назови… [fact] updated_at» из выгрузок Jira."""
+    from app.app.db import SessionLocal
+    from app.app.models.artifact import Artifact
+    from app.app.models.entity import Entity, Link
+    from app.app.models.project import Project
+    from app.app.models.user import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        project = Project(name="Вопросы без шума Jira", created_by=user.id, is_active=True)
+        db.add(project)
+        db.flush()
+        a = Artifact(
+            artifact_id="art_q_jira_a",
+            project_id=project.id,
+            user_id=user.id,
+            original_filename="Jira ABC-1 — задача.md",
+            stored_filename="a.md",
+            file_path="a",
+            file_type="md",
+            source_type="document",
+            sha256="a" * 64,
+            status="done",
+        )
+        b = Artifact(
+            artifact_id="art_q_jira_b",
+            project_id=project.id,
+            user_id=user.id,
+            original_filename="Jira ABC-2 — задача.md",
+            stored_filename="b.md",
+            file_path="b",
+            file_type="md",
+            source_type="document",
+            sha256="b" * 64,
+            status="done",
+        )
+        db.add_all([a, b])
+        db.flush()
+        fa = Entity(
+            artifact_id=a.id,
+            entity_type="fact",
+            value_json=json.dumps({"key": "updated_at", "value": "2026-11-24T00:27:00+03:00"}, ensure_ascii=False),
+            is_active=True,
+        )
+        fb = Entity(
+            artifact_id=b.id,
+            entity_type="fact",
+            value_json=json.dumps({"key": "last_update_time", "value": "2026-06-10T19:54:00+03:00"}, ensure_ascii=False),
+            is_active=True,
+        )
+        d1 = Entity(
+            artifact_id=a.id,
+            entity_type="decision",
+            value_json=json.dumps({"text": "Мастер-система — 1С"}, ensure_ascii=False),
+            is_active=True,
+        )
+        d2 = Entity(
+            artifact_id=b.id,
+            entity_type="decision",
+            value_json=json.dumps({"text": "Мастер-система — Битрикс"}, ensure_ascii=False),
+            is_active=True,
+        )
+        q = Entity(
+            artifact_id=a.id,
+            entity_type="open_question",
+            value_json=json.dumps({"text": "Какой контур первый?"}, ensure_ascii=False),
+            is_active=True,
+        )
+        db.add_all([fa, fb, d1, d2, q])
+        db.flush()
+        db.add_all(
+            [
+                Link(
+                    project_id=project.id,
+                    source_entity_id=fa.id,
+                    target_entity_id=fb.id,
+                    link_type="POTENTIAL_CONFLICT",
+                    similarity_score=0.9,
+                    is_automatic=True,
+                ),
+                Link(
+                    project_id=project.id,
+                    source_entity_id=d1.id,
+                    target_entity_id=d2.id,
+                    link_type="POTENTIAL_CONFLICT",
+                    similarity_score=0.9,
+                    is_automatic=True,
+                ),
+            ]
+        )
+        db.commit()
+        out = ts.questions_section(db, project.id)
+        assert "Какой контур первый?" in out
+        assert "Мастер-система" in out and "↔" in out
+        assert "updated_at" not in out and "last_update_time" not in out
+        assert "назови обе версии" not in out and "[fact]" not in out
+        assert "Jira ABC-1" not in out
+    finally:
+        db.close()
+
+
 def test_select_items_keeps_agreed_and_trims_documented(monkeypatch):
     monkeypatch.setattr(ts, "ITEMS_MAX_CHARS", 400)
     must = [_subj(i, f"Согласованное {i}", "agreed") for i in range(3)]

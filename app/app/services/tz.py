@@ -719,7 +719,8 @@ def build_tz_fast_body(db: Session, settings: Settings, project_id: int, *, trac
     quota_ids = _fast_quota_chunks(db, project_id, chunk_ids, chunk_seen)
     chunk_ids = chunk_ids + quota_ids
     hits = [chunk_seen[cid] for cid in chunk_ids if cid in chunk_seen]
-    ents = [ent_seen[eid] for eid in ent_ids]
+    # Как в полном дампе ТЗ: в блок сущностей — только decision/task (fact/summary — шум, особенно из Jira).
+    ents = [ent_seen[eid] for eid in ent_ids if ent_seen[eid].get("entity_type") in TZ_ENTITY_TYPES]
     total_arts = db.scalar(
         select(func.count(func.distinct(Chunk.artifact_id)))
         .join(Artifact, Artifact.id == Chunk.artifact_id)

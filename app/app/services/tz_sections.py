@@ -175,7 +175,11 @@ def questions_section(db: Session, project_id: int) -> str:
         items.append(f"- {text}" + (f" Варианты: {'; '.join(options)}." if options and "вариант" not in text.casefold() else ""))
         if len(items) >= QUESTIONS_IN_SUMMARY:
             break
-    _resolved, unresolved = conflict_lines(db, project_id, limit=10)
+    # Только decision/task: fact-конфликты (часто updated_at из Jira) — шум, не суть проекта.
+    # audience=human — без «назови обе версии» и без имён файлов в тексте резюме.
+    _resolved, unresolved = conflict_lines(
+        db, project_id, limit=10, audience="human", material_types=frozenset({"decision", "task"})
+    )
     items += unresolved
     return "## Открытые вопросы и риски\n\n" + "\n".join(items) if items else ""
 

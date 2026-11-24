@@ -202,7 +202,7 @@ def artifact_outs(
     rows: list[Artifact],
     kinds: dict[int, str] | None = None,
 ) -> list[ArtifactOut]:
-    """Карточки материалов для списка: ход обработки, дата, кнопки. ``kinds`` — вид выгрузки Jira (задача или сводка)."""
+    """Карточки материалов для списка: ход обработки, дата, кнопки. ``kinds`` — вид выгрузки Jira (задача, сводка, вложение)."""
     updated = False
     for row in rows:
         if reconcile_artifact_status(db, settings, row):
@@ -272,9 +272,10 @@ def list_artifacts(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """Список материалов проекта: файлы, загруженные в портал, и вложения Jira.
+    """Список материалов проекта: только файлы, загруженные пользователем в портал.
 
-    Документы задач и сводка проекта сюда не входят — их видит администратор в ``GET …/jira/exports``.
+    Всё, что скачано из Jira (задачи, сводка, вложения), сюда не входит —
+    его отдаёт ``GET …/jira/exports`` в блоке «Выгрузки Jira».
     """
     require_project(db, user, project_id)
     rows = db.scalars(

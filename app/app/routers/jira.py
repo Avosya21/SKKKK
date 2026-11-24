@@ -1,8 +1,9 @@
 """Jira: подключение личным токеном из настроек, список проектов Jira, загрузка выбранных, обновление и привязка.
 
 Подключить токен может любой вошедший (так выдаётся доступ к уже загруженным проектам); загружать проекты — менеджер и
-администратор; влить Jira в существующий проект и снять привязку — только администратор. Документы задач и сводка проекта
-отдаются отдельно, ``GET /projects/{id}/jira/exports``, и только администратору. Логика — services/jira_import.py.
+администратор; влить Jira в существующий проект и снять привязку — только администратор. Всё, что скачано из Jira
+(задачи, сводка, вложения), отдаётся отдельно в ``GET /projects/{id}/jira/exports`` (admin и manager проекта) и в общий
+список материалов не входит. Логика — services/jira_import.py.
 """
 
 from __future__ import annotations
@@ -154,10 +155,11 @@ def project_jira_check(project_id: int, db: Annotated[Session, Depends(get_db)],
 def project_jira_exports(project_id: int, db: Annotated[Session, Depends(get_db)],
                          settings: Annotated[Settings, Depends(get_settings)],
                          user: Annotated[User, Depends(get_current_user)]):
-    """Документы задач Jira и сводка проекта. В общий список материалов не входят. Видит только администратор."""
-    require_project(db, user, project_id)
-    if user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Выгрузки задач Jira видит только администратор")
+    """Всё, что скачано из Jira: документы задач, сводка, вложения. В общий список материалов не входят.
+
+    Видят admin и manager проекта (тот же круг, что синхронизирует Jira).
+    """
+    require_project_staff(db, user, project_id)
     from app.app.models.artifact import Artifact
     from app.app.routers.upload import artifact_outs
 

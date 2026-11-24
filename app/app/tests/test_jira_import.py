@@ -99,15 +99,20 @@ def test_import_brings_everything_without_cuts(client, jira, manager_token, admi
     projects = {p["id"]: p for p in client.get("/projects", headers=_h(manager_token)).json()}
     assert projects[project_id]["name"] == "Проект Альфа" and projects[project_id]["jira_key"] == "ABC"
     arts = _artifacts(client, manager_token, project_id)
-    assert [a["original_filename"] for a in arts] == ["Jira ABC-1 — схема.txt"]  # в списке только вложение
-    assert all(a["status"] == "uploaded" and a["source_type"] == "document" and a.get("jira_kind") is None for a in arts)
-    assert client.get(f"/projects/{project_id}/jira/exports", headers=_h(manager_token)).status_code == 403
-    exports = _exports(client, admin_token, project_id)
+    assert arts == []  # материалы — только ручные загрузки; всё из Jira — в «Выгрузки Jira»
+    exports = _exports(client, manager_token, project_id)  # manager видит выгрузки своего проекта
     assert sorted(a["original_filename"] for a in exports) == [
-        "Jira ABC — сводка проекта.md", "Jira ABC-1 — Настроить обмен.md", "Jira ABC-2 — Сверить остатки.md"]
+        "Jira ABC — сводка проекта.md",
+        "Jira ABC-1 — Настроить обмен.md",
+        "Jira ABC-1 — схема.txt",
+        "Jira ABC-2 — Сверить остатки.md",
+    ]
     kinds = {a["original_filename"]: a["jira_kind"] for a in exports}
     assert kinds["Jira ABC — сводка проекта.md"] == "summary"
     assert kinds["Jira ABC-1 — Настроить обмен.md"] == "issue" and kinds["Jira ABC-2 — Сверить остатки.md"] == "issue"
+    assert kinds["Jira ABC-1 — схема.txt"] == "attachment"
+    assert all(a["status"] == "uploaded" and a["source_type"] == "document" for a in exports)
+    assert _exports(client, admin_token, project_id)  # admin тоже видит
     state = client.get(f"/projects/{project_id}/jira", headers=_h(manager_token)).json()["links"][0]
     assert state["status"] == "idle" and state["issues"] == 2 and state["files"] == 1 and state["issues_total"] == 2
     assert state["status_text"] == ("в Jira задач 2, загружено 2: новых 2, обновлено 0, без изменений 0; файлов: новых 1, уже были 0, не загружено 1")
@@ -351,8 +356,9 @@ def test_missing_attachment_file_is_downloaded_again(client, jira, manager_token
     Path(path).unlink()
     assert client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token)).status_code == 200
     assert jira.detail_calls == ["ABC-1"]  # задачу с пропавшим файлом перечитываем, остальные — нет
-    names = [a["original_filename"] for a in _artifacts(client, manager_token, project_id)]
+    names = [a["original_filename"] for a in _exports(client, manager_token, project_id)]
     assert names.count("Jira ABC-1 — схема.txt") == 1
+    assert _artifacts(client, manager_token, project_id) == []
     with SessionLocal() as db:
         attachment = db.scalar(select(Artifact).where(Artifact.original_filename == "Jira ABC-1 — схема.txt"))
         issue_doc = db.scalar(select(Artifact).where(Artifact.original_filename == "Jira ABC-1 — Настроить обмен.md"))
@@ -390,7 +396,7 @@ def test_failed_download_is_retried_and_media_follows_setting(client, jira, mana
     jira.fail_download.clear()
     jira.put({**jira.issues["ABC"]["ABC-1"], "fields": {**jira.issues["ABC"]["ABC-1"]["fields"], "updated": "2026-11-07T10:00:00.000+0300"}})
     client.post(f"/projects/{project_id}/jira/sync", headers=_h(manager_token))
-    assert "Jira ABC-1 — схема.txt" in [a["original_filename"] for a in _artifacts(client, manager_token, project_id)]  # сбой сети — повтор
+    assert "Jira ABC-1 — схема.txt" in [a["original_filename"] for a in _exports(client, manager_token, project_id)]  # сбой сети — повтор
 
 
 def test_access_follows_jira_visibility(client, jira, manager_token, user_token):
@@ -494,7 +500,9 @@ def test_changed_attachment_is_copied_and_the_difference_goes_into_context(clien
     started = client.post("/jira/import", json={"projects": [{"key": "ABC", "project_id": existing}]}, headers=_h(admin_token))
     assert started.status_code == 200, started.text
     names = [a["original_filename"] for a in _artifacts(client, admin_token, existing)]
-    assert "схема.txt" in names and "Jira ABC-1 — схема.txt" in names
+    assert names == ["схема.txt"]  # ручная загрузка в материалах
+    export_names = [a["original_filename"] for a in _exports(client, admin_token, existing)]
+    assert "Jira ABC-1 — схема.txt" in export_names  # копия из Jira — в выгрузках
     with SessionLocal() as db:
         art = db.scalar(select(Artifact).where(Artifact.project_id == existing, Artifact.original_filename == "Jira ABC-1 — схема.txt"))
         text = process_document_artifact(db, get_settings(), art)

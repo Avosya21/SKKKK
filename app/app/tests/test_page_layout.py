@@ -23,7 +23,7 @@ def test_project_page_reserves_list_height_and_has_no_broken_cdn_css_or_english_
     assert "fullcalendar@6.1.15/main.min.css" not in html  # такого файла на CDN нет (404 при каждом открытии)
     assert "'match'" not in html and "'Голоса'" in html
     assert "EXCHANGE_FILE" in html  # служебные файлы обмена с агентами не показываются как материалы
-    assert 'id="jira-exports-box"' in html and "Выгрузки Jira" in html  # задачи и сводка — сворачиваемый блок админа
+    assert 'id="jira-exports-box"' in html and "Выгрузки Jira" in html  # задачи, сводка и вложения — блок admin/manager
 
 
 def test_project_materials_collapsed_and_insights_equal_width():

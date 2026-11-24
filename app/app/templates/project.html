@@ -798,17 +798,17 @@
     <div id="artifacts-empty" class="text-muted small mt-3 d-none">В этом проекте пока нет загруженных файлов.</div>
     <div id="artifacts-hidden-note" class="small text-muted mt-2 d-none"></div>
 <div id="artifacts-nodate-note" class="small text-warning-emphasis mt-2 d-none"></div>
-    {% if current_role == 'admin' %}
-    {# Выгрузки Jira (только администратор): документы задач и сводка проекта; в общую таблицу материалов не входят #}
+    {% if current_role in ('admin', 'manager') %}
+    {# Выгрузки Jira: всё, что скачано из трекера; в общую таблицу материалов не входят #}
     <details class="bg-inline extra-inline mt-3 mb-0" id="jira-exports-box">
       <summary class="bg-inline-summary">
         <span class="pip-toggle" aria-hidden="true">▶</span>
         <span class="bg-inline-title">Выгрузки Jira</span>
-        <span class="bg-inline-state" id="jira-exports-count" title="Видит только администратор">задачи и сводка · только админ</span>
+        <span class="bg-inline-state" id="jira-exports-count" title="Задачи, сводка и вложения из Jira">задачи, сводка и вложения</span>
       </summary>
       <div class="bg-inline-body">
         <p class="text-muted small mb-2">
-          Документы задач и сводка проекта из Jira. В общий список выше не входят: там остаются файлы, загруженные в портал, и вложения из Jira.
+          Всё, что загружено из Jira: документы задач, сводка проекта и вложения. В списке материалов выше — только файлы, которые загрузили в портал вручную.
         </p>
         <div id="jira-exports-status" class="text-muted small mb-2" aria-live="polite"></div>
         <div class="table-responsive">
@@ -830,6 +830,8 @@
         </div>
       </div>
     </details>
+    {% endif %}
+    {% if current_role == 'admin' %}
     {# Дополнительные файлы (только администратор): посылки агентов (карта конфигурации, дипмапы) и .cf/.dt от пользователей; список грузится при раскрытии #}
     <details class="bg-inline extra-inline mt-3 mb-0" id="extra-files-box">
       <summary class="bg-inline-summary">
@@ -2095,7 +2097,9 @@ let lastJiraExportsSig = null;
 let jiraExportCount = 0;
 
 function jiraExportKind(kind) {
-  return kind === 'summary' ? 'Сводка' : 'Задача';
+  if (kind === 'summary') return 'Сводка';
+  if (kind === 'attachment') return 'Вложение';
+  return 'Задача';
 }
 
 async function refreshJiraExports() {
@@ -2115,15 +2119,15 @@ async function refreshJiraExports() {
   jiraExportCount = items.length;
   if (countEl) {
     countEl.textContent = items.length
-      ? `${PrimaryAnalitics.count(items.length, ['документ', 'документа', 'документов'])} · только админ`
-      : 'пока нет · только админ';
+      ? PrimaryAnalitics.count(items.length, ['файл', 'файла', 'файлов'])
+      : 'пока нет';
   }
   if (status) status.textContent = '';
   const sig = JSON.stringify(items);
   if (sig === lastJiraExportsSig) return;
   lastJiraExportsSig = sig;
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="6" class="text-muted small">Выгрузок задач и сводки пока нет</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="text-muted small">Выгрузок из Jira пока нет</td></tr>';
     return;
   }
   body.innerHTML = items.map((a) => (
@@ -2144,9 +2148,7 @@ async function refreshArtifacts() {
   const hiddenExchange = allArts.length - arts.length;
   await refreshJiraExports();
   const artsSig = JSON.stringify(arts) + '|' + hiddenExchange;
-  const emptyText = !arts.length && jiraExportCount
-    ? 'В списке нет файлов, загруженных в портал, и вложений Jira. Выгрузки задач и сводка — в блоке ниже.'
-    : 'В этом проекте пока нет загруженных файлов.';
+  const emptyText = 'В этом проекте пока нет загруженных файлов.';
   if (artifactsEmpty.textContent !== emptyText) artifactsEmpty.textContent = emptyText;
   if (artsSig === lastArtifactsSig) return;
   lastArtifactsSig = artsSig;
