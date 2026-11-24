@@ -95,7 +95,7 @@ flowchart TB
 |-----|------------|
 | ОС | Windows 11 (`10.0.26200`), одна GPU **RTX 3090 24 ГБ**, драйвер **577.00** |
 | CUDA (хост, lab ONNX) | Toolkit **12.8** (nvcc 12.8.61) + cuDNN **9.16.0.29** |
-| Корень | только `D:\Primary_Analitics` |
+| Корень | только корень репозитория (каталог с `AGENTS.md`) |
 | Python (портал `venv/`) | **3.10.9** |
 | Python (лаборатория `venvs\lab`) | **3.10.9** (отдельный venv: `onnxruntime-gpu` vs `onnxruntime` в app) |
 | Web | FastAPI **0.141.1**, Starlette **1.6.0**, Uvicorn **0.52.3**, Jinja2 **3.1.6**, Bootstrap 5 (vendored) |
@@ -166,7 +166,7 @@ GigaAM-контейнер (`primaryanalitics-gigaam`): образ из `vendor/G
 
 | Путь | Назначение |
 |------|------------|
-| `D:\Primary_Analitics\` | Единственный корень проекта |
+| корень репозитория | Единственный корень проекта; код находит его по расположению файлов (`ROOT` в `app/app/config.py`) |
 | `app/app/` | FastAPI: роутеры, сервисы, модели, воркер, шаблоны |
 | `asr/` | Lab ASR (Parakeet + диаризация Nemotron/Sortformer + GigaAM-сверка), view, speaker match |
 | `asr/lab/` | Канонический конвейер расшифровки (изоляция прогонов) |
@@ -356,6 +356,7 @@ upload → extract (PDF/DOCX/XLSX/CSV/PPTX/OCR/vision; таблицы → markdo
 | `routers/upload.py` | `/projects` | Resumable upload, list artifacts (`speakers_match_available` / `speakers_confirm_ready`), **DELETE** одного артефакта |
 | `routers/knowledge.py` | `/projects/{id}/…`, `/chat` | search, graph, TZ, chat, deadlines, задачи (`tasks`, `tasks/{entity_id}`, `manual-tasks/{task_id}`), «Что нового» (`digest`, `digest/dismiss`), reextract-entities, conflicts, notes |
 | `routers/project_members.py` | `/projects/{id}/members` | выдача доступа: GET список, POST роль manager/user, DELETE участника |
+| `routers/jira.py` | `/jira/status`, `/jira/connect`, `/jira/projects`, `/jira/projects/{jira_key}/count`, `/jira/import`, `/projects/{id}/jira`, `/projects/{id}/jira/sync`, `/projects/{id}/jira/check`, `/projects/{id}/jira/link`, `/projects/{id}/jira/link/{jira_key}` | Jira на главной странице: `GET /jira/status`; `POST /jira/connect` `{token}` и `DELETE /jira/connect` — личный токен (любой вошедший); `GET /jira/projects` — проекты Jira, видимые токену; `POST /jira/import` `{projects:[{key, project_id?}]}` — загрузить выбранные (admin, manager; `project_id` — влить в существующий, только admin); `GET /projects/{id}/jira` — привязки и ход загрузки; `GET /jira/projects/{jira_key}/count` — сколько задач в проекте Jira; `POST /projects/{id}/jira/sync` — проверить обновления, `GET /projects/{id}/jira/check` — сверка «Jira ↔ портал» без изменений (admin, manager проекта); `PUT /projects/{id}/jira/link` `{jira_key}` и `DELETE /projects/{id}/jira/link/{jira_key}` — таблица соответствий (только admin) |
 | `routers/project_mcp.py` | `/projects/{id}/mcp`, `/mcp` | ключи MCP портала + Streamable HTTP |
 | `routers/project_mcp.py` (обмен) | `/projects/{id}/agent-*` | обмен с внешним агентом: `agent-exchange` (экран), `agent-exchange/summary`, `agent-settings` GET/PUT, `agent-verdicts` + `/{entity_id}/{action}`, `agent-inbox` + `/{qid}/draft`, `/{qid}/answer` (ответы и вердикты — только admin) |
 | `routers/project_people.py` | `/projects/{id}/people`, `/parties`, `/people-platform` | реестр людей и стороны проекта, очередь «Кто это?», согласие на голос — полный перечень в §5.14; admin и manager проекта |
@@ -1270,6 +1271,11 @@ data/projects/{project_id}/
 | `requirements_reextract.py` | REQUIREMENTS-PLAN этап 9: `queue_project_reextract` — сброс тем, задача `auto_review` scope `reextract` на каждый готовый материал (без файлов обмена `analysis_*.json`); исполнитель: `reextract_artifact_entities` (v2, перенос ручных решений) → `seed_graph` → проверки artifact/topics/relevance/conflicts. Итоговую выжимку (`current_tz.md`) исполнитель не собирает: последнее переизвлечение проекта (`_reextract_left` = 0, в том числе упавшее) ставит за своими проверками задачу scope `summary` → `summary_for_review` → `rebuild_project_summary` (`prepare_for_llm` + `rebuild_tz_fast`). Воркер один, задачи идут по порядку постановки, поэтому выжимка собирается после конфликтов последнего материала, когда актуальность и конфликты уже выключили заменённое (раньше собиралась до них — 2026-09-28, проект 34). Ту же задачу с 2026-09-29 ставит за своими проверками каждый новый материал (`pipeline_knowledge._enqueue_auto_review`); `summary_for_review` пропускает её без вызова модели, если в очереди ждёт ещё одна выжимка проекта (`tz.summary_jobs_queued`) — одна сборка на партию. API `POST /projects/{id}/requirements/reextract` (admin, кнопка «Переизвлечь требования»), CLI `scripts/reextract_project.py --project N [--apply]` |
 | `chat_export.py` | SOURCE-ANCHORS-PLAN этап 1: выгрузка Telegram Desktop (`messages.html`) разбирается `html.parser` по разметке — номер (`id="message106"`), время с поясом (`title="25.08.2026 15:58:22 UTC+03:00"`), автор (`joined` — автор предыдущего), ответ, вложения «[фото]» / «[файл: …]»; служебные пропускаются. `pipeline_documents` → `parsed/documents/<aid>_messages.json`, чистый текст «**день**» / «**ЧЧ:ММ Автор:** текст» без нормализации моделью, дата материала — `recorded_at_source=messages` (первое сообщение; период — `material_period_end`). Я1: `owned_elsewhere` — сообщения более ранней выгрузки той же переписки (по названию группы) не извлекаются. CLI `scripts/chat_exports.py --project N [--apply]` (копия прежнего текста `_clean.before_chat.txt`, переиндексация). Копия чата Битрикс24 (`.txt`: «[Имя Фамилия]» — начало сообщения, «{Цитата} Автор … {Конец цитаты}» — ответ): `looks_like_bitrix_copy` / `parse_bitrix_copy` / `ingest_bitrix_copy` — номера по порядку, `reply_to` по автору и началу цитаты, времени нет (`at` — полночь дня материала, `at_precision="day"`: время нигде не показывается и не сравнивается), текст для индекса без повтора цитат (`render_bitrix_text`) |
 | Дата материала (автоматически) | `recorded_at.resolve_recorded_at` при загрузке: встреча (минута) → имя файла с временем `filename_time` (минута) → имя файла `filename` → метаданные записи `media` (аудио) → свойства документа `doc_meta` (docx/xlsx/pptx core.xml modified, PDF ModDate, EXIF снимка) → дата загрузки `upload` (решение владельца 2026-09-28: `material_date` отдаёт её как дату материала, правила «что позже» по ней работают; интерфейс подписывает «по дате загрузки», контракт — `date_basis=upload`). Имя файла: «22.09.26 14-00-34» (Телемост) — с временем, «14 мая» — дата словом. После разбора документа `refine_from_text`: дата из шапки («Дата: 14.08.2026», «Протокол от 19 августа 2026») → `doc_text` (главнее `doc_meta` и `upload`; ручную и из имени не трогает). Переписка — `messages`, ручная — `manual` / `manual_time`. Дозаполнить старые — `scripts/material_dates.py --project N|--all --apply` (плюс встреча площадки `встреча-N.wav` → начало встречи N, выгрузка переписки → первое сообщение, иначе дата загрузки). Карточка проекта-черновик сама пересобирается, когда выжимка новее (`extraction_context._tz_newer_than_card`); отпечаток кэша контракта учитывает темы, вердикты актуальности и даты материалов |
+| Дата материала из Jira | `jira_import.stamp_jira_date`: источник `jira` (точность — минута): у документа задачи — время последнего изменения задачи в Jira, у вложения — время его загрузки в Jira, у сводки проекта — самое позднее изменение; ручную дату (`manual`, `manual_time`) не перезаписывает; подпись в карточке материала — «по дате в Jira». Документы, собранные из Jira (`jira_render.is_rendered`), конвейер берёт дословно, без очистки моделью (`light (jira)`). Сверка `check_link` отдельно ищет в тексте «кто и когда» (`who_when_checked`). |
+| Сводка Jira в чате | `chat.jira_overview_block`: в проекте, связанном с Jira, сводка проекта (счётчики по состоянию, статусам, исполнителям и перечень всех задач с автором и датой создания) читается с диска и идёт в запрос к модели в каждом ответе, независимо от поиска; длинный перечень сокращается с пометкой. Вместе с `jira_focus_block` (документ задачи, названной по ключу). |
+| Запрос чата и окно модели | `chat.fit_chat_parts`: перед вызовом модели переменные части запроса укладываются в окно из профиля LM Studio (`_chat_budget_chars`, 2,1 знака на токен, запас на ответ 2048 токенов). Порядок сокращения: граф → старые реплики диалога → выжимка → дополнение из БД → журнал решений (каждая часть до нижнего предела `CHAT_FLOORS`), затем самые дальние фрагменты, но не меньше `CHAT_MIN_FRAGMENTS`. Что сокращено, пишется в журнал строкой `chat.prompt`. Если модель всё же ответила «не помещается», запрос сокращается ещё и повторяется. |
+| Jira в чате | `chat.jira_focus_block`: вопрос называет задачу по ключу (`ABC-12`) — документ этой задачи идёт в контекст сам (до `CHAT_JIRA_FOCUS_CHARS`, по разделам; разделам, о которых спрашивают, — тройная доля), только из своего проекта. `chat._fits_model_window` заранее оценивает, поместится ли запрос в окно модели (профиль LM Studio), `compose(level)` сокращает менее важные части; при ошибке окна — повтор. |
+| Соединение БД и вызов модели в воркере | `db.allow_idle_release_in_this_thread` (главный поток воркера) + `db.release_idle_read_transactions`: перед вызовом модели (`llm._check_db_not_held`) транзакции без изменений закрываются сами — после `commit` чтение поля объекта открывает новую транзакцию, и она висела бы весь ответ модели. Транзакция с изменениями не закрывается, о ней предупреждение остаётся. |
 | `source_links.py` + `static/report-jump.js` | SOURCE-ANCHORS-PLAN этап 4: `source_url` — созвон `/artifacts/<aid>/report?t=754`, переписка `?m=106&q=…` (фрагмент поиска переписки — `?m=` первого сообщения, `unit_number`), документ `?q=<80 знаков>`; `pages._serve_report` подмешивает `report-jump.js` (реплика из `data.turns` подсвечивается и прокручивается, плеер перематывается без звука + «▶ Воспроизвести с …», Я4; сообщение по якорю `#m106` — отчёт переписки рисует сообщения `chat-msg`; цитата — поиск без учёта регистра и пробелов, `<mark>`). Ссылки: источники в очереди требований и «Вопросах к заказчику» (`url`), стороны конфликта (`conflict_rows`), источники ответа чата |
 | Разбор проекта моделью целиком | `scripts/review_project.py --project N\|--all [--mode shadow\|live] [--reextract] [--skip N …] [--summary-only]` (очередь воркера должна быть пуста): даты материалов (`material_dates.fill_dates`) → с `--reextract` переизвлечение v2 с контекстом проекта без очереди (темы собираются заново, ручные решения переносятся, `seed_graph`; итоговая выжимка `requirements_reextract.rebuild_project_summary` — в самом конце, после конфликтов; воркер в очереди так же собирает её задачей scope `summary` после проверок последнего материала) → `entities.rebind_chat_entities` (пункты переписки → сообщения, без модели) → `review_requirements` (источник переписки — `_chat_source`, документа — абзац от 25 % совпадения; «источник не найден» не вердикт и проверяется заново) → `topics.assign_topics` + `merge_topics` (`merge_topics.md`: склейка тем одной потребности, разведённых по способу решения) → `review_relevance.review_topics` (промпт `review_relevance_v2.md`: к пунктам темы — до 12 похожих пунктов из других тем, косинус ≥ 0.55, как кандидаты в «заменивший» / «основной»; тема больше 40 пунктов — порциями по времени (`_batches`), соседи берутся и из других порций той же темы, каждый пункт оценивается один раз; тема из одного пункта тоже проверяется; в live сначала `promote_shadow_relevance` — теневые дубли и замены без повторного вызова модели) → `review_conflicts` → сводка «что осталось человеку» и в тени — прогноз для live (`if_live`). Экран конфликтов «Ждут вас» (`conflict_rows`, view `pending`) не показывает пары, где одна сторона уже выключена (дубль, устарело, отклонено) |
 | Эталоны требований | `data/eval/extraction_gold.csv` (`eval_auto_review.py --export-extraction` / `--extraction-gold`: понятно ≥ 90 %, не требование ≤ 5 %, кто и когда ≥ 95 %), `data/eval/relevance_gold.csv` (`--export-relevance` / `--relevance-gold`: 0 ошибочно снятых на ≥ 30) |
@@ -1357,6 +1363,9 @@ data/projects/{project_id}/
 | `ollama_client.py` | bge-m3 embeddings |
 | `ollama_runtime.py` | автозапуск Ollama перед embed/index |
 | `notify.py` | Telegram stub |
+| `jira_client.py` | Jira, только чтение: проверка ключа, проекты, статусы, задачи проекта, поиск JQL, задача подробно (для агента разработки — MCP-сервер `tools/jira_mcp.py`, `.mcp.json`); облако (почта + API-токен) или свой сервер (персональный токен) — по `JIRA_EMAIL`; план `docs/plans/JIRA-INTEGRATION-PLAN.md` |
+| `jira_import.py` | Jira в портале: личный токен (шифрование), проекты Jira → проекты портала, задача целиком → документ Markdown, сводка проекта, вложения → файлы через штатную регистрацию материалов (`create_artifact_record`, очередь `jobs`), обновление по кнопке и по расписанию, сверка `check_link`, доступ по видимости в Jira (`refresh_access`) |
+| `jira_render.py` | вид документов Jira: `issue_document` — задача без сокращений (все поля с названиями из Jira, описание, все комментарии, трудозатраты, подзадачи, связи, внешние ссылки, вложения, история); `project_document` — сводка проекта с таблицей всех задач; разметка Jira → обычный текст; `FORMAT_VERSION` — смена вида перезагружает задачи |
 | `plain_text.py` | clean LLM outputs |
 
 ### Обмен с внешним агентом и контракт (сентябрь 2026)
@@ -1693,6 +1702,8 @@ run_pipeline
 | `index_project_map.py` | индексатор проекта: инкрементально, `--full`, `--no-embed`, `--status` |
 | `export_project_graph.py` | сборка графа зависимостей (§16) вместе с метриками projectmap (группы Louvain, fan-in/out, частота правок, co-change; `--no-metrics` отключает): `data/project_map_graph.json` (полный граф), `docs/project-map/graph-modules.json` (свод по подсистемам), `docs/project-map/DEPENDENCIES.md` (атлас), `--graphml` / `--dot`, `--stats` |
 | `search_project_map.py` | поиск по индексу: вопрос или режимы `--symbol`, `--callers`, `--callees`, `--route`, `--table`, `--env`, `--ui`, `--tests`, `--history`, `--changed`, `--why-changed`, `--invariants`, `--ops`. `--symbol` принимает и название фичи словами (`rebuild_summary_artifact`) — ищет по таблице алиасов `symbol_aliases` |
+| `jira_pull.py` | первые данные из Jira (только чтение): без аргументов — проверка ключа и список проектов; `--project КЛЮЧ` / `--all` — задачи в `data/jira/КЛЮЧ.json` и сводка; `--since`, `--limit` |
+| `check_jira_sync.py` | живая сверка «Jira ↔ портал» по каждой привязке (та же `jira_import.check_link`, что кнопка «Проверить полноту»): все ли задачи загружены, совпадает ли документ каждой задачи с Jira буква в букву, вложения и их размер, что не загружено и почему, разбор конвейером; `--project КЛЮЧ`, отчёт `data/tmp/jira_check_report.json`; код выхода 1 — расхождения |
 | `eval_index.py` | замер качества поиска на золотом наборе `docs/eval/index_questions.json` и контрольном `..._holdout.json` |
 | `index_doctor.py` | диагностика индекса: sqlite-vec, FTS5, Ollama, возраст, устаревшие файлы, векторы, качество; стоят ли git-хуки проверки карты |
 | `check_map_drift.py` | расхождения карты и кода; `--fix` пересоздаёт реестр модулей и добавляет узлы манифеста |
@@ -1767,6 +1778,8 @@ run_pipeline
 | `app/app/tests/test_projects.py` | создание проекта, переименование `PATCH /projects/{id}`, `DELETE /projects/{id}` |
 | `app/app/tests/test_artifact_purge.py` | `DELETE` артефакта, FK entities/links, HTML иконки |
 | `app/app/tests/test_user_scenarios.py` | сквозные сценарии портала (в т.ч. s31 purge) |
+| `app/app/tests/test_jira_e2e.py` | Jira по настоящей сети: подставная Jira на HTTP-сокете (`tests/jira_fake.py`), настоящий httpx и фоновый поток: подключение, загрузка, постраничное дочитывание комментариев и трудозатрат, байты вложений, сверка, обновление, проход расписания |
+| `app/app/tests/test_jira_import.py` | Jira в портале на подставном транспорте: токен (шифрование, не-ASCII), загрузка без сокращений (все поля, длинный комментарий, история), сводка проекта, обновление и смена вида документа, сверка и её расхождения, ограничение числа задач, повтор сбойного скачивания, доступ по видимости, вливание в существующий проект |
 | `docs/TESTING.md` | Стратегия, команды pytest |
 
 ```powershell
@@ -1851,6 +1864,9 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Слух | `GIGAAM_API_KEY` | пусто | ключ контейнера GigaAM, передаётся конвейеру |
 | Слух | `ALLOW_LEGACY_ASR` | не задана | `1` — перезапуск прежних контейнеров вместе с GigaAM; по умолчанию перезапускается только GigaAM |
 | Комнаты | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | пусто | сервер комнат LiveKit |
+| Слух | `NEMOTRON_DIAR_MODEL` | `Nemotron-3-Diarization/Nemotron-3-Diarization.nemo` | путь к модели диаризации Nemotron (`asr/lab/diar_models.py`) |
+| Слух | `HF_HUB_OFFLINE`, `HF_HUB_DOWNLOAD_TIMEOUT` | `0`, `600` | Hugging Face для моделей слуха: `1` — не ходить в сеть; таймаут загрузки код выставляет сам, если не задан (`asr/lab/onnx_env.py`) |
+| Комнаты | `LIVEKIT_HTTP_INTERNAL` | `http://127.0.0.1:7880` | внутренний адрес LiveKit для рекордеров голоса и экрана (`tools/livekit/voice_cleaner.py`, `screen_recorder.py`) |
 | Комнаты | `PRIMARY_ANALITICS_TLS_ISSUE_TIMEOUT_SEC` | `120` | сколько ждать выпуска сертификата при старте |
 | Уведомления | `TELEGRAM_BOT_TOKEN` | пусто | токен бота (уведомления, заглушка) |
 | Jira | `JIRA_BASE_URL`, `JIRA_API_TOKEN` | пусто | адрес Jira и ключ для `scripts/jira_pull.py` и MCP `tools/jira_mcp.py`; пустой адрес — карточки Jira нет |
@@ -1862,6 +1878,7 @@ venv\Scripts\python.exe -m pytest app/app/tests asr/tests -q
 | Jira | `JIRA_IMPORT_MEDIA` | `true` | загружать аудио и видео из вложений; `false` — пропускать с причиной |
 | Инструменты | `FFMPEG_DIR`, `FFMPEG_BIN` (и `FFPROBE_BIN`) | не заданы | где искать `ffmpeg` / `ffprobe` вместо поиска по `PATH` |
 | Инструменты | `TESSERACT_CMD` / `TESSERACT_BIN`, `TESSDATA_DIR`, `TESSDATA_PREFIX` | не заданы | OCR: исполняемый файл Tesseract и каталог языков; `TESSDATA_PREFIX` код выставляет сам |
+| Инструменты | `PROJECT_INDEX_DB` | `data/project_map.db` | файл индекса кода проекта (`services/project_index/config.py`) |
 | Инструменты | `LIGHTRAG_URL`, `LIGHTRAG_API_KEY` | `http://127.0.0.1:9621`, пусто | граф знаний LightRAG для `scripts/lightrag_index.py` |
 | Отладка и тесты | `PRIMARY_ANALITICS_STRICT_DB_HOLD` | не задана | `1` — вызов модели при открытой транзакции БД падает исключением вместо предупреждения в журнале |
 | Отладка и тесты | `PRIMARY_ANALITICS_DISABLE_LLM_SELFCHECK` | не задана | `1` — не проверять LM Studio при старте (тесты не должны будить модель в GPU) |
@@ -2638,7 +2655,6 @@ _Проверено 2026-11-20 17:45: сущностей 149, не описан�
 | `vendor` | вендор | GigaAMGUI — клон для сборки контейнера GigaAM; не в git _(может отсутствовать)_ | нет |
 | `venv` | окружение | Python 3.10.9 портала и всех служебных скриптов _(может отсутствовать)_ | нет |
 | `venvs` | окружения | отдельные окружения движков (см. ниже) _(может отсутствовать)_ | нет |
-| `_archive` | архив | код и данные разработки, выведенные из контура (см. _archive/README.md) | да |
 
 ### 17.2. Документы (`docs/`)
 
@@ -2901,7 +2917,7 @@ _Нет на диске (необязательные, машинно-завис
 
 ## Архив разработки
 
-`_archive/` — файлы и код, оставшиеся от разработки и не используемые рабочим контуром (модели и окружения экспериментов, разовые скрипты, логи). Перенесены без удаления; список и способ возврата — в [`_archive/README.md`](../_archive/README.md).
+Каталог `_archive/` (модели и окружения экспериментов, разовые скрипты, логи — всё, что не использовал рабочий контур) удалён 2026-11-10. Скрипты и README архива, хранившиеся в git, остаются в истории репозитория.
 
 ### Журнал обновлений карты (исторический, до 2026-09-21)
 

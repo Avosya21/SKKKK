@@ -97,18 +97,6 @@ tools/ffmpeg/
 tools/tesseract/*
 !tools/tesseract/tessdata/
 
-# _archive: тяжёлое не в git (скрипты и README архива — в git)
-_archive/venvs/
-_archive/logs/
-_archive/data/
-_archive/tools/
-_archive/whisper-large-v3-ru-podlodka/
-_archive/faster-whisper-large-v3-turbo-ct2/
-_archive/nvidiadiar_sortformer_4spk-v1/
-_archive/pyannotesegmentation3.0/
-_archive/speaker-diarization-3.1/
-_archive/wespeaker-voxceleb-resnet34-LM/
-
 # Рабочие данные: записи созвонов, бэкапы, прогоны оценки — приватные, не в git
 data/meetings/
 data/backups/

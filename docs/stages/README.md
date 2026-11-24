@@ -9,14 +9,16 @@
 | 0 | Стенд Windows | [STAGE-00-environment.md](STAGE-00-environment.md) | GPU, LM Studio *или* Cursor API, Ollama, FFmpeg, Tesseract |
 | 1 | Каркас портала | [STAGE-01-skeleton.md](STAGE-01-skeleton.md) | FastAPI, БД, вход по трём паролям, проекты |
 | 2 | Загрузка и очередь | [STAGE-02-upload-queue.md](STAGE-02-upload-queue.md) | Артефакты на диске, таблица `jobs`, воркер вхолостую |
-| 3 | Три ASR + склейка | [STAGE-03-asr-ensemble.md](STAGE-03-asr-ensemble.md) | Окна, три ASR, финальная стенограмма (LLM) |
+| 3 | ASR и стенограмма | [STAGE-03-asr-ensemble.md](STAGE-03-asr-ensemble.md) | Финальная стенограмма. Файл описывает исходный замысел (три ASR + склейка); в бою — двойной слух Parakeet + GigaAM и диаризация Nemotron 3, см. [PROJECT-MAP.md](../PROJECT-MAP.md) §4.1 |
 | 4 | Документы и OCR | [STAGE-04-documents-ocr.md](STAGE-04-documents-ocr.md) | PDF, DOCX, PPTX, TXT, изображения → текст |
 | 5 | Сущности и индекс | [STAGE-05-entities-index.md](STAGE-05-entities-index.md) | JSON сущностей, чанки, векторный поиск |
 | 6 | Граф, заметки, конфликты | [STAGE-06-graph-notes-conflicts.md](STAGE-06-graph-notes-conflicts.md) | Узлы и рёбра, ручные связи, очередь админа |
 | 7 | ТЗ и чат | [STAGE-07-tz-chat.md](STAGE-07-tz-chat.md) | `current_tz.md`, версии, RAG-ответы с источниками |
 | 8 | Укрепление | [STAGE-08-hardening.md](STAGE-08-hardening.md) | Логи, лимиты, бэкапы, безопасность |
-| 9 | Службы Windows | [STAGE-09-services.md](STAGE-09-services.md) | NSSM-службы, автозапуск, Nginx |
+| 9 | Службы Windows | [STAGE-09-services.md](STAGE-09-services.md) | NSSM-службы, автозапуск; обратный прокси — Caddy (Nginx не используется) |
 | 10 | Масштабирование | [STAGE-10-scale-out.md](STAGE-10-scale-out.md) | Qdrant, Neo4j, PostgreSQL — по необходимости |
+
+> Файлы этапов — исходные планы исполнения; этапы 0–9 закрыты. Там, где этап расходится с работающим кодом (ASR, порт портала, прокси), верна [карта проекта](../PROJECT-MAP.md) и [DECISIONS.md](../DECISIONS.md).
 
 ## Обозначения в файлах этапов
 
@@ -46,4 +48,4 @@ pytest -m slow          # длинное аудио, нагрузка
 
 ## Про раздел «Полезные проекты на GitHub»
 
-Каждый файл этапа ниже содержит подборку 1–5 существующих открытых проектов, которые дают либо готовый кусок кода, либо проверенный паттерн для этого этапа. Это не обязательные зависимости — большинство уже упомянуты как решённые в [DECISIONS.md](../DECISIONS.md) (тройной ASR, LM Studio, Ollama). Секция — источник идей и код для подсматривания при реализации, а не список того, что надо `pip install` не глядя. Перед использованием чужого кода — смотреть на лицензию и не тащить лишние тяжёлые зависимости (Celery, Redis и т.п.), если это конфликтует с [DECISIONS.md](../DECISIONS.md).
+Каждый файл этапа ниже содержит подборку 1–5 существующих открытых проектов, которые дают либо готовый кусок кода, либо проверенный паттерн для этого этапа. Это не обязательные зависимости — большинство уже упомянуты как решённые в [DECISIONS.md](../DECISIONS.md) (ASR, LM Studio, Ollama). Секция — источник идей и код для подсматривания при реализации, а не список того, что надо `pip install` не глядя. Перед использованием чужого кода — смотреть на лицензию и не тащить лишние тяжёлые зависимости (Celery, Redis и т.п.), если это конфликтует с [DECISIONS.md](../DECISIONS.md).

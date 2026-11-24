@@ -17,7 +17,7 @@
 ## Запуск
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 venv\Scripts\activate
 
 pytest app -m "not gpu and not slow" -q     # обычный цикл: параллельно (pytest-xdist, -n auto)

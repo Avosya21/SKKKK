@@ -410,3 +410,25 @@ def test_search_entities_finds_fact_and_skips_mention(tmp_data, db_engine, clien
         assert hits[0]["filename"] == "budget.docx"
     finally:
         db.close()
+
+
+def test_sqlite_vec_is_not_reloaded_on_a_busy_connection(caplog):
+    """Повторная загрузка расширения при недочитанном запросе к таблице векторов падала с «error during initialization»
+    (ложное предупреждение при замене материалов). Уже загруженное расширение повторно не грузится."""
+    import logging
+    import sqlite3
+    import struct
+
+    from app.app.services.vector_index import load_sqlite_vec
+
+    conn = sqlite3.connect(":memory:")
+    assert load_sqlite_vec(conn) is True
+    conn.execute("CREATE VIRTUAL TABLE v USING vec0(chunk_id INTEGER PRIMARY KEY, embedding float[4])")
+    for i in range(3):
+        conn.execute("INSERT INTO v(chunk_id, embedding) VALUES (?, ?)", (i, struct.pack("4f", 1, 2, 3, 4)))
+    cursor = conn.execute("SELECT chunk_id FROM v")
+    cursor.fetchone()  # запрос не дочитан: соединение занято
+    with caplog.at_level(logging.WARNING, logger="primaryanalitics.vector"):
+        assert load_sqlite_vec(conn) is True
+    assert not [r for r in caplog.records if "sqlite-vec not loaded" in r.getMessage()]
+    conn.close()

@@ -20,7 +20,7 @@
 ## Этап 1 — конвейер 01–07 (принят)
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 $env:PYTHONIOENCODING='utf-8'
 venvs\lab\Scripts\python.exe asr\lab_pipeline.py `
   --project-id 1 `
@@ -113,7 +113,7 @@ Hugging Face:
 меняется только `speaker_index`. Пишет исключительно `sense/`.
 
 ```powershell
-cd D:\Primary_Analitics
+cd <корень репозитория>
 venv\Scripts\python.exe asr\lab_sense.py `
   --project-id 1 `
   --artifact-id art_2026-08-19_211842_54f88c `

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -209,6 +210,51 @@ def test_model_config_and_load_args_follow_profile(monkeypatch, tmp_path):
     assert "--speculative-draft-mtp" in args
     assert args[args.index("--speculative-draft-max-tokens") + 1] == "3"
     assert "--ttl" in args
+
+
+def test_load_retries_without_mtp_flags_on_old_cli():
+    profile = LmProfile("m", 32768, 2)
+    args = llm_keeper.load_args(profile, ttl_sec=1800)
+    plain = llm_keeper.without_mtp_flags(args)
+    assert not [a for a in plain if "speculative" in a]
+    assert plain == ["load", "m", "--gpu", profile.gpu, "--context-length", "32768", "--parallel", "2", "--ttl", "1800", "-y"]
+    old_cli = subprocess.CompletedProcess([], 1, "", "error: unknown option '--speculative-draft-mtp'")
+    assert llm_keeper._cli_lacks_mtp_flags(old_cli)
+    assert not llm_keeper._cli_lacks_mtp_flags(subprocess.CompletedProcess([], 1, "", "model not found"))
+
+
+# --- путь к CLI `lms` --------------------------------------------------------------------------------------------
+
+
+def test_lms_exe_env_override_wins(monkeypatch):
+    monkeypatch.setenv(llm_keeper.LMS_EXE_ENV, "C:/custom/lms.exe")
+    assert llm_keeper.lms_exe() == "C:/custom/lms.exe"
+
+
+def test_lms_exe_prefers_lmstudio_bin_over_path(monkeypatch, tmp_path):
+    """Собственный bin LM Studio важнее стороннего `lms` из PATH: иначе модель могла подниматься не той командой."""
+    monkeypatch.delenv(llm_keeper.LMS_EXE_ENV, raising=False)
+    home = tmp_path / "lshome"
+    (home / "bin").mkdir(parents=True)
+    bin_lms = home / "bin" / "lms.exe"
+    bin_lms.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LMSTUDIO_HOME", str(home))
+    monkeypatch.setattr(llm_keeper.shutil, "which", lambda name: "/somewhere/in/path/lms" if name == "lms" else None)
+    assert llm_keeper.lms_exe() == str(bin_lms)
+
+
+def test_lms_exe_falls_back_to_path(monkeypatch, tmp_path):
+    monkeypatch.delenv(llm_keeper.LMS_EXE_ENV, raising=False)
+    monkeypatch.setenv("LMSTUDIO_HOME", str(tmp_path / "empty-home"))
+    monkeypatch.setattr(llm_keeper.shutil, "which", lambda name: "/usr/local/bin/lms" if name == "lms" else None)
+    assert llm_keeper.lms_exe() == "/usr/local/bin/lms"
+
+
+def test_lms_exe_bare_name_when_nothing_found(monkeypatch, tmp_path):
+    monkeypatch.delenv(llm_keeper.LMS_EXE_ENV, raising=False)
+    monkeypatch.setenv("LMSTUDIO_HOME", str(tmp_path / "empty-home"))
+    monkeypatch.setattr(llm_keeper.shutil, "which", lambda name: None)
+    assert llm_keeper.lms_exe() == "lms"
 
 
 class FakeLms:

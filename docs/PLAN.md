@@ -4,7 +4,7 @@
 
 Исходные части 1 (файловый сервер) и 2 (управление знаниями) здесь слиты в **один** план. Зафиксированные решения: [DECISIONS.md](DECISIONS.md).
 
-Корень всего: `D:\Primary_Analitics`.
+Корень всего — корень репозитория (каталог с `AGENTS.md`); ниже он обозначен `<корень репозитория>`.
 
 - Пофазовое исполнение с проверками и тестами: [stages/README.md](stages/README.md)
 - **Карта проекта (архитектура, зависимости, API):** [PROJECT-MAP.md](PROJECT-MAP.md)
@@ -61,8 +61,8 @@
 |---|---|---|
 | ОС | Windows 11 | Целевой сервер |
 | GPU | 24 ГБ VRAM | Одна карта, фазы оркестратора |
-| API | Python 3.11, FastAPI, Uvicorn | Асинхронный портал |
-| БД | SQLite в `D:\Primary_Analitics\data\app.db` | Достаточно на 20 человек; PostgreSQL позже |
+| API | Python 3.10, FastAPI, Uvicorn | Асинхронный портал |
+| БД | SQLite в `data\app.db` | Достаточно на 20 человек; PostgreSQL позже |
 | ORM | SQLAlchemy 2 + Alembic | |
 | Очередь | Таблица `jobs` + один GPU-воркер (процесс) | Без Celery и без watchdog |
 | LLM | **Два режима** (переключатель при старте, `LLM_PROVIDER` в `.env`): **lmstudio** — `LMSTUDIO_MODEL` (`qwen/qwen3.8-27b`), LM Studio `http://127.0.0.1:1234/v1`; **cursor** — Cursor SDK + `CURSOR_API_KEY` | Локально — приватность и GPU-фазы; облако — без VRAM под локальную LLM |
@@ -105,7 +105,7 @@ python -m app.app.main all --use-saved-llm    # взять из .env (служб
 ## 4. Каталоги
 
 ```
-D:\Primary_Analitics\
+<корень репозитория>\
 ├── docs\                      # план, решения, промпты
 ├── .cursor\rules\             # правила агента
 ├── .cursor\skills\            # скилы агента
@@ -344,7 +344,7 @@ UI: текст + привязки к узлам. Файл в `project_notes\`. �
 
 Правило перехода: следующий этап не начинается, пока не выполнен «Критерий готовности» предыдущего.
 
-Код пишется только в `D:\Primary_Analitics`.
+Код пишется только в корне репозитория.
 
 Каждый файл этапа теперь содержит раздел **«Полезные проекты на GitHub»** — 1–5 открытых проектов на этап с пояснением, что именно из них подсматривать (архитектура, конкретная функция, готовый паттерн), а что уже решено и трогать не надо (см. [DECISIONS.md](DECISIONS.md)). Это не список зависимостей на установку, а ускорение реализации за счёт готовых референсов. Закрытие этапа обязательно включает три вида проверки — тесты, живой прогон с открытием нужной страницы в браузере, скриншот «задумано vs получилось» — порядок и обоснование см. в [stages/README.md § «Единый порядок закрытия этапа»](stages/README.md#единый-порядок-закрытия-этапа).
 
@@ -423,7 +423,7 @@ NSSM: `PrimaryAnalitics-API` (uvicorn), `PrimaryAnalitics-GPU` (воркер). N
 - Эмбеддинг не сажает VRAM (Ollama CPU).
 - Документ заказчика vs заметка с противоречием → `pending_manual`, не тихая подмена ТЗ.
 - Чат без источника не выдумывает требования.
-- Всё созданное лежит только под `D:\Primary_Analitics`.
+- Всё созданное лежит только под корнем репозитория.
 
 ---
 
@@ -440,11 +440,11 @@ NSSM: `PrimaryAnalitics-API` (uvicorn), `PrimaryAnalitics-GPU` (воркер). N
 См. `.env.example` в корне репозитория. Критичные:
 
 - `SECRET_KEY`, три `*_PASSWORD_HASH`
-- `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL=qwen/qwen3.8-27b`
+- `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL` (значение — в `.env.example`)
 - `WEB_HOST=127.0.0.1`, `WEB_PORT=1777` (не 8000; в `config.py` дефолт 1111, боевое значение — из `.env`)
 - `OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL=bge-m3`, `OLLAMA_NUM_GPU=0`
 - `TELEGRAM_BOT_TOKEN`
-- `DATA_DIR=D:\Primary_Analitics\data`
+- `DATA_DIR` — по умолчанию `data` в корне репозитория
 - порог схожести, лимит файла, `DRY_RUN`
 - `LIVEKIT_*` (URL, ключи), `PRIMARY_ANALITICS_HTTPS_PORT`; срок токена комнаты — константа `LIVEKIT_TOKEN_TTL_HOURS = 4` в `services/meetings.py`, не переменная окружения
 

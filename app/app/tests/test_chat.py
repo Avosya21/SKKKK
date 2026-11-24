@@ -387,6 +387,24 @@ def test_chat_uses_entities_from_hit_artifacts(client, db_engine, admin_token, t
     assert "Сущности по найденным материалам" in captured["user"]
     assert "бюджет 4 млн" in captured["user"]
 
+    # Запрос не поместился в окно модели — чат сокращает контекст и повторяет, а не отвечает «не удалось».
+    prompts: list[str] = []
+
+    def overflow_then_ok(settings, *, system, user, max_tokens, temperature=0.2):
+        prompts.append(user)
+        if len(prompts) == 1:
+            raise RuntimeError('LM Studio HTTP 400 for http://x/v1/completions: {"error":"Context size has been exceeded."}')
+        return "4 млн, ответ со второй попытки"
+
+    with patch("app.app.services.chat.embed_texts", return_value=[[0.1] * 1024]):
+        with patch("app.app.services.chat.search_vectors", return_value=[hit]):
+            with patch("app.app.services.chat.chat_completion_no_think", side_effect=overflow_then_ok):
+                db3 = SessionLocal()
+                out = answer_chat(db3, settings, pid, uid, "Какой бюджет?")
+                db3.close()
+    assert "со второй попытки" in out["answer"] and len(prompts) == 2
+    assert len(prompts[1]) <= len(prompts[0]) and "обсуждаем бюджет" in prompts[1] and "Какой бюджет?" in prompts[1]
+
 
 def test_chat_includes_director_document_when_vector_search_misses(client, db_engine, admin_token, tmp_data):
     from app.app.db import SessionLocal
@@ -1104,3 +1122,44 @@ def test_chat_last_meeting_in_context_when_search_misses(client, db_engine, admi
     assert "МАРКЕР-НОВОГО-СОЗВОНА" in prompt
     assert "МАРКЕР-СТАРОГО-СОЗВОНА" not in prompt
     assert any(s["filename"] == "встреча-192.wav" for s in out["sources"])
+
+
+def test_chat_window_estimate_and_overflow_detection():
+    from app.app.config import Settings
+    from app.app.services import chat, llm_keeper
+    from app.app.services.llm_lanes import CHARS_PER_TOKEN, estimate_tokens
+
+    settings = Settings(lmstudio_chat_token_budget=8000)
+    limit = chat._chat_prompt_token_limit(settings, max_tokens=2048)
+    assert 0 < limit <= llm_keeper.load_profile().context_length  # бюджет не превышает окно модели
+    # Короткий промпт влезает в окно заранее; длиннее лимита — нет (проверка до обрезки).
+    assert estimate_tokens("система", "короткий вопрос") <= limit
+    huge = "я" * int((limit + 512) * CHARS_PER_TOKEN)
+    assert estimate_tokens("", huge) > limit
+    assert chat._is_context_overflow(RuntimeError('{"error":"Context size has been exceeded."}'))
+    assert chat._is_context_overflow(RuntimeError("tokens to keep ... greater than the context length (n_keep: 34724>= n_ctx: 32768)"))
+    assert not chat._is_context_overflow(RuntimeError("connection refused"))
+
+
+def test_chat_parts_fit_window_keeping_found_fragments():
+    """Запрос укладывается в окно заранее: второстепенное сокращается до нижних пределов, найденные фрагменты остаются."""
+    from app.app.services import chat
+
+    lines = [f"фрагмент {i} " + "т" * 1500 for i in range(28)]
+    dialogue = "Предыдущий диалог:\n" + "\n".join(f"Пользователь: вопрос {i} " + "д" * 400 for i in range(60))
+    parts = dict(memory=dialogue, supplement="с" * 11000, tz_excerpt="в" * 2500, decisions="р" * 1800, graph_part="г" * 4800)
+    need = sum(len(x) for x in lines) + sum(len(v) for v in parts.values())
+
+    roomy = chat.fit_chat_parts(need + 5000, lines, **parts)
+    assert roomy["lines"] == lines and roomy["trimmed"] == [] and roomy["memory"] == dialogue  # места хватает — ничего не трогаем
+    assert chat.fit_chat_parts(None, lines, **parts)["trimmed"] == []  # окно неизвестно — не ограничиваем
+
+    tight = chat.fit_chat_parts(sum(len(x) for x in lines) + 12000, lines, **parts)
+    assert tight["lines"] == lines, "фрагменты сокращаются последними"
+    assert tight["graph_part"] == "" and "граф" in tight["trimmed"] and "прошлый диалог" in tight["trimmed"]
+    assert "вопрос 59" in tight["memory"] and "вопрос 0 " not in tight["memory"] and "(более ранние реплики опущены)" in tight["memory"]
+    assert len(tight["supplement"]) >= 3000 and len(tight["decisions"]) >= 1500
+
+    tiny = chat.fit_chat_parts(20000, lines, **parts)
+    assert chat.CHAT_MIN_FRAGMENTS <= len(tiny["lines"]) < len(lines) and tiny["lines"] == lines[: len(tiny["lines"])]
+    assert any(t.startswith("фрагментов отброшено") for t in tiny["trimmed"])
